@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		149353CCAFDB47F8A23E27F9 /* Apps/AetherCore/ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02DEA17C64834B71BB5DD9A5 /* Apps/AetherCore/ContentView.swift */; };
+		D6005F733C008EA04C26BBEA /* Apps/AetherCore/SpeechManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9C8E1A62B942CEEB23DF83 /* Apps/AetherCore/SpeechManager.swift */; };
+		BFF1C8786B9E21D1ADBCA003 /* Apps/AetherCore/PermissionsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8567D0FA10ABB5C4430600CE /* Apps/AetherCore/PermissionsManager.swift */; };
+		31A804FB9F879E0F7F149B12 /* Apps/AetherCore/MenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 053CF960D5E89CB16A8AD09A /* Apps/AetherCore/MenuBar.swift */; };
 		296C7A8991A64B1CBECDFBF5 /* Apps/AetherCore/HeadMotionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FAA72967637433DB33B061E /* Apps/AetherCore/HeadMotionManager.swift */; };
 		9BCF13220FAC4B6F8975A1FA /* Apps/AetherCore/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7B12389AB5C944F3B8BE3C75 /* Apps/AetherCore/Assets.xcassets */; };
 		AF2B10D1455B4EFF8F37A4D5 /* Apps/AetherCore/SystemExtensionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A9A84BC1346415DA5476B8F /* Apps/AetherCore/SystemExtensionManager.swift */; };
@@ -21,6 +24,9 @@
 		7B12389AB5C944F3B8BE3C75 /* Apps/AetherCore/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Apps/AetherCore/Assets.xcassets; sourceTree = "<group>"; };
 		B9C56A052F2BA1FE00EEEB9E /* Aether.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Aether.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E3AE5E3C03244494B2DCC0DB /* Apps/AetherCore/AetherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/AetherApp.swift; sourceTree = "<group>"; };
+		FF9C8E1A62B942CEEB23DF83 /* Apps/AetherCore/SpeechManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/SpeechManager.swift; sourceTree = "<group>"; };
+		8567D0FA10ABB5C4430600CE /* Apps/AetherCore/PermissionsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/PermissionsManager.swift; sourceTree = "<group>"; };
+		053CF960D5E89CB16A8AD09A /* Apps/AetherCore/MenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/MenuBar.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -40,6 +46,9 @@
 				E3AE5E3C03244494B2DCC0DB /* Apps/AetherCore/AetherApp.swift */,
 				02DEA17C64834B71BB5DD9A5 /* Apps/AetherCore/ContentView.swift */,
 				6FAA72967637433DB33B061E /* Apps/AetherCore/HeadMotionManager.swift */,
+				FF9C8E1A62B942CEEB23DF83 /* Apps/AetherCore/SpeechManager.swift */,
+				8567D0FA10ABB5C4430600CE /* Apps/AetherCore/PermissionsManager.swift */,
+				053CF960D5E89CB16A8AD09A /* Apps/AetherCore/MenuBar.swift */,
 				0A9A84BC1346415DA5476B8F /* Apps/AetherCore/SystemExtensionManager.swift */,
 				7B12389AB5C944F3B8BE3C75 /* Apps/AetherCore/Assets.xcassets */,
 			);
@@ -134,6 +143,9 @@
 				D724D4B20ABC48F38FBE285D /* Apps/AetherCore/AetherApp.swift in Sources */,
 				149353CCAFDB47F8A23E27F9 /* Apps/AetherCore/ContentView.swift in Sources */,
 				296C7A8991A64B1CBECDFBF5 /* Apps/AetherCore/HeadMotionManager.swift in Sources */,
+				D6005F733C008EA04C26BBEA /* Apps/AetherCore/SpeechManager.swift in Sources */,
+				BFF1C8786B9E21D1ADBCA003 /* Apps/AetherCore/PermissionsManager.swift in Sources */,
+				31A804FB9F879E0F7F149B12 /* Apps/AetherCore/MenuBar.swift in Sources */,
 				AF2B10D1455B4EFF8F37A4D5 /* Apps/AetherCore/SystemExtensionManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

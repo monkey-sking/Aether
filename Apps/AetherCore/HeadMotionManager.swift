@@ -13,6 +13,9 @@ import MediaPlayer
 
 class HeadMotionManager: ObservableObject {
     static let shared = HeadMotionManager()
+
+    static let pttDownNotification = Notification.Name("AetherPTTDown")
+    static let pttUpNotification = Notification.Name("AetherPTTUp")
     
     private init() {
         setupHotkeys()
@@ -61,12 +64,28 @@ class HeadMotionManager: ObservableObject {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isAirPodsStreamActive: Bool = false
+
+    // Push-to-talk (voice) hotkey state (to prevent auto-repeat keyDown spam)
+    private var isPTTPressed: Bool = false
     
     // Store aggregate desktop dimensions
     private var desktopFrame: NSRect = .zero
     
     // UI Overlay
     private var dwellOverlay: DwellOverlayWindow? = nil
+    
+    // Attention Awareness
+    @Published var isLookingAtScreen: Bool = true
+    private let attentionThresholdYaw: Double = 0.65 // ~37 degrees (0.65 radians)
+    private var lastAttentionCheckTime: Date = Date()
+    private var attentionHysteresisBuffer: Int = 0 
+    
+    // Remote Command Targets
+    private var playTarget: Any?
+    private var pauseTarget: Any?
+    private var toggleTarget: Any?
+    private var nextTrackTarget: Any?
+    private var prevTrackTarget: Any?
     
     func startTracking() {
         guard !isTracking else { return }
@@ -89,6 +108,10 @@ class HeadMotionManager: ObservableObject {
         self.calibrationStatus = "Calibrating..."
         self.isCalibrated = false
         self.isAirPodsStreamActive = false
+        
+        // Reset attention state
+        self.isLookingAtScreen = true
+        self.enableAirPodsCommands()
         
         motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, error in
             guard let self = self, let attitude = motion?.attitude else { 
@@ -121,11 +144,22 @@ class HeadMotionManager: ObservableObject {
             let offYaw = attitude.yaw - self.baseYaw
             let offPitch = attitude.pitch - self.basePitch
             
+            // Attention Check (Gaze-based Context Switching)
+            self.updateAttentionState(yaw: offYaw)
+            
             if self.isCalibratingRange {
                 self.minYaw = min(self.minYaw, offYaw)
                 self.maxYaw = max(self.maxYaw, offYaw)
                 self.minPitch = min(self.minPitch, offPitch)
                 self.maxPitch = max(self.maxPitch, offPitch)
+            }
+            
+            // Only move cursor if looking at screen
+            guard self.isLookingAtScreen else {
+                 DispatchQueue.main.async {
+                     if self.attitudeText != "Away" { self.attitudeText = "Away" }
+                 }
+                 return 
             }
             
             let rangeX = max(0.1, self.maxYaw - self.minYaw)
@@ -170,6 +204,8 @@ class HeadMotionManager: ObservableObject {
     func stopTracking() {
         guard isTracking else { return }
         motionManager.stopDeviceMotionUpdates()
+        disableAirPodsCommands() // Clean up commands
+        
         DispatchQueue.main.async {
             self.dwellOverlay?.orderOut(nil)
             self.dwellOverlay = nil
@@ -178,8 +214,11 @@ class HeadMotionManager: ObservableObject {
         isCalibrated = false
         isCalibratingRange = false
         isAirPodsStreamActive = false
+        isLookingAtScreen = false
         os_log("Aether: Stopped tracking", log: log)
     }
+    
+    // ... toggleTracking, public wrappers, etc. (unchanged) ...
     
     func toggleTracking() {
         if isTracking {
@@ -188,6 +227,20 @@ class HeadMotionManager: ObservableObject {
             startTracking()
         }
     }
+
+    // Public wrappers for external controllers (e.g., voice commands)
+    func clickLeft() { triggerMouseClick(at: CGPoint(x: currentX, y: currentY), button: .left) }
+    func clickRight() { triggerMouseClick(at: CGPoint(x: currentX, y: currentY), button: .right) }
+    func doubleClick() { triggerMouseClick(at: CGPoint(x: currentX, y: currentY), button: .left, doubleClick: true) }
+
+    func recenter() {
+        guard isTracking else { return }
+        // Force re-calibration on next motion sample.
+        isCalibrated = false
+        isCalibratingRange = true
+        calibrationStatus = "Calibrating..."
+        dwellStartTime = nil
+    }
     
     func finishCalibration() {
         isCalibratingRange = false
@@ -195,103 +248,110 @@ class HeadMotionManager: ObservableObject {
         os_log("Aether: Calibration Finished", log: log)
     }
     
-    private func setupHotkeys() {
-        let eventMask = (1 << CGEventType.keyDown.rawValue)
+    private func updateAttentionState(yaw: Double) {
+        let isCurrentlyLooking = abs(yaw) < attentionThresholdYaw
         
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: CGEventMask(eventMask),
-            callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
-                guard let refcon = refcon else { return Unmanaged.passRetained(event) }
-                let manager = Unmanaged<HeadMotionManager>.fromOpaque(refcon).takeUnretainedValue()
+        // Simple debouncing/hysteresis
+        if isCurrentlyLooking != isLookingAtScreen {
+            attentionHysteresisBuffer += 1
+            if attentionHysteresisBuffer > 10 { // Approx 0.1-0.2s at 60Hz
+                isLookingAtScreen = isCurrentlyLooking
+                attentionHysteresisBuffer = 0
                 
-                let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-                let flags = event.flags
-                
-                // New Hotkey: Control + Option + S (Keycode 1)
-                let isOptCtrl = flags.contains(.maskAlternate) && flags.contains(.maskControl)
-                
-                if isOptCtrl && keyCode == 1 {
-                    os_log("Hotkey: Control+Option+S detected", log: manager.log)
+                if isLookingAtScreen {
+                    os_log("Attention: Regained (Commands Enabled)", log: log)
+                    enableAirPodsCommands()
+                    // Optional: Play subtle feedback sound
+                } else {
+                    os_log("Attention: Lost (Commands Disabled)", log: log)
+                    disableAirPodsCommands()
+                    // Optional: Play subtle feedback sound
+                    
+                    // Clear dwell state when looking away
                     DispatchQueue.main.async {
-                        manager.toggleTracking()
+                        self.dwellStartTime = nil
+                        self.dwellOverlay?.update(progress: 0, position: .zero, isClicking: false)
                     }
-                    return nil
                 }
-                return Unmanaged.passRetained(event)
-            },
-            userInfo: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
-        ) else {
-            os_log("Failed to create EventTap - Still waiting for permissions", log: log)
-            return
-        }
-        
-        self.eventTap = tap
-        self.runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
-        
-        os_log("Hotkey: Registered via EventTap", log: self.log)
-        self.isHotkeyRegistered = true
-    }
-    
-    private func startStabilityTimer() {
-        stabilityTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            self?.checkStability()
-        }
-    }
-    
-    private func checkStability() {
-        if !isHotkeyRegistered {
-            setupHotkeys()
-        }
-        
-        // Passive connection check
-        if isTracking && !motionManager.isDeviceMotionAvailable {
-            os_log("Stability: AirPods lost hardware availability", log: log)
-            DispatchQueue.main.async {
-                self.stopTracking()
-                self.attitudeText = "AirPods Lost"
             }
+        } else {
+            attentionHysteresisBuffer = 0
         }
     }
-    
-    private func setupAirPodsCommands() {
+
+    private func enableAirPodsCommands() {
         let commandCenter = MPRemoteCommandCenter.shared()
         
-        let handlers = [commandCenter.playCommand, commandCenter.pauseCommand, commandCenter.togglePlayPauseCommand]
-        for handler in handlers {
-            handler.isEnabled = true
-            handler.addTarget { [weak self] _ in
-                guard let self = self, self.isTracking else { return .commandFailed }
-                os_log("AirPods: Single Press -> Left Click", log: self.log)
-                DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY)) }
-                return .success
-            }
+        // Bind Play/Pause -> Left Click
+        playTarget = commandCenter.playCommand.addTarget { [weak self] _ in
+            self?.handleClickCommand()
+             return .success
         }
+        pauseTarget = commandCenter.pauseCommand.addTarget { [weak self] _ in
+            self?.handleClickCommand()
+             return .success
+        }
+        toggleTarget = commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            self?.handleClickCommand()
+             return .success
+        }
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.pauseCommand.isEnabled = true
+        commandCenter.togglePlayPauseCommand.isEnabled = true
         
-        commandCenter.nextTrackCommand.isEnabled = true
-        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
-            guard let self = self, self.isTracking else { return .commandFailed }
+        // Bind Next Track -> Right Click
+        nextTrackTarget = commandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self = self, self.isTracking, self.isLookingAtScreen else { return .commandFailed }
             os_log("AirPods: Double Press -> Right Click", log: self.log)
             DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY), button: .right) }
             return .success
         }
+        commandCenter.nextTrackCommand.isEnabled = true
         
-        commandCenter.previousTrackCommand.isEnabled = true
-        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
-            guard let self = self, self.isTracking else { return .commandFailed }
+        // Bind Previous Track -> Double Click
+        prevTrackTarget = commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self = self, self.isTracking, self.isLookingAtScreen else { return .commandFailed }
             os_log("AirPods: Triple Press -> Double Click", log: self.log)
             DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY), doubleClick: true) }
             return .success
         }
+        commandCenter.previousTrackCommand.isEnabled = true
     }
     
+    private func disableAirPodsCommands() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        
+        if let target = playTarget { commandCenter.playCommand.removeTarget(target) }
+        if let target = pauseTarget { commandCenter.pauseCommand.removeTarget(target) }
+        if let target = toggleTarget { commandCenter.togglePlayPauseCommand.removeTarget(target) }
+        if let target = nextTrackTarget { commandCenter.nextTrackCommand.removeTarget(target) }
+        if let target = prevTrackTarget { commandCenter.previousTrackCommand.removeTarget(target) }
+        
+        playTarget = nil
+        pauseTarget = nil
+        toggleTarget = nil
+        nextTrackTarget = nil
+        prevTrackTarget = nil
+        
+        // We do NOT set isEnabled = false, because that would disable the command system-wide 
+        // if we were the only registered target? No, actually setting isEnabled=false tells iOS/macOS 
+        // "I don't handle this", which passes it to the next app (Music).
+        // So yes, we SHOULD set them to false or nil behavior to let others handle it.
+        // Actually, removing targets is enough for other apps to take over if we are not the "Now Playing" app.
+        // But to be safe and explicit:
+        // commandCenter.playCommand.isEnabled = false // Let system handle it
+    }
+    
+    private func handleClickCommand() {
+        guard isTracking, isLookingAtScreen else { return }
+        os_log("AirPods: Single Press -> Left Click", log: log)
+        DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY)) }
+    }
+    
+    // ... triggerMouseClick (unchanged) ...
+    
     private func triggerMouseClick(at point: CGPoint, button: CGMouseButton = .left, doubleClick: Bool = false) {
-        guard let primaryScreen = NSScreen.screens.first else { return }
-        let maxY = NSMaxY(primaryScreen.frame)
+        let maxY = desktopFrame == .zero ? NSScreen.screens.reduce(CGFloat(0)) { max($0, $1.frame.maxY) } : desktopFrame.maxY
         let cgPoint = CGPoint(x: point.x, y: maxY - point.y)
         
         let mouseTypeDown: CGEventType = (button == .left) ? .leftMouseDown : .rightMouseDown
@@ -321,8 +381,7 @@ class HeadMotionManager: ObservableObject {
     }
     
     private func moveToAbsolutePosition(x: CGFloat, y: CGFloat) {
-        guard let primaryScreen = NSScreen.screens.first else { return }
-        let maxY = NSMaxY(primaryScreen.frame)
+        let maxY = desktopFrame == .zero ? NSScreen.screens.reduce(CGFloat(0)) { max($0, $1.frame.maxY) } : desktopFrame.maxY
         let cgPoint = CGPoint(x: x, y: maxY - y)
         CGWarpMouseCursorPosition(cgPoint)
         if let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: cgPoint, mouseButton: .left) {
@@ -332,7 +391,9 @@ class HeadMotionManager: ObservableObject {
     }
     
     private func handleDwellClick(at point: CGPoint) {
-        guard isDwellClickEnabled && !isCalibratingRange && isTracking else { return }
+        // Dwell only works if looking at screen
+        guard isDwellClickEnabled && !isCalibratingRange && isTracking && isLookingAtScreen else { return }
+        
         let dist = sqrt(pow(point.x - lastDwellPos.x, 2) + pow(point.y - lastDwellPos.y, 2))
         DispatchQueue.main.async {
             if dist < self.dwellRadius {

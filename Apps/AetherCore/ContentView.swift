@@ -22,9 +22,51 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 10) {
                 StatusRow(icon: "magicmouse", title: "Virtual HID", status: appState.driverStatus == "Activated" ? "Running" : "Idle")
                 StatusRow(icon: "airpods", title: "AirPods Matrix", status: appState.isMotionTracking ? "Tracking" : "Ready")
+                StatusRow(icon: "mic", title: "Voice", status: appState.voiceStatus)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Permissions")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 8) {
+                        PermissionPill(title: "Accessibility", ok: appState.accessibilityTrusted)
+                        PermissionPill(title: "Microphone", ok: appState.microphoneAuthorized)
+                        PermissionPill(title: "Speech", ok: appState.speechAuthorized)
+                    }
+
+                    HStack(spacing: 10) {
+                        Button("Fix Accessibility") { appState.requestAccessibility() }
+                        Button("Open Pane") { appState.openAccessibilityPane() }
+                    }
+                    .controlSize(.small)
+
+                    HStack(spacing: 10) {
+                        Button("Fix Microphone") { appState.requestMicrophone() }
+                        Button("Open Pane") { appState.openMicrophonePane() }
+                    }
+                    .controlSize(.small)
+
+                    HStack(spacing: 10) {
+                        Button("Fix Speech") { appState.requestSpeech() }
+                        Button("Open Pane") { appState.openSpeechPane() }
+                    }
+                    .controlSize(.small)
+                }
+                .padding(8)
+                .background(Color.black.opacity(0.06))
+                .cornerRadius(8)
                 
                 if appState.isMotionTracking {
                     Text(appState.attitudeData)
+                        .font(.system(.caption, design: .monospaced))
+                        .padding(8)
+                        .background(Color.black.opacity(0.1))
+                        .cornerRadius(5)
+                }
+
+                if !appState.lastVoiceTranscript.isEmpty {
+                    Text(appState.lastVoiceTranscript)
                         .font(.system(.caption, design: .monospaced))
                         .padding(8)
                         .background(Color.black.opacity(0.1))
@@ -35,6 +77,14 @@ struct ContentView: View {
                 
                 Toggle("Dwell Click (悬停点击)", isOn: $appState.isDwellClickEnabled)
                     .padding(.top, 5)
+
+                Toggle("Always Listening (常驻监听)", isOn: $appState.isAlwaysListeningEnabled)
+
+                Toggle("LLM Enhance Dictation (大模型增强听写)", isOn: $appState.isLLMEnhancementEnabled)
+
+                Text("Push-to-talk: hold ⌃⌥V (默认). Always Listening: say “Aether …”")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
@@ -78,7 +128,7 @@ struct ContentView: View {
                 }
                 
                 VStack(spacing: 4) {
-                    Text("Emergency Stop: ⌥ + S")
+                    Text("Emergency Stop: ⌃⌥S")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -86,6 +136,20 @@ struct ContentView: View {
             }
         }
         .padding()
+    }
+}
+
+struct PermissionPill: View {
+    let title: String
+    let ok: Bool
+
+    var body: some View {
+        Text("\(ok ? "✓" : "•") \(title)")
+            .font(.caption2)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(ok ? Color.green.opacity(0.2) : Color.orange.opacity(0.2))
+            .cornerRadius(999)
     }
 }
 

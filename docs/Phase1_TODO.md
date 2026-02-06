@@ -18,7 +18,7 @@
 
 ## **2. 交互控制与控制逻辑 (Control & Logic) [100%]**
 - [x] **系统级热键 (Global Hotkey)**
-    - [x] 实现基于 `CGEventTap` 的 `Option + S` 全局开关
+    - [x] 实现基于 `CGEventTap` 的 `Control + Option + S` 全局开关
     - [x] 支持在任何 App 背景下激活/停止追踪
 - [x] **AirPods 物理按键 (Super-Control)**
     - [x] **单捏 (1x)** -> 鼠标左键点击
@@ -52,6 +52,17 @@
     - [ ] 监听蓝牙路由变化，实现断开自动暂停
 - [ ] **多设备预研 (MCP)**
     - [ ] Multipeer Connectivity 基础架构初始化
+- [ ] **语音输入 (Voice)**
+    - [ ] 语音指令：点击/右键/双击/暂停/开始/校准/开关悬停点击
+    - [ ] 语音听写：把识别文本注入到当前输入焦点 (最小可用版本先走粘贴注入)
+    - [ ] 可选大模型增强：口语纠错/加标点/指令理解 (OpenAI-compatible endpoint)
+    - [ ] Push-to-talk 热键：`Control + Option + V` (按住说，松开执行)
+    - [ ] 常驻监听：默认关闭；开启后需用唤醒词 `Aether ...` 才会触发动作/听写
+- [ ] **首次使用引导 (Onboarding)**
+    - [ ] 权限自检：Accessibility/Input Monitoring、Microphone、Speech Recognition
+    - [ ] 一键跳转：打开系统设置对应隐私面板
+- [ ] **低成本回退 (Safety)**
+    - [ ] 撤销听写：语音 `撤销/undo` -> `Cmd+Z` (仅在近期注入后生效)
 
 ---
 
