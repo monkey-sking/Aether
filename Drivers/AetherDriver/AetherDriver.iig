@@ -7,6 +7,8 @@
 class AetherDriver : public IOUserHIDEventDriver
 {
 public:
+    using super = IOUserHIDEventDriver;
+
     virtual bool init() override;
     virtual kern_return_t Start(IOService * provider) override;
     virtual kern_return_t Stop(IOService * provider) override;

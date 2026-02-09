@@ -1,7 +1,6 @@
 #ifndef AetherShared_h
 #define AetherShared_h
 
-#include <IOKit/hid/IOHIDUsageTables.h>
 #include <stdint.h>
 
 // UserClient Type
@@ -20,6 +19,6 @@ struct AetherHIDEvent {
   uint32_t buttons;
 };
 
-#define kAetherDriverBundleID "com.yourname.Aether.AetherDriver"
+#define kAetherDriverBundleID "com.7fei.Aether.AetherDriver"
 
 #endif /* AetherShared_h */
