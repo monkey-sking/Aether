@@ -18,7 +18,7 @@ class HeadMotionManager: ObservableObject {
     static let pttUpNotification = Notification.Name("AetherPTTUp")
     
     private init() {
-        setupHotkeys()
+        // Hotkeys require Accessibility trust. Install the event tap only after permissions are granted.
         setupAirPodsCommands()
         startStabilityTimer()
     }
@@ -67,6 +67,7 @@ class HeadMotionManager: ObservableObject {
 
     // Push-to-talk (voice) hotkey state (to prevent auto-repeat keyDown spam)
     private var isPTTPressed: Bool = false
+    private var didLogEventTapKeyDebugHint: Bool = false
     
     // Store aggregate desktop dimensions
     private var desktopFrame: NSRect = .zero
@@ -351,42 +352,12 @@ class HeadMotionManager: ObservableObject {
     // ... triggerMouseClick (unchanged) ...
     
     private func triggerMouseClick(at point: CGPoint, button: CGMouseButton = .left, doubleClick: Bool = false) {
-        let maxY = desktopFrame == .zero ? NSScreen.screens.reduce(CGFloat(0)) { max($0, $1.frame.maxY) } : desktopFrame.maxY
-        let cgPoint = CGPoint(x: point.x, y: maxY - point.y)
-        
-        let mouseTypeDown: CGEventType = (button == .left) ? .leftMouseDown : .rightMouseDown
-        let mouseTypeUp: CGEventType = (button == .left) ? .leftMouseUp : .rightMouseUp
-        
-        let source = CGEventSource(stateID: .combinedSessionState)
-        
-        if doubleClick {
-            let events = [
-                CGEvent(mouseEventSource: source, mouseType: mouseTypeDown, mouseCursorPosition: cgPoint, mouseButton: button),
-                CGEvent(mouseEventSource: source, mouseType: mouseTypeUp, mouseCursorPosition: cgPoint, mouseButton: button),
-                CGEvent(mouseEventSource: source, mouseType: mouseTypeDown, mouseCursorPosition: cgPoint, mouseButton: button),
-                CGEvent(mouseEventSource: source, mouseType: mouseTypeUp, mouseCursorPosition: cgPoint, mouseButton: button)
-            ]
-            for (idx, event) in events.enumerated() {
-                event?.setIntegerValueField(.mouseEventClickState, value: Int64((idx / 2) + 1))
-                event?.post(tap: .cghidEventTap)
-            }
-        } else {
-            let mouseDown = CGEvent(mouseEventSource: source, mouseType: mouseTypeDown, mouseCursorPosition: cgPoint, mouseButton: button)
-            let mouseUp = CGEvent(mouseEventSource: source, mouseType: mouseTypeUp, mouseCursorPosition: cgPoint, mouseButton: button)
-            mouseDown?.setIntegerValueField(.mouseEventClickState, value: 1)
-            mouseUp?.setIntegerValueField(.mouseEventClickState, value: 1)
-            mouseDown?.post(tap: .cghidEventTap)
-            mouseUp?.post(tap: .cghidEventTap)
-        }
+        AutomationOutputs.shared.mouseClick(at: point, button: button, clickCount: doubleClick ? 2 : 1)
     }
     
     private func moveToAbsolutePosition(x: CGFloat, y: CGFloat) {
         let maxY = desktopFrame == .zero ? NSScreen.screens.reduce(CGFloat(0)) { max($0, $1.frame.maxY) } : desktopFrame.maxY
-        let cgPoint = CGPoint(x: x, y: maxY - y)
-        CGWarpMouseCursorPosition(cgPoint)
-        if let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: cgPoint, mouseButton: .left) {
-            event.post(tap: .cgSessionEventTap)
-        }
+        AutomationOutputs.shared.moveCursor(to: CGPoint(x: x, y: y), desktopMaxY: maxY)
         handleDwellClick(at: CGPoint(x: x, y: y))
     }
     
@@ -415,7 +386,144 @@ class HeadMotionManager: ObservableObject {
             }
         }
     }
-}
+
+    @MainActor
+    func setGlobalHotkeysEnabled(_ enabled: Bool) {
+        if enabled {
+            installHotkeysIfPossible()
+        } else {
+            uninstallHotkeys()
+        }
+    }
+
+    private func installHotkeysIfPossible() {
+        guard !isHotkeyRegistered else { return }
+
+        guard AXIsProcessTrusted() else {
+            GlobalLogger.lifecycle.info("HeadMotionManager: Accessibility not trusted yet; skipping event tap install.")
+            return
+        }
+
+        // Monitor global events for hotkeys (Shift+Ctrl+S for Emergency Stop, Ctrl+Opt+V for PTT)
+        GlobalLogger.lifecycle.info("HeadMotionManager: Setting up hotkeys (Event Tap)...")
+        
+        let mask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
+        
+        func callback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
+            guard let refcon else { return Unmanaged.passUnretained(event) }
+            let manager = Unmanaged<HeadMotionManager>.fromOpaque(refcon).takeUnretainedValue()
+            
+            // Log every few events just to prove we are alive (throttled)
+            // GlobalLogger.input.debug("Event Tap Callback: \(type.rawValue)")
+            
+            if type == .flagsChanged {
+                // ... logic kept for reference ...
+            }
+            
+            let flags = event.flags
+            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+            
+            // Trace modifiers for debugging
+            // if flags.contains(.maskControl) { GlobalLogger.input.debug("Modifier: Ctrl") }
+
+            if type == .keyDown {
+                if !manager.didLogEventTapKeyDebugHint {
+                    manager.didLogEventTapKeyDebugHint = true
+                    GlobalLogger.input.debug("Event Tap active (debug key logging disabled by default).")
+                }
+
+                // Ctrl + Option + S -> Emergency Stop
+                if flags.contains(.maskControl) && flags.contains(.maskAlternate) && keyCode == kVK_ANSI_S {
+                    GlobalLogger.input.info("Hotkey: Emergency Stop")
+                    DispatchQueue.main.async { manager.stopTracking() }
+                    return nil
+                }
+
+                // Ctrl + Option + V -> PTT Down
+                if flags.contains(.maskControl) && flags.contains(.maskAlternate) && keyCode == kVK_ANSI_V {
+                    guard !manager.isPTTPressed else { return nil }
+                    manager.isPTTPressed = true
+                    GlobalLogger.input.info("Hotkey: PTT DOWN Detected")
+                    NotificationCenter.default.post(
+                        name: HeadMotionManager.pttDownNotification,
+                        object: nil
+                    )
+                    return nil
+                }
+            }
+            
+            if type == .keyUp {
+                // Ctrl + Option + V -> PTT Up (Stop Listening)
+                if manager.isPTTPressed && keyCode == kVK_ANSI_V {
+                    manager.isPTTPressed = false
+                    GlobalLogger.input.info("Hotkey: PTT UP Detected")
+                    NotificationCenter.default.post(
+                        name: HeadMotionManager.pttUpNotification,
+                        object: nil
+                    )
+                    return nil
+                }
+            }
+            
+            return Unmanaged.passUnretained(event)
+        }
+        
+        let unsafeSelf = Unmanaged.passUnretained(self).toOpaque()
+
+        guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap,
+                                          place: .headInsertEventTap,
+                                          options: .defaultTap,
+                                          eventsOfInterest: mask,
+                                          callback: callback,
+                                          userInfo: unsafeSelf) else {
+            GlobalLogger.lifecycle.error("HeadMotionManager: Failed to create event tap")
+            return
+        }
+        
+        GlobalLogger.lifecycle.info("HeadMotionManager: Event Tap Created Successfully")
+        
+        self.eventTap = tap
+        self.runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+
+        isHotkeyRegistered = true
+    }
+
+    private func uninstallHotkeys() {
+        guard isHotkeyRegistered else { return }
+
+        if let tap = eventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+        }
+
+        eventTap = nil
+        runLoopSource = nil
+        isHotkeyRegistered = false
+        isPTTPressed = false
+
+        GlobalLogger.lifecycle.info("HeadMotionManager: Hotkeys uninstalled.")
+    }
+
+    private func setupAirPodsCommands() {
+        // Initial setup if needed, but enableAirPodsCommands does the heavy lifting
+        // We might just allow the command center to know we exist?
+        // For now, it's a placeholder to satisfy init
+    }
+
+    private func startStabilityTimer() {
+        // Periodically check for drift or idle
+        stabilityTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            guard let self = self, self.isTracking else { return }
+            // If movement is very low for a long time, maybe recenter?
+            // For now, just logging heartbeat
+        }
+    }
+    }
 
 // MARK: - Overlay Components
 struct DwellProgressView: View {

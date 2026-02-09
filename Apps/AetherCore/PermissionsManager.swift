@@ -11,7 +11,7 @@ final class PermissionsManager: ObservableObject {
     @Published var speechAuthorized: Bool = false
 
     init() {
-        refresh()
+        // Defer permission check to onAppear to avoid TCC crash on launch
     }
 
     func refresh() {
@@ -20,9 +20,11 @@ final class PermissionsManager: ObservableObject {
 
         // Microphone
         microphoneAuthorized = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        // microphoneAuthorized = false
 
         // Speech Recognition
         speechAuthorized = SFSpeechRecognizer.authorizationStatus() == .authorized
+        // speechAuthorized = false
     }
 
     func requestAccessibility() {
