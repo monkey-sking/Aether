@@ -56,3 +56,12 @@ iOSInjectionProject/
 .DS_Store
 UserInterfaceState.xcuserstate
 Breakpoints_v2.xcbkptlist
+
+# Reference repos (not part of product source)
+References/
+
+# Local DerivedData
+.derivedData/
+
+# Build logs
+build*.log
