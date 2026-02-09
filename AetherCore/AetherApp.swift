@@ -1,97 +1,356 @@
 import SwiftUI
 import SystemExtensions
+import Combine
+
+let kAetherDriverBundleID = "com.7fei.Aether.AetherDriver"
+
+enum OnboardingStep: Equatable {
+    case accessibility
+    case microphone
+    case speech
+    case done
+}
+
+@MainActor
+final class DriverService: ObservableObject {
+    @Published private(set) var state: SystemExtensionActivationState = .idle
+
+    private let manager: SystemExtensionManager
+    private var cancellables = Set<AnyCancellable>()
+
+    init(manager: SystemExtensionManager = .shared) {
+        self.manager = manager
+
+        manager.$state
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$state)
+    }
+
+    var statusText: String {
+        manager.statusText
+    }
+
+    func activate(identifier: String) {
+        manager.activate(identifier: identifier)
+    }
+}
+
+@MainActor
+final class MotionService: ObservableObject {
+    @Published private(set) var isTracking: Bool = false
+    @Published private(set) var attitudeText: String = "No Data"
+    @Published private(set) var calibrationStatus: String = "Normal"
+
+    var isDwellClickEnabled: Bool {
+        get { manager.isDwellClickEnabled }
+        set { manager.isDwellClickEnabled = newValue }
+    }
+
+    private let manager: HeadMotionManager
+    private var cancellables = Set<AnyCancellable>()
+
+    init(manager: HeadMotionManager = .shared) {
+        self.manager = manager
+
+        manager.$isTracking
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isTracking)
+
+        manager.$attitudeText
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$attitudeText)
+
+        manager.$calibrationStatus
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$calibrationStatus)
+    }
+
+    func setGlobalHotkeysEnabled(_ enabled: Bool) {
+        manager.setGlobalHotkeysEnabled(enabled)
+    }
+
+    func startTracking() { manager.startTracking() }
+    func stopTracking() { manager.stopTracking() }
+    func finishCalibration() { manager.finishCalibration() }
+    func recenter() { manager.recenter() }
+
+    func clickLeft() { manager.clickLeft() }
+    func clickRight() { manager.clickRight() }
+    func doubleClick() { manager.doubleClick() }
+}
+
+@MainActor
+final class VoiceService: ObservableObject {
+    @Published private(set) var status: String = "Idle"
+    @Published private(set) var lastTranscript: String = ""
+    @Published private(set) var lastError: String = ""
+
+    var onIntent: ((VoiceIntent) -> Void)? {
+        get { manager.onIntent }
+        set { manager.onIntent = newValue }
+    }
+
+    private let manager: SpeechManager
+    private var cancellables = Set<AnyCancellable>()
+
+    convenience init() {
+        self.init(manager: SpeechManager())
+    }
+
+    init(manager: SpeechManager) {
+        self.manager = manager
+
+        manager.$status
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$status)
+
+        manager.$lastTranscript
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$lastTranscript)
+
+        manager.$lastError
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$lastError)
+    }
+
+    func setAlwaysListeningEnabled(_ enabled: Bool) {
+        manager.isAlwaysListeningEnabled = enabled
+    }
+
+    func setLLMEnhancementEnabled(_ enabled: Bool) {
+        manager.isLLMEnhancementEnabled = enabled
+    }
+
+    func undoLastInjection() {
+        manager.undoLastInjection()
+    }
+}
+
+@MainActor
+final class PermissionsService: ObservableObject {
+    @Published private(set) var accessibilityTrusted: Bool = false
+    @Published private(set) var microphoneAuthorized: Bool = false
+    @Published private(set) var speechAuthorized: Bool = false
+
+    private let manager: PermissionsManager
+    private var cancellables = Set<AnyCancellable>()
+
+    convenience init() {
+        self.init(manager: PermissionsManager())
+    }
+
+    init(manager: PermissionsManager) {
+        self.manager = manager
+
+        manager.$accessibilityTrusted
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$accessibilityTrusted)
+
+        manager.$microphoneAuthorized
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$microphoneAuthorized)
+
+        manager.$speechAuthorized
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$speechAuthorized)
+    }
+
+    func refresh() { manager.refresh() }
+    func requestAccessibility() { manager.requestAccessibility() }
+    func requestMicrophone() { manager.requestMicrophone() }
+    func requestSpeech() { manager.requestSpeech() }
+    func openAccessibilityPrivacyPane() { manager.openAccessibilityPrivacyPane() }
+    func openMicrophonePrivacyPane() { manager.openMicrophonePrivacyPane() }
+    func openSpeechPrivacyPane() { manager.openSpeechPrivacyPane() }
+}
 
 @MainActor
 class AppState: ObservableObject {
     @Published var driverStatus: String = "Idle"
+    @Published var driverState: SystemExtensionActivationState = .idle
     @Published var isMotionTracking: Bool = false
     @Published var attitudeData: String = "No Data"
+    @Published var pointerOutputPath: String = OutputRouting.shared.pointerOutputPath
+    @Published var textOutputPath: String = OutputRouting.shared.textOutputPath
+    @Published var forceDriverOnly: Bool = OutputRouting.shared.forceDriverOnly {
+        didSet {
+            OutputRouting.shared.forceDriverOnly = forceDriverOnly
+        }
+    }
     
     @Published var calibrationStatus: String = "Normal"
     @Published var isDwellClickEnabled: Bool = true {
         didSet {
-            motionManager.isDwellClickEnabled = isDwellClickEnabled
+            motionService.isDwellClickEnabled = isDwellClickEnabled
         }
     }
 
     @Published var voiceStatus: String = "Idle"
     @Published var lastVoiceTranscript: String = ""
+    @Published var lastVoiceError: String = ""
     @Published var isAlwaysListeningEnabled: Bool = false {
-        didSet { speechManager.isAlwaysListeningEnabled = isAlwaysListeningEnabled }
+        didSet {
+            guard oldValue != isAlwaysListeningEnabled else { return }
+
+            if !isMutatingAlwaysListening, isAlwaysListeningEnabled {
+                if !microphoneAuthorized {
+                    setAlwaysListeningEnabledInternal(false)
+                    permissions.requestMicrophone()
+                    refreshPermissions()
+                    return
+                }
+                if !speechAuthorized {
+                    setAlwaysListeningEnabledInternal(false)
+                    permissions.requestSpeech()
+                    refreshPermissions()
+                    return
+                }
+            }
+
+            voiceService.setAlwaysListeningEnabled(isAlwaysListeningEnabled)
+        }
     }
     @Published var isLLMEnhancementEnabled: Bool = false {
-        didSet { speechManager.isLLMEnhancementEnabled = isLLMEnhancementEnabled }
+        didSet { voiceService.setLLMEnhancementEnabled(isLLMEnhancementEnabled) }
     }
+
+    @Published var onboardingStep: OnboardingStep = .done
     
-    private var extensionManager = SystemExtensionManager.shared
-    private var motionManager = HeadMotionManager.shared
-    private var speechManager = SpeechManager()
-    private var permissions = PermissionsManager()
+    private let driverService = DriverService()
+    private let motionService = MotionService()
+    private let voiceService = VoiceService()
+    private let permissions = PermissionsService()
 
     private var windowController: NSWindowController?
+    private var cancellables = Set<AnyCancellable>()
+    private var isMutatingAlwaysListening = false
     
     init() {
-        extensionManager.$status
-            .assign(to: &$driverStatus)
+        driverService.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newState in
+                guard let self else { return }
+                self.driverState = newState
+                self.driverStatus = self.driverService.statusText
+            }
+            .store(in: &cancellables)
         
-        motionManager.$isTracking
+        motionService.$isTracking
             .assign(to: &$isMotionTracking)
             
-        motionManager.$attitudeText
+        motionService.$attitudeText
             .assign(to: &$attitudeData)
             
-        motionManager.$calibrationStatus
+        motionService.$calibrationStatus
             .assign(to: &$calibrationStatus)
             
-        self.isDwellClickEnabled = motionManager.isDwellClickEnabled
+        self.isDwellClickEnabled = motionService.isDwellClickEnabled
 
-        speechManager.$status
+        voiceService.$status
             .assign(to: &$voiceStatus)
-        speechManager.$lastTranscript
+        voiceService.$lastTranscript
             .assign(to: &$lastVoiceTranscript)
+        voiceService.$lastError
+            .assign(to: &$lastVoiceError)
 
-        speechManager.onIntent = { [weak self] intent in
+        OutputRouting.shared.$pointerOutputPath
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$pointerOutputPath)
+
+        OutputRouting.shared.$textOutputPath
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$textOutputPath)
+
+
+        voiceService.onIntent = { [weak self] intent in
             guard let self else { return }
             DispatchQueue.main.async {
                 self.applyVoiceIntent(intent)
             }
         }
+
+        permissions.$accessibilityTrusted
+            .receive(on: DispatchQueue.main)
+            .sink { trusted in
+                self.motionService.setGlobalHotkeysEnabled(trusted)
+            }
+            .store(in: &cancellables)
+
+        Publishers.CombineLatest3(
+            permissions.$accessibilityTrusted,
+            permissions.$microphoneAuthorized,
+            permissions.$speechAuthorized
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] accessibilityTrusted, microphoneAuthorized, speechAuthorized in
+            guard let self else { return }
+            self.onboardingStep = Self.deriveOnboardingStep(
+                accessibilityTrusted: accessibilityTrusted,
+                microphoneAuthorized: microphoneAuthorized,
+                speechAuthorized: speechAuthorized
+            )
+
+            // Safety: if Always Listening is enabled but permissions got revoked, shut it off.
+            if self.isAlwaysListeningEnabled && (!microphoneAuthorized || !speechAuthorized) {
+                self.setAlwaysListeningEnabledInternal(false)
+            }
+        }
+        .store(in: &cancellables)
+
+        refreshPermissions()
+    }
+
+    private static func deriveOnboardingStep(
+        accessibilityTrusted: Bool,
+        microphoneAuthorized: Bool,
+        speechAuthorized: Bool
+    ) -> OnboardingStep {
+        if !accessibilityTrusted { return .accessibility }
+        if !microphoneAuthorized { return .microphone }
+        if !speechAuthorized { return .speech }
+        return .done
     }
     
     func activateDriver() {
-        extensionManager.activate(identifier: kAetherDriverBundleID)
+        driverService.activate(identifier: kAetherDriverBundleID)
+    }
+
+    func openPrivacyAndSecurityPane() {
+        // Best-effort: the system extension approval UI lives under Privacy & Security.
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security") else { return }
+        NSWorkspace.shared.open(url)
     }
     
     func finishCalibration() {
-        motionManager.finishCalibration()
+        motionService.finishCalibration()
     }
     
     func toggleMotionTracking() {
         if isMotionTracking {
-            motionManager.stopTracking()
+            motionService.stopTracking()
         } else {
-            motionManager.startTracking()
+            motionService.startTracking()
         }
     }
 
     private func applyVoiceIntent(_ intent: VoiceIntent) {
         switch intent {
         case .clickLeft:
-            motionManager.clickLeft()
+            motionService.clickLeft()
         case .clickRight:
-            motionManager.clickRight()
+            motionService.clickRight()
         case .doubleClick:
-            motionManager.doubleClick()
+            motionService.doubleClick()
         case .startPointer:
-            motionManager.startTracking()
+            motionService.startTracking()
         case .stopPointer:
-            motionManager.stopTracking()
+            motionService.stopTracking()
         case .recenter:
-            motionManager.recenter()
+            motionService.recenter()
         case .setDwell(let enabled):
             isDwellClickEnabled = enabled
         case .undo:
-            speechManager.undoLastInjection()
+            voiceService.undoLastInjection()
         case .dictation:
             break
         case .unknown:
@@ -110,6 +369,30 @@ class AppState: ObservableObject {
     var accessibilityTrusted: Bool { permissions.accessibilityTrusted }
     var microphoneAuthorized: Bool { permissions.microphoneAuthorized }
     var speechAuthorized: Bool { permissions.speechAuthorized }
+
+    func setAlwaysListeningEnabled(_ enabled: Bool) {
+        if enabled {
+            if !microphoneAuthorized {
+                permissions.requestMicrophone()
+                refreshPermissions()
+                return
+            }
+            if !speechAuthorized {
+                permissions.requestSpeech()
+                refreshPermissions()
+                return
+            }
+        }
+
+            isAlwaysListeningEnabled = enabled
+    }
+
+    private func setAlwaysListeningEnabledInternal(_ enabled: Bool) {
+        guard !isMutatingAlwaysListening else { return }
+        isMutatingAlwaysListening = true
+        isAlwaysListeningEnabled = enabled
+        isMutatingAlwaysListening = false
+    }
 
     func showMainWindow() {
         // In SwiftUI, windows may already exist; this is a best-effort helper from menu bar.

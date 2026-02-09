@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Speech
 import AppKit
+import os.log
 
 enum VoiceIntent: Equatable {
     case clickLeft
@@ -125,53 +126,13 @@ final class TextInjector {
     private(set) var lastInjectedAt: Date?
 
     func paste(_ text: String) {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(text, forType: .string)
-
-        // Cmd+V
-        let source = CGEventSource(stateID: .combinedSessionState)
-        let cmdKey: CGKeyCode = 55
-        let vKey: CGKeyCode = 9
-
-        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: cmdKey, keyDown: true)
-        cmdDown?.flags = .maskCommand
-        cmdDown?.post(tap: .cghidEventTap)
-
-        let vDown = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true)
-        vDown?.flags = .maskCommand
-        vDown?.post(tap: .cghidEventTap)
-
-        let vUp = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false)
-        vUp?.flags = .maskCommand
-        vUp?.post(tap: .cghidEventTap)
-
-        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: cmdKey, keyDown: false)
-        cmdUp?.post(tap: .cghidEventTap)
-
+        AutomationOutputs.shared.pasteText(text)
         lastInjectedAt = Date()
     }
 
     func undoPasteIfRecent(maxAgeSeconds: TimeInterval = 20) {
         guard let at = lastInjectedAt, Date().timeIntervalSince(at) <= maxAgeSeconds else { return }
-        let source = CGEventSource(stateID: .combinedSessionState)
-        let cmdKey: CGKeyCode = 55
-        let zKey: CGKeyCode = 6
-
-        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: cmdKey, keyDown: true)
-        cmdDown?.flags = .maskCommand
-        cmdDown?.post(tap: .cghidEventTap)
-
-        let zDown = CGEvent(keyboardEventSource: source, virtualKey: zKey, keyDown: true)
-        zDown?.flags = .maskCommand
-        zDown?.post(tap: .cghidEventTap)
-
-        let zUp = CGEvent(keyboardEventSource: source, virtualKey: zKey, keyDown: false)
-        zUp?.flags = .maskCommand
-        zUp?.post(tap: .cghidEventTap)
-
-        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: cmdKey, keyDown: false)
-        cmdUp?.post(tap: .cghidEventTap)
+        AutomationOutputs.shared.undo()
     }
 }
 
@@ -179,6 +140,7 @@ final class TextInjector {
 final class SpeechManager: ObservableObject {
     @Published var status: String = "Idle"
     @Published var lastTranscript: String = ""
+    @Published var lastError: String = ""
     @Published var isAlwaysListeningEnabled: Bool = false {
         didSet {
             if isAlwaysListeningEnabled {
@@ -196,7 +158,7 @@ final class SpeechManager: ObservableObject {
     private var audioEngine: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
+    private lazy var recognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
 
     private var continuousTimer: Timer?
     private var lastChangeAt: Date?
@@ -205,47 +167,14 @@ final class SpeechManager: ObservableObject {
     var onIntent: ((VoiceIntent) -> Void)?
     var llmProvider: LLMProvider?
 
-    init() {
-        NotificationCenter.default.addObserver(self, selector: #selector(pttDown), name: HeadMotionManager.pttDownNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(pttUp), name: HeadMotionManager.pttUpNotification, object: nil)
-        requestPermissions()
-    }
-
-    private func requestPermissions() {
-        SFSpeechRecognizer.requestAuthorization { [weak self] auth in
-            DispatchQueue.main.async {
-                switch auth {
-                case .authorized:
-                    self?.status = "Speech Authorized"
-                case .denied:
-                    self?.status = "Speech Denied"
-                case .restricted:
-                    self?.status = "Speech Restricted"
-                case .notDetermined:
-                    self?.status = "Speech Not Determined"
-                @unknown default:
-                    self?.status = "Speech Unknown"
-                }
-            }
-        }
-        AVCaptureDevice.requestAccess(for: .audio) { _ in }
-    }
-
-    @objc private func pttDown() {
-        // Default: push-to-talk; can be extended to "wakeword" later.
-        guard !isAlwaysListeningEnabled else { return }
-        startOnce()
-    }
-
-    @objc private func pttUp() {
-        guard !isAlwaysListeningEnabled else { return }
-        stopAndFinalize()
-    }
+    private let log = OSLog(subsystem: "com.7fei.Aether", category: "Speech")
 
     func startOnce() {
         guard recognitionTask == nil else { return }
         guard let recognizer, recognizer.isAvailable else {
             status = "Speech Unavailable"
+            lastError = "Speech recognizer unavailable"
+            os_log("Error: Speech recognizer unavailable", log: log, type: .error)
             return
         }
 
@@ -262,13 +191,17 @@ final class SpeechManager: ObservableObject {
         audioEngine = engine
         recognitionRequest = request
         lastTranscript = ""
+        lastError = ""
         status = "Listening… (⌃⌥V)"
+        os_log("Audio Engine Prepared. Listening...", log: log, type: .info)
 
         do {
             engine.prepare()
             try engine.start()
         } catch {
-            status = "Audio Start Failed: \\(error.localizedDescription)"
+            status = "Audio Start Failed: \(error.localizedDescription)"
+            lastError = error.localizedDescription
+            os_log("Audio Engine Start Error: %{public}@", log: log, type: .error, error.localizedDescription)
             cleanup()
             return
         }
@@ -280,11 +213,15 @@ final class SpeechManager: ObservableObject {
                     let text = result.bestTranscription.formattedString
                     self.lastTranscript = text
                     self.lastChangeAt = Date()
+                    // Log partials only if debugging, otherwise too noisy. 
+                    // os_log("Partial: %{public}@", log: self.log, type: .debug, text)
                 }
             }
-            if error != nil {
+            if let error = error {
                 DispatchQueue.main.async {
                     self.status = "Speech Error"
+                    self.lastError = error.localizedDescription
+                    os_log("Recognition Error: %{public}@", log: self.log, type: .error, error.localizedDescription)
                     self.stopAndFinalize()
                 }
             }
@@ -293,6 +230,8 @@ final class SpeechManager: ObservableObject {
 
     func stopAndFinalize() {
         guard recognitionTask != nil else { return }
+        os_log("Stopping Audio Engine...", log: log, type: .info)
+        
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
@@ -302,20 +241,75 @@ final class SpeechManager: ObservableObject {
         cleanup()
 
         status = "Processing…"
+        os_log("Final Transcript: '%{public}@'", log: log, type: .default, transcript)
         handleTranscript(transcript)
+    }
+
+    init() {
+        GlobalLogger.lifecycle.info("SpeechManager Initialized")
+        NotificationCenter.default.addObserver(self, selector: #selector(pttDown), name: HeadMotionManager.pttDownNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(pttUp), name: HeadMotionManager.pttUpNotification, object: nil)
+    }
+
+    private func requestPermissions() {
+        GlobalLogger.speech.info("Requesting Permissions")
+        SFSpeechRecognizer.requestAuthorization { [weak self] auth in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                switch auth {
+                case .authorized:
+                    self.status = "Speech Authorized"
+                    GlobalLogger.speech.info("Permission Granted: Authorized")
+                case .denied:
+                    self.status = "Speech Denied"
+                    GlobalLogger.speech.error("Permission Denied")
+                case .restricted:
+                    self.status = "Speech Restricted"
+                    GlobalLogger.speech.error("Permission Restricted")
+                case .notDetermined:
+                    self.status = "Speech Not Determined"
+                    GlobalLogger.speech.info("Permission Not Determined")
+                @unknown default:
+                    self.status = "Speech Unknown"
+                    GlobalLogger.speech.error("Permission Unknown")
+                }
+            }
+        }
+        AVCaptureDevice.requestAccess(for: .audio) { granted in
+            GlobalLogger.speech.info("Microphone Permission: \(granted ? "Granted" : "Denied")")
+        }
+    }
+
+    @objc private func pttDown() {
+        GlobalLogger.input.info("PTT DOWN")
+        // Default: push-to-talk; can be extended to "wakeword" later.
+        guard !isAlwaysListeningEnabled else { return }
+        startOnce()
+    }
+
+    @objc private func pttUp() {
+        GlobalLogger.input.info("PTT UP")
+        guard !isAlwaysListeningEnabled else { return }
+        stopAndFinalize()
     }
 
     private func startContinuous() {
         // Continuous mode: require a wake phrase to reduce accidental actions.
-        status = "Listening… (Wake: “Aether …”)"
+        status = "Listening… (Wake: “Aether/艾瑟”)"
+        os_log("Starting Continuous Mode (Wake Word Required)", log: log, type: .default)
         startOnce()
         continuousTimer?.invalidate()
-        continuousTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
-            self?.tickContinuous()
+        if isAlwaysListeningEnabled {
+            continuousTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    self?.tickContinuous()
+                }
+            }
         }
     }
 
     private func stopContinuous() {
+        os_log("Stopping Continuous Mode", log: log, type: .default)
         continuousTimer?.invalidate()
         continuousTimer = nil
         stopAndFinalize()
@@ -335,6 +329,8 @@ final class SpeechManager: ObservableObject {
         lastTranscript = ""
         lastChangeAt = nil
 
+        os_log("End of utterance detected: '%{public}@'", log: log, type: .default, text)
+
         // Process, then restart the session to keep listening.
         stopAndFinalize()
         handleTranscript(text)
@@ -351,33 +347,63 @@ final class SpeechManager: ObservableObject {
 
     private func handleTranscript(_ transcript: String) {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { 
+            os_log("Transcript empty, ignoring.", log: log, type: .debug)
+            return 
+        }
 
         // Wake phrase gate for continuous mode.
         if isAlwaysListeningEnabled {
             let lower = trimmed.lowercased()
-            let wakeEn = lower.hasPrefix("aether")
-            let wakeZh = trimmed.hasPrefix("艾瑟") || trimmed.hasPrefix("以太")
-            guard wakeEn || wakeZh else { return }
+            // More flexible matching: allowing simple punctuation removal
+            let clean = lower.filter { !$0.isPunctuation }
+            
+            let wakeEn = clean.hasPrefix("aether") || clean.hasPrefix("ether") || clean.hasPrefix("heyaether")
+            let wakeZh = trimmed.contains("艾瑟") || trimmed.contains("以太")
+            
+            guard wakeEn || wakeZh else { 
+                os_log("Ignored (No Wake Word): '%{public}@'", log: log, type: .default, trimmed)
+                return 
+            }
+
+            os_log("Wake Word DETECTED in: '%{public}@'", log: log, type: .default, trimmed)
 
             // Strip wake word prefix.
             var remainder = trimmed
             if wakeEn {
-                remainder = String(remainder.dropFirst(min(5, remainder.count))).trimmingCharacters(in: .whitespacesAndNewlines)
+                if let range = remainder.range(of: "Aether", options: [.caseInsensitive, .diacriticInsensitive]) {
+                    remainder = String(remainder[range.upperBound...])
+                } else if let range = remainder.range(of: "Ether", options: [.caseInsensitive]) {
+                     remainder = String(remainder[range.upperBound...])
+                }
             } else if wakeZh {
-                remainder = String(remainder.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if let range = remainder.range(of: "艾瑟") {
+                    remainder = String(remainder[range.upperBound...])
+                } else if let range = remainder.range(of: "以太") {
+                    remainder = String(remainder[range.upperBound...])
+                }
             }
-            guard !remainder.isEmpty else { return }
+            remainder = remainder.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            guard !remainder.isEmpty else { 
+                os_log("Wake Word Detected, but NO command followed.", log: log, type: .default)
+                return 
+            }
+            
             let intent = router.route(transcript: remainder)
             handleIntent(intent)
             return
         }
 
+        // PTT Mode (No wake word needed)
+        os_log("Processing PTT Command: '%{public}@'", log: log, type: .default, trimmed)
         let intent = router.route(transcript: trimmed)
         handleIntent(intent)
     }
 
     private func handleIntent(_ intent: VoiceIntent) {
+        os_log("Routing Intent: %{public}@", log: log, type: .default, String(describing: intent))
+        
         if case .dictation(let text) = intent, isLLMEnhancementEnabled, let llmProvider {
             Task {
                 do {
@@ -411,5 +437,43 @@ final class SpeechManager: ObservableObject {
 
     func undoLastInjection() {
         injector.undoPasteIfRecent()
+    }
+}
+
+// MARK: - Global Logger (Merged)
+
+enum GlobalLogger {
+    private static let subsystem = "com.7fei.Aether"
+
+    static let speech = OSLog(subsystem: subsystem, category: "Speech")
+    static let lifecycle = OSLog(subsystem: subsystem, category: "Lifecycle")
+    static let input = OSLog(subsystem: subsystem, category: "Input")
+
+    static func log(_ message: String, log: OSLog, type: OSLogType = .default) {
+        // Always print to stderr for immediate terminal feedback.
+        // We use a simplified category extraction for the stderr print.
+        let category: String
+        if log === speech { category = "Speech" }
+        else if log === lifecycle { category = "Lifecycle" }
+        else if log === input { category = "Input" }
+        else { category = "Aether" }
+
+        let formatted = "\(Date()) [\(category)] \(message)\n"
+        fputs(formatted, stderr)
+        
+        // Also log to system console
+        os_log("%{public}@", log: log, type: type, message)
+    }
+}
+
+extension OSLog {
+    func info(_ message: String) {
+        GlobalLogger.log(message, log: self, type: .info)
+    }
+    func error(_ message: String) {
+        GlobalLogger.log(message, log: self, type: .error)
+    }
+    func debug(_ message: String) {
+        GlobalLogger.log(message, log: self, type: .debug)
     }
 }

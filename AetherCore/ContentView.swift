@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.scenePhase) private var scenePhase
     
     var body: some View {
         VStack(spacing: 20) {
@@ -9,49 +10,97 @@ struct ContentView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.blue)
             
-            Text("Project Aether")
+            Text(L10n.projectTitle)
                 .font(.largeTitle)
                 .fontWeight(.bold)
             
-            Text("Perception Network: \(appState.driverStatus)")
+            Text(L10n.perceptionNetwork) + Text(": \(appState.driverStatus)")
                 .font(.headline)
+                .foregroundColor(.secondary)
+
+            Text(L10n.pointerOutput) + Text(": \(appState.pointerOutputPath)  •  ") + Text(L10n.textOutput) + Text(": \(appState.textOutputPath)  •  ") + Text(L10n.mode) + Text(": ") + Text(appState.forceDriverOnly ? L10n.modeDriverOnly : L10n.modeAuto)
+                .font(.caption)
                 .foregroundColor(.secondary)
             
             Divider()
             
             VStack(alignment: .leading, spacing: 10) {
-                StatusRow(icon: "magicmouse", title: "Virtual HID", status: appState.driverStatus == "Activated" ? "Running" : "Idle")
-                StatusRow(icon: "airpods", title: "AirPods Matrix", status: appState.isMotionTracking ? "Tracking" : "Ready")
-                StatusRow(icon: "mic", title: "Voice", status: appState.voiceStatus)
+                if appState.onboardingStep != .done {
+                    OnboardingCard()
+                        .environmentObject(appState)
+                }
+
+                StatusRow(icon: "magicmouse", title: String(localized: "row.virtual_hid"), status: appState.driverStatus)
+                if appState.driverState == .needsUserApproval {
+                    HStack(spacing: 10) {
+                        Text(L10n.systemExtensionNeedsApproval)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Button(L10n.openPrivacyAndSecurity) { appState.openPrivacyAndSecurityPane() }
+                            .controlSize(.small)
+                    }
+                    .padding(8)
+                    .background(Color.orange.opacity(0.10))
+                    .cornerRadius(8)
+                }
+                if case .failed(let message) = appState.driverState, message.contains("Missing entitlement") {
+                    HStack(spacing: 10) {
+                        Text(String(localized: "system_extension.missing_entitlement_hint"))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(8)
+                    .background(Color.orange.opacity(0.10))
+                    .cornerRadius(8)
+                }
+                StatusRow(icon: "airpods", title: String(localized: "row.airpods_matrix"), status: appState.isMotionTracking ? String(localized: "generic.tracking") : String(localized: "generic.ready"))
+                StatusRow(icon: "mic", title: String(localized: "row.voice"), status: appState.voiceStatus)
+                if !appState.lastVoiceError.isEmpty {
+                    Text(appState.lastVoiceError)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(3)
+                }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Permissions")
+                    Text(L10n.permissionsTitle)
                         .font(.caption)
                         .foregroundColor(.secondary)
 
                     HStack(spacing: 8) {
-                        PermissionPill(title: "Accessibility", ok: appState.accessibilityTrusted)
-                        PermissionPill(title: "Microphone", ok: appState.microphoneAuthorized)
-                        PermissionPill(title: "Speech", ok: appState.speechAuthorized)
+                        PermissionPill(title: String(localized: "permissions.accessibility"), ok: appState.accessibilityTrusted)
+                        PermissionPill(title: String(localized: "permissions.microphone"), ok: appState.microphoneAuthorized)
+                        PermissionPill(title: String(localized: "permissions.speech"), ok: appState.speechAuthorized)
                     }
 
-                    HStack(spacing: 10) {
-                        Button("Fix Accessibility") { appState.requestAccessibility() }
-                        Button("Open Pane") { appState.openAccessibilityPane() }
+                    if !appState.accessibilityTrusted {
+                        HStack(spacing: 10) {
+                            Button(L10n.fixAccessibility) { appState.requestAccessibility() }
+                            Button(L10n.openPane) { appState.openAccessibilityPane() }
+                            Button(L10n.recheck) { appState.refreshPermissions() }
+                        }
+                        .controlSize(.small)
                     }
-                    .controlSize(.small)
 
-                    HStack(spacing: 10) {
-                        Button("Fix Microphone") { appState.requestMicrophone() }
-                        Button("Open Pane") { appState.openMicrophonePane() }
+                    if !appState.microphoneAuthorized {
+                        HStack(spacing: 10) {
+                            Button(L10n.fixMicrophone) { appState.requestMicrophone() }
+                            Button(L10n.openPane) { appState.openMicrophonePane() }
+                            Button(L10n.recheck) { appState.refreshPermissions() }
+                        }
+                        .controlSize(.small)
                     }
-                    .controlSize(.small)
 
-                    HStack(spacing: 10) {
-                        Button("Fix Speech") { appState.requestSpeech() }
-                        Button("Open Pane") { appState.openSpeechPane() }
+                    if !appState.speechAuthorized {
+                        HStack(spacing: 10) {
+                            Button(L10n.fixSpeech) { appState.requestSpeech() }
+                            Button(L10n.openPane) { appState.openSpeechPane() }
+                            Button(L10n.recheck) { appState.refreshPermissions() }
+                        }
+                        .controlSize(.small)
                     }
-                    .controlSize(.small)
                 }
                 .padding(8)
                 .background(Color.black.opacity(0.06))
@@ -73,16 +122,22 @@ struct ContentView: View {
                         .cornerRadius(5)
                 }
                 
-                StatusRow(icon: "laptopcomputer", title: "Lid Sensor", status: "Ready")
+                StatusRow(icon: "laptopcomputer", title: String(localized: "row.lid_sensor"), status: String(localized: "generic.ready"))
                 
-                Toggle("Dwell Click (悬停点击)", isOn: $appState.isDwellClickEnabled)
+                Toggle(L10n.dwellClick, isOn: $appState.isDwellClickEnabled)
                     .padding(.top, 5)
 
-                Toggle("Always Listening (常驻监听)", isOn: $appState.isAlwaysListeningEnabled)
+                Toggle(
+                    L10n.alwaysListening,
+                    isOn: Binding(
+                        get: { appState.isAlwaysListeningEnabled },
+                        set: { appState.setAlwaysListeningEnabled($0) }
+                    )
+                )
 
-                Toggle("LLM Enhance Dictation (大模型增强听写)", isOn: $appState.isLLMEnhancementEnabled)
+                Toggle(L10n.llmEnhanceDictation, isOn: $appState.isLLMEnhancementEnabled)
 
-                Text("Push-to-talk: hold ⌃⌥V (默认). Always Listening: say “Aether …”")
+                Text(L10n.pushToTalkHint)
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -96,7 +151,7 @@ struct ContentView: View {
                 Button(action: {
                     appState.activateDriver()
                 }) {
-                    Text("Activate Perception")
+                    Text(L10n.activatePerception)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -105,7 +160,7 @@ struct ContentView: View {
                 Button(action: {
                     appState.toggleMotionTracking()
                 }) {
-                    Text(appState.isMotionTracking ? "Stop Motion Matrix" : "Start Motion Matrix")
+                    Text(appState.isMotionTracking ? L10n.stopMotionMatrix : L10n.startMotionMatrix)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -115,7 +170,7 @@ struct ContentView: View {
                     Button(action: {
                         appState.finishCalibration()
                     }) {
-                        Text("Finish Range Calibration")
+                        Text(L10n.finishRangeCalibration)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
@@ -128,7 +183,7 @@ struct ContentView: View {
                 }
                 
                 VStack(spacing: 4) {
-                    Text("Emergency Stop: ⌃⌥S")
+                    Text(L10n.emergencyStopHint)
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -136,6 +191,84 @@ struct ContentView: View {
             }
         }
         .padding()
+        .onAppear {
+            // Trigger deferred permission check
+            appState.refreshPermissions()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                appState.refreshPermissions()
+            }
+        }
+    }
+}
+
+private struct OnboardingCard: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L10n.setupRequired)
+                .font(.headline)
+
+            Text(description)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 10) {
+                Button(primaryTitle) { primaryAction() }
+                Button(L10n.openPane) { openPaneAction() }
+                Button(L10n.recheck) { appState.refreshPermissions() }
+            }
+            .controlSize(.small)
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+        )
+        .cornerRadius(10)
+    }
+
+    private var description: String {
+        switch appState.onboardingStep {
+        case .accessibility:
+            return String(localized: "onboarding.accessibility")
+        case .microphone:
+            return String(localized: "onboarding.microphone")
+        case .speech:
+            return String(localized: "onboarding.speech")
+        case .done:
+            return ""
+        }
+    }
+
+    private var primaryTitle: String {
+        switch appState.onboardingStep {
+        case .accessibility: return String(localized: "permissions.fix_accessibility")
+        case .microphone: return String(localized: "permissions.fix_microphone")
+        case .speech: return String(localized: "permissions.fix_speech")
+        case .done: return ""
+        }
+    }
+
+    private func primaryAction() {
+        switch appState.onboardingStep {
+        case .accessibility: appState.requestAccessibility()
+        case .microphone: appState.requestMicrophone()
+        case .speech: appState.requestSpeech()
+        case .done: break
+        }
+    }
+
+    private func openPaneAction() {
+        switch appState.onboardingStep {
+        case .accessibility: appState.openAccessibilityPane()
+        case .microphone: appState.openMicrophonePane()
+        case .speech: appState.openSpeechPane()
+        case .done: break
+        }
     }
 }
 
