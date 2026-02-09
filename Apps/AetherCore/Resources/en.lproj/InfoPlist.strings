@@ -1,0 +1,4 @@
+"NSMicrophoneUsageDescription" = "Aether needs microphone access to listen for voice commands.";
+"NSSpeechRecognitionUsageDescription" = "Aether uses speech recognition for voice control.";
+"NSMotionUsageDescription" = "Aether needs access to your AirPods head motion data to control the mouse cursor.";
+

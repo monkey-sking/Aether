@@ -1,0 +1,70 @@
+/* Generic */
+"generic.on" = "开启";
+"generic.off" = "关闭";
+"generic.idle" = "空闲";
+"generic.ready" = "就绪";
+"generic.tracking" = "追踪中";
+
+/* App */
+"app.project_title" = "Aether";
+
+/* Status */
+"status.perception_network" = "感知网络";
+"status.pointer_output" = "指针输出";
+"status.text_output" = "文本输出";
+"status.mode" = "模式";
+"status.mode.driver_only" = "仅驱动";
+"status.mode.auto" = "自动";
+
+/* Rows */
+"row.virtual_hid" = "虚拟 HID";
+"row.airpods_matrix" = "AirPods 矩阵";
+"row.voice" = "语音";
+"row.lid_sensor" = "合盖传感器";
+
+/* Permissions */
+"permissions.title" = "权限";
+"permissions.accessibility" = "辅助功能";
+"permissions.microphone" = "麦克风";
+"permissions.speech" = "语音识别";
+"permissions.fix_accessibility" = "修复辅助功能";
+"permissions.fix_microphone" = "修复麦克风";
+"permissions.fix_speech" = "修复语音识别";
+"permissions.open_pane" = "打开设置";
+"permissions.recheck" = "重新检测";
+
+/* System extension */
+"system_extension.needs_approval" = "系统扩展需要在“隐私与安全性”中批准。";
+"system_extension.open_privacy_security" = "打开“隐私与安全性”";
+"system_extension.missing_entitlement_hint" = "请用 Xcode 选择你的 Team 签名后运行，然后再点“激活”。";
+
+/* Controls */
+"control.dwell_click" = "悬停点击";
+"control.force_driver_only" = "强制仅驱动";
+"control.always_listening" = "常驻监听";
+"control.llm_enhance_dictation" = "大模型增强听写";
+"control.push_to_talk_hint" = "按住 ⌃⌥V 说话；常驻监听时说“ Aether … ”触发。";
+"control.emergency_stop_hint" = "紧急停止：⌃⌥S";
+
+/* Actions */
+"action.activate_perception" = "激活感知";
+"action.start_motion_matrix" = "启动姿态矩阵";
+"action.stop_motion_matrix" = "停止姿态矩阵";
+"action.finish_range_calibration" = "完成范围校准";
+
+/* Onboarding */
+"onboarding.setup_required" = "需要设置";
+"onboarding.accessibility" = "开启辅助功能以允许全局热键与输入自动化。";
+"onboarding.microphone" = "授予麦克风权限以使用语音输入。";
+"onboarding.speech" = "授予语音识别权限以使用转写。";
+
+/* Menu bar */
+"menu.pointer" = "指针";
+"menu.voice" = "语音";
+"menu.driver" = "驱动";
+"menu.activate_driver" = "激活驱动";
+"menu.start_pointer" = "启动指针 (⌃⌥S)";
+"menu.stop_pointer" = "停止指针 (⌃⌥S)";
+"menu.recenter_pointer" = "指针回中";
+"menu.show_window" = "显示窗口";
+"menu.quit" = "退出";

@@ -1,0 +1,70 @@
+/* Generic */
+"generic.on" = "ON";
+"generic.off" = "OFF";
+"generic.idle" = "Idle";
+"generic.ready" = "Ready";
+"generic.tracking" = "Tracking";
+
+/* App */
+"app.project_title" = "Project Aether";
+
+/* Status */
+"status.perception_network" = "Perception Network";
+"status.pointer_output" = "Pointer Output";
+"status.text_output" = "Text Output";
+"status.mode" = "Mode";
+"status.mode.driver_only" = "Driver Only";
+"status.mode.auto" = "Auto";
+
+/* Rows */
+"row.virtual_hid" = "Virtual HID";
+"row.airpods_matrix" = "AirPods Matrix";
+"row.voice" = "Voice";
+"row.lid_sensor" = "Lid Sensor";
+
+/* Permissions */
+"permissions.title" = "Permissions";
+"permissions.accessibility" = "Accessibility";
+"permissions.microphone" = "Microphone";
+"permissions.speech" = "Speech";
+"permissions.fix_accessibility" = "Fix Accessibility";
+"permissions.fix_microphone" = "Fix Microphone";
+"permissions.fix_speech" = "Fix Speech";
+"permissions.open_pane" = "Open Pane";
+"permissions.recheck" = "Recheck";
+
+/* System extension */
+"system_extension.needs_approval" = "System Extension needs approval in Privacy & Security.";
+"system_extension.open_privacy_security" = "Open Privacy & Security";
+"system_extension.missing_entitlement_hint" = "Build/run from Xcode with your Team signing, then try Activate again.";
+
+/* Controls */
+"control.dwell_click" = "Dwell Click";
+"control.force_driver_only" = "Force Driver Only";
+"control.always_listening" = "Always Listening";
+"control.llm_enhance_dictation" = "LLM Enhance Dictation";
+"control.push_to_talk_hint" = "Push-to-talk: hold ⌃⌥V. Always Listening: say “Aether …”";
+"control.emergency_stop_hint" = "Emergency Stop: ⌃⌥S";
+
+/* Actions */
+"action.activate_perception" = "Activate Perception";
+"action.start_motion_matrix" = "Start Motion Matrix";
+"action.stop_motion_matrix" = "Stop Motion Matrix";
+"action.finish_range_calibration" = "Finish Range Calibration";
+
+/* Onboarding */
+"onboarding.setup_required" = "Setup Required";
+"onboarding.accessibility" = "Enable Accessibility to allow global hotkeys and input automation.";
+"onboarding.microphone" = "Grant Microphone access to use voice input.";
+"onboarding.speech" = "Grant Speech Recognition access to use transcription.";
+
+/* Menu bar */
+"menu.pointer" = "Pointer";
+"menu.voice" = "Voice";
+"menu.driver" = "Driver";
+"menu.activate_driver" = "Activate Driver";
+"menu.start_pointer" = "Start Pointer (⌃⌥S)";
+"menu.stop_pointer" = "Stop Pointer (⌃⌥S)";
+"menu.recenter_pointer" = "Recenter Pointer";
+"menu.show_window" = "Show Window";
+"menu.quit" = "Quit";

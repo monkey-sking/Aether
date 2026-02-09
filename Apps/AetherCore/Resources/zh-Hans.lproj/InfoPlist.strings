@@ -1,0 +1,4 @@
+"NSMicrophoneUsageDescription" = "Aether 需要麦克风权限来监听语音指令与听写。";
+"NSSpeechRecognitionUsageDescription" = "Aether 使用语音识别来执行语音控制与听写。";
+"NSMotionUsageDescription" = "Aether 需要访问 AirPods 头部运动数据来控制鼠标指针。";
+
