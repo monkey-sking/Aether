@@ -156,10 +156,9 @@ final class HotkeyFeedbackHUD {
             
             HStack(spacing: 8) {
                 if state.isListening {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 8, height: 8)
-                        .opacity(0.8)
+                    Image(systemName: "mic.fill")
+                        .foregroundColor(.green)
+                        .font(.system(size: 14))
                     // Pulse animation could be added here
                 }
                 
@@ -200,15 +199,15 @@ final class HotkeyFeedbackHUD {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16) // Increased padding
+            .padding(.vertical, 10)   // Increased padding
             .background(
                 VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
-                    .cornerRadius(12)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-                    )
+                    .cornerRadius(20) // Match app style
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
             )
             .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
         }
