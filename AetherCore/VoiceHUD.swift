@@ -1,5 +1,5 @@
 import SwiftUI
-
+你
 struct VoiceHUD: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject var headManager = HeadMotionManager.shared
