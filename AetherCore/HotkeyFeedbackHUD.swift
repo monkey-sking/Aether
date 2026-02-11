@@ -59,7 +59,26 @@ final class HotkeyFeedbackHUD {
             self.repositionWindow()
             self.hudWindow?.orderFront(nil)
             self.hudWindow?.alphaValue = 1.0
+            
+            // Start following mouse if interactive/listening
+            self.startFollowTimer()
         }
+    }
+    
+    private var followTimer: Timer?
+    
+    private func startFollowTimer() {
+        followTimer?.invalidate()
+        followTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.repositionWindow()
+            }
+        }
+    }
+    
+    private func stopFollowTimer() {
+        followTimer?.invalidate()
+        followTimer = nil
     }
     
     private func ensureWindow() {
@@ -139,6 +158,7 @@ final class HotkeyFeedbackHUD {
             self.hudWindow?.animator().alphaValue = 0
         }, completionHandler: {
             self.hudWindow?.orderOut(nil)
+            self.stopFollowTimer()
         })
     }
     
@@ -146,6 +166,7 @@ final class HotkeyFeedbackHUD {
     
     private struct HUDView: View {
         @ObservedObject var state: HUDState
+        @State private var isAnimating: Bool = false
         
         var body: some View {
             let displayLanguage: String = {
@@ -159,7 +180,10 @@ final class HotkeyFeedbackHUD {
                     Image(systemName: "mic.fill")
                         .foregroundColor(.green)
                         .font(.system(size: 14))
-                    // Pulse animation could be added here
+                        .scaleEffect(isAnimating ? 1.2 : 1.0)
+                        .opacity(isAnimating ? 1.0 : 0.7)
+                        .animation(Animation.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isAnimating)
+                        .onAppear { isAnimating = true }
                 }
                 
                 Text(state.message)
@@ -203,10 +227,10 @@ final class HotkeyFeedbackHUD {
             .padding(.vertical, 10)   // Increased padding
             .background(
                 VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
-                    .cornerRadius(20) // Match app style
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous)) // Fix right angles
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .stroke(Color.white.opacity(0.2), lineWidth: 1)
             )
             .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)

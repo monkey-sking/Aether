@@ -276,27 +276,32 @@ final class SpeechManager: ObservableObject {
     }
 
     private var isTypingMode: Bool {
-        // Accessibility check for text field focus
-        guard let app = NSWorkspace.shared.frontmostApplication else { return false }
-        let pid = app.processIdentifier
-        let appElement = AXUIElementCreateApplication(pid)
-        
+        // 1. Check System Wide Focus (Most Reliable)
+        let systemWide = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
-        let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        let result = AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement)
         
         if result == .success, let element = focusedElement {
             let axElement = element as! AXUIElement
+            
+            // Check Role
             var role: AnyObject?
             if AXUIElementCopyAttributeValue(axElement, kAXRoleAttribute as CFString, &role) == .success,
                let roleString = role as? String {
-                return roleString == kAXTextAreaRole || roleString == kAXTextFieldRole || roleString == "AXSearchField" || roleString == "AXComboBox"
+                if roleString == kAXTextAreaRole || roleString == kAXTextFieldRole || roleString == "AXSearchField" || roleString == "AXComboBox" {
+                    return true
+                }
             }
-        }
-        
-        // Special Case: Siri & Spotlight are always "Typing Mode" if frontmost
-        if let bundleId = app.bundleIdentifier, 
-           (bundleId == "com.apple.Siri" || bundleId == "com.apple.siri.launcher" || bundleId == "com.apple.Spotlight") {
-            return true
+            
+            // Check Owner PID -> Bundle ID (for Siri/Spotlight exceptions)
+            var pid: pid_t = 0
+            AXUIElementGetPid(axElement, &pid)
+            if let app = NSRunningApplication(processIdentifier: pid),
+               let bundleId = app.bundleIdentifier {
+                if bundleId == "com.apple.Siri" || bundleId == "com.apple.siri.launcher" || bundleId == "com.apple.Spotlight" {
+                    return true
+                }
+            }
         }
         
         return false
@@ -400,7 +405,7 @@ final class SpeechManager: ObservableObject {
         audioRingBuffer.forEach { recognitionRequest?.append($0) }
         
         // [HUD] Show immediate feedback
-        HotkeyFeedbackHUD.showContinuous(message: "Listening...", isListening: true, language: activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: isDictating)
+        HotkeyFeedbackHUD.showContinuous(message: self.localize("Listening..."), isListening: true, language: activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: isDictating)
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
@@ -415,7 +420,7 @@ final class SpeechManager: ObservableObject {
                     self.lastChangeAt = Date()
                     
                     // Update HUD with live transcript
-                    HotkeyFeedbackHUD.showContinuous(message: text.isEmpty ? "Listening..." : text, isListening: true, language: self.activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: self.isDictating)
+                    HotkeyFeedbackHUD.showContinuous(message: text.isEmpty ? self.localize("Listening...") : text, isListening: true, language: self.activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: self.isDictating)
                     
                     // Handle Streaming Typing (if in typing mode)
                     if self.isTypingMode && !result.isFinal {
