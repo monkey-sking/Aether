@@ -620,7 +620,7 @@ class HeadMotionManager: ObservableObject {
                 }
 
                 // Dynamic hotkey matching via HotkeyManager
-                if let action = HotkeyManager.shared.matchKeyDown(keyCode: keyCode, flags: flags) {
+                if let action = MainActor.assumeIsolated({ HotkeyManager.shared.matchKeyDown(keyCode: keyCode, flags: flags) }) {
                     switch action {
                     case .toggleTracking:
                         if manager.isTracking {
@@ -640,7 +640,6 @@ class HeadMotionManager: ObservableObject {
                         NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
                         return nil
 
-                    case .pushToTalk:
                     case .pushToTalk:
                         let source = PTTSource.keyboard(Int(keyCode))
                         guard !manager.activePTTSources.contains(source) else { return nil }
@@ -664,7 +663,7 @@ class HeadMotionManager: ObservableObject {
             if type == .keyUp {
                 // PTT Up — match the configured PTT key code OR just check if this key is in active sources
                 // Note: HotkeyManager might map multiple keys? Assuming simple 1-1 for now.
-                let pttKeyCode = HotkeyManager.shared.pttKeyCode
+                let pttKeyCode = MainActor.assumeIsolated({ HotkeyManager.shared.pttKeyCode })
                 let source = PTTSource.keyboard(Int(keyCode))
                 
                 // If this specific key was part of PTT activation
@@ -768,7 +767,7 @@ class HeadMotionManager: ObservableObject {
         eventTap = nil
         runLoopSource = nil
         isHotkeyRegistered = false
-        isPTTPressed = false
+        activePTTSources.removeAll()
 
         GlobalLogger.lifecycle.info("HeadMotionManager: Hotkeys uninstalled.")
     }
