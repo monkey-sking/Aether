@@ -447,10 +447,24 @@ final class SpeechManager: ObservableObject {
                         return
                     }
 
-                    // If we have a valid transcript, ignore tail-end "No Speech" errors
-                    if !self.lastTranscript.isEmpty && isNoSpeechError {
-                        os_log("Ignoring 'No Speech' error because transcript already exists.", log: self.log, type: .info)
+                    // [No Speech Handling]
+                    // If no speech is detected, we should NOT show an error in Continuous Mode.
+                    // Instead, we just loop back (restart) silently.
+                    if isNoSpeechError {
+                        os_log("No Speech Detected (Timeout). Resetting...", log: self.log, type: .info)
                         self.stopAndFinalize()
+                        // If continuous mode is on, logic elsewhere (e.g. stopContinuous/startContinuous or manual restart) 
+                        // might need to be triggered. 
+                        // Actually, `stopAndFinalize` stops the engine.
+                        // In `startContinuous`, we use a timer to restart? No, we use `continuousTimer` for TICKs.
+                        // But if the engine errors out, we need to restart it if `isAlwaysListeningEnabled`.
+                        
+                        if self.isAlwaysListeningEnabled {
+                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                 // Auto-restart for continuous listening
+                                 self.startOnce()
+                             }
+                        }
                         return
                     }
 
