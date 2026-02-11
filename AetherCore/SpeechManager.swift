@@ -289,7 +289,7 @@ final class SpeechManager: ObservableObject {
             var role: AnyObject?
             if AXUIElementCopyAttributeValue(axElement, kAXRoleAttribute as CFString, &role) == .success,
                let roleString = role as? String {
-                return roleString == kAXTextAreaRole || roleString == kAXTextFieldRole
+                return roleString == kAXTextAreaRole || roleString == kAXTextFieldRole || roleString == "AXSearchField" || roleString == "AXComboBox"
             }
         }
         return false
@@ -369,14 +369,14 @@ final class SpeechManager: ObservableObject {
         recognitionRequest = request
         lastTranscript = ""
         lastError = ""
-        status = "Listening… (\(activeLocale.identifier == "zh-CN" ? "中" : "En"))"
+        status = "Listening… (\(activeLocale.identifier.starts(with: "zh") ? "中" : "En"))"
         os_log("Session Started (gen %d) Locale: %{public}@", log: log, type: .info, currentGeneration, activeLocale.identifier)
         
         // [Ring Buffer] Flush pre-buffered audio to catch the start of speech
         audioRingBuffer.forEach { recognitionRequest?.append($0) }
         
         // [HUD] Show immediate feedback
-        HotkeyFeedbackHUD.showContinuous(message: "Listening...", isListening: true, language: activeLocale.identifier == "zh-CN" ? "中" : "En")
+        HotkeyFeedbackHUD.showContinuous(message: "Listening...", isListening: true, language: activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: isDictating)
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
@@ -391,7 +391,7 @@ final class SpeechManager: ObservableObject {
                     self.lastChangeAt = Date()
                     
                     // Update HUD with live transcript
-                    HotkeyFeedbackHUD.showContinuous(message: text.isEmpty ? "Listening..." : text, isListening: true, language: self.activeLocale.identifier == "zh-CN" ? "中" : "En", isDictating: self.isDictating)
+                    HotkeyFeedbackHUD.showContinuous(message: text.isEmpty ? "Listening..." : text, isListening: true, language: self.activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: self.isDictating)
                     
                     // Handle Streaming Typing (if in typing mode)
                     if self.isTypingMode && !result.isFinal {
@@ -446,8 +446,8 @@ final class SpeechManager: ObservableObject {
             // Ideally we need `typeText` (keystrokes).
             // But `AutomationOutput` only has `pasteText`.
             // Let's assume `pasteText` is acceptable for now (chunks).
-        }
         
+
         lastStreamedText = currentText
     }
 
@@ -830,8 +830,14 @@ final class SpeechManager: ObservableObject {
             AutomationOutputs.shared.pasteFromClipboard()
             status = "Pasted (Cmd+V)"
         case .dictation(let text):
-            injector.paste(text)
-            status = "Pasted"
+            // If we were streaming, the text is already on screen (via typeText).
+            // Do NOT paste again unless we weren't in typing mode (e.g. forced dictation command).
+            if isTypingMode {
+                status = "Done (Streamed)"
+            } else {
+                injector.paste(text)
+                status = "Pasted"
+            }
         default:
             onIntent?(intent)
             status = "Done"
@@ -841,6 +847,7 @@ final class SpeechManager: ObservableObject {
     func undoLastInjection() {
         injector.undoPasteIfRecent()
     }
+}
 
 // MARK: - Global Logger (Merged)
 

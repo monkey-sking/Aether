@@ -292,10 +292,7 @@ final class PreferredAutomationOutput: AutomationOutput {
         OutputRouting.shared.setTextOutputPath("CoreGraphics")
     }
 
-    func typeText(_ text: String) {
-        fallback.typeText(text)
-        OutputRouting.shared.setTextOutputPath("CoreGraphics")
-    }
+
 
     func undo() {
         // Driver path not implemented yet (keyboard injection); keep fallback.
