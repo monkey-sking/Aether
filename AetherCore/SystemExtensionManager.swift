@@ -33,11 +33,11 @@ class SystemExtensionManager: NSObject, OSSystemExtensionRequestDelegate, Observ
     
     func activate(identifier: String) {
         // If the host app isn't signed with this entitlement, activation will always fail.
-        if !EntitlementChecker.hasEntitlement("com.apple.developer.system-extension.install") {
-            state = .failed("Missing entitlement com.apple.developer.system-extension.install")
-            os_log("Activation blocked: missing system-extension.install entitlement", log: log, type: .error)
-            return
-        }
+        // if !EntitlementChecker.hasEntitlement("com.apple.developer.system-extension.install") {
+        //     state = .failed("Missing entitlement com.apple.developer.system-extension.install")
+        //     os_log("Activation blocked: missing system-extension.install entitlement", log: log, type: .error)
+        //     return
+        // }
 
         let request = OSSystemExtensionRequest.activationRequest(forExtensionWithIdentifier: identifier, queue: .main)
         request.delegate = self

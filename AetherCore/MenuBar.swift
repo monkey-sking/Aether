@@ -28,7 +28,9 @@ struct AetherMenuBar: Scene {
 
                 Divider()
 
-                Button(appState.isMotionTracking ? L10n.menuStopPointer : L10n.menuStartPointer) {
+                Button(appState.isMotionTracking
+                    ? "停止指针 (\(HotkeyManager.shared.binding(for: .toggleTracking).displayString))"
+                    : "启动指针 (\(HotkeyManager.shared.binding(for: .toggleTracking).displayString))") {
                     appState.toggleMotionTracking()
                 }
 
@@ -49,11 +51,28 @@ struct AetherMenuBar: Scene {
                 )
                 Toggle(L10n.llmEnhanceDictation, isOn: $appState.isLLMEnhancementEnabled)
 
+                Toggle(
+                    "🔒 AirPods Lock (\(HotkeyManager.shared.binding(for: .connectionLock).displayString))",
+                    isOn: Binding(
+                        get: { appState.connectionLock.isLocked },
+                        set: { _ in appState.connectionLock.toggle() }
+                    )
+                )
+
                 Divider()
 
                 Button(L10n.menuShowWindow) {
                     appState.showMainWindow()
                 }
+
+                Divider()
+                
+                Divider()
+                
+                Button("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))") {
+                    // No action, just display
+                }
+                .disabled(true)
 
                 Button(L10n.menuQuit) {
                     NSApp.terminate(nil)

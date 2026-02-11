@@ -37,6 +37,8 @@ final class DriverClient {
         }
     }
 
+    var isConnected: Bool { connect != 0 }
+
     func connectIfNeeded(throttleSeconds: TimeInterval = 2.0) -> Result<Void, Error> {
         if connect != 0 { return .success(()) }
 
@@ -122,7 +124,8 @@ final class DriverAutomationOutput {
 
         // Ignore tiny jitter.
         if abs(dx) < 0.25, abs(dy) < 0.25 {
-            return true
+            // Only claim we handled it (blocking fallback) if we are actually connected.
+            return client.isConnected
         }
 
         let r = client.postHIDEvent(dx: Int32(dx.rounded()), dy: Int32(dy.rounded()), buttons: 0)
@@ -148,5 +151,9 @@ final class DriverAutomationOutput {
         }
 
         return true
+    }
+
+    func pasteFromClipboard() {
+        // Not implemented for Driver yet
     }
 }

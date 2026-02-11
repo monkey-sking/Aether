@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
+    @ObservedObject var headManager = HeadMotionManager.shared
     @Environment(\.scenePhase) private var scenePhase
     
     var body: some View {
@@ -25,43 +26,45 @@ struct ContentView: View {
             Divider()
             
             VStack(alignment: .leading, spacing: 10) {
-                if appState.onboardingStep != .done {
-                    OnboardingCard()
-                        .environmentObject(appState)
-                }
+                Group {
+                    if appState.onboardingStep != .done {
+                        OnboardingCard()
+                            .environmentObject(appState)
+                    }
 
-                StatusRow(icon: "magicmouse", title: String(localized: "row.virtual_hid"), status: appState.driverStatus)
-                if appState.driverState == .needsUserApproval {
-                    HStack(spacing: 10) {
-                        Text(L10n.systemExtensionNeedsApproval)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Button(L10n.openPrivacyAndSecurity) { appState.openPrivacyAndSecurityPane() }
-                            .controlSize(.small)
+                    StatusRow(icon: "magicmouse", title: String(localized: "row.virtual_hid"), status: appState.driverStatus)
+                    if appState.driverState == .needsUserApproval {
+                        HStack(spacing: 10) {
+                            Text(L10n.systemExtensionNeedsApproval)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Button(L10n.openPrivacyAndSecurity) { appState.openPrivacyAndSecurityPane() }
+                                .controlSize(.small)
+                        }
+                        .padding(8)
+                        .background(Color.orange.opacity(0.10))
+                        .cornerRadius(8)
                     }
-                    .padding(8)
-                    .background(Color.orange.opacity(0.10))
-                    .cornerRadius(8)
-                }
-                if case .failed(let message) = appState.driverState, message.contains("Missing entitlement") {
-                    HStack(spacing: 10) {
-                        Text(String(localized: "system_extension.missing_entitlement_hint"))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
+                    if case .failed(let message) = appState.driverState, message.contains("Missing entitlement") {
+                        HStack(spacing: 10) {
+                            Text(String(localized: "system_extension.missing_entitlement_hint"))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                        }
+                        .padding(8)
+                        .background(Color.orange.opacity(0.10))
+                        .cornerRadius(8)
                     }
-                    .padding(8)
-                    .background(Color.orange.opacity(0.10))
-                    .cornerRadius(8)
-                }
-                StatusRow(icon: "airpods", title: String(localized: "row.airpods_matrix"), status: appState.isMotionTracking ? String(localized: "generic.tracking") : String(localized: "generic.ready"))
-                StatusRow(icon: "mic", title: String(localized: "row.voice"), status: appState.voiceStatus)
-                if !appState.lastVoiceError.isEmpty {
-                    Text(appState.lastVoiceError)
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .lineLimit(3)
+                    StatusRow(icon: "airpods", title: String(localized: "row.airpods_matrix"), status: appState.isMotionTracking ? String(localized: "generic.tracking") : String(localized: "generic.ready"))
+                    StatusRow(icon: "mic", title: String(localized: "row.voice"), status: appState.voiceStatus)
+                    if !appState.lastVoiceError.isEmpty {
+                        Text(appState.lastVoiceError)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(3)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -106,40 +109,44 @@ struct ContentView: View {
                 .background(Color.black.opacity(0.06))
                 .cornerRadius(8)
                 
-                if appState.isMotionTracking {
-                    Text(appState.attitudeData)
-                        .font(.system(.caption, design: .monospaced))
-                        .padding(8)
-                        .background(Color.black.opacity(0.1))
-                        .cornerRadius(5)
-                }
+                Group {
+                    if appState.isMotionTracking {
+                        Text(appState.attitudeData)
+                            .font(.system(.caption, design: .monospaced))
+                            .padding(8)
+                            .background(Color.black.opacity(0.1))
+                            .cornerRadius(5)
+                    }
 
-                if !appState.lastVoiceTranscript.isEmpty {
-                    Text(appState.lastVoiceTranscript)
-                        .font(.system(.caption, design: .monospaced))
-                        .padding(8)
-                        .background(Color.black.opacity(0.1))
-                        .cornerRadius(5)
-                }
-                
-                StatusRow(icon: "laptopcomputer", title: String(localized: "row.lid_sensor"), status: String(localized: "generic.ready"))
-                
-                Toggle(L10n.dwellClick, isOn: $appState.isDwellClickEnabled)
-                    .padding(.top, 5)
+                    if !appState.lastVoiceTranscript.isEmpty {
+                        Text(appState.lastVoiceTranscript)
+                            .font(.system(.caption, design: .monospaced))
+                            .padding(8)
+                            .background(Color.black.opacity(0.1))
+                            .cornerRadius(5)
+                    }
+                    
+                    StatusRow(icon: "laptopcomputer", title: String(localized: "row.lid_sensor"), status: String(localized: "generic.ready"))
+                    
+                    Toggle(L10n.dwellClick, isOn: $appState.isDwellClickEnabled)
+                        .padding(.top, 5)
 
-                Toggle(
-                    L10n.alwaysListening,
-                    isOn: Binding(
-                        get: { appState.isAlwaysListeningEnabled },
-                        set: { appState.setAlwaysListeningEnabled($0) }
+                    Toggle(
+                        L10n.alwaysListening,
+                        isOn: Binding(
+                            get: { appState.isAlwaysListeningEnabled },
+                            set: { appState.setAlwaysListeningEnabled($0) }
+                        )
                     )
-                )
 
-                Toggle(L10n.llmEnhanceDictation, isOn: $appState.isLLMEnhancementEnabled)
+                    Toggle(L10n.llmEnhanceDictation, isOn: $appState.isLLMEnhancementEnabled)
 
-                Text(L10n.pushToTalkHint)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                    Text(L10n.pushToTalkHint)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+
+                    HotkeySettingsSection()
+                }
             }
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
@@ -182,8 +189,20 @@ struct ContentView: View {
                         .foregroundColor(.orange)
                 }
                 
+                Toggle("Tilt Scroll", isOn: $headManager.isTiltScrollEnabled)
+                    .toggleStyle(.switch)
+                    .controlSize(.large)
+                    .tint(.blue)
+                    .padding(.horizontal)
+
+                Toggle("Debug Mode", isOn: $headManager.isDebugModeEnabled)
+                    .toggleStyle(.switch)
+                    .controlSize(.large)
+                    .tint(.red)
+                    .padding(.horizontal)
+
                 VStack(spacing: 4) {
-                    Text(L10n.emergencyStopHint)
+                    Text("切换追踪: \(HotkeyManager.shared.binding(for: .toggleTracking).displayString)")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -191,6 +210,9 @@ struct ContentView: View {
             }
         }
         .padding()
+        .overlay(alignment: .top) {
+            VoiceHUD()
+        }
         .onAppear {
             // Trigger deferred permission check
             appState.refreshPermissions()
@@ -294,11 +316,63 @@ struct StatusRow: View {
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .frame(width: 24)
+            .frame(width: 24)
             Text(title)
             Spacer()
             Text(status)
-                .foregroundColor(.secondary)
+            .foregroundColor(.secondary)
         }
+    }
+}
+
+struct VoiceHUD: View {
+    @EnvironmentObject var appState: AppState
+    @ObservedObject var headManager = HeadMotionManager.shared
+    
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { context in
+            if isAwake {
+                HStack(spacing: 8) {
+                    Image(systemName: "mic.fill")
+                        .foregroundColor(.green)
+                        .imageScale(.medium)
+                        // Simple pulse animation could go here
+                    
+                    Text(displayCookie)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Material.regularMaterial)
+                .cornerRadius(20)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                )
+                .padding(.top, 60)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(), value: isAwake)
+    }
+    
+    private var isAwake: Bool {
+        // Gaze Wake
+        if headManager.isTracking && headManager.isLookingAtScreen {
+            return true
+        }
+        // Timeout Wake
+        if let last = appState.lastVoiceWakeTime {
+            return Date().timeIntervalSince(last) < 8.0
+        }
+        return false
+    }
+    
+    private var displayCookie: String {
+        if headManager.isLookingAtScreen && headManager.isTracking {
+            return "Listening (Gaze)"
+        }
+        return "Listening..."
     }
 }

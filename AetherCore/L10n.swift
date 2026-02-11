@@ -46,7 +46,7 @@ enum L10n {
     static let alwaysListening: LocalizedStringKey = "control.always_listening"
     static let llmEnhanceDictation: LocalizedStringKey = "control.llm_enhance_dictation"
     static let pushToTalkHint: LocalizedStringKey = "control.push_to_talk_hint"
-    static let emergencyStopHint: LocalizedStringKey = "control.emergency_stop_hint"
+    static let toggleTrackingHint: LocalizedStringKey = "control.toggle_tracking_hint"
 
     // Actions
     static let activatePerception: LocalizedStringKey = "action.activate_perception"

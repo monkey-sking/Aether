@@ -63,6 +63,22 @@ final class MotionService: ObservableObject {
         manager.$calibrationStatus
             .receive(on: DispatchQueue.main)
             .assign(to: &$calibrationStatus)
+            
+        manager.onError = { [weak self] errorMsg in
+            DispatchQueue.main.async {
+                self?.presentError(errorMsg)
+            }
+        }
+    }
+    
+    @MainActor
+    private func presentError(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Motion Tracking Failed")
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     func setGlobalHotkeysEnabled(_ enabled: Bool) {
@@ -77,6 +93,12 @@ final class MotionService: ObservableObject {
     func clickLeft() { manager.clickLeft() }
     func clickRight() { manager.clickRight() }
     func doubleClick() { manager.doubleClick() }
+    
+    func scroll(dx: Int, dy: Int) { manager.scroll(dx: dx, dy: dy) }
+    func scrollToTop() { manager.scrollToTop() }
+    func scrollToBottom() { manager.scrollToBottom() }
+    func dragStart() { manager.dragStart() }
+    func dragEnd() { manager.dragEnd() }
 }
 
 @MainActor
@@ -84,6 +106,7 @@ final class VoiceService: ObservableObject {
     @Published private(set) var status: String = "Idle"
     @Published private(set) var lastTranscript: String = ""
     @Published private(set) var lastError: String = ""
+    @Published private(set) var lastWakeTime: Date?
 
     var onIntent: ((VoiceIntent) -> Void)? {
         get { manager.onIntent }
@@ -111,6 +134,10 @@ final class VoiceService: ObservableObject {
         manager.$lastError
             .receive(on: DispatchQueue.main)
             .assign(to: &$lastError)
+            
+        manager.$lastWakeTime
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$lastWakeTime)
     }
 
     func setAlwaysListeningEnabled(_ enabled: Bool) {
@@ -188,6 +215,7 @@ class AppState: ObservableObject {
     @Published var voiceStatus: String = "Idle"
     @Published var lastVoiceTranscript: String = ""
     @Published var lastVoiceError: String = ""
+    @Published var lastVoiceWakeTime: Date?
     @Published var isAlwaysListeningEnabled: Bool = false {
         didSet {
             guard oldValue != isAlwaysListeningEnabled else { return }
@@ -220,6 +248,7 @@ class AppState: ObservableObject {
     private let motionService = MotionService()
     private let voiceService = VoiceService()
     private let permissions = PermissionsService()
+    let connectionLock = ConnectionLockService.shared
 
     private var windowController: NSWindowController?
     private var cancellables = Set<AnyCancellable>()
@@ -252,6 +281,8 @@ class AppState: ObservableObject {
             .assign(to: &$lastVoiceTranscript)
         voiceService.$lastError
             .assign(to: &$lastVoiceError)
+        voiceService.$lastWakeTime
+            .assign(to: &$lastVoiceWakeTime)
 
         OutputRouting.shared.$pointerOutputPath
             .receive(on: DispatchQueue.main)
@@ -297,6 +328,14 @@ class AppState: ObservableObject {
         }
         .store(in: &cancellables)
 
+        // Connection Lock hotkey listener
+        NotificationCenter.default.publisher(for: .toggleConnectionLock)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.connectionLock.toggle()
+            }
+            .store(in: &cancellables)
+
         refreshPermissions()
     }
 
@@ -312,6 +351,41 @@ class AppState: ObservableObject {
     }
     
     func activateDriver() {
+        // Pre-flight Check 1: Permissions
+        // Pre-flight Check 1: Permissions
+        if !accessibilityTrusted {
+            let msg = String(localized: "driver.error.need_accessibility")
+            driverStatus = msg
+            GlobalLogger.lifecycle.info("Driver activation blocked: Accessibility not trusted")
+            
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Activation Failed")
+            alert.informativeText = msg
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+        
+        // Pre-flight Check 2: Motion Tracking Active (proves AirPods are connected)
+        // This is the most reliable way to ensure AirPods are actually connected and working
+        // Pre-flight Check 2: Motion Tracking Active (proves AirPods are connected)
+        // This is the most reliable way to ensure AirPods are actually connected and working
+        if !isMotionTracking {
+            let msg = String(localized: "driver.error.start_tracking_first")
+            driverStatus = msg
+            GlobalLogger.lifecycle.info("Driver activation blocked: Motion tracking not started")
+            
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Activation Failed")
+            alert.informativeText = msg
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+        
+        GlobalLogger.lifecycle.info("Pre-flight checks passed, activating driver")
         driverService.activate(identifier: kAetherDriverBundleID)
     }
 
@@ -349,8 +423,24 @@ class AppState: ObservableObject {
             motionService.recenter()
         case .setDwell(let enabled):
             isDwellClickEnabled = enabled
+        case .scroll(let dx, let dy):
+            motionService.scroll(dx: dx, dy: dy)
+        case .scrollToWeb(let edge):
+            if edge == "top" { motionService.scrollToTop() }
+            else { motionService.scrollToBottom() }
+        case .dragStart:
+            motionService.dragStart()
+        case .dragEnd:
+            motionService.dragEnd()
         case .undo:
             voiceService.undoLastInjection()
+        case .paste:
+            // Handled by SpeechManager
+            break
+        case .lockConnection:
+            connectionLock.lock()
+        case .unlockConnection:
+            connectionLock.unlock()
         case .dictation:
             break
         case .unknown:
@@ -418,4 +508,10 @@ struct AetherApp: App {
         AetherMenuBar()
             .environmentObject(appState)
     }
+}
+
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let toggleConnectionLock = Notification.Name("AetherToggleConnectionLock")
 }
