@@ -181,8 +181,7 @@ class HeadMotionManager: ObservableObject {
                 self.connectionTimer?.invalidate()
                 self.connectionTimer = nil
                 self.isTracking = true
-                self.connectionTimer = nil
-                self.isTracking = true
+                self.updateNowPlayingInfo()
                 os_log("Aether: Connection Established (First Data Received)", log: self.log)
                 
                 // Reset lastDataTime to now
@@ -479,12 +478,23 @@ class HeadMotionManager: ObservableObject {
         
         // Bind Previous Track -> Double Click
         prevTrackTarget = commandCenter.previousTrackCommand.addTarget { [weak self] _ in
-            guard let self = self, self.isTracking, self.isLookingAtScreen else { return .commandFailed }
-            os_log("AirPods: Triple Press -> Double Click", log: self.log)
-            DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY), doubleClick: true) }
-            return .success
+             guard let self = self, self.isTracking, self.isLookingAtScreen else { return .commandFailed }
+             os_log("AirPods: Triple Press -> Double Click", log: self.log)
+             DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY), doubleClick: true) }
+             return .success
         }
         commandCenter.previousTrackCommand.isEnabled = true
+        
+        updateNowPlayingInfo()
+    }
+
+    private func updateNowPlayingInfo() {
+        var nowPlayingInfo = [String: Any]()
+        nowPlayingInfo[MPMediaItemPropertyTitle] = "Aether Motion Control"
+        nowPlayingInfo[MPMediaItemPropertyArtist] = "Head Tracking Active"
+        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = 1.0 // Appears as "Playing"
+        
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
     }
     
     private func disableAirPodsCommands() {
