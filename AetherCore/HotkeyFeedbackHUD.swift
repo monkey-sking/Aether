@@ -18,6 +18,7 @@ final class HotkeyFeedbackHUD {
         @Published var isListening: Bool = false
         @Published var language: String = "zh-CN"
         @Published var isInteractive: Bool = false
+        @Published var isDictating: Bool = false // New State
     }
     
     private let state = HUDState()
@@ -30,8 +31,8 @@ final class HotkeyFeedbackHUD {
         shared.scheduleHide(delay: 1.5)
     }
     
-    static func showContinuous(message: String, isListening: Bool, language: String) {
-        shared.update(message: message, isListening: isListening, language: language, isInteractive: true)
+    static func showContinuous(message: String, isListening: Bool, language: String, isDictating: Bool) {
+        shared.update(message: message, isListening: isListening, language: language, isInteractive: true, isDictating: isDictating)
         shared.cancelHide()
     }
     
@@ -41,13 +42,16 @@ final class HotkeyFeedbackHUD {
     
     // MARK: - internal
     
-    private func update(message: String, isListening: Bool, language: String = "zh-CN", isInteractive: Bool = false) {
+    private func update(message: String, isListening: Bool, language: String = "zh-CN", isInteractive: Bool = false, isDictating: Bool = false) {
         DispatchQueue.main.async {
             self.ensureWindow()
             self.state.message = message
             self.state.isListening = isListening
             self.state.language = language
             self.state.isInteractive = isInteractive
+            self.state.isDictating = isDictating
+            
+            // Allow clicks if interactive
             
             // Allow clicks if interactive
             self.hudWindow?.ignoresMouseEvents = !isInteractive
@@ -157,6 +161,17 @@ final class HotkeyFeedbackHUD {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white)
                     .fixedSize()
+                
+                // Input Mode Indicator
+                if state.isDictating {
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.8))
+                } else if state.isInteractive {
+                     Image(systemName: "command")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.6))
+                }
                 
                 if state.isInteractive {
                     Divider()

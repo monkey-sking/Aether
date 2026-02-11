@@ -238,6 +238,7 @@ final class SpeechManager: ObservableObject {
         }
     }
     @Published var isLLMEnhancementEnabled: Bool = false
+    @Published var isDictating: Bool = false // For HUD Feedback
 
     private let router = VoiceCommandRouter()
     private let injector = TextInjector()
@@ -346,6 +347,7 @@ final class SpeechManager: ObservableObject {
         
         // Reset Streaming State
         lastStreamedText = ""
+        isDictating = isTypingMode // Set initial state based on context
 
         // [Stability] Reset Failsafe Timer (Stops recording after 60s max)
         failsafeTimer?.invalidate()
@@ -389,7 +391,7 @@ final class SpeechManager: ObservableObject {
                     self.lastChangeAt = Date()
                     
                     // Update HUD with live transcript
-                    HotkeyFeedbackHUD.showContinuous(message: text.isEmpty ? "Listening..." : text, isListening: true, language: self.activeLocale.identifier == "zh-CN" ? "中" : "En")
+                    HotkeyFeedbackHUD.showContinuous(message: text.isEmpty ? "Listening..." : text, isListening: true, language: self.activeLocale.identifier == "zh-CN" ? "中" : "En", isDictating: self.isDictating)
                     
                     // Handle Streaming Typing (if in typing mode)
                     if self.isTypingMode && !result.isFinal {
@@ -438,14 +440,12 @@ final class SpeechManager: ObservableObject {
         // Type new suffix
         let newSuffix = String(currentText.dropFirst(commonPrefix.count))
         if !newSuffix.isEmpty {
-            AutomationOutputs.shared.pasteText(newSuffix) // Use pasteText logic which might be keyboard injection?
-            // Wait, pasteText uses Cmd+V. This is BAD for streaming.
-            // We need KEYSTROKE injection for streaming to look natural?
-            // Or just acceptable?
+            // Use typeText for reliable, clipboard-safe injection
+            AutomationOutputs.shared.typeText(newSuffix)
+        }
             // Ideally we need `typeText` (keystrokes).
             // But `AutomationOutput` only has `pasteText`.
             // Let's assume `pasteText` is acceptable for now (chunks).
-            // If backspace works (keystrokes), paste works.
         }
         
         lastStreamedText = currentText
@@ -707,6 +707,7 @@ final class SpeechManager: ObservableObject {
         stopTimer = nil
         failsafeTimer?.invalidate()
         failsafeTimer = nil
+        isDictating = false
         // Engine NOT cleared
     }
 
@@ -840,7 +841,6 @@ final class SpeechManager: ObservableObject {
     func undoLastInjection() {
         injector.undoPasteIfRecent()
     }
-}
 
 // MARK: - Global Logger (Merged)
 

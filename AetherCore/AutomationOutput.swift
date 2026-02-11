@@ -12,6 +12,7 @@ protocol AutomationOutput {
     func scroll(dx: Int, dy: Int)
     func drag(start: Bool, at point: CGPoint?)
     func backspace(count: Int)
+    func typeText(_ text: String)
 }
 
 final class OutputRouting: ObservableObject {
@@ -211,6 +212,27 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
             up?.post(tap: .cghidEventTap)
         }
     }
+
+    func typeText(_ text: String) {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        // Iterate over UTF-16 code units to handle unicode correctly
+        for char in text.utf16 {
+            // Virtual Key 0 (A) is a placeholder. Unicode string overrides it.
+            let key: CGKeyCode = 0 
+            
+            if let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true) {
+                var unit = char
+                down.keyboardSetUnicodeString(stringLength: 1, unicodeString: &unit)
+                down.post(tap: .cghidEventTap)
+            }
+            
+            if let up = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false) {
+                var unit = char
+                up.keyboardSetUnicodeString(stringLength: 1, unicodeString: &unit)
+                up.post(tap: .cghidEventTap)
+            }
+        }
+    }
 }
 
 enum AutomationOutputs {
@@ -262,6 +284,16 @@ final class PreferredAutomationOutput: AutomationOutput {
     func pasteText(_ text: String) {
         // Driver path not implemented yet (keyboard injection); keep fallback.
         fallback.pasteText(text)
+        OutputRouting.shared.setTextOutputPath("CoreGraphics")
+    }
+
+    func typeText(_ text: String) {
+        fallback.typeText(text)
+        OutputRouting.shared.setTextOutputPath("CoreGraphics")
+    }
+
+    func typeText(_ text: String) {
+        fallback.typeText(text)
         OutputRouting.shared.setTextOutputPath("CoreGraphics")
     }
 
