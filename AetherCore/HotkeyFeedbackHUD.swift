@@ -148,6 +148,12 @@ final class HotkeyFeedbackHUD {
         @ObservedObject var state: HUDState
         
         var body: some View {
+            let displayLanguage: String = {
+                if state.language == "zh-CN" || state.language.starts(with: "zh") { return "中" }
+                if state.language == "en-US" || state.language.starts(with: "en") { return "En" }
+                return state.language
+            }()
+            
             HStack(spacing: 8) {
                 if state.isListening {
                     Circle()
@@ -182,9 +188,10 @@ final class HotkeyFeedbackHUD {
                         // Toggle Language via Notification
                         NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
                     }) {
-                        Text(state.language == "zh-CN" ? "中" : "En")
+                        Text(displayLanguage)
                             .font(.system(size: 12, weight: .bold))
                             .foregroundColor(.white)
+                            .fixedSize() // Prevent "..." truncation
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Color.white.opacity(0.2))

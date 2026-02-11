@@ -408,7 +408,16 @@ final class SpeechManager: ObservableObject {
                     let nsError = error as NSError
                     let isNoSpeechError = (nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 203) 
                         || error.localizedDescription.contains("No speech detected")
+                    let isCancelled = (nsError.domain == "kAFAssistantErrorDomain" && (nsError.code == 216 || nsError.code == 1700)) 
+                        || (nsError.domain == "SFSpeechErrorDomain" && nsError.code == 10) // 10 = cancelled
+                        || error.localizedDescription.contains("canceled")
                     
+                    // Ignore cancellations (intentional stops)
+                    if isCancelled {
+                        self.stopAndFinalize()
+                        return
+                    }
+
                     // If we have a valid transcript, ignore tail-end "No Speech" errors
                     if !self.lastTranscript.isEmpty && isNoSpeechError {
                         os_log("Ignoring 'No Speech' error because transcript already exists.", log: self.log, type: .info)
