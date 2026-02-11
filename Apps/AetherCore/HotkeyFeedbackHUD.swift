@@ -64,7 +64,9 @@ final class HotkeyFeedbackHUD {
         let savedState = self.state
         let rootView = HUDView(state: savedState)
         let hostingController = NSHostingController(rootView: rootView)
-        hostingController.view.backgroundColor = .clear
+        hostingController.view.wantsLayer = true
+        hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
+        hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
         
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 200, height: 60),
@@ -110,7 +112,7 @@ final class HotkeyFeedbackHUD {
         panel.setFrameOrigin(NSPoint(x: x, y: y))
         // Resize if needed
         if panel.frame.size != size {
-             panel.setFrameSize(size)
+             panel.setContentSize(size)
         }
     }
     
@@ -138,7 +140,7 @@ final class HotkeyFeedbackHUD {
     
     // MARK: - SwiftUI View
     
-    struct HUDView: View {
+    private struct HUDView: View {
         @ObservedObject var state: HUDState
         
         var body: some View {
@@ -190,7 +192,7 @@ final class HotkeyFeedbackHUD {
         }
     }
     
-    struct VisualEffectView: NSViewRepresentable {
+    private struct VisualEffectView: NSViewRepresentable {
         let material: NSVisualEffectView.Material
         let blendingMode: NSVisualEffectView.BlendingMode
         
