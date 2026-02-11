@@ -71,7 +71,11 @@ final class HotkeyFeedbackHUD {
         followTimer?.invalidate()
         followTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
-                self?.repositionWindow()
+                guard let self = self, let state = self.state else { return }
+                // Only follow cursor if NOT in typing/dictation mode
+                if !state.isDictating {
+                    self.repositionWindow()
+                }
             }
         }
     }
@@ -225,10 +229,10 @@ final class HotkeyFeedbackHUD {
             }
             .padding(.horizontal, 16) // Increased padding
             .padding(.vertical, 10)   // Increased padding
-            .background(
-                VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous)) // Fix right angles
-            )
+            .padding(.horizontal, 16) // Increased padding
+            .padding(.vertical, 10)   // Increased padding
+            .background(.regularMaterial) // Use native SwiftUI Material to fix clipping issues
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .stroke(Color.white.opacity(0.2), lineWidth: 1)
