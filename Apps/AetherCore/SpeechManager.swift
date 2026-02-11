@@ -358,6 +358,9 @@ final class SpeechManager: ObservableObject {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
+        if #available(macOS 13, *) {
+            request.addsPunctuation = true
+        }
         // Important: Add contextual strings to improve specific command recognition
         request.contextualStrings = ["点击", "双击", "向下", "向上", "右键", "Click", "Double Click", "Scroll Down", "Scroll Up", "Right Click"]
 
