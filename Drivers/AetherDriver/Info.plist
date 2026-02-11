@@ -15,9 +15,9 @@
     <key>CFBundlePackageType</key>
     <string>DEXT</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>IOKitPersonalities</key>
     <dict>
         <key>AetherDriver</key>
@@ -30,6 +30,10 @@
             <string>AetherDriver</string>
             <key>IOUserServerName</key>
             <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+            <!-- CRITICAL: Prevent matching ANY physical devices -->
+            <!-- This driver creates a VIRTUAL device, not a physical one -->
+            <key>IOProviderClass</key>
+            <string>AetherVirtualDeviceProvider_DoesNotExist</string>
         </dict>
     </dict>
     <key>OSBundleUsageDescription</key>

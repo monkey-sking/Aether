@@ -44,7 +44,7 @@
 "control.always_listening" = "常驻监听";
 "control.llm_enhance_dictation" = "大模型增强听写";
 "control.push_to_talk_hint" = "按住 ⌃⌥V 说话；常驻监听时说“ Aether … ”触发。";
-"control.emergency_stop_hint" = "紧急停止：⌃⌥S";
+"control.toggle_tracking_hint" = "切换追踪";
 
 /* Actions */
 "action.activate_perception" = "激活感知";
@@ -63,8 +63,27 @@
 "menu.voice" = "语音";
 "menu.driver" = "驱动";
 "menu.activate_driver" = "激活驱动";
-"menu.start_pointer" = "启动指针 (⌃⌥S)";
-"menu.stop_pointer" = "停止指针 (⌃⌥S)";
+"menu.start_pointer" = "启动指针";
+"menu.stop_pointer" = "停止指针";
 "menu.recenter_pointer" = "指针回中";
 "menu.show_window" = "显示窗口";
 "menu.quit" = "退出";
+
+/* Driver errors */
+"driver.error.need_accessibility" = "请先授予辅助功能权限";
+"driver.error.airpods_not_connected" = "请先连接 AirPods";
+
+"driver.error.start_tracking_first" = "请先开启姿态矩阵以确保 AirPods 已连接并有数据传输。";
+"motion.error.airpods_not_detected" = "未检测到 AirPods，请确保已连接到此 Mac 并重试。";
+"motion.error.connection_timeout" = "连接超时。5秒内未检测到姿态数据。";
+"motion.error.airpods_disconnected" = "AirPods 已断开连接或切换到其他设备。";
+"motion.error.connection_lost" = "连接丢失。5秒内未收到数据。";
+
+/* Hotkeys */
+"hotkey.section_title" = "快捷键";
+"hotkey.toggle_tracking" = "切换追踪";
+"hotkey.connection_lock" = "连接锁定";
+"hotkey.push_to_talk" = "按住说话";
+"hotkey.press_key" = "按下按键…";
+"hotkey.reset_all" = "全部重置";
+"hotkey.reset_single" = "恢复默认";

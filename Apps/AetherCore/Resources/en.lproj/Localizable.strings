@@ -36,7 +36,16 @@
 /* System extension */
 "system_extension.needs_approval" = "System Extension needs approval in Privacy & Security.";
 "system_extension.open_privacy_security" = "Open Privacy & Security";
-"system_extension.missing_entitlement_hint" = "Build/run from Xcode with your Team signing, then try Activate again.";
+"system_extension.missing_entitlement_hint" = "Please sign with your Team in Xcode and run, then click Activate.";
+
+/* Driver errors */
+"driver.error.need_accessibility" = "Please grant Accessibility permission first";
+"driver.error.airpods_not_connected" = "Please connect AirPods first";
+"driver.error.start_tracking_first" = "Please start Motion Matrix first to ensure AirPods are connected and data is flowing.";
+"motion.error.airpods_not_detected" = "AirPods not detected. Please ensure they are connected to this Mac and try again.";
+"motion.error.connection_timeout" = "Connection timed out. No motion data received within 5 seconds.";
+"motion.error.airpods_disconnected" = "AirPods disconnected or switched to another device.";
+"motion.error.connection_lost" = "Connection lost. No data received for 5 seconds.";
 
 /* Controls */
 "control.dwell_click" = "Dwell Click";
@@ -44,7 +53,7 @@
 "control.always_listening" = "Always Listening";
 "control.llm_enhance_dictation" = "LLM Enhance Dictation";
 "control.push_to_talk_hint" = "Push-to-talk: hold ⌃⌥V. Always Listening: say “Aether …”";
-"control.emergency_stop_hint" = "Emergency Stop: ⌃⌥S";
+"control.toggle_tracking_hint" = "Toggle Tracking";
 
 /* Actions */
 "action.activate_perception" = "Activate Perception";
@@ -63,8 +72,17 @@
 "menu.voice" = "Voice";
 "menu.driver" = "Driver";
 "menu.activate_driver" = "Activate Driver";
-"menu.start_pointer" = "Start Pointer (⌃⌥S)";
-"menu.stop_pointer" = "Stop Pointer (⌃⌥S)";
+"menu.start_pointer" = "Start Pointer";
+"menu.stop_pointer" = "Stop Pointer";
 "menu.recenter_pointer" = "Recenter Pointer";
 "menu.show_window" = "Show Window";
 "menu.quit" = "Quit";
+
+/* Hotkeys */
+"hotkey.section_title" = "Hotkeys";
+"hotkey.toggle_tracking" = "Toggle Tracking";
+"hotkey.connection_lock" = "Connection Lock";
+"hotkey.push_to_talk" = "Push-to-Talk";
+"hotkey.press_key" = "Press key…";
+"hotkey.reset_all" = "Reset All";
+"hotkey.reset_single" = "Reset to default";

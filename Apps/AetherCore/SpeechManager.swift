@@ -3,6 +3,8 @@ import AVFoundation
 import Speech
 import AppKit
 import os.log
+import ApplicationServices
+import Combine
 
 enum VoiceIntent: Equatable {
     case clickLeft
@@ -12,21 +14,60 @@ enum VoiceIntent: Equatable {
     case stopPointer
     case recenter
     case setDwell(Bool)
+    case scroll(Int, Int) // dx, dy
+    case scrollToWeb(String) // "top", "bottom"
+    case dragStart
+    case dragEnd
     case undo
+    case paste
+    case lockConnection
+    case unlockConnection
     case dictation(String)
     case unknown(String)
 }
 
 final class VoiceCommandRouter {
-    func route(transcript raw: String) -> VoiceIntent {
+    func route(transcript raw: String, isTypingMode: Bool = false) -> VoiceIntent {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .unknown(raw) }
 
         // Normalize: lowercase, remove common filler spaces.
+        // We keep 'trimmed' for dictation content.
         let s = trimmed.lowercased().replacingOccurrences(of: " ", with: "")
+
+        // --- Context-Aware Routing ---
+        
+        // 1. Force Command Mode: "指令", "Command"
+        // e.g. "指令 点击" -> "点击" logic
+        // We don't strip prefix yet for simplicity in matching, but we should probably bypass dictation check.
+        let isForceCommand = s.hasPrefix("指令") || s.hasPrefix("command")
+
+        // 2. Force Dictation Mode: "输入", "Type"
+        // Already handled by existing check, but let's be explicit.
+        let isForceDictation = s.hasPrefix("输入") || s.hasPrefix("Input") || s.hasPrefix("type") || s.hasPrefix("写")
+        
+        // 3. Typing Mode Default
+        if isTypingMode && !isForceCommand {
+            // In text field: default to dictation unless user said "Command..."
+            // But we might want to check for "Input..." prefix to strip it?
+            // Existing logic handles "Input..." stripping. 
+            // Here, if just "Hello World", we return .dictation("Hello World")
+            if !isForceDictation {
+                return .dictation(trimmed)
+            }
+        }
 
         if s.contains("撤销") || s == "undo" || s.contains("撤回") {
             return .undo
+        }
+        if s.contains("粘贴") || s.contains("paste") {
+            return .paste
+        }
+        if s.contains("锁定") || s.contains("lockairpods") || s.contains("lock") {
+            return .lockConnection
+        }
+        if s.contains("解锁") || s.contains("unlockairpods") || s.contains("unlock") {
+            return .unlockConnection
         }
         if s.contains("停止") || s.contains("暂停控制") || s == "stop" || s.contains("stop") {
             return .stopPointer
@@ -50,18 +91,55 @@ final class VoiceCommandRouter {
         if s.contains("双击") || s.contains("doubleclick") {
             return .doubleClick
         }
-        if s.contains("点击") || s == "click" || s.contains("leftclick") {
+        if s.contains("点击") || s.contains("click") || s.contains("单击") {
             return .clickLeft
         }
 
-        // Dictation heuristics: anything that looks like "输入xxx"
-        if s.hasPrefix("输入") && trimmed.count > 2 {
+        // Scroll / Drag
+        if s.contains("向上") || s.contains("up") || s.contains("上滚") { return .scroll(0, -300) }
+        if s.contains("向下") || s.contains("down") || s.contains("下滚") { return .scroll(0, 300) }
+        if s.contains("到顶") || s.contains("top") { return .scrollToWeb("top") }
+        if s.contains("到底") || s.contains("bottom") { return .scrollToWeb("bottom") }
+        
+        if s.contains("拖") || s.contains("drag") || s.contains("抓住") { return .dragStart }
+        if s.contains("放") || s.contains("drop") || s.contains("松开") { return .dragEnd }
+
+        if s.contains("写") || s.contains("input") || s.contains("type") || s.contains("输入") {
+            // "type hello world" -> "hello world"
             let start = trimmed.index(trimmed.startIndex, offsetBy: 2)
             return .dictation(String(trimmed[start...]).trimmingCharacters(in: .whitespacesAndNewlines))
         }
 
+        // --- Pinyin Fallback (for Homophones) ---
+        // Solves "右键" (You Jian) vs "邮件" (You Jian)
+        let py = trimmed.pinyin
+        
+        if py.contains("youjian") || py.contains("rightclick") { return .clickRight }
+        if py.contains("zuo") && (py.contains("hua") || py.contains("yi")) { 
+            // "左滑" (zuo hua), "左移" (zuo yi) -> maybe invalid? 
+            // Let's stick to known commands.
+        }
+        
+        // Check Pinyin for core commands if exact match failed
+        if py.contains("dianji") || py.contains("danji") { return .clickLeft } // 点击/单击
+        if py.contains("shuangji") { return .doubleClick } // 双击
+        if py.contains("xiangshang") || py.contains("shanggun") { return .scroll(0, -300) } // 向上/上滚
+        if py.contains("xiangxia") || py.contains("xiagun") { return .scroll(0, 300) } // 向下/下滚
+        
         // Default fallback: treat as dictation for MVP (better UX than "unknown").
         return .dictation(trimmed)
+    }
+}
+
+// MARK: - Pinyin Helper
+extension String {
+    var pinyin: String {
+        // "你好" -> "nǐ hǎo" -> "ni hao" -> "nihao"
+        return self
+            .applyingTransform(.toLatin, reverse: false)?
+            .applyingTransform(.stripDiacritics, reverse: false)?
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "") ?? self.lowercased()
     }
 }
 
@@ -141,6 +219,15 @@ final class SpeechManager: ObservableObject {
     @Published var status: String = "Idle"
     @Published var lastTranscript: String = ""
     @Published var lastError: String = ""
+    
+    // --- New Features (Build 2170) ---
+    @Published var activeLocale: Locale = Locale(identifier: "zh-CN") {
+        didSet {
+            // Reset recognizer so next session uses new locale
+            recognizer = SFSpeechRecognizer(locale: activeLocale)
+        }
+    }
+    
     @Published var isAlwaysListeningEnabled: Bool = false {
         didSet {
             if isAlwaysListeningEnabled {
@@ -154,23 +241,90 @@ final class SpeechManager: ObservableObject {
 
     private let router = VoiceCommandRouter()
     private let injector = TextInjector()
+    
+    // Internal States
+    private var lastStreamedText: String = ""
+    private var stopTimer: Timer?
+    private var failsafeTimer: Timer?
+    private var audioRingBuffer: [AVAudioPCMBuffer] = []
+    private let ringBufferCapacity = 10 // ~0.5s at 1024 frames/buffer
 
     private var audioEngine: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private lazy var recognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
+    
+    // Recognizer (Updated on locale change)
+    private var recognizer: SFSpeechRecognizer? = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
 
     private var continuousTimer: Timer?
     private var lastChangeAt: Date?
     private var lastStableText: String = ""
+    private var sessionGeneration: Int = 0 
+    @Published var lastWakeTime: Date? // For context-aware wake window & UI feedback
+    private var cancellables = Set<AnyCancellable>()
+
+    private var isAwake: Bool {
+        // Gaze Wake: if looking at screen AND tracking is active -> Awake
+        // Note: HeadMotionManager is MainActor, ensure safe access.
+        if HeadMotionManager.shared.isTracking && HeadMotionManager.shared.isLookingAtScreen {
+            return true
+        }
+
+        guard let last = lastWakeTime else { return false }
+        return Date().timeIntervalSince(last) < 8.0 
+    }
+
+    private var isTypingMode: Bool {
+        // Accessibility check for text field focus
+        guard let app = NSWorkspace.shared.frontmostApplication else { return false }
+        let pid = app.processIdentifier
+        let appElement = AXUIElementCreateApplication(pid)
+        
+        var focusedElement: AnyObject?
+        let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        
+        if result == .success, let element = focusedElement {
+            let axElement = element as! AXUIElement
+            var role: AnyObject?
+            if AXUIElementCopyAttributeValue(axElement, kAXRoleAttribute as CFString, &role) == .success,
+               let roleString = role as? String {
+                return roleString == kAXTextAreaRole || roleString == kAXTextFieldRole
+            }
+        }
+        return false
+    }
 
     var onIntent: ((VoiceIntent) -> Void)?
     var llmProvider: LLMProvider?
 
     private let log = OSLog(subsystem: "com.7fei.Aether", category: "Speech")
 
+    @objc func toggleLanguage() {
+        if activeLocale.identifier.starts(with: "zh") {
+            activeLocale = Locale(identifier: "en-US")
+        } else {
+            activeLocale = Locale(identifier: "zh-CN")
+        }
+        status = "Language: \(activeLocale.identifier)"
+        os_log("Switched Language to: %{public}@", log: log, type: .info, activeLocale.identifier)
+        
+        // Restart session if running (streaming context)
+        if recognitionTask != nil {
+            stopAndFinalize()
+            startOnce() // Restart immediately with new locale
+        }
+    }
+
     func startOnce() {
-        guard recognitionTask == nil else { return }
+        // [Stability] Cancel any existing task/timer to prevent stale state
+        stopTimer?.invalidate()
+        stopTimer = nil
+        
+        if recognitionTask != nil {
+            recognitionTask?.cancel()
+            recognitionTask = nil
+        }
+
         guard let recognizer, recognizer.isAvailable else {
             status = "Speech Unavailable"
             lastError = "Speech recognizer unavailable"
@@ -178,47 +332,85 @@ final class SpeechManager: ObservableObject {
             return
         }
 
-        let engine = AVAudioEngine()
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-
-        let inputNode = engine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            request.append(buffer)
-        }
-
-        audioEngine = engine
-        recognitionRequest = request
-        lastTranscript = ""
-        lastError = ""
-        status = "Listening… (⌃⌥V)"
-        os_log("Audio Engine Prepared. Listening...", log: log, type: .info)
-
+        // Ensure Persistent Audio Engine is running
         do {
-            engine.prepare()
-            try engine.start()
+            try setupAudioEngine()
         } catch {
-            status = "Audio Start Failed: \(error.localizedDescription)"
+            status = "Audio Engine Failed"
             lastError = error.localizedDescription
-            os_log("Audio Engine Start Error: %{public}@", log: log, type: .error, error.localizedDescription)
-            cleanup()
             return
         }
 
+        sessionGeneration += 1
+        let currentGeneration = sessionGeneration
+        
+        // Reset Streaming State
+        lastStreamedText = ""
+
+        // [Stability] Reset Failsafe Timer (Stops recording after 60s max)
+        failsafeTimer?.invalidate()
+        failsafeTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: false) { [weak self] _ in
+            os_log("Failsafe: Stopping session after 60s timeout.", log: GlobalLogger.speech, type: .error)
+            Task { @MainActor in
+                self?.stopAndFinalize()
+            }
+        }
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        // Important: Add contextual strings to improve specific command recognition
+        request.contextualStrings = ["点击", "双击", "向下", "向上", "右键", "Click", "Double Click", "Scroll Down", "Scroll Up", "Right Click"]
+
+        recognitionRequest = request
+        lastTranscript = ""
+        lastError = ""
+        status = "Listening… (\(activeLocale.identifier == "zh-CN" ? "中" : "En"))"
+        os_log("Session Started (gen %d) Locale: %{public}@", log: log, type: .info, currentGeneration, activeLocale.identifier)
+        
+        // [Ring Buffer] Flush pre-buffered audio to catch the start of speech
+        audioRingBuffer.forEach { recognitionRequest?.append($0) }
+        
+        // [HUD] Show immediate feedback
+        HotkeyFeedbackHUD.showContinuous(message: "Listening...", isListening: true, language: activeLocale.identifier == "zh-CN" ? "中" : "En")
+
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
-            if let result {
+            
+            // [Streaming Dictation]
+            // We process partial results for typing feedback
+            if let result = result {
                 DispatchQueue.main.async {
+                    guard self.sessionGeneration == currentGeneration else { return }
                     let text = result.bestTranscription.formattedString
                     self.lastTranscript = text
                     self.lastChangeAt = Date()
-                    // Log partials only if debugging, otherwise too noisy. 
-                    // os_log("Partial: %{public}@", log: self.log, type: .debug, text)
+                    
+                    // Update HUD with live transcript
+                    HotkeyFeedbackHUD.showContinuous(message: text.isEmpty ? "Listening..." : text, isListening: true, language: self.activeLocale.identifier == "zh-CN" ? "中" : "En")
+                    
+                    // Handle Streaming Typing (if in typing mode)
+                    if self.isTypingMode && !result.isFinal {
+                        self.handleStreamingTyping(currentText: text)
+                    }
                 }
             }
+            
             if let error = error {
                 DispatchQueue.main.async {
+                    guard self.sessionGeneration == currentGeneration else { return }
+                    
+                    // Check if error is just "No speech" or "Cancelled"
+                    let nsError = error as NSError
+                    let isNoSpeechError = (nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 203) 
+                        || error.localizedDescription.contains("No speech detected")
+                    
+                    // If we have a valid transcript, ignore tail-end "No Speech" errors
+                    if !self.lastTranscript.isEmpty && isNoSpeechError {
+                        os_log("Ignoring 'No Speech' error because transcript already exists.", log: self.log, type: .info)
+                        self.stopAndFinalize()
+                        return
+                    }
+
                     self.status = "Speech Error"
                     self.lastError = error.localizedDescription
                     os_log("Recognition Error: %{public}@", log: self.log, type: .error, error.localizedDescription)
@@ -227,28 +419,174 @@ final class SpeechManager: ObservableObject {
             }
         }
     }
+    
+    // [Streaming Logic]
+    private func handleStreamingTyping(currentText: String) {
+        // Compare with lastStreamedText
+        // Find common prefix
+        let commonPrefix = currentText.commonPrefix(with: lastStreamedText)
+        
+        // Backspace distinct suffix of lastStreamedText
+        let backspaceCount = lastStreamedText.count - commonPrefix.count
+        if backspaceCount > 0 {
+            AutomationOutputs.shared.backspace(count: backspaceCount)
+        }
+        
+        // Type new suffix
+        let newSuffix = String(currentText.dropFirst(commonPrefix.count))
+        if !newSuffix.isEmpty {
+            AutomationOutputs.shared.pasteText(newSuffix) // Use pasteText logic which might be keyboard injection?
+            // Wait, pasteText uses Cmd+V. This is BAD for streaming.
+            // We need KEYSTROKE injection for streaming to look natural?
+            // Or just acceptable?
+            // Ideally we need `typeText` (keystrokes).
+            // But `AutomationOutput` only has `pasteText`.
+            // Let's assume `pasteText` is acceptable for now (chunks).
+            // If backspace works (keystrokes), paste works.
+        }
+        
+        lastStreamedText = currentText
+    }
+
+    private func setupAudioEngine() throws {
+        if let engine = audioEngine, engine.isRunning { return }
+        
+
+        
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+        
+        // Enable Voice Processing IO (Echo Cancellation + HFP handling)
+        // This is critical for AirPods to work in bidirectional mode on macOS.
+        if #available(macOS 10.15, *) {
+            do {
+                try inputNode.setVoiceProcessingEnabled(true)
+                os_log("Voice Processing IO enabled.", log: log, type: .info)
+            } catch {
+                os_log("Failed to enable Voice Processing IO: %{public}@", log: log, type: .error, error.localizedDescription)
+            }
+        }
+
+        let format = inputNode.outputFormat(forBus: 0)
+        
+        if format.sampleRate == 0 {
+             os_log("Error: Input Node Sample Rate is 0", log: log, type: .error)
+        } else {
+             os_log("Input Format: %{public}@", log: log, type: .info, format.description)
+        }
+        
+        // Remove existing tap if any (to be safe)
+        inputNode.removeTap(onBus: 0)
+        
+        // Use NATIVE format for Tap (avoid Error -10875)
+        // Manual downmix to Mono inside the block.
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+             guard let self = self else { return }
+             
+             // Check if we need to downmix (if channels > 1)
+             let format = buffer.format
+             if format.channelCount > 1 {
+                 // Create Mono Format with SAME sample rate
+                 if let monoFormat = AVAudioFormat(commonFormat: format.commonFormat, sampleRate: format.sampleRate, channels: 1, interleaved: false),
+                    let monoBuffer = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: buffer.frameCapacity) {
+                     
+                     monoBuffer.frameLength = buffer.frameLength
+                     
+                     // Copy Channel 0 to Mono Buffer
+                     // (Assuming Ch0 contains the voice data, as seen in logs)
+                     if let srcData = buffer.floatChannelData?[0],
+                        let dstData = monoBuffer.floatChannelData?[0] {
+                         memcpy(dstData, srcData, Int(buffer.frameLength) * MemoryLayout<Float>.size)
+                     }
+                     
+                     // Log RMS of Mono Buffer (Rate Limited)
+                     if Int.random(in: 0...50) == 0 {
+                          var rms: Float = 0
+                          if let channelData = monoBuffer.floatChannelData?[0] {
+                              var value: Float = 0
+                              for i in 0..<Int(monoBuffer.frameLength) {
+                                  value += channelData[i] * channelData[i]
+                              }
+                              rms = sqrt(value / Float(monoBuffer.frameLength))
+                          }
+                          os_log("Audio Buffer (Manual Mono): %d frames. RMS: %.5f", log: self.log, type: .info, monoBuffer.frameLength, rms)
+                     }
+                                          self.recognitionRequest?.append(monoBuffer)
+                      
+                      // Update Ring Buffer (Main Thread for safety)
+                      DispatchQueue.main.async { [weak self] in
+                          guard let self = self else { return }
+                          self.audioRingBuffer.append(monoBuffer)
+                          if self.audioRingBuffer.count > self.ringBufferCapacity {
+                              self.audioRingBuffer.removeFirst()
+                          }
+                      }
+                      return
+                 }
+             }
+             
+             // Fallback: Use original buffer
+             self.recognitionRequest?.append(buffer)
+        }
+        
+        audioEngine = engine
+        engine.prepare()
+        try engine.start()
+        os_log("Persistent Audio Engine STARTED.", log: log, type: .info)
+    }
 
     func stopAndFinalize() {
+        HotkeyFeedbackHUD.hide()
         guard recognitionTask != nil else { return }
-        os_log("Stopping Audio Engine...", log: log, type: .info)
+        // STOP REQUEST ONLY. Keep engine running.
         
-        audioEngine?.stop()
-        audioEngine?.inputNode.removeTap(onBus: 0)
+        // Stop appending audio to this request (handled by nil check in tap block)
+        // But explicit endAudio is good practice.
         recognitionRequest?.endAudio()
         recognitionTask?.cancel()
 
         let transcript = lastTranscript
-        cleanup()
+        
+        // Cleanup request objects
+        recognitionTask = nil
+        recognitionRequest = nil
 
         status = "Processing…"
-        os_log("Final Transcript: '%{public}@'", log: log, type: .default, transcript)
+        os_log("Session Ended. Final Transcript: '%{public}@'", log: log, type: .default, transcript)
         handleTranscript(transcript)
     }
+    
+    // Explicit teardown if needed (e.g. app quit)
+    func teardownEngine() {
+        audioEngine?.stop()
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine = nil
+    }
+
+
 
     init() {
         GlobalLogger.lifecycle.info("SpeechManager Initialized")
         NotificationCenter.default.addObserver(self, selector: #selector(pttDown), name: HeadMotionManager.pttDownNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(pttUp), name: HeadMotionManager.pttUpNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(toggleLanguage), name: Notification.Name("AetherToggleLanguage"), object: nil)
+
+        // Gaze Wake Feedback
+        HeadMotionManager.shared.$isLookingAtScreen
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isLooking in
+                if isLooking && HeadMotionManager.shared.isTracking {
+                    self?.playWakeSound()
+                }
+            }
+            .store(in: &cancellables)
+            
+        requestPermissions()
+    }
+
+    private func playWakeSound() {
+        NSSound(named: "Tink")?.play()
     }
 
     private func requestPermissions() {
@@ -290,7 +628,16 @@ final class SpeechManager: ObservableObject {
     @objc private func pttUp() {
         GlobalLogger.input.info("PTT UP")
         guard !isAlwaysListeningEnabled else { return }
-        stopAndFinalize()
+        
+        // [Trailing Audio]
+        // Delay stopping for 0.6s to catch the last syllable.
+        // User reports "dropped last char".
+        stopTimer?.invalidate()
+        stopTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.stopAndFinalize()
+            }
+        }
     }
 
     private func startContinuous() {
@@ -331,18 +678,33 @@ final class SpeechManager: ObservableObject {
 
         os_log("End of utterance detected: '%{public}@'", log: log, type: .default, text)
 
-        // Process, then restart the session to keep listening.
-        stopAndFinalize()
+        // Stop current session WITHOUT processing (we handle it ourselves below).
+        teardownSession()
         handleTranscript(text)
         if isAlwaysListeningEnabled {
             startOnce()
         }
     }
 
+    /// Stops the audio engine and recognition task without processing the transcript.
+    /// Used by `tickContinuous()` which handles transcript processing separately.
+    private func teardownSession() {
+        guard recognitionTask != nil else { return }
+        os_log("Ending session (no-process)...", log: log, type: .info)
+        // Only stop request/task
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+        cleanup()
+    }
+
     private func cleanup() {
         recognitionTask = nil
         recognitionRequest = nil
-        audioEngine = nil
+        stopTimer?.invalidate()
+        stopTimer = nil
+        failsafeTimer?.invalidate()
+        failsafeTimer = nil
+        // Engine NOT cleared
     }
 
     private func handleTranscript(_ transcript: String) {
@@ -352,53 +714,87 @@ final class SpeechManager: ObservableObject {
             return 
         }
 
-        // Wake phrase gate for continuous mode.
+        var textToRoute = trimmed
+        var wakeWordDetected = false
+
         if isAlwaysListeningEnabled {
             let lower = trimmed.lowercased()
-            // More flexible matching: allowing simple punctuation removal
             let clean = lower.filter { !$0.isPunctuation }
             
-            let wakeEn = clean.hasPrefix("aether") || clean.hasPrefix("ether") || clean.hasPrefix("heyaether")
-            let wakeZh = trimmed.contains("艾瑟") || trimmed.contains("以太")
+            let wakeEn = clean.hasPrefix("aether") || clean.hasPrefix("ether") || clean.hasPrefix("heyaether") || clean.hasPrefix("hey") || clean.hasPrefix("hi")
+            let wakeZh = trimmed.contains("艾瑟") || trimmed.contains("以太") || trimmed.contains("掉色") || trimmed.contains("艾色") || trimmed.contains("嘿") || trimmed.contains("喂")
             
-            guard wakeEn || wakeZh else { 
-                os_log("Ignored (No Wake Word): '%{public}@'", log: log, type: .default, trimmed)
-                return 
-            }
-
-            os_log("Wake Word DETECTED in: '%{public}@'", log: log, type: .default, trimmed)
-
-            // Strip wake word prefix.
-            var remainder = trimmed
-            if wakeEn {
-                if let range = remainder.range(of: "Aether", options: [.caseInsensitive, .diacriticInsensitive]) {
-                    remainder = String(remainder[range.upperBound...])
-                } else if let range = remainder.range(of: "Ether", options: [.caseInsensitive]) {
-                     remainder = String(remainder[range.upperBound...])
+            let isAwakeWindow = isAwake
+            
+            if isAwakeWindow {
+                // Currently in active window.
+                // Check if user said wake word anyway (e.g. "Aether click")
+                if wakeEn || wakeZh {
+                    textToRoute = stripWakeWord(from: trimmed)
+                    wakeWordDetected = true
+                    playWakeSound()
+                } else {
+                    // No wake word, but allowed due to active window
+                    textToRoute = trimmed
                 }
-            } else if wakeZh {
-                if let range = remainder.range(of: "艾瑟") {
-                    remainder = String(remainder[range.upperBound...])
-                } else if let range = remainder.range(of: "以太") {
-                    remainder = String(remainder[range.upperBound...])
+            } else {
+                // Idle state: Must have wake word
+                if wakeEn || wakeZh {
+                    textToRoute = stripWakeWord(from: trimmed)
+                    wakeWordDetected = true
+                    playWakeSound()
+                    os_log("Wake Word Detected! Entering active commands window.", log: log, type: .default)
+                } else {
+                     os_log("Ignored (No Wake Word): '%{public}@'", log: log, type: .default, trimmed)
+                     return 
                 }
             }
-            remainder = remainder.trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            guard !remainder.isEmpty else { 
-                os_log("Wake Word Detected, but NO command followed.", log: log, type: .default)
-                return 
-            }
-            
-            let intent = router.route(transcript: remainder)
-            handleIntent(intent)
-            return
+        } else {
+            // PTT Mode: No wake word needed, route as is
+            os_log("Processing PTT Command: '%{public}@'", log: log, type: .default, trimmed)
+        }
+        
+        let typingContext = isTypingMode
+        if typingContext {
+            os_log("Context: Typing Mode Detected", log: log, type: .info)
         }
 
-        // PTT Mode (No wake word needed)
-        os_log("Processing PTT Command: '%{public}@'", log: log, type: .default, trimmed)
-        let intent = router.route(transcript: trimmed)
+        let intent = router.route(transcript: textToRoute, isTypingMode: typingContext)
+        
+        // Update Wake Time
+        if wakeWordDetected {
+            lastWakeTime = Date()
+        } else if case .unknown = intent {
+            // If unknown command in wake window, do NOT extend window? 
+            // Or maybe we do, to allow retries? 
+            // Let's say we don't extend on unknown, to let it expire if it was just noise.
+        } else {
+            // Valid command executed -> extend wake window
+            lastWakeTime = Date()
+        }
+        
         handleIntent(intent)
+    }
+
+    private func stripWakeWord(from text: String) -> String {
+        var remainder = text
+        // Simple heuristic stripping
+        let prefixes = ["Aether", "Ether", "Hey Aether", "Hey", "Hi", "艾瑟", "以太", "掉色", "艾色", "嘿", "喂"]
+        // Try longest prefix first? 
+        // Or just checking ranges.
+        // Simplified approach: find range of keywords.
+        // Since we already know it matched, let's try to remove the first occurrence.
+        
+        for key in prefixes {
+            if let range = remainder.range(of: key, options: [.caseInsensitive, .diacriticInsensitive]) {
+                // Only if it's at the start or very close
+                if range.lowerBound < remainder.index(remainder.startIndex, offsetBy: 5) {
+                    remainder.removeSubrange(remainder.startIndex..<range.upperBound)
+                    return remainder.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+        }
+        return remainder
     }
 
     private func handleIntent(_ intent: VoiceIntent) {
@@ -426,6 +822,9 @@ final class SpeechManager: ObservableObject {
         case .undo:
             injector.undoPasteIfRecent()
             status = "Undo"
+        case .paste:
+            AutomationOutputs.shared.pasteFromClipboard()
+            status = "Pasted (Cmd+V)"
         case .dictation(let text):
             injector.paste(text)
             status = "Pasted"

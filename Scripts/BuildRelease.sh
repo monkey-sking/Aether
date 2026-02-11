@@ -38,7 +38,7 @@ xcodebuild -project Aether.xcodeproj \
   -derivedDataPath "$DERIVED_DATA_PATH" \
   build \
   CONFIGURATION_BUILD_DIR="$BUILD_DIR" \
-  "${EXTRA_BUILD_FLAGS[@]}"
+  ${EXTRA_BUILD_FLAGS[@]+"${EXTRA_BUILD_FLAGS[@]}"}
 
 if [[ ! -d "${BUILD_DIR}/${APP_NAME}.app" ]]; then
   echo "Build finished but ${APP_NAME}.app not found at ${BUILD_DIR}/${APP_NAME}.app" >&2
