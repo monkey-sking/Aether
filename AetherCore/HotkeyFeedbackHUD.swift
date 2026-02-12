@@ -131,34 +131,148 @@ final class HotkeyFeedbackHUD {
         self.hudWindow = panel
     }
     
+    private var caretRect: CGRect?
+    
+    private func updateCaretRect() {
+        // Run on background to avoid blocking UI
+        DispatchQueue.global(qos: .userInteractive).async {
+            var newRect: CGRect? = nil
+            
+            // 1. Get System-wide Element
+            let systemWide = AXUIElementCreateSystemWide()
+            
+            // 2. Get Focused Application
+            var focusedApp: CFTypeRef?
+            if AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute as CFString, &focusedApp) == .success {
+                let appElement = focusedApp as! AXUIElement
+                
+                // 3. Get Focused Element (Text Area)
+                var focusedElement: CFTypeRef?
+                if AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success {
+                    let element = focusedElement as! AXUIElement
+                    
+                    // 4. Get Selected Text Range
+                    var selectedRangeValue: CFTypeRef?
+                    if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success {
+                        // 5. Get Bounds for Range
+                        var boundsValue: CFTypeRef?
+                        if AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, selectedRangeValue!, &boundsValue) == .success {
+                            var rect = CGRect.zero
+                            if AXValueGetValue(boundsValue as! AXValue, .cgRect, &rect) {
+                                // Y-coordinate flip? AX coordinates are usually top-left (screen 0,0).
+                                // Cocoa uses bottom-left. We might need to flip Y.
+                                // Actually, AX coordinates are Top-Left relative to primary screen.
+                                // We need to convert to Cocoa screen coordinates (Bottom-Left).
+                                if let screenHeight = NSScreen.screens.first?.frame.height {
+                                     rect.origin.y = screenHeight - rect.origin.y - rect.height
+                                }
+                                newRect = rect
+                            }
+                        }
+                    }
+                }
+            }
+            
+            DispatchQueue.main.async {
+                self.caretRect = newRect
+            }
+        }
+    }
+
     private func repositionWindow() {
         guard let panel = hudWindow else { return }
         
-        // Follow Mouse Logic
-        let mouseLoc = NSEvent.mouseLocation
-        // Flip Y for screen coordinates (Bottom-Left origin)
-        // NSEvent.mouseLocation is already bottom-left relative to screen 0?
-        // Yes, verify: screen 0 is usually main.
+        // Refresh caret info periodically (throttled by the caller timer)
+        updateCaretRect()
         
-        // Panel size
+        let mouseLoc = NSEvent.mouseLocation // Bottom-Left Reference
+        
+        // HUD Size
         panel.contentView?.layoutSubtreeIfNeeded()
         let size = panel.contentView?.fittingSize ?? CGSize(width: 200, height: 60)
+        let padding: CGFloat = 20
         
-        // Position: 20px below/right of cursor
-        var x = mouseLoc.x + 20
-        var y = mouseLoc.y - size.height - 20
+        // Define Collision Zones (Keep-Out Areas)
+        var zones: [CGRect] = []
         
-        // Constrain to screen
-        if let screen = NSScreen.main {
-            let frame = screen.visibleFrame
-            x = max(frame.minX, min(x, frame.maxX - size.width))
-            y = max(frame.minY, min(y, frame.maxY - size.height))
+        // Zone 1: Mouse Cursor (small box around it)
+        let mouseZone = CGRect(x: mouseLoc.x - 20, y: mouseLoc.y - 20, width: 40, height: 40)
+        zones.append(mouseZone)
+        
+        // Zone 2: Text Caret (if exists)
+        if let caret = caretRect {
+            // Expand caret rect slightly for breathing room
+            zones.append(caret.insetBy(dx: -10, dy: -5)) 
         }
         
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
-        // Resize if needed
-        if panel.frame.size != size {
-             panel.setContentSize(size)
+        // Candidate Positions using anchors relative to Mouse
+        // 1. Bottom-Right (Standard)
+        // 2. Top-Right
+        // 3. Bottom-Left
+        // 4. Top-Left
+        
+        // Anchor point is Mouse
+        let anchor = mouseLoc
+        
+        struct Candidate {
+            let offset: CGPoint
+            let name: String
+        }
+        
+        let candidates: [Candidate] = [
+            Candidate(offset: CGPoint(x: padding, y: -size.height - padding), name: "Bottom-Right"),
+            Candidate(offset: CGPoint(x: padding, y: padding), name: "Top-Right"),
+            Candidate(offset: CGPoint(x: -size.width - padding, y: -size.height - padding), name: "Bottom-Left"),
+            Candidate(offset: CGPoint(x: -size.width - padding, y: padding), name: "Top-Left")
+        ]
+        
+        var bestPos: CGPoint? = nil
+        
+        if let screen = NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            
+            for cand in candidates {
+                let x = anchor.x + cand.offset.x
+                let y = anchor.y + cand.offset.y
+                let frame = CGRect(origin: CGPoint(x: x, y: y), size: size)
+                
+                // 1. Check Screen Bounds
+                if !screenFrame.contains(frame) { continue }
+                
+                // 2. Check Collision
+                var collision = false
+                for zone in zones {
+                    if frame.intersects(zone) {
+                        collision = true
+                        break 
+                    }
+                }
+                
+                if !collision {
+                    bestPos = frame.origin
+                    // self.logger.debug("Picked Position: \(cand.name)")
+                    break
+                }
+            }
+            
+            // Fallback: If all fail (e.g. corner of screen), force limit to screen
+            if bestPos == nil {
+                var x = anchor.x + padding
+                var y = anchor.y - size.height - padding
+                x = max(screenFrame.minX, min(x, screenFrame.maxX - size.width))
+                y = max(screenFrame.minY, min(y, screenFrame.maxY - size.height))
+                bestPos = CGPoint(x: x, y: y)
+            }
+        } else {
+             bestPos = CGPoint(x: mouseLoc.x + padding, y: mouseLoc.y - size.height - padding)
+        }
+        
+        if let pos = bestPos {
+            // Smooth movement? No, snap for responsiveness
+            panel.setFrameOrigin(pos)
+            if panel.frame.size != size {
+                 panel.setContentSize(size)
+            }
         }
     }
     

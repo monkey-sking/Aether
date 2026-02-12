@@ -118,16 +118,8 @@ struct ContentView: View {
                             .cornerRadius(5)
                     }
 
-                    if !appState.lastVoiceTranscript.isEmpty {
-                        Text(appState.lastVoiceTranscript)
-                            .font(.system(.caption, design: .monospaced))
-                            .padding(8)
-                            .background(Color.black.opacity(0.1))
-                            .cornerRadius(5)
-                    }
-                    
-                    StatusRow(icon: "laptopcomputer", title: String(localized: "row.lid_sensor"), status: String(localized: "generic.ready"))
-                    
+
+
                     Toggle(L10n.dwellClick, isOn: $appState.isDwellClickEnabled)
                         .padding(.top, 5)
 

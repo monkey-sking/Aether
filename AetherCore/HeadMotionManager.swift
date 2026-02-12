@@ -45,7 +45,7 @@ class HeadMotionManager: ObservableObject {
     private let accelerationPower: Double = 1.5 // 1.0 is linear, >1.0 is exponential
     
     // Dwell Click State
-    @Published var isDwellClickEnabled: Bool = true
+    @Published var isDwellClickEnabled: Bool = false
     private var dwellStartTime: Date?
     private var lastDwellPos: CGPoint = .zero
     private let dwellRadius: CGFloat = 15.0 // More forgiving radius
