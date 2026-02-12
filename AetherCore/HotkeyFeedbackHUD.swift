@@ -121,7 +121,7 @@ final class HotkeyFeedbackHUD {
             defer: false
         )
         panel.isFloatingPanel = true
-        panel.level = .floating
+        panel.level = .screenSaver
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false // Disable system shadow to avoid square artifacts; SwiftUI handles shadow.
@@ -132,6 +132,7 @@ final class HotkeyFeedbackHUD {
     }
     
     private var caretRect: CGRect?
+    private var lastCaretRect: CGRect?
     
     private func updateCaretRect() {
         // Run on background to avoid blocking UI
@@ -141,40 +142,65 @@ final class HotkeyFeedbackHUD {
             // 1. Get System-wide Element
             let systemWide = AXUIElementCreateSystemWide()
             
-            // 2. Get Focused Application
-            var focusedApp: CFTypeRef?
-            if AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute as CFString, &focusedApp) == .success {
-                let appElement = focusedApp as! AXUIElement
+            // 2. Get Focused Element (Directly from system-wide, handles Spotlight/Overlays)
+            var focusedElement: CFTypeRef?
+            let elementStatus = AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+            
+            if elementStatus == .success {
+                let element = focusedElement as! AXUIElement
                 
-                // 3. Get Focused Element (Text Area)
-                var focusedElement: CFTypeRef?
-                if AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success {
-                    let element = focusedElement as! AXUIElement
+                // 3. Get Selected Text Range
+                var selectedRangeValue: CFTypeRef?
+                let rangeStatus = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue)
+                
+                if rangeStatus == .success {
+                    // 4. Get Bounds for Range
+                    var boundsValue: CFTypeRef?
+                    let boundsStatus = AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, selectedRangeValue!, &boundsValue)
                     
-                    // 4. Get Selected Text Range
-                    var selectedRangeValue: CFTypeRef?
-                    if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success {
-                        // 5. Get Bounds for Range
-                        var boundsValue: CFTypeRef?
-                        if AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, selectedRangeValue!, &boundsValue) == .success {
-                            var rect = CGRect.zero
-                            if AXValueGetValue(boundsValue as! AXValue, .cgRect, &rect) {
-                                // Y-coordinate flip? AX coordinates are usually top-left (screen 0,0).
-                                // Cocoa uses bottom-left. We might need to flip Y.
-                                // Actually, AX coordinates are Top-Left relative to primary screen.
-                                // We need to convert to Cocoa screen coordinates (Bottom-Left).
-                                if let screenHeight = NSScreen.screens.first?.frame.height {
-                                     rect.origin.y = screenHeight - rect.origin.y - rect.height
-                                }
-                                newRect = rect
+                    if boundsStatus == .success {
+                        var rect = CGRect.zero
+                        if AXValueGetValue(boundsValue as! AXValue, .cgRect, &rect) {
+                            if let screenHeight = NSScreen.screens.first?.frame.height {
+                                 rect.origin.y = screenHeight - rect.origin.y - rect.height
                             }
+                            newRect = rect
+                            self.logger.debug("✅ Caret detected at \(rect.debugDescription)")
                         }
+                    } else {
+                        self.logger.error("❌ Failed to get caret bounds: \(boundsStatus.rawValue)")
                     }
+                } else {
+                    // Optional: Try fallback to kAXBoundsAttribute for some generic elements
+                    self.logger.error("❌ Failed to get selected range: \(rangeStatus.rawValue)")
                 }
+            } else {
+                self.logger.error("❌ Failed to get focused element: \(elementStatus.rawValue)")
             }
             
             DispatchQueue.main.async {
+                // Detect "Focus Jump"
+                if let old = self.lastCaretRect, let current = newRect {
+                    let dist = sqrt(pow(old.midX - current.midX, 2) + pow(old.midY - current.midY, 2))
+                    if dist > 50 { // Significant jump (e.g., new window or field)
+                        self.logger.debug("🔄 Focus Jump detected (dist: \(dist)). Force repositioning.")
+                        self.caretRect = current
+                        self.lastCaretRect = current
+                        self.repositionWindow()
+                    }
+                } else if self.lastCaretRect == nil && newRect != nil {
+                    // First focus detected
+                    self.logger.debug("🆕 Initial focus detected at \(newRect!.debugDescription)")
+                    self.caretRect = newRect
+                    self.lastCaretRect = newRect
+                    self.repositionWindow()
+                }
+                
+                // Continuous update without force-repositioning (let followTimer handle small drift)
                 self.caretRect = newRect
+                if newRect != nil {
+                    self.lastCaretRect = newRect
+                }
             }
         }
     }
@@ -192,39 +218,62 @@ final class HotkeyFeedbackHUD {
         let size = panel.contentView?.fittingSize ?? CGSize(width: 200, height: 60)
         let padding: CGFloat = 20
         
-        // Define Collision Zones (Keep-Out Areas)
-        var zones: [CGRect] = []
+        // ---------------------------------------------------------
+        // 1. Determine Anchor & Mode
+        // ---------------------------------------------------------
+        let isTypingMode = self.caretRect != nil
+        let anchor: CGPoint
         
-        // Zone 1: Mouse Cursor (small box around it)
-        let mouseZone = CGRect(x: mouseLoc.x - 20, y: mouseLoc.y - 20, width: 40, height: 40)
-        zones.append(mouseZone)
-        
-        // Zone 2: Text Caret (if exists)
-        if let caret = caretRect {
-            // Expand caret rect slightly for breathing room
-            zones.append(caret.insetBy(dx: -10, dy: -5)) 
+        if isTypingMode, let caret = self.caretRect {
+            // Anchor relative to Caret (Typing Mode)
+            anchor = CGPoint(x: caret.midX, y: caret.minY)
+            // self.logger.debug("⚓️ Anchoring to Caret (Typing Mode)")
+        } else {
+            // Anchor relative to Mouse (Command Mode)
+            anchor = mouseLoc
+            // self.logger.debug("⚓️ Anchoring to Mouse (Command Mode)")
         }
         
-        // Candidate Positions using anchors relative to Mouse
-        // 1. Bottom-Right (Standard)
-        // 2. Top-Right
-        // 3. Bottom-Left
-        // 4. Top-Left
+        // ---------------------------------------------------------
+        // 2. Define High-Priority Avoidance Zones
+        // ---------------------------------------------------------
+        var zones: [CGRect] = []
         
-        // Anchor point is Mouse
-        let anchor = mouseLoc
+        // Always avoid Mouse Cursor
+        let mouseZone = CGRect(x: mouseLoc.x - 15, y: mouseLoc.y - 15, width: 30, height: 30)
+        zones.append(mouseZone)
         
+        // Always avoid Caret (if present)
+        if let caret = self.caretRect {
+            zones.append(caret.insetBy(dx: -5, dy: -2)) 
+        }
+        
+        // ---------------------------------------------------------
+        // 3. Evaluate Candidate Positions
+        // ---------------------------------------------------------
         struct Candidate {
             let offset: CGPoint
             let name: String
         }
         
-        let candidates: [Candidate] = [
-            Candidate(offset: CGPoint(x: padding, y: -size.height - padding), name: "Bottom-Right"),
-            Candidate(offset: CGPoint(x: padding, y: padding), name: "Top-Right"),
-            Candidate(offset: CGPoint(x: -size.width - padding, y: -size.height - padding), name: "Bottom-Left"),
-            Candidate(offset: CGPoint(x: -size.width - padding, y: padding), name: "Top-Left")
-        ]
+        let candidates: [Candidate]
+        if isTypingMode {
+            // Typing Mode: Prefer below or above caret, slightly offset
+            candidates = [
+                Candidate(offset: CGPoint(x: padding, y: -size.height - padding), name: "Caret-Below-Right"),
+                Candidate(offset: CGPoint(x: padding, y: padding), name: "Caret-Above-Right"),
+                Candidate(offset: CGPoint(x: -size.width - padding, y: -size.height - padding), name: "Caret-Below-Left"),
+                Candidate(offset: CGPoint(x: -size.width - padding, y: padding), name: "Caret-Above-Left")
+            ]
+        } else {
+            // Command Mode: Prefer Bottom-Right of mouse
+            candidates = [
+                Candidate(offset: CGPoint(x: padding, y: -size.height - padding), name: "Mouse-Bottom-Right"),
+                Candidate(offset: CGPoint(x: padding, y: padding), name: "Mouse-Top-Right"),
+                Candidate(offset: CGPoint(x: -size.width - padding, y: -size.height - padding), name: "Mouse-Bottom-Left"),
+                Candidate(offset: CGPoint(x: -size.width - padding, y: padding), name: "Mouse-Top-Left")
+            ]
+        }
         
         var bestPos: CGPoint? = nil
         
@@ -236,10 +285,10 @@ final class HotkeyFeedbackHUD {
                 let y = anchor.y + cand.offset.y
                 let frame = CGRect(origin: CGPoint(x: x, y: y), size: size)
                 
-                // 1. Check Screen Bounds
+                // Rule 1: Must be on screen
                 if !screenFrame.contains(frame) { continue }
                 
-                // 2. Check Collision
+                // Rule 2: Must not collide with mouse or caret
                 var collision = false
                 for zone in zones {
                     if frame.intersects(zone) {
@@ -250,25 +299,27 @@ final class HotkeyFeedbackHUD {
                 
                 if !collision {
                     bestPos = frame.origin
-                    // self.logger.debug("Picked Position: \(cand.name)")
                     break
                 }
             }
             
-            // Fallback: If all fail (e.g. corner of screen), force limit to screen
+            // ---------------------------------------------------------
+            // 4. Fallback (Screen Edge Constraints)
+            // ---------------------------------------------------------
             if bestPos == nil {
                 var x = anchor.x + padding
                 var y = anchor.y - size.height - padding
-                x = max(screenFrame.minX, min(x, screenFrame.maxX - size.width))
-                y = max(screenFrame.minY, min(y, screenFrame.maxY - size.height))
+                // Clamp to screen
+                x = max(screenFrame.minX + padding, min(x, screenFrame.maxX - size.width - padding))
+                y = max(screenFrame.minY + padding, min(y, screenFrame.maxY - size.height - padding))
                 bestPos = CGPoint(x: x, y: y)
             }
         } else {
-             bestPos = CGPoint(x: mouseLoc.x + padding, y: mouseLoc.y - size.height - padding)
+             bestPos = CGPoint(x: anchor.x + padding, y: anchor.y - size.height - padding)
         }
         
         if let pos = bestPos {
-            // Smooth movement? No, snap for responsiveness
+            // Apply positioning
             panel.setFrameOrigin(pos)
             if panel.frame.size != size {
                  panel.setContentSize(size)
