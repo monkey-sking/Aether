@@ -312,21 +312,9 @@ final class SpeechManager: ObservableObject {
 
     private let log = OSLog(subsystem: "com.7fei.Aether", category: "Speech")
     
-    // MARK: - Localization Helper
-    private func localize(_ key: String) -> String {
-        let isChinese = activeLocale.identifier.starts(with: "zh")
-        switch key {
-        case "Listening...": return isChinese ? "正在聆听..." : "Listening..."
-        case "Idle": return isChinese ? "空闲" : "Idle"
-        case "Speech Unavailable": return isChinese ? "语音不可用" : "Speech Unavailable"
-        case "Audio Engine Failed": return isChinese ? "音频引擎失败" : "Audio Engine Failed"
-        case "Pasted": return isChinese ? "已粘贴" : "Pasted"
-        case "Undo": return isChinese ? "撤销" : "Undo"
-        case "Done": return isChinese ? "完成" : "Done"
-        case "Done (Streamed)": return isChinese ? "完成 (已上屏)" : "Done (Streamed)"
-        case "Speech Error": return isChinese ? "识别错误" : "Speech Error"
-        default: return key
-        }
+    // Helper to use NSLocalizedString which handles dynamic strings better than String(localized:)
+    private func setStatus(_ key: String) {
+        self.status = NSLocalizedString(key, comment: "")
     }
 
     @objc func toggleLanguage() {
@@ -356,7 +344,7 @@ final class SpeechManager: ObservableObject {
         }
 
         guard let recognizer, recognizer.isAvailable else {
-            status = self.localize("Speech Unavailable")
+            status = NSLocalizedString("speech.unavailable", comment: "")
             lastError = "Speech recognizer unavailable"
             os_log("Error: Speech recognizer unavailable", log: log, type: .error)
             return
@@ -366,7 +354,7 @@ final class SpeechManager: ObservableObject {
         do {
             try setupAudioEngine()
         } catch {
-            status = self.localize("Audio Engine Failed")
+            status = NSLocalizedString("speech.error", comment: "") // Generic error for engine
             lastError = error.localizedDescription
             return
         }
@@ -398,14 +386,14 @@ final class SpeechManager: ObservableObject {
         recognitionRequest = request
         lastTranscript = ""
         lastError = ""
-        status = self.localize("Listening...") + " (\(activeLocale.identifier.starts(with: "zh") ? "中" : "En"))"
+        status = NSLocalizedString("speech.listening", comment: "") + " (\(activeLocale.identifier.starts(with: "zh") ? "中" : "En"))"
         os_log("Session Started (gen %d) Locale: %{public}@", log: log, type: .info, currentGeneration, activeLocale.identifier)
         
         // [Ring Buffer] Flush pre-buffered audio to catch the start of speech
         audioRingBuffer.forEach { recognitionRequest?.append($0) }
         
         // [HUD] Show immediate feedback
-        HotkeyFeedbackHUD.showContinuous(message: self.localize("Listening..."), isListening: true, language: activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: isDictating)
+        HotkeyFeedbackHUD.showContinuous(message: NSLocalizedString("speech.listening", comment: ""), isListening: true, language: activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: isDictating)
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
@@ -420,7 +408,7 @@ final class SpeechManager: ObservableObject {
                     self.lastChangeAt = Date()
                     
                     // Update HUD with live transcript
-                    HotkeyFeedbackHUD.showContinuous(message: text.isEmpty ? self.localize("Listening...") : text, isListening: true, language: self.activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: self.isDictating)
+                    HotkeyFeedbackHUD.showContinuous(message: text.isEmpty ? NSLocalizedString("speech.listening", comment: "") : text, isListening: true, language: self.activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: self.isDictating)
                     
                     // Handle Streaming Typing (if in typing mode)
                     if self.isTypingMode && !result.isFinal {
@@ -468,7 +456,7 @@ final class SpeechManager: ObservableObject {
                         return
                     }
 
-                    self.status = self.localize("Speech Error")
+                    self.status = NSLocalizedString("speech.error", comment: "")
                     self.lastError = error.localizedDescription
                     os_log("Recognition Error: %{public}@", log: self.log, type: .error, error.localizedDescription)
                     self.stopAndFinalize()
@@ -704,7 +692,7 @@ final class SpeechManager: ObservableObject {
 
     private func startContinuous() {
         // Continuous mode: require a wake phrase to reduce accidental actions.
-        status = self.localize("Listening...") + " (Wake: “Aether/艾瑟”)"
+        status = NSLocalizedString("speech.listening", comment: "") + " (Wake: “Aether/艾瑟”)"
         os_log("Starting Continuous Mode (Wake Word Required)", log: log, type: .default)
         startOnce()
         continuousTimer?.invalidate()
@@ -884,7 +872,7 @@ final class SpeechManager: ObservableObject {
         switch intent {
         case .undo:
             injector.undoPasteIfRecent()
-            status = self.localize("Undo")
+            status = NSLocalizedString("speech.undo", comment: "")
         case .paste:
             AutomationOutputs.shared.pasteFromClipboard()
             status = "Pasted (Cmd+V)"
@@ -892,14 +880,14 @@ final class SpeechManager: ObservableObject {
             // If we were streaming, the text is already on screen (via typeText).
             // Do NOT paste again unless we weren't in typing mode (e.g. forced dictation command).
             if isTypingMode {
-                status = self.localize("Done (Streamed)")
+                status = NSLocalizedString("speech.done", comment: "")
             } else {
                 injector.paste(text)
-                self.status = self.localize("Pasted")
+                self.status = NSLocalizedString("speech.pasted", comment: "")
             }
         default:
             onIntent?(intent)
-            self.status = self.localize("Done")
+            self.status = NSLocalizedString("speech.done", comment: "")
         }
     }
 

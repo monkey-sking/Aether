@@ -52,7 +52,7 @@
 "control.force_driver_only" = "Force Driver Only";
 "control.always_listening" = "Always Listening";
 "control.llm_enhance_dictation" = "LLM Enhance Dictation";
-"control.push_to_talk_hint" = "Push-to-talk: hold ⌃⌥V. Always Listening: say “Aether …”";
+"control.push_to_talk_hint" = "Push-to-talk: hold ⌥Space. Always Listening: say “Aether …”";
 "control.toggle_tracking_hint" = "Toggle Tracking";
 
 /* Actions */
@@ -86,3 +86,22 @@
 "hotkey.press_key" = "Press key…";
 "hotkey.reset_all" = "Reset All";
 "hotkey.reset_single" = "Reset to default";
+
+/* New Features */
+"control.show_dock_icon" = "Show Dock Icon";
+"control.tilt_scroll" = "Tilt Scroll";
+"control.debug_mode" = "Debug Mode";
+"control.toggle_tracking_fmt %@" = "Toggle Tracking: %@";
+
+"menu.start_pointer_fmt %@" = "Start Pointer (%@)";
+"menu.stop_pointer_fmt %@" = "Stop Pointer (%@)";
+"menu.airpods_lock_fmt %@" = "🔒 AirPods Lock (%@)";
+
+/* Speech Status */
+"speech.listening" = "Listening...";
+"speech.idle" = "Idle";
+"speech.unavailable" = "Speech Unavailable";
+"speech.error" = "Speech Error";
+"speech.pasted" = "Pasted";
+"speech.undo" = "Undo";
+"speech.done" = "Done";

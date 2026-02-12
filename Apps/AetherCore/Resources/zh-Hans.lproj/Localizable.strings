@@ -43,7 +43,7 @@
 "control.force_driver_only" = "强制仅驱动";
 "control.always_listening" = "常驻监听";
 "control.llm_enhance_dictation" = "大模型增强听写";
-"control.push_to_talk_hint" = "按住 ⌃⌥V 说话；常驻监听时说“ Aether … ”触发。";
+"control.push_to_talk_hint" = "按住 ⌥Space 说话；常驻监听时说“ Aether … ”触发。";
 "control.toggle_tracking_hint" = "切换追踪";
 
 /* Actions */
@@ -87,3 +87,22 @@
 "hotkey.press_key" = "按下按键…";
 "hotkey.reset_all" = "全部重置";
 "hotkey.reset_single" = "恢复默认";
+
+/* New Features */
+"control.show_dock_icon" = "显示 Dock 图标";
+"control.tilt_scroll" = "头部倾斜滚动";
+"control.debug_mode" = "调试模式";
+"control.toggle_tracking_fmt %@" = "切换追踪: %@";
+
+"menu.start_pointer_fmt %@" = "启动指针 (%@)";
+"menu.stop_pointer_fmt %@" = "停止指针 (%@)";
+"menu.airpods_lock_fmt %@" = "🔒 AirPods Lock (%@)";
+
+/* Speech Status */
+"speech.listening" = "正在聆听...";
+"speech.idle" = "空闲";
+"speech.unavailable" = "语音不可用";
+"speech.error" = "识别错误";
+"speech.pasted" = "已粘贴";
+"speech.undo" = "撤销";
+"speech.done" = "完成";

@@ -206,8 +206,9 @@ class AppState: ObservableObject {
     }
     
     @Published var calibrationStatus: String = "Normal"
-    @Published var isDwellClickEnabled: Bool = true {
+    @Published var isDwellClickEnabled: Bool = UserDefaults.standard.object(forKey: "isDwellClickEnabled") as? Bool ?? false {
         didSet {
+            UserDefaults.standard.set(isDwellClickEnabled, forKey: "isDwellClickEnabled")
             motionService.isDwellClickEnabled = isDwellClickEnabled
         }
     }
@@ -243,6 +244,24 @@ class AppState: ObservableObject {
     }
 
     @Published var onboardingStep: OnboardingStep = .done
+    
+    @Published var showDockIcon: Bool = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(showDockIcon, forKey: "showDockIcon")
+            if showDockIcon {
+                NSApp.setActivationPolicy(.regular)
+                // When switching to regular, we might want to activate to show the dock icon explicitly immediately
+                // But usually the system handles it.
+            } else {
+                NSApp.setActivationPolicy(.accessory)
+            }
+            
+            // Re-activate app if needed to refresh UI state, though setActivationPolicy usually handles visibility
+            if showDockIcon {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+    }
     
     private let driverService = DriverService()
     private let motionService = MotionService()
@@ -495,8 +514,21 @@ class AppState: ObservableObject {
     }
 }
 
+class AetherAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Apply initial dock icon state
+        let showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
+        if !showDockIcon {
+            NSApp.setActivationPolicy(.accessory)
+        } else {
+            NSApp.setActivationPolicy(.regular)
+        }
+    }
+}
+
 @main
 struct AetherApp: App {
+    @NSApplicationDelegateAdaptor(AetherAppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
     
     var body: some Scene {

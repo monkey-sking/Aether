@@ -140,6 +140,8 @@ struct ContentView: View {
                     )
 
                     Toggle(L10n.llmEnhanceDictation, isOn: $appState.isLLMEnhancementEnabled)
+                    
+                    Toggle(L10n.showDockIcon, isOn: $appState.showDockIcon)
 
                     Text(L10n.pushToTalkHint)
                         .font(.caption2)
@@ -189,20 +191,20 @@ struct ContentView: View {
                         .foregroundColor(.orange)
                 }
                 
-                Toggle("Tilt Scroll", isOn: $headManager.isTiltScrollEnabled)
+                Toggle(L10n.tiltScroll, isOn: $headManager.isTiltScrollEnabled)
                     .toggleStyle(.switch)
                     .controlSize(.large)
                     .tint(.blue)
                     .padding(.horizontal)
 
-                Toggle("Debug Mode", isOn: $headManager.isDebugModeEnabled)
+                Toggle(L10n.debugMode, isOn: $headManager.isDebugModeEnabled)
                     .toggleStyle(.switch)
                     .controlSize(.large)
                     .tint(.red)
                     .padding(.horizontal)
 
                 VStack(spacing: 4) {
-                    Text("切换追踪: \(HotkeyManager.shared.binding(for: .toggleTracking).displayString)")
+                    Text(L10n.controlToggleTracking(HotkeyManager.shared.binding(for: .toggleTracking).displayString))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
