@@ -13,6 +13,7 @@ This skill defines the protocol for creating and maintaining the `verification_c
 - **Bug Fixes**: Add items to verify the fix.
 
 ## 2. Rules of Engagement
+- **Language**: All new items must be written in **Simplified Chinese (简体中文)**.
 - **NEVER Pre-check Items**: **Do not marks items as completed (`[x]`) unless the USER has explicitly verified them or you have undeniable automated proof.** 
     - *Wrong*: "I wrote the code, so it's done `[x]`."
     - *Right*: "I implemented it, adding it to the list for you to check `[ ]`."
