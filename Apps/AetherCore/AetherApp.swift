@@ -206,9 +206,9 @@ class AppState: ObservableObject {
     }
     
     @Published var calibrationStatus: String = "Normal"
-    @Published var isDwellClickEnabled: Bool = UserDefaults.standard.object(forKey: "isDwellClickEnabled") as? Bool ?? false {
+    @Published var isDwellClickEnabled: Bool = UserDefaults.standard.object(forKey: "isDwellClickEnabled_v3") as? Bool ?? false {
         didSet {
-            UserDefaults.standard.set(isDwellClickEnabled, forKey: "isDwellClickEnabled")
+            UserDefaults.standard.set(isDwellClickEnabled, forKey: "isDwellClickEnabled_v3")
             motionService.isDwellClickEnabled = isDwellClickEnabled
         }
     }
@@ -292,7 +292,7 @@ class AppState: ObservableObject {
         motionService.$calibrationStatus
             .assign(to: &$calibrationStatus)
             
-        self.isDwellClickEnabled = motionService.isDwellClickEnabled
+        motionService.isDwellClickEnabled = self.isDwellClickEnabled
 
         voiceService.$status
             .assign(to: &$voiceStatus)

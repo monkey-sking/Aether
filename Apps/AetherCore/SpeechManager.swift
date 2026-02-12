@@ -670,14 +670,29 @@ final class SpeechManager: ObservableObject {
 
     @objc private func pttDown() {
         GlobalLogger.input.info("PTT DOWN")
-        // Default: push-to-talk; can be extended to "wakeword" later.
-        guard !isAlwaysListeningEnabled else { return }
+        
+        // [Continuous Mode] PTT acts as "Force Wake" / "Manual Wake"
+        if isAlwaysListeningEnabled {
+            os_log("PTT in Continuous Mode -> Manual Wake Triggered", log: log, type: .default)
+            
+            // 1. Activate Wake Window (Bypass Wake Word for 8s)
+            lastWakeTime = Date()
+            
+            // 2. Feedback (Sound + HUD)
+            playWakeSound()
+            // Update HUD to remove "(Wake: Aether)" suffix and show active state
+            let lang = activeLocale.identifier.starts(with: "zh") ? "中" : "En"
+            HotkeyFeedbackHUD.showContinuous(message: NSLocalizedString("speech.listening", comment: ""), isListening: true, language: lang, isDictating: isDictating)
+            return
+        }
+
+        // [Standard Mode] Start Session
         startOnce()
     }
 
     @objc private func pttUp() {
         GlobalLogger.input.info("PTT UP")
-        guard !isAlwaysListeningEnabled else { return }
+        guard !isAlwaysListeningEnabled else { return } // PTT Release should NOT stop continuous mode
         
         // [Trailing Audio]
         // Delay stopping for 0.6s to catch the last syllable.

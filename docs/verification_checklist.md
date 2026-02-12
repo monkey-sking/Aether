@@ -9,7 +9,7 @@
 
 ## 1. 核心语音功能 (Core Voice)
 - [x] **普通听写 (Dictation)**: 在文本框（如 Notes, TextEdit）中，按住快捷键 (`Option + Space`) 或使用唤醒词说话，文字能正常上屏。
-- [ ] **Siri/聚焦搜索 (Siri/Spotlight)**: 呼出 Siri 或 Spotlight，能直接进行语音输入。
+- [ ] **Siri/聚焦搜索 (Siri/Spotlight)**: 呼出 Siri 或 Spotlight，能直接进行语音输入。你好你好
 - [ ] **命令控制 (Commands)**: 说“点击”、“向下”、“双击”等指令，鼠标能正确响应。
 - [ ] **连续对话 (Continuous Mode)**: 开启“始终聆听” (`Option + Cmd + L`) 后，长时间不说话不应报错；说唤醒词 "Aether" / "艾瑟" 能触发指令。
 - [ ] **快捷键验证**:
@@ -23,16 +23,21 @@
 - [ ] **媒体抢占**: 连接 AirPods 时，按键不会错误地启动 Apple Music。
 
 ## 3. HUD 界面 (UI & Animation)
-- [ ] **视觉修复 (No Artifacts)**: 它是圆角矩形，**绝对没有“四个脚” (方形伪影)**。
-- [ ] **文字清晰度 (Text Clarity)**: 文字加粗 (Semibold)，带阴影，在白色/复杂背景下依然清晰可见。
-- [ ] **动态效果**: 说话时，绿色的麦克风图标会有呼吸/缩放动画。
-- [ ] **位置跟随 (交互模式)**: 在**非输入状态**下，HUD 实时跟随鼠标。
-- [ ] **位置固定 (输入模式)**: 在**输入状态**下，HUD **保持静止**。
-- [ ] **国际化 (i18n)**:
+- [x] **视觉修复 (No Artifacts)**: 它是圆角矩形，**绝对没有“四个脚” (方形伪影)**。
+- [x] **文字清晰度 (Text Clarity)**: 文字加粗 (Semibold)，带阴影，在白色/复杂背景下依然清晰可见。
+- [x] **动态效果**: 说话时，绿色的麦克风图标会有呼吸/缩放动画。
+- [x] **位置跟随 (交互模式)**: 在**非输入状态**下，HUD 实时跟随鼠标。
+- [x] **位置固定 (输入模式)**: 在**输入状态**下，HUD **保持静止**。
+- [x] **国际化 (i18n)**:
     - [ ] 切换到中文环境时，显示“正在聆听...”、“已粘贴”、“空闲”。
     - [ ] 切换到英文环境时，显示 "Listening...", "Pasted", "Idle"。
+- [ ] **无冗余显示 (Clean UI)**: 主界面中不再显示“红色区域”的听写文本框，仅保留 HUD 反馈。
 
-## 4. 稳定性 (Stability)
+## 4. 交互优化 (Interaction Refinements)
+- [ ] **PTT Manual Wake**: 在“始终聆听” (Continuous Mode) 开启时，按下 PTT 快捷键应直接触发听写 (无需唤醒词)，且松开按键不会打断会话。
+- [ ] **HUD Avoidance**: HUD should move to corners to avoid covering Mouse and Text Cursor (Caret).
+- [x] **Clean UI**: No "Lid Sensor" row in main UI.
+
 - [ ] **无语音超时**: 在连续模式下，长时间不说话，HUD 应保持待机或自动重启监听，而不应显示红色的“识别错误 (Speech Error)”。
 - [ ] **休眠唤醒**: Mac 休眠后再唤醒，Aether 能自动重连 AirPods 并恢复头部控制，无需重启 App。
 - [ ] **资源占用**: 长时间运行后，内存占用应保持稳定 (< 200MB)，无明显泄漏。
