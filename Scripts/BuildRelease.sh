@@ -38,6 +38,7 @@ xcodebuild -project Aether.xcodeproj \
   -derivedDataPath "$DERIVED_DATA_PATH" \
   build \
   CONFIGURATION_BUILD_DIR="$BUILD_DIR" \
+  STRIP_INSTALLED_PRODUCT=NO \
   ${EXTRA_BUILD_FLAGS[@]+"${EXTRA_BUILD_FLAGS[@]}"}
 
 if [[ ! -d "${BUILD_DIR}/${APP_NAME}.app" ]]; then

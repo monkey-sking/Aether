@@ -554,17 +554,24 @@ final class SpeechManager: ObservableObject {
                          memcpy(dstData, srcData, Int(buffer.frameLength) * MemoryLayout<Float>.size)
                      }
                      
-                     // Log RMS of Mono Buffer (Rate Limited)
+                     // Calculate RMS
+                     var rms: Float = 0
+                     if let channelData = monoBuffer.floatChannelData?[0] {
+                         let channelDataPtr = UnsafeBufferPointer(start: channelData, count: Int(monoBuffer.frameLength))
+                         var sum: Float = 0
+                         for sample in channelDataPtr {
+                             sum += sample * sample
+                         }
+                         rms = sqrt(sum / Float(monoBuffer.frameLength))
+                     }
+                     
+                     // Update HUD with audio level
+                     // RMS is usually very small (0.0 - 0.5 for normal speech). 
+                     // We map it for visual feedback.
+                     HotkeyFeedbackHUD.shared.updateAudioLevel(rms)
+                     
                      if Int.random(in: 0...50) == 0 {
-                          var rms: Float = 0
-                          if let channelData = monoBuffer.floatChannelData?[0] {
-                              var value: Float = 0
-                              for i in 0..<Int(monoBuffer.frameLength) {
-                                  value += channelData[i] * channelData[i]
-                              }
-                              rms = sqrt(value / Float(monoBuffer.frameLength))
-                          }
-                          os_log("Audio Buffer (Manual Mono): %d frames. RMS: %.5f", log: self.log, type: .info, monoBuffer.frameLength, rms)
+                          os_log("Audio RMS: %.4f", log: self.log, type: .debug, rms)
                      }
                                           self.recognitionRequest?.append(monoBuffer)
                       
