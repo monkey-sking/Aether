@@ -11,6 +11,15 @@ final class HotkeyFeedbackHUD {
     
     private var hudWindow: NSPanel?
     private var hideTask: DispatchWorkItem?
+
+    // Subclass to ensure transparent background
+    class TransparentHostingController<Content>: NSHostingController<Content> where Content : View {
+        override func loadView() {
+            super.loadView()
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor.clear.cgColor
+        }
+    }
     
     // State hosted in SwiftUI
     private class HUDState: ObservableObject {
@@ -19,10 +28,21 @@ final class HotkeyFeedbackHUD {
         @Published var language: String = "zh-CN"
         @Published var isInteractive: Bool = false
         @Published var isDictating: Bool = false // New State
+        @Published var audioLevel: CGFloat = 0.0 // 0.0 to 1.0
     }
     
     private let state = HUDState()
     private let logger = Logger(subsystem: "com.7fei.Aether", category: "HUD")
+    
+    func updateAudioLevel(_ level: Float) {
+        // Smooth changes if needed, but direct update is responsive
+        DispatchQueue.main.async {
+            // Visualize: map -60dB...0dB to 0...1? 
+            // Input level is likely RMS amplitude (0.0 - 1.0)
+            // Let's amplify small sounds: pow(level, 0.5) or * 5
+            self.state.audioLevel = CGFloat(min(level * 5.0, 1.0)) 
+        }
+    }
     
     // MARK: - Public API
     
@@ -71,9 +91,9 @@ final class HotkeyFeedbackHUD {
         followTimer?.invalidate()
         followTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
-                guard let self = self, let state = self.state else { return }
+                guard let self = self else { return }
                 // Only follow cursor if NOT in typing/dictation mode
-                if !state.isDictating {
+                if !self.state.isDictating {
                     self.repositionWindow()
                 }
             }
@@ -90,10 +110,8 @@ final class HotkeyFeedbackHUD {
         
         let savedState = self.state
         let rootView = HUDView(state: savedState)
-        let hostingController = NSHostingController(rootView: rootView)
-        hostingController.view.wantsLayer = true
-        hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
-        hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
+        let hostingController = TransparentHostingController(rootView: rootView)
+        // Background set in subclass loadView()
         
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 200, height: 60),
@@ -105,7 +123,7 @@ final class HotkeyFeedbackHUD {
         panel.level = .floating
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        panel.hasShadow = false // Disable system shadow to avoid square artifacts; SwiftUI handles shadow.
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
         panel.contentViewController = hostingController
         
@@ -184,10 +202,9 @@ final class HotkeyFeedbackHUD {
                     Image(systemName: "mic.fill")
                         .foregroundColor(.green)
                         .font(.system(size: 14))
-                        .scaleEffect(isAnimating ? 1.2 : 1.0)
-                        .opacity(isAnimating ? 1.0 : 0.7)
-                        .animation(Animation.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isAnimating)
-                        .onAppear { isAnimating = true }
+                        .scaleEffect(1.0 + (state.audioLevel * 1.5)) // React to volume
+                        .opacity(0.6 + (state.audioLevel * 0.4))
+                        .animation(.linear(duration: 0.1), value: state.audioLevel)
                 }
                 
                 Text(state.message)
