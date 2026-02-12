@@ -18,6 +18,7 @@ final class HotkeyFeedbackHUD {
             super.loadView()
             view.wantsLayer = true
             view.layer?.backgroundColor = NSColor.clear.cgColor
+            view.layer?.isOpaque = false
         }
     }
     
@@ -248,7 +249,9 @@ final class HotkeyFeedbackHUD {
             .padding(.vertical, 10)   // Increased padding
             .padding(.horizontal, 16) // Increased padding
             .padding(.vertical, 10)   // Increased padding
-            .background(.regularMaterial) // Use native SwiftUI Material to fix clipping issues
+            .background(
+                VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
+            )
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
