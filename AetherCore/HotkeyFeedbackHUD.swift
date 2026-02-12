@@ -237,6 +237,7 @@ final class HotkeyFeedbackHUD {
                             .font(.system(size: 12, weight: .bold))
                             .foregroundColor(.white)
                             .fixedSize() // Prevent "..." truncation
+                            .frame(minWidth: 24, alignment: .center) // Fix width to prevent jitter
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Color.white.opacity(0.2))
@@ -245,19 +246,13 @@ final class HotkeyFeedbackHUD {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16) // Increased padding
-            .padding(.vertical, 10)   // Increased padding
-            .padding(.horizontal, 16) // Increased padding
-            .padding(.vertical, 10)   // Increased padding
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .background(
                 VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
             )
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+            .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
         }
     }
     

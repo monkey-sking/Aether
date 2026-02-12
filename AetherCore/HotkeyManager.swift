@@ -106,16 +106,16 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
     var defaultBinding: HotkeyBinding {
         switch self {
         case .toggleTracking:
-            return HotkeyBinding(keyCode: kVK_ANSI_S, modifiers: Self.ctrlAlt)
+            return HotkeyBinding(keyCode: kVK_ANSI_S, modifiers: Self.optCmd)
         case .connectionLock:
-            return HotkeyBinding(keyCode: kVK_ANSI_A, modifiers: Self.ctrlAlt)
+            return HotkeyBinding(keyCode: kVK_ANSI_L, modifiers: Self.optCmd)
         case .pushToTalk:
-            return HotkeyBinding(keyCode: kVK_ANSI_V, modifiers: Self.ctrlAlt)
+            return HotkeyBinding(keyCode: kVK_Space, modifiers: Self.opt)
         }
     }
 
-    private static let ctrlAlt: UInt64 =
-        CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue
+    private static let opt: UInt64 = CGEventFlags.maskAlternate.rawValue
+    private static let optCmd: UInt64 = CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskCommand.rawValue
 }
 
 // MARK: - Manager

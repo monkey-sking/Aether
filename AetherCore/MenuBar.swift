@@ -29,8 +29,8 @@ struct AetherMenuBar: Scene {
                 Divider()
 
                 Button(appState.isMotionTracking
-                    ? "停止指针 (\(HotkeyManager.shared.binding(for: .toggleTracking).displayString))"
-                    : "启动指针 (\(HotkeyManager.shared.binding(for: .toggleTracking).displayString))") {
+                    ? L10n.menuStopPointer(HotkeyManager.shared.binding(for: .toggleTracking).displayString)
+                    : L10n.menuStartPointer(HotkeyManager.shared.binding(for: .toggleTracking).displayString)) {
                     appState.toggleMotionTracking()
                 }
 
@@ -52,7 +52,7 @@ struct AetherMenuBar: Scene {
                 Toggle(L10n.llmEnhanceDictation, isOn: $appState.isLLMEnhancementEnabled)
 
                 Toggle(
-                    "🔒 AirPods Lock (\(HotkeyManager.shared.binding(for: .connectionLock).displayString))",
+                    L10n.menuAirPodsLock(HotkeyManager.shared.binding(for: .connectionLock).displayString),
                     isOn: Binding(
                         get: { appState.connectionLock.isLocked },
                         set: { _ in appState.connectionLock.toggle() }

@@ -70,4 +70,24 @@ enum L10n {
     static let menuRecenterPointer: LocalizedStringKey = "menu.recenter_pointer"
     static let menuShowWindow: LocalizedStringKey = "menu.show_window"
     static let menuQuit: LocalizedStringKey = "menu.quit"
+
+    // Dynamic Menu Keys (Formatted)
+    static func menuStartPointer(_ hotkey: String) -> LocalizedStringKey { "menu.start_pointer_fmt \(hotkey)" }
+    static func menuStopPointer(_ hotkey: String) -> LocalizedStringKey { "menu.stop_pointer_fmt \(hotkey)" }
+    static func menuAirPodsLock(_ hotkey: String) -> LocalizedStringKey { "menu.airpods_lock_fmt \(hotkey)" }
+    static func controlToggleTracking(_ hotkey: String) -> LocalizedStringKey { "control.toggle_tracking_fmt \(hotkey)" }
+
+    // New Controls
+    static let showDockIcon: LocalizedStringKey = "control.show_dock_icon"
+    static let tiltScroll: LocalizedStringKey = "control.tilt_scroll"
+    static let debugMode: LocalizedStringKey = "control.debug_mode"
+
+    // Speech Status
+    static let speechListening: LocalizedStringKey = "speech.listening"
+    static let speechIdle: LocalizedStringKey = "speech.idle"
+    static let speechUnavailable: LocalizedStringKey = "speech.unavailable"
+    static let speechError: LocalizedStringKey = "speech.error"
+    static let speechPasted: LocalizedStringKey = "speech.pasted"
+    static let speechUndo: LocalizedStringKey = "speech.undo"
+    static let speechDone: LocalizedStringKey = "speech.done"
 }
