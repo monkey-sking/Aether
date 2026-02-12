@@ -204,24 +204,30 @@ final class HotkeyFeedbackHUD {
                         .foregroundColor(.green)
                         .font(.system(size: 14))
                         .scaleEffect(1.0 + (state.audioLevel * 1.5)) // React to volume
+                        .shadow(radius: 1) // [Clarity] Shadow for icon
                         .opacity(0.6 + (state.audioLevel * 0.4))
                         .animation(.linear(duration: 0.1), value: state.audioLevel)
                 }
                 
                 Text(state.message)
-                    .font(.system(size: 14, weight: .medium))
+                    // [Clarity] Thicker font for legibility on blur
+                    .font(.system(size: 14, weight: .semibold)) 
                     .foregroundColor(.white)
+                    // [Clarity] Shadow for text against light backgrounds
+                    .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
                     .fixedSize()
                 
                 // Input Mode Indicator
                 if state.isDictating {
                     Image(systemName: "keyboard")
                         .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.8))
+                        .foregroundColor(.white.opacity(0.9)) // [Clarity] Higher opacity
+                        .shadow(radius: 1)
                 } else if state.isInteractive {
                      Image(systemName: "command")
                         .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundColor(.white.opacity(0.7))
+                        .shadow(radius: 1)
                 }
                 
                 if state.isInteractive {
@@ -236,6 +242,7 @@ final class HotkeyFeedbackHUD {
                         Text(displayLanguage)
                             .font(.system(size: 12, weight: .bold))
                             .foregroundColor(.white)
+                            .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1) // [Clarity] Text shadow
                             .fixedSize() // Prevent "..." truncation
                             .frame(minWidth: 24, alignment: .center) // Fix width to prevent jitter
                             .padding(.horizontal, 6)
@@ -265,12 +272,18 @@ final class HotkeyFeedbackHUD {
             view.material = material
             view.blendingMode = blendingMode
             view.state = .active
+            // [Clarity] Force Dark Mode to ensure white text is always legible
+            view.appearance = NSAppearance(named: .vibrantDark)
             return view
         }
         
         func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
             nsView.material = material
             nsView.blendingMode = blendingMode
+            // [Clarity] Ensure appearance stays dark
+            if nsView.appearance?.name != .vibrantDark {
+                nsView.appearance = NSAppearance(named: .vibrantDark)
+            }
         }
     }
 }
