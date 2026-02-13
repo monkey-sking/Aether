@@ -5,63 +5,126 @@ struct InputSettingsView: View {
     @EnvironmentObject var appState: AppState
     
     var body: some View {
-        ScrollView {
+        ScrollView(.vertical) {
             VStack(spacing: 20) {
                 // Microphone Section
                 GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label(L10n.settingsVoiceInput, systemImage: "mic.fill")
-                            .font(.headline)
+                        HStack {
+                            Label(L10n.settingsMicrophone, systemImage: "mic.fill")
+                                .font(.headline)
+                            Spacer()
+                            Button(action: { appState.voiceService.refreshInputDevices() }) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                            }
+                            .buttonStyle(.borderless)
+                        }
                         
-                        ControlCard(
-                            title: L10n.alwaysListening,
-                            subtitle: appState.isAlwaysListeningEnabled ? L10n.statusActive : L10n.statusDisabled,
-                            icon: "waveform.badge.mic",
-                            color: .blue,
-                            isOn: $appState.isAlwaysListeningEnabled
-                        )
+                        if appState.availableInputDevices.isEmpty {
+                            Text(L10n.settingsNoMicrophone)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Picker("", selection: $appState.selectedInputDeviceID) {
+                                ForEach(appState.availableInputDevices) { device in
+                                    Text(device.name).tag(device.id)
+                                }
+                            }
+                            .labelsHidden()
+                        }
                     }
                 }
-                
-                // Wake Word Settings
-                if appState.isAlwaysListeningEnabled {
-                    GlassCard {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Label(L10n.settingsWakewordSensitivity, systemImage: "ear")
-                                .font(.headline)
-                            
+                        
+                // Activation Section
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Label(L10n.activationMethods, systemImage: "bolt.fill")
+                            .font(.headline)
+                        
+                        // 1. Shortcut (PTT)
+                        VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text("\(Int(appState.alwaysListeningWakeWindowSeconds))s")
-                                    .font(.subheadline.monospaced())
-                                    .foregroundColor(.secondary)
+                                Toggle(isOn: $appState.isPTTEnabled) {
+                                    Text(L10n.activationShortcut)
+                                        .font(.headline)
+                                }
                                 Spacer()
+                                // Key Recorder here
+                                KeyRecorderView(
+                                    binding: $appState.voicePTTBinding,
+                                    onChange: { newBind in
+                                        appState.updatePTTBinding(newBind)
+                                    }
+                                )
+                                .frame(width: 120)
                             }
+                            Text(L10n.activationShortcutHint)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        
+                        Divider()
+                        
+                        // 2. Wake Word
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle(isOn: $appState.isWakeWordEnabled) {
+                                Text(L10n.settingsActivationWakeWord)
+                                    .font(.headline)
+                            }
+                            Text(L10n.activationWakeWordHint)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Divider()
+
+                        // 3. Always Listening
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle(isOn: $appState.isAlwaysListeningEnabled) {
+                                Text(L10n.settingsActivationHandsFree) // Reused "Hands-Free" text for "Always Listening"?
+                                // Or use L10n.alwaysListening? 
+                                // Let's use specific L10n.alwaysListening if available, or just "Always Listening"
+                                Text(L10n.alwaysListening)
+                                    .font(.headline)
+                            }
+                            Text(L10n.activationAlwaysHint)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                             
-                            Slider(value: $appState.alwaysListeningWakeWindowSeconds, in: 3...30, step: 1)
+                            if appState.isAlwaysListeningEnabled {
+                                Text(L10n.activationAlwaysWarning)
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
                 }
                 
-                // Advanced Voice
+                // Dictation Mode Settings
                 GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label(L10n.settingsAdvancedProcessing, systemImage: "brain.head.profile")
-                            .font(.headline)
-                        
-                        ControlCard(
-                            title: L10n.llmEnhanceDictation,
-                            subtitle: L10n.settingsSmarterDictation,
-                            icon: "sparkles",
-                            color: .purple,
-                            isOn: $appState.isLLMEnhancementEnabled
-                        )
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label(L10n.settingsDictationMode, systemImage: "text.quote")
+                                .font(.headline)
+                            
+                            ControlCard(
+                                title: L10n.llmEnhanceDictation,
+                                subtitle: L10n.settingsSmarterDictation,
+                                icon: "sparkles",
+                                color: .purple,
+                                isOn: $appState.isLLMEnhancementEnabled
+                            )
+                            
+                            Toggle(isOn: $appState.isAutoPunctuationEnabled) {
+                                Text(L10n.settingsAutoPunctuation)
+                            }
+                        }
                     }
                 }
             }
             .padding()
         }
     }
-}
 
 // MARK: - Output Settings (Motion)
 struct OutputSettingsView: View {
