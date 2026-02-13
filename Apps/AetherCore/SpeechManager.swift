@@ -298,6 +298,7 @@ final class SpeechManager: ObservableObject {
     private var recognizer: SFSpeechRecognizer? = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
 
     private var continuousTimer: Timer?
+    private var isStopping: Bool = false // Prevent HUD flicker during trailing audio capture
     private var lastChangeAt: Date?
     private var lastStableText: String = ""
     private var sessionGeneration: Int = 0 
@@ -337,8 +338,8 @@ final class SpeechManager: ObservableObject {
         } else if isAlwaysListeningEnabled {
             mode = .active
         } else if !isAlwaysListeningEnabled {
-            // PTT Mode (Implicitly running if called from startOnce)
-            mode = .active
+            // PTT Mode
+            mode = isStopping ? .hidden : .active
         } else if isWakeWordEnabled {
             mode = isAwake ? .active : .standby
         } else {
@@ -541,6 +542,7 @@ final class SpeechManager: ObservableObject {
     }
 
     func startOnce() {
+        isStopping = false
         // [Stability] Cancel any existing task/timer to prevent stale state
         stopTimer?.invalidate()
         stopTimer = nil
@@ -621,7 +623,8 @@ final class SpeechManager: ObservableObject {
                     self.isDictating = self.sessionTypingMode
                     
                     // Update HUD with live transcript
-                    let mode: HUDMode = self.isDictating ? .dictation : .active
+                    // [UX] If we have text, show waveform (Dictation Mode) to avoid static text
+                    let mode: HUDMode = (!text.isEmpty || self.isDictating) ? .dictation : .active
                     HUDManager.shared.update(mode: mode, message: text.isEmpty ? NSLocalizedString("speech.listening", comment: "") : text, language: self.activeLocale.identifier, isInteractive: self.isDictating)
                     
                     // Handle Streaming Typing (if in typing mode)
@@ -1037,6 +1040,9 @@ final class SpeechManager: ObservableObject {
         GlobalLogger.input.info("PTT UP")
         guard !isAlwaysListeningEnabled else { return } // PTT Release should NOT stop continuous mode
         
+        isStopping = true
+        HUDManager.shared.hide() // Immediate visual feedback
+        
         // [Trailing Audio]
         // Delay stopping for 0.6s to catch the last syllable.
         // User reports "dropped last char".
@@ -1115,6 +1121,10 @@ final class SpeechManager: ObservableObject {
         failsafeTimer = nil
         isDictating = false
         sessionTypingMode = false
+        
+        // [Bug Fix] Ensure stream state is cleared so next session doesn't backspace old text
+        lastStreamedText = ""
+        
         // Engine NOT cleared
     }
 

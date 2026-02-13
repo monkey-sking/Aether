@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Carbon
 import ApplicationServices
+import OSLog
 
 final class CaretDetector: ObservableObject {
     struct Update {
@@ -17,6 +18,7 @@ final class CaretDetector: ObservableObject {
     private var eventMonitors: [Any] = []
     private var axObserver: AXObserver?
     private var observedPid: pid_t = 0
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.7fei.Aether", category: "CaretDetector")
     
     // Bridged Data
     private var bridgedCaretRect: CGRect?
@@ -75,8 +77,9 @@ final class CaretDetector: ObservableObject {
     func recentCaretRect(maxAge: TimeInterval = 0.28) -> CGRect? {
          guard let rect = lastCaretRect, let ts = lastCaretRectAt else { return nil }
          let age = Date().timeIntervalSince(ts)
-         if isCodexLike(appName: currentAppName, bundleID: currentAppBundleID) {
-             if age <= min(maxAge, 0.18) { return rect }
+         if isHighFrequencyApp(appName: currentAppName, bundleID: currentAppBundleID) {
+             // Strict Codex Legacy Rule: Zero Tolerance.
+             // Never return cached rect. Always require fresh detection.
              return nil
          }
          return age <= maxAge ? rect : nil
@@ -287,12 +290,17 @@ final class CaretDetector: ObservableObject {
             
             var roleValue: CFTypeRef?
             AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
-            let role = roleValue as? String ?? ""
+            var role = roleValue as? String ?? ""
             
             // Drill down
             if ["AXWindow", "AXSheet", "AXScrollArea", "AXSplitGroup"].contains(role) || isSiriLike(appName: self.currentAppName, bundleID: bundleID) {
                 if let child = findFirstTextField(in: element) {
                     element = child
+                    // [Legacy Fix] Re-fetch role for the new element so isEditable checks work
+                    var newRoleVal: CFTypeRef?
+                    if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &newRoleVal) == .success {
+                        role = newRoleVal as? String ?? ""
+                    }
                 }
             }
             
@@ -330,11 +338,21 @@ final class CaretDetector: ObservableObject {
                  if AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRangeValue) == .success {
                      var boundsValue: CFTypeRef?
                      if AXUIElementCopyParameterizedAttributeValue(element, "AXBoundsForTextMarkerRange" as CFString, markerRangeValue!, &boundsValue) == .success {
-                         if let r = extractRect(from: boundsValue!) {
-                             if isValid(r, in: windowFrame) {
-                                 newRect = r
-                             }
-                         }
+                          // [Legacy Restore] Pre-Extract Validation
+                          var rawR = CGRect.zero
+                          if AXValueGetValue(boundsValue as! AXValue, .cgRect, &rawR) {
+                              if (rawR.origin.x == 0 && rawR.origin.y == 0) || (rawR.width <= 1 && rawR.height <= 1) {
+                                  // Bogus
+                              } else if rawR.width > 80 || rawR.height > 80 {
+                                  // Selection/Bound (Not a caret)
+                              } else {
+                                  if let r = extractRect(from: boundsValue!) {
+                                      if isValid(r, in: windowFrame) {
+                                          newRect = r
+                                      }
+                                  }
+                              }
+                          }
                      }
                  }
                  
@@ -344,10 +362,26 @@ final class CaretDetector: ObservableObject {
                      if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success {
                          var boundsValue: CFTypeRef?
                          if AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, selectedRangeValue!, &boundsValue) == .success {
-                             if let r = extractRect(from: boundsValue!) {
-                                 if isValid(r, in: windowFrame) {
-                                     newRect = r
-                                 }
+                             
+                             // [Legacy Restore] Strict Validation for Standard Range
+                             var rawR = CGRect.zero
+                             if AXValueGetValue(boundsValue as! AXValue, .cgRect, &rawR) {
+                                  // 1. Bogus Check (0,0) or Tiny
+                                  if (rawR.origin.x == 0 && rawR.origin.y == 0) || (rawR.width <= 1 && rawR.height <= 1) {
+                                      self.logger.debug("🚨 [PRE-FLIP REJECT] Bogus standard range: \(rawR.debugDescription)")
+                                  } 
+                                  // 2. Non-Caret Geometry (Selection)
+                                  // Codex often returns the whole line/block as selection range
+                                  else if rawR.width > 80 || rawR.height > 80 {
+                                      self.logger.debug("🚫 [NON-CARET] Rejecting large selection range: \(rawR.debugDescription)")
+                                  } 
+                                  else {
+                                      if let r = extractRect(from: boundsValue!) {
+                                          if isValid(r, in: windowFrame) {
+                                              newRect = r
+                                          }
+                                      }
+                                  }
                              }
                          }
                      }
@@ -365,20 +399,96 @@ final class CaretDetector: ObservableObject {
                          let axVal = AXValueCreate(.cgRect, [CGRect(origin: p, size: s)])
                          if let r_appkit = extractRect(from: axVal as CFTypeRef) {
                              if isValid(r_appkit, in: windowFrame) {
-                                  // Synthetic weak caret logic for big text areas
-                                 if (role == "AXTextArea" || role == "AXWebArea") && (r_appkit.width > 220 || r_appkit.height > 70) {
-                                     let h = min(max(14.0, r_appkit.height), 24.0)
-                                     let y = r_appkit.minY + max(0.0, (r_appkit.height - h) * 0.5)
-                                     newRect = CGRect(x: r_appkit.minX + 12, y: y, width: 2, height: h)
-                                     newInputContextRect = r_appkit
-                                     shouldTemporarilyKeepLastCaret = true
-                                 } else {
-                                     newRect = r_appkit
-                                 }
+                                  // [Logic Refactor] Prioritize Synthetic > Huge Rejection
+                                  // 1. Synthetic Candidates (WebArea, TextArea users)
+                                  if (role == "AXTextArea" || role == "AXWebArea") && (r_appkit.width > 220 || r_appkit.height > 70) {
+                                      // [Legacy Restore] Codex/HighFreq Rule: Never use synthetic caret for code editors.
+                                      // But DO use it for Browsers (WebArea).
+                                      if !self.isHighFrequencyApp(appName: self.currentAppName, bundleID: self.currentAppBundleID) {
+                                          self.logger.debug("⚠️ [WEAK CARET] Large bounds -> Synthetic Caret")
+                                          let h = min(max(14.0, r_appkit.height), 24.0)
+                                          let y = r_appkit.minY + max(0.0, (r_appkit.height - h) * 0.5)
+                                          newRect = CGRect(x: r_appkit.minX + 12, y: y, width: 2, height: h)
+                                          newInputContextRect = r_appkit
+                                          shouldTemporarilyKeepLastCaret = true
+                                      } else {
+                                          self.logger.debug("🛡 [CODEX] Rejection: Preventing synthetic caret for editor pane.")
+                                      }
+                                  } else {
+                                      // 2. Standard Candidates
+                                      // [Legacy Restore] HEURISTIC: "Huge Element Rejection"
+                                      var isHuge = false
+                                      if let screen = NSScreen.main {
+                                          let sFrame = screen.frame
+                                          if r_appkit.width > sFrame.width * 0.7 && r_appkit.height > sFrame.height * 0.7 {
+                                              isHuge = true
+                                          }
+                                      }
+                                      
+                                      if !isHuge {
+                                          let singleLineRoles: Set<String> = ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
+                                          if singleLineRoles.contains(role) {
+                                               // [Legacy Restore] Dynamic Single-Line Caret
+                                               // Estimate X position based on character count to mimic "moving with words"
+                                               let h = min(max(14.0, r_appkit.height - 6.0), 24.0)
+                                               let y = r_appkit.minY + max(0.0, (r_appkit.height - h) * 0.5)
+                                               let leadingInset = min(max(10.0, r_appkit.height * 0.5), 22.0)
+                                               let trailingInset: CGFloat = 10.0
+                                               let usableWidth = max(8.0, r_appkit.width - leadingInset - trailingInset)
+                                               var caretXOffset: CGFloat = 0.0
+                                               
+                                               // Attempt to read value & range
+
+                                               
+                                               // We need to re-fetch value/range if we didn't get them earlier
+                                               // But wait, we might have `selectedTextRange` if we add it to class state or re-fetch
+                                               // For now, let's re-fetch quickly since this is fallback
+                                               var valueRef: CFTypeRef?
+                                               var selectedRangeValue: CFTypeRef?
+                                                if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
+                                                   let valueStr = valueRef as? String,
+                                                   AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success {
+                                                    
+                                                     var range = CFRange()
+                                                     if AXValueGetValue(selectedRangeValue as! AXValue, .cfRange, &range) {
+                                                         let total = max(0, valueStr.count)
+                                                         let location = max(0, min(range.location + range.length, total))
+                                                         if total > 0 {
+                                                             let step = min(max(9.0, r_appkit.height * 0.52), 13.0)
+                                                             caretXOffset = min(CGFloat(location) * step, usableWidth)
+                                                         }
+                                                     }
+                                                }
+                                               
+                                               let x = r_appkit.minX + leadingInset + caretXOffset
+                                               newRect = CGRect(x: x, y: y, width: 2.0, height: h)
+                                               newInputContextRect = r_appkit
+                                               shouldTemporarilyKeepLastCaret = true
+                                               self.logger.debug("✅ [FALLBACK] Dynamic Single-Line Caret: offset \(Int(caretXOffset)) (approx)")
+                                          } else {
+                                              newRect = r_appkit
+                                              if role == "AXTextArea" || role == "AXWebArea" {
+                                                  newInputContextRect = r_appkit
+                                              }
+                                          }
+                                      } else {
+                                          self.logger.debug("❌ [HUGE] Rejecting standard huge element: \(r_appkit.debugDescription)")
+                                      }
+                                  }
                              }
                          }
                      }
                  }
+             }
+        }
+        
+        // [Final Sanity Check] Codex/HighFreq
+        if let r = newRect, self.isHighFrequencyApp(appName: self.currentAppName, bundleID: self.currentAppBundleID) {
+             if r.width > 100 || r.height > 100 {
+                 self.logger.debug("🛡 [CODEX] Final Sanity: Rejecting huge caret \(r.debugDescription, privacy: .public)")
+                 newRect = nil
+             } else {
+                 self.logger.debug("✅ [CODEX] Final Sanity: Accepted caret \(r.debugDescription, privacy: .public)")
              }
         }
         
@@ -398,6 +508,14 @@ final class CaretDetector: ObservableObject {
                 }
                 
                 // Editable but lost caret: enter Sticky Grace Period
+                
+                // [Legacy Special Rule] Codex/HighFreq: Immediate Clear (Synchronous)
+                if self.isHighFrequencyApp(appName: self.lastFocusedAppName, bundleID: self.lastFocusedBundleID) {
+                    self.resetCaretState()
+                    self.updateState()
+                    return
+                }
+
                 if let last = self.recentCaretRect(), shouldTemporarilyKeepLastCaret {
                      // keep existing
                      return
@@ -469,6 +587,8 @@ final class CaretDetector: ObservableObject {
     
     private func isValid(_ r: CGRect, in w: CGRect?) -> Bool {
         if r.origin.x == 0 && r.origin.y == 0 { return false }
+        if r.width <= 0 || r.height <= 0 { return false } // [Fix] Reject empty rects (Codex 0,1050,0,0)
+
         if let win = w {
             let expanded = win.insetBy(dx: -50, dy: -50)
             if !expanded.contains(r.origin) { return false }
@@ -512,15 +632,27 @@ final class CaretDetector: ObservableObject {
         return false
     }
     
-    private func isCodexLike(appName: String?, bundleID: String?) -> Bool {
+    private func isHighFrequencyApp(appName: String?, bundleID: String?) -> Bool {
+        let keywords = [
+            "codex", "code", // VS Code
+            "cursor", "antigravity", // Cursor
+            "zed", // Zed
+            "sublime", "atom", "textmate", // Text Editors
+            "intellij", "jetbrains", "webstorm", "pycharm", "goland", "rider", "clion", "rubymine", "appcode", "datagrip", "phpstorm", "android studio", // JetBrains
+            "xcode", "simulator" // Apple Dev
+        ]
+        
         let loweredName = appName?.lowercased() ?? ""
-        if loweredName.contains("codex") { return true }
         let loweredBundle = bundleID?.lowercased() ?? ""
-        return loweredBundle.contains("codex")
+        
+        for kw in keywords {
+            if loweredName.contains(kw) || loweredBundle.contains(kw) { return true }
+        }
+        return false
     }
     
     private func stickyDuration(for bundleID: String?, appName: String?) -> TimeInterval {
-        if isCodexLike(appName: appName, bundleID: bundleID) { return 0.06 }
+        if isHighFrequencyApp(appName: appName, bundleID: bundleID) { return 0.0 } // Legacy: Zero sticky
         return 0.08
     }
 }

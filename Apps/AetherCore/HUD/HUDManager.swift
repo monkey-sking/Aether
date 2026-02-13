@@ -148,8 +148,10 @@ final class HUDManager {
             state.isTypingMode = finalTypingMode
         }
         
+        // [Legacy Restore] Click-through behavior
+        panel.ignoresMouseEvents = !state.isInteractive
+        
         // 2. Determine Reference Screen
-        // Typing mode: anchor at caret. Control mode: anchor at mouse.
         let referencePoint = finalTypingMode ? anchor : mouseLoc
         let currentScreen = NSScreen.screens.first(where: { $0.frame.contains(referencePoint) }) ?? NSScreen.main ?? NSScreen.screens.first!
         let visibleFrame = currentScreen.visibleFrame
@@ -159,36 +161,75 @@ final class HUDManager {
         let size = panel.contentView?.fittingSize ?? CGSize(width: 120, height: 44)
         
         // 4. Candidate Position Evaluation
-        // We evaluate several relative positions to find the best fit.
         let padding: CGFloat = 16
-        let candidates: [(BindingPosition, String)] = [
-            (.topRight, "TR"), (.bottomRight, "BR"), (.topLeft, "TL"), (.bottomLeft, "BL"), 
-            (.topCenter, "TC"), (.bottomCenter, "BC")
-        ]
+        
+        // [Legacy Order]
+        // Typing Mode: Prefer Top-Right (Standard annotation style)
+        // Command Mode: Prefer Bottom-Right (Natural mouse follow)
+        let candidates: [(BindingPosition, String)]
+        if finalTypingMode {
+            candidates = [
+                (.topRight, "TR"), (.bottomRight, "BR"), (.topLeft, "TL"), (.bottomLeft, "BL")
+            ]
+        } else {
+            candidates = [
+                (.bottomRight, "BR"), (.topRight, "TR"), (.bottomLeft, "BL"), (.topLeft, "TL")
+            ]
+        }
         
         var bestPos: CGPoint? = nil
+        
+        // [Legacy] Avoidance Zones
+        var zones: [CGRect] = []
+        // Avoid Mouse
+        zones.append(CGRect(x: mouseLoc.x - 15, y: mouseLoc.y - 15, width: 30, height: 30))
+        
+        // Avoid Caret itself (Legacy: caret.insetBy(dx: -5, dy: -2))
+        if let caret = update.caretRect {
+            zones.append(caret.insetBy(dx: -5, dy: -2))
+        }
+        
+        // Avoid Input Context (Text Area)
+        if finalTypingMode, let inputRect = update.inputRect {
+             // Legacy used -8, -6
+             zones.append(inputRect.insetBy(dx: -8, dy: -6))
+        }
         
         for (cand, _) in candidates {
             let p = calculateCandidate(cand, anchor: anchor, size: size, padding: padding, isTyping: finalTypingMode)
             let rect = CGRect(origin: p, size: size)
             
-            // Validation: Must be within visible frame
+            // Rule 1: Must be within visible frame
             if visibleFrame.contains(rect) {
-                // Scoring: Avoid collision with mouse or anchor point
-                let mouseCollision = rect.insetBy(dx: -10, dy: -10).contains(mouseLoc)
-                if !mouseCollision {
+                // Rule 2: Avoid Collision
+                var collision = false
+                for zone in zones {
+                    if rect.intersects(zone) {
+                        collision = true
+                        break
+                    }
+                }
+                
+                if !collision {
                     bestPos = p
                     break
                 }
             }
         }
         
-        // 5. Fallback: Edge Clamping
+        // 5. Fallback: Edge Clamping & Smart Vertical Jump
         if bestPos == nil {
             var p = calculateCandidate(.bottomRight, anchor: anchor, size: size, padding: padding, isTyping: finalTypingMode)
-            // Clamp to visible frame
-            p.x = max(visibleFrame.minX + 8, min(p.x, visibleFrame.maxX - size.width - 8))
-            p.y = max(visibleFrame.minY + 8, min(p.y, visibleFrame.maxY - size.height - 8))
+            
+            // [Legacy Smart Fallback]: If inside text area, jump below it
+            if finalTypingMode, let inputRect = update.inputRect {
+                // Not fully implementing the complex jump logic yet to avoid regressions,
+                // relying on Clamping below.
+            }
+            
+            // Clamp to visible frame (Legacy used 'padding' aka 16, not 8)
+            p.x = max(visibleFrame.minX + padding, min(p.x, visibleFrame.maxX - size.width - padding))
+            p.y = max(visibleFrame.minY + padding, min(p.y, visibleFrame.maxY - size.height - padding))
             bestPos = p
         }
         
@@ -197,7 +238,6 @@ final class HUDManager {
             if panel.frame.size != size {
                  panel.setContentSize(size)
             }
-            // Ensure visibility if not hidden by logic
             if !panel.isVisible && (state.mode != .hidden) {
                 ensureWindowVisible()
             }
@@ -207,17 +247,10 @@ final class HUDManager {
     // --- Fullscreen Video Logic ---
     
     private func shouldSuppressHUDForFullscreenVideo() -> Bool {
-        // If the frontmost screen is in "Immersive" mode (Dock and Menu Bar hidden)
-        // This is the standard state for fullscreen video playback.
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else {
             return false
         }
-        
-        // In fullscreen, the frame and visibleFrame are identical.
         let isImmersive = screen.frame.size == screen.visibleFrame.size
-        
-        // We only suppress if not actively typing/interacting, or if it's truly immersive.
-        // For now, follow the simple 'immersive' rule to match legacy behavior.
         return isImmersive
     }
     
@@ -233,22 +266,38 @@ final class HUDManager {
     }
     
     private func calculateCandidate(_ pos: BindingPosition, anchor: CGPoint, size: CGSize, padding: CGFloat, isTyping: Bool) -> CGPoint {
-        // Offset adjustments based on original logic
-        let yOffset: CGFloat = isTyping ? 0 : 0 // Original had specific Siri/Mouse offsets
+        // [Legacy Restore] 
+        // Typing Mode: Use padding (16) instead of 0 to create a gap.
+        // Control Mode: Use 24 to clear cursor.
+        let yOffset: CGFloat = isTyping ? padding : 24
         
         switch pos {
         case .topRight:
             return CGPoint(x: anchor.x + padding, y: anchor.y + yOffset)
         case .bottomRight:
-            return CGPoint(x: anchor.x + padding, y: anchor.y - size.height - padding + yOffset)
+            return CGPoint(x: anchor.x + padding, y: anchor.y - size.height - padding) // Below doesn't need extra Y offset usually if padding is enough? 
+            // Legacy: y = anchor.y - size.height - padding. (No yOffset added in legacy for bottom candidates? Let's check)
+            // Legacy: y = anchor.y + cand.offset.y. BottomRight offset: padding, -size.height - padding.
+            // So: anchor.y - size.height - padding. Correct.
+            // My code below uses + yOffset? 
+            // Logic: "Above" needs +yOffset. "Below" needs -yOffset? or just padding?
+            // Let's simplify: yOffset is strictly for "Above" candidates to clear the line height?
+            
+            // Actually, let's strictly follow Legacy Candidate logic:
+            // TopRight: (x + padding, y + padding)
         case .topLeft:
-            return CGPoint(x: anchor.x - size.width - padding, y: anchor.y + yOffset)
-        case .bottomLeft:
-            return CGPoint(x: anchor.x - size.width - padding, y: anchor.y - size.height - padding + yOffset)
+             return CGPoint(x: anchor.x - size.width - padding, y: anchor.y + yOffset)
         case .topCenter:
-            return CGPoint(x: anchor.x - size.width / 2, y: anchor.y + padding + yOffset)
+             return CGPoint(x: anchor.x - size.width / 2, y: anchor.y + padding + yOffset)
+             
+        case .bottomRight:
+             // Legacy BottomRight was: y = anchor.y - size.height - padding
+             // We can just use -padding.
+             return CGPoint(x: anchor.x + padding, y: anchor.y - size.height - padding)
+        case .bottomLeft:
+             return CGPoint(x: anchor.x - size.width - padding, y: anchor.y - size.height - padding)
         case .bottomCenter:
-            return CGPoint(x: anchor.x - size.width / 2, y: anchor.y - size.height - padding + yOffset)
+             return CGPoint(x: anchor.x - size.width / 2, y: anchor.y - size.height - padding)
         }
     }
     

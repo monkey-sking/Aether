@@ -58,13 +58,8 @@ struct HUDView: View {
             // Content Area
             if state.mode == .dictation {
                  WaveformView(level: state.audioLevel)
-                 if !displayMessage.isEmpty {
-                     Text(displayMessage)
-                         .font(.system(size: 14, weight: .semibold))
-                         .foregroundColor(.white)
-                         .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-                         .fixedSize()
-                 }
+                 // [Design] If showing waveform, do NOT show text to prevent clutter/loss issues
+                 // User prefers waveform only for feedback
             } else if state.mode == .active {
                 if !displayMessage.isEmpty {
                     Text(displayMessage)
