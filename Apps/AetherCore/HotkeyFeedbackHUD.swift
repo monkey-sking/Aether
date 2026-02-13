@@ -212,6 +212,10 @@ final class HotkeyFeedbackHUD {
     private func update(message: String, isListening: Bool, language: String = "zh-CN", isInteractive: Bool = false, isDictating: Bool = false) {
         DispatchQueue.main.async {
             self.ensureWindow()
+            guard !self.shouldSuppressHUDForFullscreenVideo() else {
+                self.hideForHiddenCursor()
+                return
+            }
             self.state.message = message
             self.state.isListening = isListening
             self.state.language = language
@@ -276,6 +280,7 @@ final class HotkeyFeedbackHUD {
     private var lastCaretCompareLogAt: Date = .distantPast
     private var lastBridgeRxLogAt: Date = .distantPast
     private var lastMouseFollowRepositionAt: Date = .distantPast
+    private var lastMouseActivityAt: Date = Date()
 
     private func hudAutoHideDelay() -> TimeInterval {
         let value = UserDefaults.standard.object(forKey: "hudAutoHideSeconds") as? Double ?? 1.5
@@ -291,8 +296,13 @@ final class HotkeyFeedbackHUD {
         // When caretRect is nil, HUD follows mouse in real-time via this monitor
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved, handler: { [weak self] _ in
             guard let self = self else { return }
-            // Only reposition in mouse-follow mode (no active caret)
-            if self.caretRect == nil {
+            self.lastMouseActivityAt = Date()
+            let isMouseOverHUD: Bool = {
+                guard let panel = self.hudWindow else { return false }
+                return panel.frame.contains(NSEvent.mouseLocation)
+            }()
+            // Reposition in mouse-follow mode OR when mouse is already over HUD (force escape).
+            if self.caretRect == nil || isMouseOverHUD {
                 let now = Date()
                 if now.timeIntervalSince(self.lastMouseFollowRepositionAt) < 0.016 { return }
                 self.lastMouseFollowRepositionAt = now
@@ -303,10 +313,30 @@ final class HotkeyFeedbackHUD {
         }) {
             eventMonitors.append(monitor)
         }
+        // Local monitor is required when Aether itself is frontmost.
+        if let localMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved, handler: { [weak self] event in
+            guard let self = self else { return event }
+            self.lastMouseActivityAt = Date()
+            let isMouseOverHUD: Bool = {
+                guard let panel = self.hudWindow else { return false }
+                return panel.frame.contains(NSEvent.mouseLocation)
+            }()
+            if self.caretRect == nil || isMouseOverHUD {
+                let now = Date()
+                if now.timeIntervalSince(self.lastMouseFollowRepositionAt) >= 0.016 {
+                    self.lastMouseFollowRepositionAt = now
+                    self.repositionWindow()
+                }
+            }
+            return event
+        }) {
+            eventMonitors.append(localMonitor)
+        }
         
         // 3. Global Mouse Click Monitor (Immediate Trigger on Click)
         // Catches focus changes (e.g. clicking a text box) instantly
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in
+            self?.lastMouseActivityAt = Date()
             DispatchQueue.main.async {
                 // Click may change focus — re-evaluate caret after brief delay for AX to settle
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
@@ -364,6 +394,17 @@ final class HotkeyFeedbackHUD {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 self.updateCaretRect()
+                // Periodically re-evaluate fullscreen/video suppression even when there are no mouse events.
+                // Do NOT force re-layout every tick, otherwise command-mode can oscillate near screen edges.
+                if self.shouldSuppressHUDForFullscreenVideo() {
+                    self.hideForHiddenCursor()
+                } else if let panel = self.hudWindow,
+                          !panel.isVisible,
+                          (self.state.isListening || self.state.isInteractive) {
+                    self.repositionWindow()
+                    panel.alphaValue = 1.0
+                    panel.orderFront(nil)
+                }
             }
         }
     }
@@ -1477,6 +1518,10 @@ final class HotkeyFeedbackHUD {
 
     private func repositionWindow() {
         guard let panel = hudWindow else { return }
+        guard !shouldSuppressHUDForFullscreenVideo() else {
+            hideForHiddenCursor()
+            return
+        }
         
         // NOTE: updateCaretRect() is NO LONGER called here.
         // It is triggered by AXObserver events, mouse clicks, and app switches independently.
@@ -1556,7 +1601,15 @@ final class HotkeyFeedbackHUD {
         var zones: [CGRect] = []
         
         // Always avoid Mouse Cursor
-        let mouseZone = CGRect(x: mouseLoc.x - 15, y: mouseLoc.y - 15, width: 30, height: 30)
+        // Keep cursor avoidance tight so default HUD distance feels close to pointer.
+        let mouseAvoidWidth: CGFloat = 16
+        let mouseAvoidHeight: CGFloat = 16
+        let mouseZone = CGRect(
+            x: mouseLoc.x - mouseAvoidWidth / 2,
+            y: mouseLoc.y - mouseAvoidHeight / 2,
+            width: mouseAvoidWidth,
+            height: mouseAvoidHeight
+        )
         zones.append(mouseZone)
         
         // Always avoid Caret (if present)
@@ -1586,7 +1639,7 @@ final class HotkeyFeedbackHUD {
                 Candidate(offset: CGPoint(x: -size.width - padding, y: -size.height - padding), name: "Caret-Below-Left")
             ]
         } else {
-            // Command Mode: Prefer Bottom-Right of mouse
+            // Command Mode: always follow mouse with stable priority.
             candidates = [
                 Candidate(offset: CGPoint(x: padding, y: -size.height - padding), name: "Mouse-Bottom-Right"),
                 Candidate(offset: CGPoint(x: padding, y: padding), name: "Mouse-Top-Right"),
@@ -1669,6 +1722,21 @@ final class HotkeyFeedbackHUD {
                 y = max(clampFrame.minY + padding, min(y, clampFrame.maxY - size.height - padding))
                 bestPos = CGPoint(x: x, y: y)
             }
+
+            // Final guard for command mode: avoid cursor overlap with minimal nudge only.
+            if !finalTypingMode, let pos = bestPos {
+                var frame = CGRect(origin: pos, size: size)
+                if frame.intersects(mouseZone) {
+                    let nudge: CGFloat = 22
+                    var x = frame.origin.x + ((mouseLoc.x >= frame.midX) ? -nudge : nudge)
+                    var y = frame.origin.y + ((mouseLoc.y >= frame.midY) ? -nudge : nudge)
+                    let clampFrame = isSiri ? screen.frame : screenFrame
+                    x = max(clampFrame.minX + padding, min(x, clampFrame.maxX - size.width - padding))
+                    y = max(clampFrame.minY + padding, min(y, clampFrame.maxY - size.height - padding))
+                    frame.origin = CGPoint(x: x, y: y)
+                    bestPos = frame.origin
+                }
+            }
         } else {
              bestPos = CGPoint(x: anchor.x + padding, y: anchor.y - size.height - padding)
         }
@@ -1679,7 +1747,72 @@ final class HotkeyFeedbackHUD {
             if panel.frame.size != size {
                  panel.setContentSize(size)
             }
+            if !panel.isVisible && (state.isListening || state.isInteractive) {
+                panel.alphaValue = 1.0
+                panel.orderFront(nil)
+            }
         }
+    }
+
+    private func shouldSuppressHUDForFullscreenVideo() -> Bool {
+        guard isFrontmostLikelyFullscreenAX() || isFrontmostLikelyFullscreen() else { return false }
+        // Typing scenarios should keep HUD alive even in fullscreen editors.
+        if self.caretRect != nil || (self.isCaretStickyActive && self.recentCaretRect() != nil) {
+            return false
+        }
+        return Date().timeIntervalSince(lastMouseActivityAt) > 1.2
+    }
+
+    private func isFrontmostLikelyFullscreenAX() -> Bool {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return false }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+
+        var focusedWindowRef: CFTypeRef?
+        let winStatus = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindowRef)
+        guard winStatus == .success, let focusedWindow = focusedWindowRef else { return false }
+
+        var fullScreenRef: CFTypeRef?
+        let fsStatus = AXUIElementCopyAttributeValue((focusedWindow as! AXUIElement), "AXFullScreen" as CFString, &fullScreenRef)
+        guard fsStatus == .success else { return false }
+
+        if let b = fullScreenRef as? Bool { return b }
+        if let n = fullScreenRef as? NSNumber { return n.boolValue }
+        return false
+    }
+
+    private func isFrontmostLikelyFullscreen() -> Bool {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
+        let frontPid = frontApp.processIdentifier
+        let options = CGWindowListOption(arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements)
+        guard let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return false
+        }
+
+        for info in windows {
+            guard let ownerPid = info[kCGWindowOwnerPID as String] as? pid_t, ownerPid == frontPid else { continue }
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
+            guard let boundsValue = info[kCGWindowBounds as String] else { continue }
+            let boundsDict = boundsValue as! CFDictionary
+            guard let bounds = CGRect(dictionaryRepresentation: boundsDict) else { continue }
+            if bounds.width < 200 || bounds.height < 200 { continue }
+
+            if NSScreen.screens.contains(where: { screen in
+                let overlap = bounds.intersection(screen.frame)
+                guard !overlap.isNull, !overlap.isEmpty else { return false }
+                let coverage = (overlap.width * overlap.height) / (screen.frame.width * screen.frame.height)
+                return coverage >= 0.95
+            }) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func hideForHiddenCursor() {
+        hideTask?.cancel()
+        hudWindow?.alphaValue = 0
+        hudWindow?.orderOut(nil)
     }
     
     private func scheduleHide(delay: TimeInterval) {
