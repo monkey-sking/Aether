@@ -58,6 +58,12 @@ class HeadMotionManager: ObservableObject {
     
     // Dynamic Range Calibration
     @Published var calibrationStatus: String = "Normal"
+    
+    // Real-time Data for UI Visualization
+    @Published var currentHeadYaw: Double = 0.0
+    @Published var currentHeadPitch: Double = 0.0
+    @Published var currentVelocity: Double = 0.0
+    
     private var minYaw: Double = -0.3
     private var maxYaw: Double = 0.3
     private var minPitch: Double = -0.2
@@ -275,6 +281,15 @@ class HeadMotionManager: ObservableObject {
             
             self.moveToAbsolutePosition(x: targetX, y: targetY)
             self.attitudeText = String(format: "Y: %.2f, P: %.2f", attitude.yaw, attitude.pitch)
+            
+            // Update UI visualization data
+            DispatchQueue.main.async {
+                self.currentHeadYaw = offYaw
+                self.currentHeadPitch = offPitch
+                // Simple velocity approximation based on distance from center (or delta if we tracked it)
+                // For "Matrix" visual, magnitude of movement is often more interesting than derivative
+                self.currentVelocity = sqrt(pow(offYaw, 2) + pow(offPitch, 2))
+            }
             
             // Handle Tilt Scroll
             self.handleTiltScroll(pitch: offPitch)

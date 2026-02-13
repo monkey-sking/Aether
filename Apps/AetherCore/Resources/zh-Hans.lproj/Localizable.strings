@@ -4,6 +4,7 @@
 "generic.idle" = "空闲";
 "generic.ready" = "就绪";
 "generic.tracking" = "追踪中";
+"generic.select_item" = "请选择一个项目";
 
 /* App */
 "app.project_title" = "Aether";
@@ -138,3 +139,37 @@
 "dashboard.hint.command" = "请说指令，如“点击”";
 "dashboard.hint.wakeword" = "请说“Aether”唤醒";
 "dashboard.hint.enable" = "开启语音控制以开始";
+
+/* Command Center & Navigation */
+"command.center.title" = "指令中心";
+"command.center.voice_stream" = "语音流";
+"command.center.motion_matrix" = "姿态矩阵";
+"status.system.active" = "系统活跃";
+"status.system.offline" = "系统离线";
+"action.recenter" = "回中";
+"navigation.section.controls" = "控制";
+"navigation.item.system" = "系统";
+"navigation.section.configuration" = "配置";
+
+/* Visualization */
+"viz.voice_signal" = "语音信号";
+"viz.last_command" = "最近指令";
+"viz.calibration" = "校准状态";
+"viz.velocity" = "角速度";
+
+/* Settings Modules */
+"settings.voice_input" = "语音输入";
+"settings.wakeword_sensitivity" = "唤醒词灵敏度";
+"settings.advanced_processing" = "高级处理";
+"settings.smarter_dictation" = "智能听写";
+"settings.gestures_clicks" = "手势与点击";
+"settings.dwell_click_subtitle" = "悬停自动点击";
+"settings.tilt_scroll_subtitle" = "头部倾斜滚动内容";
+"settings.calibration" = "校准";
+"settings.current_status" = "当前状态:";
+"settings.driver_status" = "驱动状态";
+"action.recenter_matrix" = "重置中心校准";
+"status.active" = "活跃";
+"status.disabled" = "已禁用";
+"status.paused" = "已暂停";
+"calibration.normal" = "正常";
