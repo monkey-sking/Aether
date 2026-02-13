@@ -175,7 +175,7 @@
 "settings.activation.wakeword_hint" = "说“Hey Aether”唤醒。";
 "settings.activation.always_hint" = "麦克风常驻开启，直接响应指令。";
 "settings.activation.always_warning" = "警告：耗电量较高。麦克风将持续工作。";
-"settings.activation.hands_free" = "免提模式 (Hands-Free)";
+"settings.activation.hands_free" = "免提模式";
 "settings.activation.push_to_talk" = "按键说话 (PTT)";
 "settings.activation.wake_word" = "唤醒词 (\"Hey Aether\")";
 "settings.activation.gaze_wake" = "注视唤醒 (看屏幕)";

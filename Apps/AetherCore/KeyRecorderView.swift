@@ -324,19 +324,19 @@ final class KeyRecorderNSView: NSView {
 struct KeyRecorderView: View {
     @Binding var binding: HotkeyBinding
     var onChange: (HotkeyBinding) -> Void
-    @StateObject private var hotkeyManager = HotkeyManager.shared
+    var font: Font = .body
     
+    @StateObject private var hotkeyManager = HotkeyManager.shared
     @State private var isRecording: Bool = false
-    @State private var recordingAction: HotkeyAction? = nil // Dummy for logic if needed, but we use isRecording directly here
     
     var body: some View {
         Button(action: {
             isRecording.toggle()
         }) {
             Text(isRecording ? String(localized: "hotkey.press_key") : binding.displayString)
-                .font(.system(.caption, design: .monospaced))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .font(font.monospaced())
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
                 .background(isRecording
                             ? Color.accentColor.opacity(0.2)
                             : Color(NSColor.controlBackgroundColor))
@@ -352,13 +352,6 @@ struct KeyRecorderView: View {
                 onRecord: { keyCode, modifiers, mouseButton in
                     let newBinding: HotkeyBinding
                     if let btn = mouseButton {
-                        // Mouse Binding: use a special keycode logic if manager supports it, 
-                        // or just map it.
-                        // For PTT, we just store it raw.
-                        // HotkeyBinding struct doesn't separate mouse button logic fully in this context (it's properties on AppState).
-                        // But let's just store it as keyCode and pass modifiers.
-                        // If we really want mouse support for PTT, we need to update HotkeyBinding to match.
-                        // Assuming HotkeyBinding can hold mouse info or we just use 1000 offset convention.
                         newBinding = HotkeyBinding(keyCode: 1000 + btn, modifiers: modifiers)
                     } else {
                         newBinding = HotkeyBinding(keyCode: keyCode, modifiers: modifiers)

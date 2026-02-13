@@ -142,7 +142,7 @@ class HeadMotionManager: ObservableObject {
             let msg = String(localized: "motion.error.airpods_not_detected")
             attitudeText = "AirPods not connected"
             os_log("Cannot start tracking: AirPods not available", log: log, type: .error)
-            HotkeyFeedbackHUD.show("❌ No AirPods Detected")
+            HUDManager.shared.showTemporary(message: "❌ No AirPods Detected")
             onError?(msg)
             return // BLOCK tracking if AirPods not available
         }
@@ -301,7 +301,7 @@ class HeadMotionManager: ObservableObject {
         os_log("Aether: Connection Timeout - No data received", log: log, type: .error)
         
         let msg = String(localized: "motion.error.connection_timeout")
-        HotkeyFeedbackHUD.show("❌ Connection Timeout")
+        HUDManager.shared.showTemporary(message: "❌ Connection Timeout")
         onError?(msg)
         
         stopTrackingInternal()
@@ -370,24 +370,24 @@ class HeadMotionManager: ObservableObject {
 
     func scrollToTop() {
         AutomationOutputs.shared.scroll(dx: 0, dy: -100000)
-        HotkeyFeedbackHUD.show("⬆️ Scroll Top")
+        HUDManager.shared.showTemporary(message: "⬆️ Scroll Top")
     }
 
     func scrollToBottom() {
         AutomationOutputs.shared.scroll(dx: 0, dy: 100000)
-        HotkeyFeedbackHUD.show("⬇️ Scroll Bottom")
+        HUDManager.shared.showTemporary(message: "⬇️ Scroll Bottom")
     }
 
     func dragStart() {
         // Use current cursor location (nil) to avoid coordinate flipping issues
         AutomationOutputs.shared.drag(start: true, at: nil)
-        HotkeyFeedbackHUD.show("✊ Drag Start")
+        HUDManager.shared.showTemporary(message: "✊ Drag Start")
     }
 
     func dragEnd() {
         // Use current cursor location (nil) to avoid coordinate flipping issues
         AutomationOutputs.shared.drag(start: false, at: nil)
-        HotkeyFeedbackHUD.show("🖐 Drag Drop")
+        HUDManager.shared.showTemporary(message: "🖐 Drag Drop")
     }
 
     func recenter() {
@@ -658,18 +658,18 @@ class HeadMotionManager: ObservableObject {
                     case .toggleTracking:
                         if manager.isTracking {
                             GlobalLogger.input.info("Hotkey: Stop Tracking")
-                            HotkeyFeedbackHUD.show("⏹ 停止追踪")
+                            HUDManager.shared.showTemporary(message: "⏹ 停止追踪")
                             DispatchQueue.main.async { manager.stopTracking() }
                         } else {
                             GlobalLogger.input.info("Hotkey: Start Tracking")
-                            HotkeyFeedbackHUD.show("▶️ 启动追踪")
+                            HUDManager.shared.showTemporary(message: "▶️ 启动追踪")
                             DispatchQueue.main.async { manager.startTracking() }
                         }
                         return nil
 
                     case .connectionLock:
                         GlobalLogger.input.info("Hotkey: Toggle Connection Lock")
-                        HotkeyFeedbackHUD.show("🔒 Connection Lock")
+                        HUDManager.shared.showTemporary(message: "🔒 Connection Lock")
                         NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
                         return nil
 
@@ -682,7 +682,7 @@ class HeadMotionManager: ObservableObject {
                         
                         if !wasPressed {
                             GlobalLogger.input.info("Hotkey: PTT DOWN Detected (Keyboard)")
-                            HotkeyFeedbackHUD.show("🎤 Push to Talk")
+                            HUDManager.shared.showTemporary(message: "🎤 Push to Talk")
                             NotificationCenter.default.post(
                                 name: HeadMotionManager.pttDownNotification,
                                 object: nil
@@ -728,18 +728,18 @@ class HeadMotionManager: ObservableObject {
                     case .toggleTracking:
                         if manager.isTracking {
                             GlobalLogger.input.info("Mouse Hotkey: Stop Tracking")
-                            HotkeyFeedbackHUD.show("⏹ 停止追踪")
+                            HUDManager.shared.showTemporary(message: "⏹ 停止追踪")
                             DispatchQueue.main.async { manager.stopTracking() }
                         } else {
                             GlobalLogger.input.info("Mouse Hotkey: Start Tracking")
-                            HotkeyFeedbackHUD.show("▶️ 启动追踪")
+                            HUDManager.shared.showTemporary(message: "▶️ 启动追踪")
                             DispatchQueue.main.async { manager.startTracking() }
                         }
                         return nil
                         
                     case .connectionLock:
                         GlobalLogger.input.info("Mouse Hotkey: Toggle Connection Lock")
-                        HotkeyFeedbackHUD.show("🔒 Connection Lock")
+                        HUDManager.shared.showTemporary(message: "🔒 Connection Lock")
                         NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
                         return nil
 
@@ -751,7 +751,7 @@ class HeadMotionManager: ObservableObject {
                             
                             if !wasPressed {
                                 GlobalLogger.input.info("Mouse PTT DOWN Detected (Button \(btn))")
-                                HotkeyFeedbackHUD.show("🎤 Push to Talk")
+                                HUDManager.shared.showTemporary(message: "🎤 Push to Talk")
                                 NotificationCenter.default.post(
                                     name: HeadMotionManager.pttDownNotification,
                                     object: nil
@@ -840,7 +840,7 @@ class HeadMotionManager: ObservableObject {
             if !self.motionManager.isDeviceMotionAvailable {
                 os_log("Monitor: AirPods capability lost (Switched device?)", log: self.log, type: .error)
                 let msg = String(localized: "motion.error.airpods_disconnected") // "AirPods disconnected or switched to another device."
-                HotkeyFeedbackHUD.show("⚠️ AirPods Disconnected")
+                HUDManager.shared.showTemporary(message: "⚠️ AirPods Disconnected")
                 self.onError?(msg)
                 self.stopTrackingInternal()
                 DispatchQueue.main.async { self.attitudeText = "Disconnected" }
@@ -851,7 +851,7 @@ class HeadMotionManager: ObservableObject {
             if let lastTime = self.lastDataTime, Date().timeIntervalSince(lastTime) > 5.0 {
                 os_log("Monitor: No data for 5s (Signal lost)", log: self.log, type: .error)
                 let msg = String(localized: "motion.error.connection_lost") // "Connection lost. No data received."
-                HotkeyFeedbackHUD.show("⚠️ Connection Lost")
+                HUDManager.shared.showTemporary(message: "⚠️ Connection Lost")
                 self.onError?(msg)
                 self.stopTrackingInternal()
                 DispatchQueue.main.async { self.attitudeText = "Signal Lost" }

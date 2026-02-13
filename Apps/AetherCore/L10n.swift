@@ -187,4 +187,5 @@ enum L10n {
     static let statusDisabled: LocalizedStringKey = "status.disabled"
     static let statusPaused: LocalizedStringKey = "status.paused"
     static let calibrationNormal: LocalizedStringKey = "calibration.normal"
+    static let hotkeyResetSingle: LocalizedStringKey = "hotkey.reset_single"
 }
