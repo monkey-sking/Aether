@@ -130,6 +130,15 @@ struct ContentView: View {
                             set: { appState.setAlwaysListeningEnabled($0) }
                         )
                     )
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(L10n.alwaysListeningWakeWindow)
+                            Spacer()
+                            Text(String(format: "%.0fs", appState.alwaysListeningWakeWindowSeconds))
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $appState.alwaysListeningWakeWindowSeconds, in: 3...20, step: 1)
+                    }
 
                     Toggle(L10n.llmEnhanceDictation, isOn: $appState.isLLMEnhancementEnabled)
 

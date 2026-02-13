@@ -243,6 +243,16 @@ class AppState: ObservableObject {
             voiceService.setAlwaysListeningEnabled(isAlwaysListeningEnabled)
         }
     }
+    @Published var alwaysListeningWakeWindowSeconds: Double = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double ?? 8.0 {
+        didSet {
+            let clamped = min(max(alwaysListeningWakeWindowSeconds, 3.0), 30.0)
+            if clamped != alwaysListeningWakeWindowSeconds {
+                alwaysListeningWakeWindowSeconds = clamped
+                return
+            }
+            UserDefaults.standard.set(clamped, forKey: "alwaysListeningWakeWindowSeconds")
+        }
+    }
     @Published var isLLMEnhancementEnabled: Bool = UserDefaults.standard.bool(forKey: "isLLMEnhancementEnabled") {
         didSet {
             UserDefaults.standard.set(isLLMEnhancementEnabled, forKey: "isLLMEnhancementEnabled")

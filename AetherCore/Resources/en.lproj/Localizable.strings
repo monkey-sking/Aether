@@ -51,6 +51,7 @@
 "control.dwell_click" = "Dwell Click";
 "control.force_driver_only" = "Force Driver Only";
 "control.always_listening" = "Always Listening";
+"control.always_listening_wake_window" = "Always-listening Active Window";
 "control.llm_enhance_dictation" = "LLM Enhance Dictation";
 "control.prefer_inputmethod_caret" = "Use IME Caret Engine";
 "control.caret_engine_compare" = "Log AX vs IME Delta";
