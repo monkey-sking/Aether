@@ -132,6 +132,9 @@ struct ContentView: View {
                     )
 
                     Toggle(L10n.llmEnhanceDictation, isOn: $appState.isLLMEnhancementEnabled)
+
+                    Toggle(L10n.preferInputMethodCaret, isOn: $appState.preferInputMethodCaret)
+                    Toggle(L10n.caretEngineCompare, isOn: $appState.caretEngineCompareEnabled)
                     
                     Toggle(L10n.showDockIcon, isOn: $appState.showDockIcon)
 

@@ -52,6 +52,8 @@
 "control.force_driver_only" = "Force Driver Only";
 "control.always_listening" = "Always Listening";
 "control.llm_enhance_dictation" = "LLM Enhance Dictation";
+"control.prefer_inputmethod_caret" = "Use IME Caret Engine";
+"control.caret_engine_compare" = "Log AX vs IME Delta";
 "control.push_to_talk_hint" = "Push-to-talk: hold ⌥Space. Always Listening: say “Aether …”";
 "control.toggle_tracking_hint" = "Toggle Tracking";
 

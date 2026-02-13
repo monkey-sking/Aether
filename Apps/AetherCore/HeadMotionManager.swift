@@ -38,7 +38,11 @@ class HeadMotionManager: ObservableObject {
     var onError: ((String) -> Void)?
 
     // Debug Mode
-    @Published var isDebugModeEnabled: Bool = false
+    @Published var isDebugModeEnabled: Bool = UserDefaults.standard.bool(forKey: "isDebugModeEnabled") {
+        didSet {
+            UserDefaults.standard.set(isDebugModeEnabled, forKey: "isDebugModeEnabled")
+        }
+    }
     
     // Experience Optimization Constants
     private let deadzone: Double = 0.005  // Ignore movements smaller than ~0.3 degrees
@@ -66,7 +70,11 @@ class HeadMotionManager: ObservableObject {
     private let smoothing: CGFloat = 0.5 // Responsive but steady
     
     // Tilt Scroll
-    @Published var isTiltScrollEnabled: Bool = true
+    @Published var isTiltScrollEnabled: Bool = UserDefaults.standard.object(forKey: "isTiltScrollEnabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(isTiltScrollEnabled, forKey: "isTiltScrollEnabled")
+        }
+    }
     private let tiltScrollThreshold: Double = 0.25 // Radian (~15 degrees)
     private var lastScrollTime: Date = Date()
     

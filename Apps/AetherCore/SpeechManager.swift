@@ -221,8 +221,14 @@ final class SpeechManager: ObservableObject {
     @Published var lastError: String = ""
     
     // --- New Features (Build 2170) ---
-    @Published var activeLocale: Locale = Locale(identifier: "zh-CN") {
+    @Published var activeLocale: Locale = {
+        if let identifier = UserDefaults.standard.string(forKey: "activeLocaleIdentifier") {
+            return Locale(identifier: identifier)
+        }
+        return Locale(identifier: "zh-CN")
+    }() {
         didSet {
+            UserDefaults.standard.set(activeLocale.identifier, forKey: "activeLocaleIdentifier")
             // Reset recognizer so next session uses new locale
             recognizer = SFSpeechRecognizer(locale: activeLocale)
         }
@@ -261,6 +267,9 @@ final class SpeechManager: ObservableObject {
     private var lastChangeAt: Date?
     private var lastStableText: String = ""
     private var sessionGeneration: Int = 0 
+    private var sessionTypingMode: Bool = false
+    private var cachedTypingMode: Bool = false
+    private var lastTypingCheckAt: Date = .distantPast
     @Published var lastWakeTime: Date? // For context-aware wake window & UI feedback
     private var cancellables = Set<AnyCancellable>()
 
@@ -276,6 +285,51 @@ final class SpeechManager: ObservableObject {
     }
 
     private var isTypingMode: Bool {
+        if HotkeyFeedbackHUD.typingContextSnapshot() {
+            return true
+        }
+
+        func isAXEditable(_ element: AXUIElement) -> Bool {
+            var editableValue: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, "AXEditable" as CFString, &editableValue) == .success else {
+                return false
+            }
+            return (editableValue as? Bool) == true || (editableValue as? NSNumber)?.boolValue == true
+        }
+
+        func hasInsertionContext(_ element: AXUIElement) -> Bool {
+            var selectedRangeValue: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success {
+                return true
+            }
+            var markerRangeValue: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRangeValue) == .success {
+                return true
+            }
+            return false
+        }
+
+        func hasEditableDescendant(_ element: AXUIElement, depth: Int = 4) -> Bool {
+            if depth <= 0 { return false }
+            var childrenRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+                  let children = childrenRef as? [AXUIElement] else {
+                return false
+            }
+
+            let directEditableRoles = [kAXTextFieldRole as String, "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
+            let conditionalRoles = [kAXTextAreaRole as String, "AXWebArea", "AXStaticText"]
+            for child in children {
+                var roleRef: CFTypeRef?
+                let role = (AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleRef) == .success) ? (roleRef as? String ?? "") : ""
+                if directEditableRoles.contains(role) { return true }
+                if conditionalRoles.contains(role), (isAXEditable(child) || hasInsertionContext(child)) { return true }
+                if hasInsertionContext(child) { return true }
+                if hasEditableDescendant(child, depth: depth - 1) { return true }
+            }
+            return false
+        }
+
         // 1. Check System Wide Focus (Most Reliable)
         let systemWide = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
@@ -286,11 +340,10 @@ final class SpeechManager: ObservableObject {
             
             // Check Role
             var role: AnyObject?
+            var roleString = ""
             if AXUIElementCopyAttributeValue(axElement, kAXRoleAttribute as CFString, &role) == .success,
-               let roleString = role as? String {
-                if roleString == kAXTextAreaRole || roleString == kAXTextFieldRole || roleString == "AXSearchField" || roleString == "AXComboBox" {
-                    return true
-                }
+               let value = role as? String {
+                roleString = value
             }
             
             // Check Owner PID -> Bundle ID (for Siri/Spotlight exceptions)
@@ -298,13 +351,73 @@ final class SpeechManager: ObservableObject {
             AXUIElementGetPid(axElement, &pid)
             if let app = NSRunningApplication(processIdentifier: pid),
                let bundleId = app.bundleIdentifier {
-                if bundleId == "com.apple.Siri" || bundleId == "com.apple.siri.launcher" || bundleId == "com.apple.Spotlight" {
+                let appName = app.localizedName?.lowercased() ?? ""
+                let isSiriLike = bundleId.contains("apple.siri") || bundleId == "com.apple.Spotlight" || appName.contains("siri")
+                if isSiriLike {
+                    return true
+                }
+
+                let terminalIds = [
+                    "com.apple.Terminal",
+                    "com.googlecode.iterm2",
+                    "com.github.wez.wezterm",
+                    "dev.warp.Warp-Stable"
+                ]
+                let isTerminal = terminalIds.contains(bundleId)
+                let directEditableRoles = [kAXTextFieldRole as String, "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
+                let conditionalRoles = [kAXTextAreaRole as String, "AXWebArea", "AXStaticText"]
+
+                let isEditableFlag = isAXEditable(axElement)
+                let hasInsertion = hasInsertionContext(axElement)
+
+                if directEditableRoles.contains(roleString) {
+                    return true
+                }
+
+                if conditionalRoles.contains(roleString) {
+                    if roleString == "AXWebArea" {
+                        // AXWebArea can expose stale marker/range data in web UIs.
+                        return isEditableFlag && hasInsertion
+                    }
+                    if roleString == kAXTextAreaRole as String {
+                        return hasInsertion
+                    }
+                    return isEditableFlag || hasInsertion
+                }
+
+                if (roleString == "AXGroup" || roleString == "AXScrollArea" || roleString == "AXSplitGroup" || roleString == "AXRadioButton" || roleString == "AXButton"),
+                   hasEditableDescendant(axElement) {
+                    return true
+                }
+
+                if isTerminal {
+                    return isEditableFlag || hasInsertion
+                }
+
+                if isEditableFlag || hasInsertion {
+                    if roleString == "AXWebArea" {
+                        return isEditableFlag && hasInsertion
+                    }
+                    if roleString == kAXTextAreaRole as String {
+                        return hasInsertion
+                    }
                     return true
                 }
             }
         }
         
-        return false
+        return HotkeyFeedbackHUD.typingContextSnapshot()
+    }
+
+    private func throttledTypingMode(interval: TimeInterval = 0.12) -> Bool {
+        let now = Date()
+        if now.timeIntervalSince(lastTypingCheckAt) < interval {
+            return cachedTypingMode
+        }
+        let mode = isTypingMode
+        cachedTypingMode = mode
+        lastTypingCheckAt = now
+        return mode
     }
 
     var onIntent: ((VoiceIntent) -> Void)?
@@ -364,7 +477,8 @@ final class SpeechManager: ObservableObject {
         
         // Reset Streaming State
         lastStreamedText = ""
-        isDictating = isTypingMode // Set initial state based on context
+        sessionTypingMode = isTypingMode // Snapshot at session start
+        isDictating = sessionTypingMode
 
         // [Stability] Reset Failsafe Timer (Stops recording after 60s max)
         failsafeTimer?.invalidate()
@@ -406,12 +520,15 @@ final class SpeechManager: ObservableObject {
                     let text = result.bestTranscription.formattedString
                     self.lastTranscript = text
                     self.lastChangeAt = Date()
+                    let liveTyping = self.throttledTypingMode()
+                    self.sessionTypingMode = self.sessionTypingMode || liveTyping
+                    self.isDictating = self.sessionTypingMode
                     
                     // Update HUD with live transcript
                     HotkeyFeedbackHUD.showContinuous(message: text.isEmpty ? NSLocalizedString("speech.listening", comment: "") : text, isListening: true, language: self.activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: self.isDictating)
                     
                     // Handle Streaming Typing (if in typing mode)
-                    if self.isTypingMode && !result.isFinal {
+                    if self.sessionTypingMode && !result.isFinal {
                         self.handleStreamingTyping(currentText: text)
                     }
                 }
@@ -632,14 +749,14 @@ final class SpeechManager: ObservableObject {
             }
             .store(in: &cancellables)
             
-        requestPermissions()
+        
     }
 
     private func playWakeSound() {
         NSSound(named: "Tink")?.play()
     }
 
-    private func requestPermissions() {
+    func requestPermissions() {
         GlobalLogger.speech.info("Requesting Permissions")
         SFSpeechRecognizer.requestAuthorization { [weak self] auth in
             DispatchQueue.main.async {
@@ -770,6 +887,7 @@ final class SpeechManager: ObservableObject {
         failsafeTimer?.invalidate()
         failsafeTimer = nil
         isDictating = false
+        sessionTypingMode = false
         // Engine NOT cleared
     }
 
@@ -820,7 +938,7 @@ final class SpeechManager: ObservableObject {
             os_log("Processing PTT Command: '%{public}@'", log: log, type: .default, trimmed)
         }
         
-        let typingContext = isTypingMode
+        let typingContext = sessionTypingMode || isTypingMode
         if typingContext {
             os_log("Context: Typing Mode Detected", log: log, type: .info)
         }
@@ -854,7 +972,8 @@ final class SpeechManager: ObservableObject {
         for key in prefixes {
             if let range = remainder.range(of: key, options: [.caseInsensitive, .diacriticInsensitive]) {
                 // Only if it's at the start or very close
-                if range.lowerBound < remainder.index(remainder.startIndex, offsetBy: 5) {
+                let nearStartLimit = remainder.index(remainder.startIndex, offsetBy: 5, limitedBy: remainder.endIndex) ?? remainder.endIndex
+                if range.lowerBound < nearStartLimit {
                     remainder.removeSubrange(remainder.startIndex..<range.upperBound)
                     return remainder.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
