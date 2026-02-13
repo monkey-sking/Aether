@@ -259,6 +259,10 @@ final class HotkeyFeedbackHUD {
             self.bridgedInputContextRect = update.contextRect
             self.bridgedBundleID = update.bundleID
             self.bridgedCaretAt = update.timestamp
+            if Date().timeIntervalSince(self.lastBridgeRxLogAt) >= 0.5 {
+                self.lastBridgeRxLogAt = Date()
+                self.logger.debug("⚠️ [IME BRIDGE RX] caret=\(update.caretRect.debugDescription) bundle=\(update.bundleID ?? "nil")")
+            }
             if self.typingContextSnapshot() {
                 self.repositionWindow()
             }
@@ -269,6 +273,8 @@ final class HotkeyFeedbackHUD {
     private var bridgedInputContextRect: CGRect?
     private var bridgedBundleID: String?
     private var bridgedCaretAt: Date?
+    private var lastCaretCompareLogAt: Date = .distantPast
+    private var lastBridgeRxLogAt: Date = .distantPast
     
     private func startFollowTimer() {
         // 1. AX Observer (Event-Driven: Focus/Caret changes) — replaces Timer polling
@@ -488,7 +494,7 @@ final class HotkeyFeedbackHUD {
         return nil
     }
 
-    private func recentBridgedCaret(maxAge: TimeInterval = 0.20) -> (caret: CGRect, context: CGRect?, bundleID: String?)? {
+    private func recentBridgedCaret(maxAge: TimeInterval = 0.45) -> (caret: CGRect, context: CGRect?, bundleID: String?)? {
         let snapshot: (CGRect?, CGRect?, String?, Date?) = {
             if Thread.isMainThread {
                 return (self.bridgedCaretRect, self.bridgedInputContextRect, self.bridgedBundleID, self.bridgedCaretAt)
@@ -503,13 +509,29 @@ final class HotkeyFeedbackHUD {
         guard let caret = snapshot.0, let ts = snapshot.3 else { return nil }
         if Date().timeIntervalSince(ts) > maxAge { return nil }
 
-        if let sourceBundle = snapshot.2,
-           let frontBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
-           sourceBundle != frontBundle {
-            return nil
+        // Some IMK environments report empty/IME bundle as source; don't reject those updates.
+        if let rawSourceBundle = snapshot.2 {
+            let sourceBundle = rawSourceBundle.trimmingCharacters(in: .whitespacesAndNewlines)
+            let imeBundle = "com.sevenfei.inputmethod.aether"
+            let appBundle = Bundle.main.bundleIdentifier ?? ""
+            let needsStrictMatch = !sourceBundle.isEmpty && sourceBundle != imeBundle && sourceBundle != appBundle
+            if needsStrictMatch,
+               let frontBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+               sourceBundle != frontBundle {
+                return nil
+            }
         }
 
         return (caret: caret, context: snapshot.1, bundleID: snapshot.2)
+    }
+
+    private func shouldEmitCaretCompareLog(minInterval: TimeInterval = 0.5) -> Bool {
+        let now = Date()
+        if now.timeIntervalSince(lastCaretCompareLogAt) >= minInterval {
+            lastCaretCompareLogAt = now
+            return true
+        }
+        return false
     }
 
     private func isTerminalLike(bundleID: String) -> Bool {
@@ -1104,6 +1126,9 @@ final class HotkeyFeedbackHUD {
             if let bridgedRect = preferredBridgedRect {
                 if let axRect = newRect {
                     let delta = hypot(axRect.midX - bridgedRect.midX, axRect.midY - bridgedRect.midY)
+                    if self.shouldEmitCaretCompareLog() {
+                        self.logger.debug("⚠️ [CARET COMPARE] delta=\(Int(delta)) | AX=\(axRect.debugDescription) | IME=\(bridgedRect.debugDescription)")
+                    }
                     if delta >= 12 {
                         self.logger.debug("⚠️ [CARET DELTA] AX vs IME delta=\(Int(delta)) | AX=\(axRect.debugDescription) | IME=\(bridgedRect.debugDescription)")
                     }
