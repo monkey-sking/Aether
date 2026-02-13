@@ -2,12 +2,17 @@ import SwiftUI
 
 struct AetherMenuBar: Scene {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.openSettings) private var openSettings
 
     var body: some Scene {
         MenuBarExtra(String(localized: "app.project_title"), systemImage: "antenna.radiowaves.left.and.right") {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.menuPointer) + Text(": ") + Text(appState.isMotionTracking ? L10n.on : L10n.off)
                 Text(L10n.menuVoice) + Text(": \(appState.voiceStatus)")
+// ... (lines 11-63 skipped for brevity if matched correctly, but since I need to inject `openWindow` at the top, I have to be careful about the context)
+// Let's rewrite the top part and the button part separately or together if safe.
+// The file is small enough.
+
 
                 Text(L10n.pointerOutput) + Text(": \(appState.pointerOutputPath)")
                 Text(L10n.textOutput) + Text(": \(appState.textOutputPath)")
@@ -62,7 +67,8 @@ struct AetherMenuBar: Scene {
                 Divider()
 
                 Button(L10n.menuShowWindow) {
-                    appState.showMainWindow()
+                    openSettings()
+                    NSApp.activate(ignoringOtherApps: true)
                 }
 
                 Divider()

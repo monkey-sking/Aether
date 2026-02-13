@@ -110,4 +110,18 @@ enum L10n {
     static let speechPasted: LocalizedStringKey = "speech.pasted"
     static let speechUndo: LocalizedStringKey = "speech.undo"
     static let speechDone: LocalizedStringKey = "speech.done"
+
+    // Dashboard & Settings (New)
+    static let settingsTabOverview: LocalizedStringKey = "settings.tab.overview"
+    static let settingsTabGeneral: LocalizedStringKey = "settings.tab.general"
+    static let settingsTabInput: LocalizedStringKey = "settings.tab.input"
+    static let settingsTabFeedback: LocalizedStringKey = "settings.tab.feedback"
+    static let settingsTabAdvanced: LocalizedStringKey = "settings.tab.advanced"
+
+    static let settingsHeaderMotion: LocalizedStringKey = "settings.header.motion"
+    static let settingsHeaderShortcuts: LocalizedStringKey = "settings.header.shortcuts"
+
+    static let dashboardHintCommand: LocalizedStringKey = "dashboard.hint.command"
+    static let dashboardHintWakeword: LocalizedStringKey = "dashboard.hint.wakeword"
+    static let dashboardHintEnable: LocalizedStringKey = "dashboard.hint.enable"
 }

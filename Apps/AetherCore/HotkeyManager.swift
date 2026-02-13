@@ -5,10 +5,11 @@ import os
 // MARK: - Data Model
 
 struct HotkeyBinding: Codable, Equatable {
-    var keyCode: Int       // CGKeyCode value
+    var keyCode: Int       // CGKeyCode value (ignored if mouseButton != nil)
     var modifiers: UInt64  // CGEventFlags.rawValue (masked)
-
-    /// Human-readable string like "⌃⌥S"
+    var mouseButton: Int? = nil // Optional mouse button index
+    
+    /// Human-readable string like "⌃⌥S" or "Mouse Btn 3"
     var displayString: String {
         var parts: [String] = []
         let flags = CGEventFlags(rawValue: modifiers)
@@ -17,7 +18,13 @@ struct HotkeyBinding: Codable, Equatable {
         if flags.contains(.maskShift)     { parts.append("⇧") }
         if flags.contains(.maskCommand)   { parts.append("⌘") }
         if flags.contains(.maskAlphaShift) { parts.append("⇪") }
-        parts.append(Self.keyName(for: keyCode))
+        
+        if let btn = mouseButton {
+            parts.append("Mouse \(btn)")
+        } else {
+            parts.append(Self.keyName(for: keyCode))
+        }
+        
         return parts.joined()
     }
 
@@ -174,6 +181,9 @@ final class HotkeyManager: ObservableObject {
         log.debug("EventTap KeyDown: code=\(keyCode), flags=\(flags.rawValue, format: .hex), capsPhys=\(isCapsLockPhysicallyDown)")
 
         for (action, binding) in snapshot {
+            // Must be keyboard binding (mouseButton == nil)
+            guard binding.mouseButton == nil else { continue }
+            
             // 1. Check KeyCode
             guard binding.keyCode == Int(keyCode) else { continue }
             
@@ -206,10 +216,63 @@ final class HotkeyManager: ObservableObject {
         return nil
     }
 
+    /// Match a mouse button down event
+    nonisolated func matchMouseDown(button: Int, flags: CGEventFlags) -> HotkeyAction? {
+        let snapshot = MainActor.assumeIsolated { bindings }
+        let maskedFlags = flags.rawValue & Self.modifierMask
+        
+        // Setup local logger (thread-safe struct) since we are nonisolated
+        let log = Logger(subsystem: "com.7fei.Aether", category: "Hotkeys")
+        
+        for (action, binding) in snapshot {
+            if let b = binding.mouseButton, b == button {
+                // Check Modifiers
+                if binding.modifiers == maskedFlags {
+                    return action
+                }
+            }
+        }
+        return nil
+    }
+    
+    /// Match a mouse button up event
+    nonisolated func matchMouseUp(button: Int, flags: CGEventFlags) -> HotkeyAction? {
+         // Same logic as down for now, caller decides what to do with the action
+        return matchMouseDown(button: button, flags: flags)
+    }
+
     func setBinding(_ action: HotkeyAction, keyCode: Int, modifiers: UInt64) {
         let maskedModifiers = modifiers & Self.modifierMask
-        bindings[action] = HotkeyBinding(keyCode: keyCode, modifiers: maskedModifiers)
+        
+        // Remove duplicate bindings
+        for (existingAction, binding) in bindings {
+            if binding.mouseButton == nil && binding.keyCode == keyCode && binding.modifiers == maskedModifiers {
+                if existingAction != action {
+                    bindings.removeValue(forKey: existingAction)
+                    logger.info("Removed duplicate binding for \(existingAction.rawValue)")
+                }
+            }
+        }
+        
+        bindings[action] = HotkeyBinding(keyCode: keyCode, modifiers: maskedModifiers, mouseButton: nil)
         logger.info("Set binding for \(action.rawValue): code=\(keyCode), mods=\(maskedModifiers, format: .hex)")
+    }
+    
+    func setMouseBinding(_ action: HotkeyAction, button: Int, modifiers: UInt64) {
+        let maskedModifiers = modifiers & Self.modifierMask
+        
+        // Remove duplicate bindings
+        for (existingAction, binding) in bindings {
+            if let btn = binding.mouseButton, btn == button && binding.modifiers == maskedModifiers {
+                if existingAction != action {
+                    bindings.removeValue(forKey: existingAction)
+                    logger.info("Removed duplicate mouse binding for \(existingAction.rawValue)")
+                }
+            }
+        }
+        
+        bindings[action] = HotkeyBinding(keyCode: -1, modifiers: maskedModifiers, mouseButton: button)
+        logger.info("Set mouse binding for \(action.rawValue): button=\(button), mods=\(maskedModifiers, format: .hex)")
     }
 
     func resetToDefaults() {
@@ -232,8 +295,11 @@ final class HotkeyManager: ObservableObject {
 
     /// The keyCode of the current PTT binding, for keyUp matching.
     /// Nonisolated so it can be called from the Event Tap callback.
-    nonisolated var pttKeyCode: Int {
-        MainActor.assumeIsolated { binding(for: .pushToTalk).keyCode }
+    nonisolated var pttBinding: (keyCode: Int, mouseButton: Int?) {
+        MainActor.assumeIsolated {
+            let b = binding(for: .pushToTalk)
+            return (b.keyCode, b.mouseButton)
+        }
     }
 
     private func save() {

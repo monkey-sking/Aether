@@ -123,3 +123,17 @@
 "speech.pasted" = "Pasted";
 "speech.undo" = "Undo";
 "speech.done" = "Done";
+
+/* Dashboard & Settings (New) */
+"settings.tab.overview" = "Overview";
+"settings.tab.general" = "General";
+"settings.tab.input" = "Input";
+"settings.tab.feedback" = "Feedback";
+"settings.tab.advanced" = "Advanced";
+
+"settings.header.motion" = "Motion Control";
+"settings.header.shortcuts" = "Shortcuts";
+
+"dashboard.hint.command" = "Say a command like 'Click'";
+"dashboard.hint.wakeword" = "Say 'Aether' to wake up";
+"dashboard.hint.enable" = "Enable Voice Control to start";

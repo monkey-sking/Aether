@@ -570,12 +570,8 @@ class AppState: ObservableObject {
     }
 
     func showMainWindow() {
-        // In SwiftUI, windows may already exist; this is a best-effort helper from menu bar.
-        if let window = NSApp.windows.first(where: { $0.isVisible }) {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
+        // Main window is now the Settings window
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 }
@@ -596,12 +592,12 @@ struct AetherApp: App {
     @NSApplicationDelegateAdaptor(AetherAppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
     
-    var body: some Scene {
-        Window("Aether", id: "main") {
-            ContentView()
+    var body: some Scene {     
+        Settings {
+            SettingsView()
                 .environmentObject(appState)
-                .frame(minWidth: 400, minHeight: 600)
         }
+        
         AetherMenuBar()
             .environmentObject(appState)
     }
