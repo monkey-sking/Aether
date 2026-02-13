@@ -43,6 +43,8 @@
 "control.force_driver_only" = "强制仅驱动";
 "control.always_listening" = "常驻监听";
 "control.llm_enhance_dictation" = "大模型增强听写";
+"control.prefer_inputmethod_caret" = "使用输入法光标引擎";
+"control.caret_engine_compare" = "记录 AX/输入法偏差";
 "control.push_to_talk_hint" = "按住 ⌥Space 说话；常驻监听时说“ Aether … ”触发。";
 "control.toggle_tracking_hint" = "切换追踪";
 

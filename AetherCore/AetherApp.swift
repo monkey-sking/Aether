@@ -1,6 +1,8 @@
 import SwiftUI
 import SystemExtensions
 import Combine
+import AVFoundation
+import Speech
 
 let kAetherDriverBundleID = "com.7fei.Aether.AetherDriver"
 
@@ -199,8 +201,9 @@ class AppState: ObservableObject {
     @Published var attitudeData: String = "No Data"
     @Published var pointerOutputPath: String = OutputRouting.shared.pointerOutputPath
     @Published var textOutputPath: String = OutputRouting.shared.textOutputPath
-    @Published var forceDriverOnly: Bool = OutputRouting.shared.forceDriverOnly {
+    @Published var forceDriverOnly: Bool = UserDefaults.standard.bool(forKey: "forceDriverOnly") {
         didSet {
+            UserDefaults.standard.set(forceDriverOnly, forKey: "forceDriverOnly")
             OutputRouting.shared.forceDriverOnly = forceDriverOnly
         }
     }
@@ -217,8 +220,9 @@ class AppState: ObservableObject {
     @Published var lastVoiceTranscript: String = ""
     @Published var lastVoiceError: String = ""
     @Published var lastVoiceWakeTime: Date?
-    @Published var isAlwaysListeningEnabled: Bool = false {
+    @Published var isAlwaysListeningEnabled: Bool = UserDefaults.standard.bool(forKey: "isAlwaysListeningEnabled") {
         didSet {
+            UserDefaults.standard.set(isAlwaysListeningEnabled, forKey: "isAlwaysListeningEnabled")
             guard oldValue != isAlwaysListeningEnabled else { return }
 
             if !isMutatingAlwaysListening, isAlwaysListeningEnabled {
@@ -239,8 +243,21 @@ class AppState: ObservableObject {
             voiceService.setAlwaysListeningEnabled(isAlwaysListeningEnabled)
         }
     }
-    @Published var isLLMEnhancementEnabled: Bool = false {
-        didSet { voiceService.setLLMEnhancementEnabled(isLLMEnhancementEnabled) }
+    @Published var isLLMEnhancementEnabled: Bool = UserDefaults.standard.bool(forKey: "isLLMEnhancementEnabled") {
+        didSet {
+            UserDefaults.standard.set(isLLMEnhancementEnabled, forKey: "isLLMEnhancementEnabled")
+            voiceService.setLLMEnhancementEnabled(isLLMEnhancementEnabled)
+        }
+    }
+    @Published var preferInputMethodCaret: Bool = UserDefaults.standard.object(forKey: "preferInputMethodCaret") as? Bool ?? false {
+        didSet {
+            UserDefaults.standard.set(preferInputMethodCaret, forKey: "preferInputMethodCaret")
+        }
+    }
+    @Published var caretEngineCompareEnabled: Bool = UserDefaults.standard.object(forKey: "caretEngineCompareEnabled") as? Bool ?? false {
+        didSet {
+            UserDefaults.standard.set(caretEngineCompareEnabled, forKey: "caretEngineCompareEnabled")
+        }
     }
 
     @Published var onboardingStep: OnboardingStep = .done
@@ -293,6 +310,24 @@ class AppState: ObservableObject {
             .assign(to: &$calibrationStatus)
             
         motionService.isDwellClickEnabled = self.isDwellClickEnabled
+        
+        // Restore OutputRouting state from persisted value
+        OutputRouting.shared.forceDriverOnly = self.forceDriverOnly
+        
+        // Restore VoiceService state from persisted values (Safe restoration)
+        // [Hotfix] Only enable if already authorized, otherwise wait for user interaction to avoid TCC crash.
+        let micAuth = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        let speechAuth = SFSpeechRecognizer.authorizationStatus() == .authorized
+        
+        if self.isAlwaysListeningEnabled && micAuth && speechAuth {
+            voiceService.setAlwaysListeningEnabled(true)
+        } else if self.isAlwaysListeningEnabled {
+            // If saved as true but not authorized, we MUST set to false to avoid crash, 
+            // but we don't overwrite UserDefaults yet to let user fix permissions.
+            self.isAlwaysListeningEnabled = false
+        }
+        
+        voiceService.setLLMEnhancementEnabled(self.isLLMEnhancementEnabled)
 
         voiceService.$status
             .assign(to: &$voiceStatus)
@@ -333,7 +368,7 @@ class AppState: ObservableObject {
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self] accessibilityTrusted, microphoneAuthorized, speechAuthorized in
-            guard let self else { return }
+            guard let self = self else { return }
             self.onboardingStep = Self.deriveOnboardingStep(
                 accessibilityTrusted: accessibilityTrusted,
                 microphoneAuthorized: microphoneAuthorized,
@@ -341,8 +376,18 @@ class AppState: ObservableObject {
             )
 
             // Safety: if Always Listening is enabled but permissions got revoked, shut it off.
+            // BUGFIX: Only reset if the app has actually initialized permissions. 
+            // On startup, these values might be false temporarily before refresh() is called.
             if self.isAlwaysListeningEnabled && (!microphoneAuthorized || !speechAuthorized) {
-                self.setAlwaysListeningEnabledInternal(false)
+                // If we are authorized but the published value is still false (race condition), don't reset.
+                // Re-check synchronously to be absolutely sure.
+                let micAuth = AVCaptureDevice.authorizationStatus(for: AVMediaType.audio) == .authorized
+                let speechAuth = SFSpeechRecognizer.authorizationStatus() == .authorized
+                
+                if !micAuth || !speechAuth {
+                    GlobalLogger.lifecycle.info("Permissons revoked, disabling Always Listening")
+                    self.setAlwaysListeningEnabledInternal(false)
+                }
             }
         }
         .store(in: &cancellables)
@@ -516,12 +561,11 @@ class AppState: ObservableObject {
 
 class AetherAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Apply initial dock icon state
+        // Respect user's Dock visibility preference.
         let showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
-        if !showDockIcon {
-            NSApp.setActivationPolicy(.accessory)
-        } else {
-            NSApp.setActivationPolicy(.regular)
+        NSApp.setActivationPolicy(showDockIcon ? .regular : .accessory)
+        if showDockIcon {
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 }
@@ -532,7 +576,7 @@ struct AetherApp: App {
     @StateObject private var appState = AppState()
     
     var body: some Scene {
-        WindowGroup {
+        Window("Aether", id: "main") {
             ContentView()
                 .environmentObject(appState)
                 .frame(minWidth: 400, minHeight: 600)
