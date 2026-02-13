@@ -292,6 +292,8 @@ final class CaretDetector: ObservableObject {
             AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
             var role = roleValue as? String ?? ""
             
+            logger.error("HUD_DEBUG: Focused App='\(self.currentAppName ?? "unknown")', Bundle='\(bundleID)', Role='\(role)'")
+            
             // Drill down
             if ["AXWindow", "AXSheet", "AXScrollArea", "AXSplitGroup"].contains(role) || isSiriLike(appName: self.currentAppName, bundleID: bundleID) {
                 if let child = findFirstTextField(in: element) {
@@ -304,8 +306,8 @@ final class CaretDetector: ObservableObject {
                 }
             }
             
-            // Editability
-            var isEditable = ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea"].contains(role)
+            // Editability - adding AXGroup as a potential container for web-based inputs
+            var isEditable = ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea", "AXWebArea", "AXGroup"].contains(role)
             let axEditable = readAXBool(element, attribute: "AXEditable")
             if axEditable == true { isEditable = true }
              
@@ -599,6 +601,27 @@ final class CaretDetector: ObservableObject {
         }
         return false
     }
+
+    private func extractRectFromElement(_ element: AXUIElement) -> CGRect? {
+        // Try Marker (Web)
+        var markerRangeValue: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRangeValue) == .success {
+            var boundsValue: CFTypeRef?
+            if AXUIElementCopyParameterizedAttributeValue(element, "AXBoundsForTextMarkerRange" as CFString, markerRangeValue!, &boundsValue) == .success {
+                return extractRect(from: boundsValue!)
+            }
+        }
+        
+        // Try Standard Range
+        var selectedRangeValue: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success {
+            var boundsValue: CFTypeRef?
+            if AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, selectedRangeValue!, &boundsValue) == .success {
+                return extractRect(from: boundsValue!)
+            }
+        }
+        return nil
+    }
     
     private func readAXBool(_ element: AXUIElement, attribute: String) -> Bool? {
         var value: CFTypeRef?
@@ -635,7 +658,7 @@ final class CaretDetector: ObservableObject {
     private func isHighFrequencyApp(appName: String?, bundleID: String?) -> Bool {
         let keywords = [
             "codex", "code", // VS Code
-            "cursor", "antigravity", // Cursor
+            "cursor", // Cursor
             "zed", // Zed
             "sublime", "atom", "textmate", // Text Editors
             "intellij", "jetbrains", "webstorm", "pycharm", "goland", "rider", "clion", "rubymine", "appcode", "datagrip", "phpstorm", "android studio", // JetBrains
