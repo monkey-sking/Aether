@@ -43,10 +43,12 @@
 "control.force_driver_only" = "强制仅驱动";
 "control.always_listening" = "常驻监听";
 "control.always_listening_wake_window" = "常驻监听活跃时长";
+"control.always_listening_wake_window_hint" = "在这个时长内可直接下指令，超时后需要再次唤醒词。";
 "control.llm_enhance_dictation" = "大模型增强听写";
 "control.prefer_inputmethod_caret" = "使用输入法光标引擎";
 "control.caret_engine_compare" = "记录 AX/输入法偏差";
 "control.hud_auto_hide" = "HUD 自动隐藏";
+"control.hud_auto_hide_hint" = "只影响一次性提示；常驻监听 HUD 不受这里控制。";
 "control.push_to_talk_hint" = "按住 ⌥Space 说话；常驻监听时说“ Aether … ”触发。";
 "control.toggle_tracking_hint" = "切换追踪";
 
@@ -98,6 +100,16 @@
 "control.debug_mode" = "调试模式";
 "control.toggle_tracking_fmt %@" = "切换追踪: %@";
 
+"section.quick_start" = "快速开始";
+"section.runtime_status" = "运行状态";
+"section.voice_listening" = "语音与监听";
+"section.hud_settings" = "HUD 设置";
+"section.advanced_settings" = "高级设置";
+"voice.state_now" = "当前语音状态";
+"voice.wakeword_required_now" = "当前需要唤醒词";
+"voice.yes" = "是";
+"voice.no" = "否";
+
 "menu.start_pointer_fmt %@" = "启动指针 (%@)";
 "menu.stop_pointer_fmt %@" = "停止指针 (%@)";
 "menu.airpods_lock_fmt %@" = "🔒 AirPods Lock (%@)";
@@ -105,6 +117,7 @@
 /* Speech Status */
 "speech.listening" = "正在聆听...";
 "speech.waiting_command" = "等待操作指令…";
+"speech.waiting_wakeword" = "等待唤醒词…";
 "speech.idle" = "空闲";
 "speech.unavailable" = "语音不可用";
 "speech.error" = "识别错误";

@@ -45,12 +45,27 @@ enum L10n {
     static let forceDriverOnly: LocalizedStringKey = "control.force_driver_only"
     static let alwaysListening: LocalizedStringKey = "control.always_listening"
     static let alwaysListeningWakeWindow: LocalizedStringKey = "control.always_listening_wake_window"
+    static let triggerSources: LocalizedStringKey = "control.trigger_sources"
+    static let triggerHotkey: LocalizedStringKey = "control.trigger_hotkey"
+    static let triggerWakeWord: LocalizedStringKey = "control.trigger_wakeword"
+    static let sessionStrategy: LocalizedStringKey = "control.session_strategy"
+    static let strategySingleSession: LocalizedStringKey = "control.strategy_single_session"
+    static let strategyContinuous: LocalizedStringKey = "control.strategy_continuous"
     static let llmEnhanceDictation: LocalizedStringKey = "control.llm_enhance_dictation"
     static let preferInputMethodCaret: LocalizedStringKey = "control.prefer_inputmethod_caret"
     static let caretEngineCompare: LocalizedStringKey = "control.caret_engine_compare"
     static let hudAutoHide: LocalizedStringKey = "control.hud_auto_hide"
+    static let hudAutoHideHint: LocalizedStringKey = "control.hud_auto_hide_hint"
     static let pushToTalkHint: LocalizedStringKey = "control.push_to_talk_hint"
     static let toggleTrackingHint: LocalizedStringKey = "control.toggle_tracking_hint"
+    static let alwaysListeningWakeWindowHint: LocalizedStringKey = "control.always_listening_wake_window_hint"
+
+    // Sections
+    static let quickStart: LocalizedStringKey = "section.quick_start"
+    static let runtimeStatus: LocalizedStringKey = "section.runtime_status"
+    static let voiceAndListening: LocalizedStringKey = "section.voice_listening"
+    static let hudSettings: LocalizedStringKey = "section.hud_settings"
+    static let advancedSettings: LocalizedStringKey = "section.advanced_settings"
 
     // Actions
     static let activatePerception: LocalizedStringKey = "action.activate_perception"
