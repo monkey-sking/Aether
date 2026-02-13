@@ -480,7 +480,8 @@ final class SpeechManager: ObservableObject {
                 if conditionalRoles.contains(roleString) {
                     if roleString == "AXWebArea" {
                         // AXWebArea can expose stale marker/range data in web UIs.
-                        return isEditableFlag && hasInsertion
+                        // Relax to OR to support web-based inputs like Antigravity.
+                        return isEditableFlag || hasInsertion
                     }
                     if roleString == kAXTextAreaRole as String {
                         return hasInsertion
