@@ -124,3 +124,17 @@
 "speech.pasted" = "已粘贴";
 "speech.undo" = "撤销";
 "speech.done" = "完成";
+
+/* Dashboard & Settings (New) */
+"settings.tab.overview" = "概览";
+"settings.tab.general" = "通用";
+"settings.tab.input" = "输入";
+"settings.tab.feedback" = "反馈";
+"settings.tab.advanced" = "高级";
+
+"settings.header.motion" = "动作控制";
+"settings.header.shortcuts" = "快捷键";
+
+"dashboard.hint.command" = "请说指令，如“点击”";
+"dashboard.hint.wakeword" = "请说“Aether”唤醒";
+"dashboard.hint.enable" = "开启语音控制以开始";

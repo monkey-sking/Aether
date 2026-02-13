@@ -681,7 +681,7 @@ class HeadMotionManager: ObservableObject {
             if type == .keyUp {
                 // PTT Up — match the configured PTT key code OR just check if this key is in active sources
                 // Note: HotkeyManager might map multiple keys? Assuming simple 1-1 for now.
-                let pttKeyCode = MainActor.assumeIsolated({ HotkeyManager.shared.pttKeyCode })
+                let pttKeyCode = MainActor.assumeIsolated({ HotkeyManager.shared.pttBinding.keyCode })
                 let source = PTTSource.keyboard(Int(keyCode))
                 
                 // If this specific key was part of PTT activation
@@ -704,45 +704,65 @@ class HeadMotionManager: ObservableObject {
                 }
             }
             
-            // Mouse Button PTT (Button 3 = Side, 4 = Extra Side)
+            // Mouse Button Hotkeys (Dynamic)
             if type == .otherMouseDown {
-                let btn = event.getIntegerValueField(.mouseEventButtonNumber)
-                if btn == 3 || btn == 4 {
-                    let source = PTTSource.mouse(Int(btn))
-                    if !manager.activePTTSources.contains(source) {
-                        let wasPressed = manager.isPTTPressed
-                        manager.activePTTSources.insert(source)
-                        
-                        if !wasPressed {
-                            GlobalLogger.input.info("Mouse PTT DOWN Detected (Button \(btn))")
-                            HotkeyFeedbackHUD.show("🎤 Push to Talk")
-                            NotificationCenter.default.post(
-                                name: HeadMotionManager.pttDownNotification,
-                                object: nil
-                            )
+                let btn = Int(event.getIntegerValueField(.mouseEventButtonNumber))
+                
+                if let action = MainActor.assumeIsolated({ HotkeyManager.shared.matchMouseDown(button: btn, flags: flags) }) {
+                    switch action {
+                    case .toggleTracking:
+                        if manager.isTracking {
+                            GlobalLogger.input.info("Mouse Hotkey: Stop Tracking")
+                            HotkeyFeedbackHUD.show("⏹ 停止追踪")
+                            DispatchQueue.main.async { manager.stopTracking() }
+                        } else {
+                            GlobalLogger.input.info("Mouse Hotkey: Start Tracking")
+                            HotkeyFeedbackHUD.show("▶️ 启动追踪")
+                            DispatchQueue.main.async { manager.startTracking() }
                         }
+                        return nil
+                        
+                    case .connectionLock:
+                        GlobalLogger.input.info("Mouse Hotkey: Toggle Connection Lock")
+                        HotkeyFeedbackHUD.show("🔒 Connection Lock")
+                        NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
+                        return nil
+
+                    case .pushToTalk:
+                        let source = PTTSource.mouse(btn)
+                        if !manager.activePTTSources.contains(source) {
+                            let wasPressed = manager.isPTTPressed
+                            manager.activePTTSources.insert(source)
+                            
+                            if !wasPressed {
+                                GlobalLogger.input.info("Mouse PTT DOWN Detected (Button \(btn))")
+                                HotkeyFeedbackHUD.show("🎤 Push to Talk")
+                                NotificationCenter.default.post(
+                                    name: HeadMotionManager.pttDownNotification,
+                                    object: nil
+                                )
+                            }
+                        }
+                        return nil
                     }
-                    // Consume event? Usually yes for PTT mappings.
-                    return nil
                 }
             }
             
             if type == .otherMouseUp {
-                let btn = event.getIntegerValueField(.mouseEventButtonNumber)
-                if btn == 3 || btn == 4 {
-                    let source = PTTSource.mouse(Int(btn))
-                    if manager.activePTTSources.contains(source) {
-                        manager.activePTTSources.remove(source)
-                        
-                        if !manager.isPTTPressed {
-                            GlobalLogger.input.info("Mouse PTT UP Detected (Button \(btn))")
-                            NotificationCenter.default.post(
-                                name: HeadMotionManager.pttUpNotification,
-                                object: nil
-                            )
-                        }
-                        return nil
+                let btn = Int(event.getIntegerValueField(.mouseEventButtonNumber))
+                let source = PTTSource.mouse(btn)
+                
+                if manager.activePTTSources.contains(source) {
+                    manager.activePTTSources.remove(source)
+                    
+                    if !manager.isPTTPressed {
+                        GlobalLogger.input.info("Mouse PTT UP Detected (Button \(btn))")
+                        NotificationCenter.default.post(
+                            name: HeadMotionManager.pttUpNotification,
+                            object: nil
+                        )
                     }
+                    return nil
                 }
             }
             

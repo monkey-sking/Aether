@@ -1,5 +1,5 @@
 import SwiftUI
-你
+
 struct VoiceHUD: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject var headManager = HeadMotionManager.shared
@@ -39,7 +39,7 @@ struct VoiceHUD: View {
         }
         // Timeout Wake
         if let last = appState.lastVoiceWakeTime {
-            return Date().timeIntervalSince(last) < 8.0
+            return Date().timeIntervalSince(last) < appState.alwaysListeningWakeWindowSeconds
         }
         return false
     }
