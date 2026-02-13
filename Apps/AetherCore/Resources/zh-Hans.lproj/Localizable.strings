@@ -160,8 +160,32 @@
 /* Settings Modules */
 "settings.voice_input" = "语音输入";
 "settings.wakeword_sensitivity" = "唤醒词灵敏度";
-"settings.advanced_processing" = "高级处理";
-"settings.smarter_dictation" = "智能听写";
+"settings.advanced_processing" = "语音处理";
+"settings.smarter_dictation" = "AI 逻辑增强";
+"settings.command_mode" = "指令模式";
+"settings.dictation_mode" = "听写模式";
+"settings.microphone" = "麦克风";
+"settings.no_microphone" = "未检测到麦克风";
+
+/* Voice Activation */
+"settings.activation.title" = "触发方式";
+"settings.activation_methods" = "触发方式";
+"settings.activation.shortcut" = "快捷键 (按键说话)";
+"settings.activation.shortcut_hint" = "按下快捷键以输入指令。";
+"settings.activation.wakeword_hint" = "说“Hey Aether”唤醒。";
+"settings.activation.always_hint" = "麦克风常驻开启，直接响应指令。";
+"settings.activation.always_warning" = "警告：耗电量较高。麦克风将持续工作。";
+"settings.activation.hands_free" = "免提模式 (Hands-Free)";
+"settings.activation.push_to_talk" = "按键说话 (PTT)";
+"settings.activation.wake_word" = "唤醒词 (\"Hey Aether\")";
+"settings.activation.gaze_wake" = "注视唤醒 (看屏幕)";
+"settings.activation.keep_awake" = "保持唤醒时长";
+
+/* Command Mode */
+"settings.default_device" = "系统默认";
+"settings.command_timeout" = "指令超时";
+"settings.feedback_sound" = "反馈音效";
+"settings.auto_punctuation" = "自动标点";
 "settings.gestures_clicks" = "手势与点击";
 "settings.dwell_click_subtitle" = "悬停自动点击";
 "settings.tilt_scroll_subtitle" = "头部倾斜滚动内容";

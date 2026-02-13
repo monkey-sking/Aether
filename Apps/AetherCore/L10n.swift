@@ -60,6 +60,14 @@ enum L10n {
     static let pushToTalkHint: LocalizedStringKey = "control.push_to_talk_hint"
     static let toggleTrackingHint: LocalizedStringKey = "control.toggle_tracking_hint"
     static let alwaysListeningWakeWindowHint: LocalizedStringKey = "control.always_listening_wake_window_hint"
+    
+    // Unified Activation
+    static let activationMethods: LocalizedStringKey = "settings.activation_methods"
+    static let activationShortcut: LocalizedStringKey = "settings.activation.shortcut"
+    static let activationShortcutHint: LocalizedStringKey = "settings.activation.shortcut_hint"
+    static let activationWakeWordHint: LocalizedStringKey = "settings.activation.wakeword_hint"
+    static let activationAlwaysHint: LocalizedStringKey = "settings.activation.always_hint"
+    static let activationAlwaysWarning: LocalizedStringKey = "settings.activation.always_warning"
 
     // Sections
     static let quickStart: LocalizedStringKey = "section.quick_start"
@@ -151,6 +159,23 @@ enum L10n {
     static let settingsWakewordSensitivity: LocalizedStringKey = "settings.wakeword_sensitivity"
     static let settingsAdvancedProcessing: LocalizedStringKey = "settings.advanced_processing"
     static let settingsSmarterDictation: LocalizedStringKey = "settings.smarter_dictation"
+    static let settingsCommandMode: LocalizedStringKey = "settings.command_mode"
+    static let settingsDictationMode: LocalizedStringKey = "settings.dictation_mode"
+    static let settingsMicrophone: LocalizedStringKey = "settings.microphone"
+    static let settingsNoMicrophone: LocalizedStringKey = "settings.no_microphone"
+    
+    // Voice Activation
+    static let settingsActivationTitle: LocalizedStringKey = "settings.activation.title"
+    static let settingsActivationHandsFree: LocalizedStringKey = "settings.activation.hands_free"
+    static let settingsActivationPushToTalk: LocalizedStringKey = "settings.activation.push_to_talk"
+    static let settingsActivationWakeWord: LocalizedStringKey = "settings.activation.wake_word"
+    static let settingsActivationGazeWake: LocalizedStringKey = "settings.activation.gaze_wake"
+    static let settingsActivationKeepAwake: LocalizedStringKey = "settings.activation.keep_awake"
+    
+    static let settingsDefaultDevice: LocalizedStringKey = "settings.default_device"
+    static let settingsCommandTimeout: LocalizedStringKey = "settings.command_timeout"
+    static let settingsFeedbackSound: LocalizedStringKey = "settings.feedback_sound"
+    static let settingsAutoPunctuation: LocalizedStringKey = "settings.auto_punctuation"
     static let settingsGesturesClicks: LocalizedStringKey = "settings.gestures_clicks"
     static let settingsDwellClickSubtitle: LocalizedStringKey = "settings.dwell_click_subtitle"
     static let settingsTiltScrollSubtitle: LocalizedStringKey = "settings.tilt_scroll_subtitle"

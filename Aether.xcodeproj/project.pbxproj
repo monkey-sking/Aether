@@ -376,6 +376,10 @@
 				DEVELOPMENT_TEAM = 4Z7654KAZZ;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Apps/AetherCore/Info.plist;
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSSupportsAutomaticTermination = NO;
+				INFOPLIST_KEY_NSAppSleepDisabled = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Aether needs microphone access to listen for voice commands.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Aether needs access to your AirPods head motion data to control the mouse cursor.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Aether uses speech recognition for voice control.";
@@ -399,6 +403,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4Z7654KAZZ;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Apps/AetherCore/Info.plist;
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSSupportsAutomaticTermination = NO;
+				INFOPLIST_KEY_NSAppSleepDisabled = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Aether needs microphone access to listen for voice commands.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Aether needs access to your AirPods head motion data to control the mouse cursor.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Aether uses speech recognition for voice control.";

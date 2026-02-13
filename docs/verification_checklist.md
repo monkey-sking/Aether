@@ -9,9 +9,12 @@
 
 ## 1. 核心语音功能 (Core Voice)
 - [x] **普通听写 (Dictation)**: 在文本框（如 Notes, TextEdit）中，按住快捷键 (`Option + Space`) 或使用唤醒词说话，文字能正常上屏。
-- [ ] **Siri/聚焦搜索 (Siri/Spotlight)**: 呼出 Siri 或 Spotlight，能直接进行语音输入。你好你好
+- [x] **Siri/聚焦搜索 (Siri/Spotlight)**: 呼出 Siri 或 Spotlight，能直接进行语音输入。
 - [ ] **命令控制 (Commands)**: 说“点击”、“向下”、“双击”等指令，鼠标能正确响应。
-- [ ] **连续对话 (Continuous Mode)**: 开启“始终聆听” (`Option + Cmd + L`) 后，长时间不说话不应报错；说唤醒词 "Aether" / "艾瑟" 能触发指令。
+- [ ] **连续对话 (Continuous Mode)**: 开启“免提模式 (Hands-Free)”后，长时间不说话不应报错；
+    - [ ] **唤醒词 (Wake Word)**: 开启后，说 "Aether" / "艾瑟" 能触发指令。
+    - [ ] **注视唤醒 (Gaze Wake)**: 开启后，注视屏幕时直接说指令能触发。
+    - [ ] **保持唤醒**: 触发后，HUD 在设定时间内保持绿色（聆听状态）。
 - [ ] **快捷键验证**:
     - [x] `Option + Space`: 触发 PTT
     - [ ] `Option + Command + S`: 切换追踪 (Start/Stop)

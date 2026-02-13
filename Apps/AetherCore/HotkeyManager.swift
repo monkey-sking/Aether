@@ -274,6 +274,13 @@ final class HotkeyManager: ObservableObject {
         bindings[action] = HotkeyBinding(keyCode: -1, modifiers: maskedModifiers, mouseButton: button)
         logger.info("Set mouse binding for \(action.rawValue): button=\(button), mods=\(maskedModifiers, format: .hex)")
     }
+    
+    // Helper specifically for PTT update from Settings
+    func registerPTT(_ binding: HotkeyBinding) {
+        bindings[.pushToTalk] = binding
+        // No duplicate check needed as PTT is unique in this context (we overwrite).
+        logger.info("Registered PTT binding: \(binding.displayString)")
+    }
 
     func resetToDefaults() {
         var defaults: [HotkeyAction: HotkeyBinding] = [:]

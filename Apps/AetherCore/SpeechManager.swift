@@ -5,6 +5,15 @@ import AppKit
 import os.log
 import ApplicationServices
 import Combine
+import CoreAudio
+
+struct AudioInputDevice: Identifiable, Hashable {
+    let id: AudioDeviceID
+    let name: String
+    let uid: String
+    
+    static let defaultSystem = AudioInputDevice(id: 0, name: String(localized: "settings.default_device"), uid: "SystemDefault")
+}
 
 enum VoiceIntent: Equatable {
     case clickLeft
@@ -220,6 +229,17 @@ final class SpeechManager: ObservableObject {
     @Published var lastTranscript: String = ""
     @Published var lastError: String = ""
     
+    // Microphone Management
+    @Published var availableInputDevices: [AudioInputDevice] = []
+    @Published var selectedInputDeviceID: AudioDeviceID = 0 { // 0 = System Default
+        didSet {
+            // Only restart if changed and engine is running
+            if oldValue != selectedInputDeviceID {
+                restartEngineForNewDevice()
+            }
+        }
+    }
+    
     // --- New Features (Build 2170) ---
     @Published var activeLocale: Locale = {
         if let identifier = UserDefaults.standard.string(forKey: "activeLocaleIdentifier") {
@@ -236,6 +256,7 @@ final class SpeechManager: ObservableObject {
     
     @Published var isAlwaysListeningEnabled: Bool = false {
         didSet {
+            // This controls the MICROPHONE STATE (Continuous Recognition)
             if isAlwaysListeningEnabled {
                 startContinuous()
             } else {
@@ -243,7 +264,20 @@ final class SpeechManager: ObservableObject {
             }
         }
     }
+    
+    // New: Controls whether we execute commands DIRECTLY without a wake word.
+    @Published var isDirectCommandEnabled: Bool = false
+
+    @Published var isWakeWordEnabled: Bool = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(isWakeWordEnabled, forKey: "isWakeWordEnabled") }
+    }
+    @Published var isGazeWakeEnabled: Bool = UserDefaults.standard.object(forKey: "isGazeWakeEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(isGazeWakeEnabled, forKey: "isGazeWakeEnabled") }
+    }
     @Published var isLLMEnhancementEnabled: Bool = false
+    @Published var isAutoPunctuationEnabled: Bool = UserDefaults.standard.object(forKey: "isAutoPunctuationEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(isAutoPunctuationEnabled, forKey: "isAutoPunctuationEnabled") }
+    }
     @Published var isDictating: Bool = false // For HUD Feedback
 
     private let router = VoiceCommandRouter()
@@ -276,7 +310,7 @@ final class SpeechManager: ObservableObject {
     private var isAwake: Bool {
         // Gaze Wake: if looking at screen AND tracking is active -> Awake
         // Note: HeadMotionManager is MainActor, ensure safe access.
-        if HeadMotionManager.shared.isTracking && HeadMotionManager.shared.isLookingAtScreen {
+        if isGazeWakeEnabled && HeadMotionManager.shared.isTracking && HeadMotionManager.shared.isLookingAtScreen {
             return true
         }
 
@@ -530,7 +564,7 @@ final class SpeechManager: ObservableObject {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         if #available(macOS 13, *) {
-            request.addsPunctuation = true
+            request.addsPunctuation = isAutoPunctuationEnabled
         }
         // Important: Add contextual strings to improve specific command recognition
         request.contextualStrings = ["点击", "双击", "向下", "向上", "右键", "Click", "Double Click", "Scroll Down", "Scroll Up", "Right Click"]
@@ -655,6 +689,10 @@ final class SpeechManager: ObservableObject {
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         
+        // [Microphone Selection]
+        // Set device BEFORE accessing format or installing tap
+        setInputDeviceForEngine(engine)
+        
         // Keep voice processing OFF by default to avoid ducking/volume attenuation
         // in other apps while Aether is active.
         if #available(macOS 10.15, *), shouldUseVoiceProcessing() {
@@ -741,6 +779,123 @@ final class SpeechManager: ObservableObject {
         os_log("Persistent Audio Engine STARTED.", log: log, type: .info)
     }
 
+    // MARK: - Audio Device Management
+    
+    func refreshInputDevices() {
+        var devices: [AudioInputDevice] = [.defaultSystem]
+        
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        var dataSize: UInt32 = 0
+        let status = AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &propertyAddress, 0, nil, &dataSize)
+        
+        guard status == noErr else { return }
+        
+        let deviceCount = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: deviceCount)
+        
+        let status2 = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &propertyAddress, 0, nil, &dataSize, &deviceIDs)
+        
+        guard status2 == noErr else { return }
+        
+        for id in deviceIDs {
+            // Check if input channels > 0
+            var scope = kAudioDevicePropertyScopeInput
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyStreamConfiguration,
+                mScope: scope,
+                mElement: 0
+            )
+            
+            var size: UInt32 = 0
+            AudioObjectGetPropertyDataSize(id, &address, 0, nil, &size)
+            let bufferList = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: Int(size))
+            defer { bufferList.deallocate() }
+            
+            AudioObjectGetPropertyData(id, &address, 0, nil, &size, bufferList)
+            
+            let buffers = UnsafeMutableAudioBufferListPointer(bufferList)
+            let channelCount = buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
+            
+            if channelCount > 0 {
+                // Get Name
+                var name: String = "Unknown Device"
+                var nameSize = UInt32(MemoryLayout<CFString>.size)
+                var nameAddress = AudioObjectPropertyAddress(
+                    mSelector: kAudioDevicePropertyDeviceNameCFString,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+                var nameRef: CFString?
+                
+                if AudioObjectGetPropertyData(id, &nameAddress, 0, nil, &nameSize, &nameRef) == noErr,
+                   let cfName = nameRef {
+                    name = cfName as String
+                }
+                
+                // Get UID
+                var uid: String = "\(id)"
+                var uidSize = UInt32(MemoryLayout<CFString>.size)
+                var uidAddress = AudioObjectPropertyAddress(
+                    mSelector: kAudioDevicePropertyDeviceUID,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+                var uidRef: CFString?
+                if AudioObjectGetPropertyData(id, &uidAddress, 0, nil, &uidSize, &uidRef) == noErr,
+                   let cfUid = uidRef {
+                    uid = cfUid as String
+                }
+                
+                devices.append(AudioInputDevice(id: id, name: name, uid: uid))
+            }
+        }
+        
+        DispatchQueue.main.async {
+            self.availableInputDevices = devices
+        }
+    }
+    
+    private func restartEngineForNewDevice() {
+        os_log("Restarting engine for new device...", log: log, type: .default)
+        stopAndFinalize()
+        // Wait briefly for tear down
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+             if self.isAlwaysListeningEnabled {
+                 self.startOnce()
+             }
+        }
+    }
+    
+    private func setInputDeviceForEngine(_ engine: AVAudioEngine) {
+        guard selectedInputDeviceID != 0 else { return } // Use default
+        
+        let inputNode = engine.inputNode
+        let audioUnit = inputNode.audioUnit
+        
+        guard let au = audioUnit else { return }
+        
+        var deviceID = selectedInputDeviceID
+        let error = AudioUnitSetProperty(
+            au,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        
+        if error != noErr {
+            os_log("Failed to set input device to ID %d: error %d", log: log, type: .error, deviceID, error)
+        } else {
+            os_log("Set input device to ID %d", log: log, type: .info, deviceID)
+        }
+    }
+
     func stopAndFinalize() {
         if isAlwaysListeningEnabled {
             refreshContinuousHUD(isDictating: false)
@@ -780,6 +935,7 @@ final class SpeechManager: ObservableObject {
 
     init() {
         GlobalLogger.lifecycle.info("SpeechManager Initialized")
+        refreshInputDevices()
         NotificationCenter.default.addObserver(self, selector: #selector(pttDown), name: HeadMotionManager.pttDownNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(pttUp), name: HeadMotionManager.pttUpNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(toggleLanguage), name: Notification.Name("AetherToggleLanguage"), object: nil)
@@ -947,41 +1103,89 @@ final class SpeechManager: ObservableObject {
         var textToRoute = trimmed
         var wakeWordDetected = false
 
-        if isAlwaysListeningEnabled {
+
+
+        // Check if we are in Direct Command Mode (and mic is running)
+        // If isDirectCommandEnabled is true, we treat it as "Always Awake".
+        if isDirectCommandEnabled {
+            // ---------------------------------------------------------
+            // MODE 3: ALWAYS LISTENING (Direct Command)
+            // ---------------------------------------------------------
+            
             let lower = trimmed.lowercased()
             let clean = lower.filter { !$0.isPunctuation }
-            
             let wakeEn = clean.hasPrefix("aether") || clean.hasPrefix("ether") || clean.hasPrefix("heyaether") || clean.hasPrefix("hey") || clean.hasPrefix("hi")
             let wakeZh = trimmed.contains("艾瑟") || trimmed.contains("以太") || trimmed.contains("掉色") || trimmed.contains("艾色") || trimmed.contains("嘿") || trimmed.contains("喂")
+            let isWakeWord = wakeEn || wakeZh
+            
+            if isWakeWordEnabled && isWakeWord {
+                textToRoute = stripWakeWord(from: trimmed)
+                wakeWordDetected = true
+                playWakeSound()
+            } else {
+                // Direct execution
+                textToRoute = trimmed
+            }
+        } else if isAlwaysListeningEnabled {
+            // ---------------------------------------------------------
+            // MODE 2: WAKE WORD (Gated)
+            // ---------------------------------------------------------
+            // Mic is on, but Direct Command is OFF.
+            // We rely solely on Wake Word or Active Window.
+            
+            let lower = trimmed.lowercased()
+            let clean = lower.filter { !$0.isPunctuation }
+            let wakeEn = clean.hasPrefix("aether") || clean.hasPrefix("ether") || clean.hasPrefix("heyaether") || clean.hasPrefix("hey") || clean.hasPrefix("hi")
+            let wakeZh = trimmed.contains("艾瑟") || trimmed.contains("以太") || trimmed.contains("掉色") || trimmed.contains("艾色") || trimmed.contains("嘿") || trimmed.contains("喂")
+            let isWakeWord = wakeEn || wakeZh
             
             let isAwakeWindow = isAwake
             
             if isAwakeWindow {
-                // Currently in active window.
-                // Check if user said wake word anyway (e.g. "Aether click")
-                if wakeEn || wakeZh {
+                // Windows is open.
+                if isWakeWord {
                     textToRoute = stripWakeWord(from: trimmed)
                     wakeWordDetected = true
                     playWakeSound()
                 } else {
-                    // No wake word, but allowed due to active window
                     textToRoute = trimmed
                 }
             } else {
-                // Idle state: Must have wake word
-                if wakeEn || wakeZh {
+                // Window is closed. MUST hear wake word.
+                if isWakeWord {
                     textToRoute = stripWakeWord(from: trimmed)
                     wakeWordDetected = true
                     playWakeSound()
-                    os_log("Wake Word Detected! Entering active commands window.", log: log, type: .default)
+                    lastWakeTime = Date() // Open window
                 } else {
-                     os_log("Ignored (No Wake Word): '%{public}@'", log: log, type: .default, trimmed)
-                     return 
+                    os_log("Ignored: Waiting for Wake Word. (Text: %{public}@)", log: log, type: .debug, trimmed)
+                    return
                 }
             }
         } else {
-            // PTT Mode: No wake word needed, route as is
-            os_log("Processing PTT Command: '%{public}@'", log: log, type: .default, trimmed)
+            // ---------------------------------------------------------
+            // MODE 1: PTT ONLY
+            // ---------------------------------------------------------
+            // (2) and (3) are OFF.
+            // This block is reachable if continuous listening is somehow running but flags are off?
+            // Actually, if (2) and (3) are off, `isAlwaysListeningEnabled` property on Manager should be false, changing the Microhpone state?
+            // `isAlwaysListeningEnabled` PROP tracks the SETTING, not the running state?
+            // No, `isAlwaysListeningEnabled` in Manager controls `startContinuous()`.
+            // So if we are here, `isAlwaysListeningEnabled` (manager prop) must be true.
+            
+            // Wait, I mapped AppState.isAlwaysListeningEnabled -> Manager.isAlwaysListeningEnabled.
+            // If User turns ON (3), Manager.isAlwaysListeningEnabled = true. -> Enters first `if`.
+            // If User turns OFF (3), Manager.isAlwaysListeningEnabled = false. -> `stopContinuous()`.
+            
+            // So how do we support Mode 2 (Wake Word) if (3) is OFF?
+            // We need Manager.isAlwaysListeningEnabled to be true if EITHER (2) or (3) is on.
+            // I need to update `VoiceService`/`AppState` to OR them together.
+            
+            // Let's assume for this step I am fixing the LOGIC inside `handleTranscript`.
+            // I will fix the binding logic in next step.
+            
+            os_log("Ignored: PTT Only Mode (but audio received?)", log: log, type: .debug)
+            return
         }
         
         let typingContext = sessionTypingMode || isTypingMode

@@ -3,6 +3,7 @@ import SystemExtensions
 import Combine
 import AVFoundation
 import Speech
+import Carbon
 
 let kAetherDriverBundleID = "com.7fei.Aether.AetherDriver"
 
@@ -109,6 +110,18 @@ final class VoiceService: ObservableObject {
     @Published private(set) var lastTranscript: String = ""
     @Published private(set) var lastError: String = ""
     @Published private(set) var lastWakeTime: Date?
+    
+    @Published var isAlwaysListeningEnabled: Bool = false
+    @Published var isDirectCommandEnabled: Bool = false
+    @Published var isWakeWordEnabled: Bool = true
+    @Published var isGazeWakeEnabled: Bool = true
+    @Published var isAutoPunctuationEnabled: Bool = true
+    @Published var availableInputDevices: [AudioInputDevice] = []
+    @Published var selectedInputDeviceID: AudioDeviceID = 0 {
+        didSet {
+            manager.selectedInputDeviceID = selectedInputDeviceID
+        }
+    }
 
     var onIntent: ((VoiceIntent) -> Void)? {
         get { manager.onIntent }
@@ -139,12 +152,64 @@ final class VoiceService: ObservableObject {
             
         manager.$lastWakeTime
             .receive(on: DispatchQueue.main)
+            .receive(on: DispatchQueue.main)
+            .receive(on: DispatchQueue.main)
             .assign(to: &$lastWakeTime)
+            
+        manager.$isAlwaysListeningEnabled
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isAlwaysListeningEnabled)
+            
+        manager.$isWakeWordEnabled
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isWakeWordEnabled)
+            
+        manager.$isGazeWakeEnabled
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isGazeWakeEnabled)
+            
+        manager.$availableInputDevices
+            .receive(on: DispatchQueue.main)
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$availableInputDevices)
+            
+        manager.$selectedInputDeviceID
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$selectedInputDeviceID)
+            
+        manager.$isDirectCommandEnabled
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isDirectCommandEnabled)
+            
+        manager.$isAutoPunctuationEnabled
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isAutoPunctuationEnabled)
+    }
+
+    func refreshInputDevices() {
+        manager.refreshInputDevices()
     }
 
     func setAlwaysListeningEnabled(_ enabled: Bool) {
         manager.isAlwaysListeningEnabled = enabled
     }
+    
+    func setDirectCommandEnabled(_ enabled: Bool) {
+        manager.isDirectCommandEnabled = enabled
+    }
+
+    func setWakeWordEnabled(_ enabled: Bool) {
+        manager.isWakeWordEnabled = enabled
+    }
+
+    func setGazeWakeEnabled(_ enabled: Bool) {
+        manager.isGazeWakeEnabled = enabled
+    }
+
+    func setAutoPunctuationEnabled(_ enabled: Bool) {
+        manager.isAutoPunctuationEnabled = enabled
+    }
+
 
     func setLLMEnhancementEnabled(_ enabled: Bool) {
         manager.isLLMEnhancementEnabled = enabled
@@ -220,6 +285,34 @@ class AppState: ObservableObject {
     @Published var lastVoiceTranscript: String = ""
     @Published var lastVoiceError: String = ""
     @Published var lastVoiceWakeTime: Date?
+    
+    // Voice Triggers
+    @Published var isPTTEnabled: Bool = UserDefaults.standard.object(forKey: "isPTTEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(isPTTEnabled, forKey: "isPTTEnabled") }
+    }
+    @Published var voicePTTBinding: HotkeyBinding = HotkeyBinding(
+        keyCode: UserDefaults.standard.integer(forKey: "voicePTTKeyCode") == 0 ? Int(kVK_Space) : UserDefaults.standard.integer(forKey: "voicePTTKeyCode"),
+        modifiers: UserDefaults.standard.integer(forKey: "voicePTTModifiers") == 0 ? 524576 : UInt64(UserDefaults.standard.integer(forKey: "voicePTTModifiers")) // Option+Space default
+    )
+    
+    @Published var isWakeWordEnabled: Bool = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? true {
+        didSet { 
+            UserDefaults.standard.set(isWakeWordEnabled, forKey: "isWakeWordEnabled")
+            updateContinuousListeningState()
+        }
+    }
+
+    // Microphone State (Proxied from VoiceService)
+    @Published var availableInputDevices: [AudioInputDevice] = []
+    @Published var selectedInputDeviceID: AudioDeviceID = 0 {
+        didSet {
+            // Push to service
+            if voiceService.selectedInputDeviceID != selectedInputDeviceID {
+                voiceService.selectedInputDeviceID = selectedInputDeviceID
+            }
+        }
+    }
+    
     @Published var isAlwaysListeningEnabled: Bool = UserDefaults.standard.bool(forKey: "isAlwaysListeningEnabled") {
         didSet {
             UserDefaults.standard.set(isAlwaysListeningEnabled, forKey: "isAlwaysListeningEnabled")
@@ -239,10 +332,48 @@ class AppState: ObservableObject {
                     return
                 }
             }
-
-            voiceService.setAlwaysListeningEnabled(isAlwaysListeningEnabled)
+            
+            updateContinuousListeningState()
         }
     }
+    private var isMutatingAlwaysListening = false
+    
+    private func updateContinuousListeningState() {
+        // 1. Microphone State: Should be ON if EITHER "Wake Word" OR "Always Listening" is enabled.
+        let shouldListen = isAlwaysListeningEnabled || isWakeWordEnabled
+        voiceService.setAlwaysListeningEnabled(shouldListen)
+        
+        // 2. Logic State: Direct Command Mode is ON only if "Always Listening" is ON.
+        voiceService.isDirectCommandEnabled = isAlwaysListeningEnabled
+        
+        // 3. Logic State: Wake Word Mode is ON if "Wake Word" is ON.
+        voiceService.isWakeWordEnabled = isWakeWordEnabled
+    }
+    
+
+    
+    @Published var isGazeWakeEnabled: Bool = UserDefaults.standard.object(forKey: "isGazeWakeEnabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(isGazeWakeEnabled, forKey: "isGazeWakeEnabled")
+            voiceService.setGazeWakeEnabled(isGazeWakeEnabled)
+        }
+    }
+    
+    @Published var isAutoPunctuationEnabled: Bool = UserDefaults.standard.object(forKey: "isAutoPunctuationEnabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(isAutoPunctuationEnabled, forKey: "isAutoPunctuationEnabled")
+            voiceService.setAutoPunctuationEnabled(isAutoPunctuationEnabled)
+        }
+    }
+    
+    func updatePTTBinding(_ binding: HotkeyBinding) {
+        self.voicePTTBinding = binding
+        UserDefaults.standard.set(binding.keyCode, forKey: "voicePTTKeyCode")
+        UserDefaults.standard.set(binding.modifiers, forKey: "voicePTTModifiers")
+        // Update Hotkey Manager
+        HotkeyManager.shared.registerPTT(binding)
+    }
+    
     @Published var alwaysListeningWakeWindowSeconds: Double = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double ?? 8.0 {
         didSet {
             let clamped = min(max(alwaysListeningWakeWindowSeconds, 3.0), 30.0)
@@ -302,14 +433,14 @@ class AppState: ObservableObject {
     }
     
     private let driverService = DriverService()
-    private let motionService = MotionService()
-    private let voiceService = VoiceService()
+    let motionService = MotionService()
+    let voiceService = VoiceService()
     private let permissions = PermissionsService()
     let connectionLock = ConnectionLockService.shared
 
     private var windowController: NSWindowController?
     private var cancellables = Set<AnyCancellable>()
-    private var isMutatingAlwaysListening = false
+
     
     init() {
         driverService.$state
@@ -328,7 +459,33 @@ class AppState: ObservableObject {
             .assign(to: &$attitudeData)
             
         motionService.$calibrationStatus
+            .receive(on: DispatchQueue.main)
             .assign(to: &$calibrationStatus)
+            
+        // Voice Service Sync
+        voiceService.$availableInputDevices
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$availableInputDevices)
+            
+        voiceService.$selectedInputDeviceID
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newVal in
+                 guard let self else { return }
+                 if self.selectedInputDeviceID != newVal {
+                     self.selectedInputDeviceID = newVal
+                 }
+            }
+            .store(in: &cancellables)
+            
+
+            
+        voiceService.$isWakeWordEnabled
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isWakeWordEnabled)
+            
+        voiceService.$isGazeWakeEnabled
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isGazeWakeEnabled)
             
         motionService.isDwellClickEnabled = self.isDwellClickEnabled
         

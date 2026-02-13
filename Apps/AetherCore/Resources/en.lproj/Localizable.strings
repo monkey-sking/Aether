@@ -159,8 +159,32 @@
 /* Settings Modules */
 "settings.voice_input" = "Voice Input";
 "settings.wakeword_sensitivity" = "Wake Word Sensitivity";
-"settings.advanced_processing" = "Advanced Processing";
-"settings.smarter_dictation" = "Smarter Dictation";
+"settings.advanced_processing" = "Voice Processing";
+"settings.smarter_dictation" = "AI Logic Enhancement";
+"settings.command_mode" = "Command Mode";
+"settings.dictation_mode" = "Dictation Mode";
+"settings.microphone" = "Microphone";
+"settings.no_microphone" = "No Microphone Found";
+
+/* Voice Activation */
+"settings.activation.title" = "Activation Method";
+"settings.activation_methods" = "Activation Methods";
+"settings.activation.shortcut" = "Shortcut (Push-to-Talk)";
+"settings.activation.shortcut_hint" = "Press key to speak command.";
+"settings.activation.wakeword_hint" = "Say \"Hey Aether\" to wake up.";
+"settings.activation.always_hint" = "Microphone always open for direct commands.";
+"settings.activation.always_warning" = "Warning: High battery usage. Mic is always on.";
+"settings.activation.hands_free" = "Hands-Free";
+"settings.activation.push_to_talk" = "Push to Talk";
+"settings.activation.wake_word" = "Wake Word (\"Hey Aether\")";
+"settings.activation.gaze_wake" = "Gaze Wake (Look at Screen)";
+"settings.activation.keep_awake" = "Keep Awake Duration";
+
+/* Command Mode */
+"settings.default_device" = "System Default";
+"settings.command_timeout" = "Command Timeout";
+"settings.feedback_sound" = "Feedback Sound";
+"settings.auto_punctuation" = "Auto Punctuation";
 "settings.gestures_clicks" = "Gestures & Clicks";
 "settings.dwell_click_subtitle" = "Auto-click on hover";
 "settings.tilt_scroll_subtitle" = "Head tilt scrolls content";
