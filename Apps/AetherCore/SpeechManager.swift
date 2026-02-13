@@ -217,6 +217,12 @@ final class TextInjector {
         lastInjectedAt = Date()
     }
 
+    func type(_ text: String) {
+        // [Fix] Use keystroke simulation instead of clipboard paste
+        AutomationOutputs.shared.typeText(text)
+        lastInjectedAt = Date()
+    }
+
     func undoPasteIfRecent(maxAgeSeconds: TimeInterval = 20) {
         guard let at = lastInjectedAt, Date().timeIntervalSince(at) <= maxAgeSeconds else { return }
         AutomationOutputs.shared.undo()
@@ -285,6 +291,7 @@ final class SpeechManager: ObservableObject {
     
     // Internal States
     private var lastStreamedText: String = ""
+    private var screenTypedCount: Int = 0  // Tracks actual chars typed on screen (grows monotonically)
     private var stopTimer: Timer?
     private var failsafeTimer: Timer?
     private var audioRingBuffer: [AVAudioPCMBuffer] = []
@@ -293,6 +300,7 @@ final class SpeechManager: ObservableObject {
     private var audioEngine: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+    private var finalizationWorkItem: DispatchWorkItem? // For cancellable delayed finalization
     
     // Recognizer (Updated on locale change)
     private var recognizer: SFSpeechRecognizer? = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
@@ -572,7 +580,8 @@ final class SpeechManager: ObservableObject {
         let currentGeneration = sessionGeneration
         
         // Reset Streaming State
-        lastStreamedText = ""
+        lastStreamedText = ""  // [Fix] Clear here at session START, not in cleanup()
+        screenTypedCount = 0  // Reset screen tracking
         sessionTypingMode = isTypingMode // Snapshot at session start
         isDictating = sessionTypingMode
 
@@ -624,12 +633,31 @@ final class SpeechManager: ObservableObject {
                     
                     // Update HUD with live transcript
                     // [UX] If we have text, show waveform (Dictation Mode) to avoid static text
-                    let mode: HUDMode = (!text.isEmpty || self.isDictating) ? .dictation : .active
-                    HUDManager.shared.update(mode: mode, message: text.isEmpty ? NSLocalizedString("speech.listening", comment: "") : text, language: self.activeLocale.identifier, isInteractive: self.isDictating)
+                    // [Fix] Don't re-show HUD if stopping (PTT grace period) unless Always Listening
+                    if !self.isStopping || self.isAlwaysListeningEnabled {
+                        let mode: HUDMode = (!text.isEmpty || self.isDictating) ? .dictation : .active
+                        HUDManager.shared.update(mode: mode, message: text.isEmpty ? NSLocalizedString("speech.listening", comment: "") : text, language: self.activeLocale.identifier, isInteractive: self.isDictating)
+                    }
                     
                     // Handle Streaming Typing (if in typing mode)
-                    if self.sessionTypingMode && !result.isFinal {
+                    // [DYNAMIC SYNC] Real-time corrections with stability guard
+                    if self.sessionTypingMode {
                         self.handleStreamingTyping(currentText: text)
+                    }
+                    
+                    // [Zero-Latency Finalization] If engine confirms final result, trigger immediately
+                    if result.isFinal {
+                        os_log("isFinal detected, triggering immediate finalization", log: self.log, type: .info)
+                        self.finalizationWorkItem?.cancel()
+                        self.finalizationWorkItem = nil
+                        
+                        // Trigger finalization immediately
+                        if self.isStopping {
+                            self.handleTranscript(text)
+                            if !self.isAlwaysListeningEnabled {
+                                self.teardownEngine()
+                            }
+                        }
                     }
                 }
             }
@@ -683,30 +711,33 @@ final class SpeechManager: ObservableObject {
         }
     }
     
-    // [Streaming Logic]
+    // [Streaming Logic - APPEND ONLY]
     private func handleStreamingTyping(currentText: String) {
-        // Compare with lastStreamedText
-        // Find common prefix
-        let commonPrefix = currentText.commonPrefix(with: lastStreamedText)
+        // APPEND-ONLY strategy: NEVER backspace during streaming.
+        // - Text on screen only grows, never shrinks or changes
+        // - screenTypedCount tracks exactly how many chars are on screen
+        // - Final sync will clean-replace everything at once
+        // This eliminates ALL backspace-related corruption during streaming.
         
-        // Backspace distinct suffix of lastStreamedText
-        let backspaceCount = lastStreamedText.count - commonPrefix.count
-        if backspaceCount > 0 {
-            AutomationOutputs.shared.backspace(count: backspaceCount)
+        let currentChars = Array(currentText)
+        
+        // Only type new characters if engine output is longer than what's on screen
+        guard currentChars.count > screenTypedCount else {
+            // Engine shortened or same length - ignore, text on screen stays
+            return
         }
         
-        // Type new suffix
-        let newSuffix = String(currentText.dropFirst(commonPrefix.count))
-        if !newSuffix.isEmpty {
-            // Use typeText for reliable, clipboard-safe injection
-            AutomationOutputs.shared.typeText(newSuffix)
-        }
-            // Ideally we need `typeText` (keystrokes).
-            // But `AutomationOutput` only has `pasteText`.
-            // Let's assume `pasteText` is acceptable for now (chunks).
+        // Type everything from screenTypedCount onward
+        let newChars = currentChars[screenTypedCount...]
+        let newText = String(newChars)
+        AutomationOutputs.shared.typeText(newText)
         
-
-        lastStreamedText = currentText
+        // Update tracking
+        screenTypedCount = currentChars.count
+        lastStreamedText = currentText  // Track engine output for final sync
+        
+        os_log("Stream Append: +'%{public}@' (screen: %d)", 
+               log: log, type: .info, newText, screenTypedCount)
     }
 
     private func setupAudioEngine() throws {
@@ -930,26 +961,72 @@ final class SpeechManager: ObservableObject {
         } else {
             HUDManager.shared.hide()
         }
-        guard recognitionTask != nil else { return }
-        // STOP REQUEST ONLY. Keep engine running.
+        guard let task = recognitionTask else { return }
         
-        // Stop appending audio to this request (handled by nil check in tap block)
-        // But explicit endAudio is good practice.
+        // [Fix] Don't cancel immediately. Use finish() to allow processing trailing audio.
         recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
-
-        let transcript = lastTranscript
+        task.finish() 
         
-        // Cleanup request objects
-        recognitionTask = nil
+        // We set a hard deadline. If finish() doesn't return IsFinal in X seconds, we force cancel.
+        // But for UI responsiveness, we might want to capture current best transcript NOW if needed,
+        // or just wait. The user wants the LAST bit of text.
+        
+        // Strategy:
+        // 1. Mark stopping.
+        // 2. Schedule a "Force Kill" timer to clean up if SFSpeechRecognizer hangs (common).
+        // 3. DO NOT nil out task/request yet. Let the completion handler in `startOnce` fire one last time.
+        
+        // HOWEVER, our `startOnce` completion handler has a `sessionGeneration` check.
+        // We need to keep `sessionGeneration` valid for a bit longer?
+        // Actually, let's keep it simple: 
+        // We wait for a short duration (e.g. 800ms) for the final result.
+        // If it comes, `handleTranscript` is called by the binding logic? No, `handleTranscript` is called HERE.
+        
+        // NEW LOGIC:
+        // We cannot block here. We need to be async.
+        // But `stopAndFinalize` implies immediate action for the caller (like PTT Up).
+        
+        // Let's try a hybrid:
+        // 1. Send finish().
+        // 2. Wait async for the callback to verify "isFinal".
+        // 3. Fallback: If we don't get a better result in 500ms, use what we have.
+        
+        let genToFinalize = sessionGeneration
+        let fallbackTranscript = lastTranscript // Snapshot now just in case
+        
+        // Detach old task from "active" slot so new sessions can start
+        // But keep a reference to it to cancel it later
+        let oldTask = recognitionTask
+        recognitionTask = nil // Detach
         recognitionRequest = nil
 
-        status = "Processing…"
-        os_log("Session Ended. Final Transcript: '%{public}@'", log: log, type: .default, transcript)
-        handleTranscript(transcript)
-        if !isAlwaysListeningEnabled {
-            teardownEngine()
+        // [Cancellable Finalization] Use DispatchWorkItem so isFinal can cancel it
+        let workItem = DispatchWorkItem { [weak self, weak oldTask] in
+            guard let self = self else { return }
+            
+            // [Fix] Generation Guard: If user started a NEW session, abort this legacy cleanup.
+            guard self.sessionGeneration == genToFinalize else {
+                os_log("Async Finalize Aborted: Generation changed (Old: %d, New: %d)", log: self.log, type: .info, genToFinalize, self.sessionGeneration)
+                oldTask?.cancel()
+                return
+            }
+            
+            oldTask?.cancel()
+            
+            let finalTx = self.lastTranscript
+            let textToUse = finalTx.isEmpty ? fallbackTranscript : finalTx
+            
+            self.status = "Processing…"
+            os_log("Session Finalized (Fallback). Final: '%{public}@'", log: self.log, type: .default, textToUse)
+            self.handleTranscript(textToUse)
+            
+            if !self.isAlwaysListeningEnabled {
+                self.teardownEngine()
+            }
         }
+        
+        finalizationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
     }
     
     // Explicit teardown if needed (e.g. app quit)
@@ -1093,9 +1170,13 @@ final class SpeechManager: ObservableObject {
 
         os_log("End of utterance detected: '%{public}@'", log: log, type: .default, text)
 
-        // Stop current session WITHOUT processing (we handle it ourselves below).
-        teardownSession()
+        // [Fix] Handle transcript BEFORE teardown so `sessionTypingMode` and `lastStreamedText` are valid.
+        // Sync check needs state.
         handleTranscript(text)
+        
+        // Stop current session WITHOUT processing (we already handled it).
+        teardownSession()
+        
         if isAlwaysListeningEnabled {
             startOnce()
         }
@@ -1122,8 +1203,8 @@ final class SpeechManager: ObservableObject {
         isDictating = false
         sessionTypingMode = false
         
-        // [Bug Fix] Ensure stream state is cleared so next session doesn't backspace old text
-        lastStreamedText = ""
+        // [Fix] DON'T clear lastStreamedText here! handleTranscript needs it for differential sync.
+        // It will be cleared at the START of the next session in startOnce().
         
         // Engine NOT cleared
     }
@@ -1201,26 +1282,10 @@ final class SpeechManager: ObservableObject {
             // ---------------------------------------------------------
             // MODE 1: PTT ONLY
             // ---------------------------------------------------------
-            // (2) and (3) are OFF.
-            // This block is reachable if continuous listening is somehow running but flags are off?
-            // Actually, if (2) and (3) are off, `isAlwaysListeningEnabled` property on Manager should be false, changing the Microhpone state?
-            // `isAlwaysListeningEnabled` PROP tracks the SETTING, not the running state?
-            // No, `isAlwaysListeningEnabled` in Manager controls `startContinuous()`.
-            // So if we are here, `isAlwaysListeningEnabled` (manager prop) must be true.
-            
-            // Wait, I mapped AppState.isAlwaysListeningEnabled -> Manager.isAlwaysListeningEnabled.
-            // If User turns ON (3), Manager.isAlwaysListeningEnabled = true. -> Enters first `if`.
-            // If User turns OFF (3), Manager.isAlwaysListeningEnabled = false. -> `stopContinuous()`.
-            
-            // So how do we support Mode 2 (Wake Word) if (3) is OFF?
-            // We need Manager.isAlwaysListeningEnabled to be true if EITHER (2) or (3) is on.
-            // I need to update `VoiceService`/`AppState` to OR them together.
-            
-            // Let's assume for this step I am fixing the LOGIC inside `handleTranscript`.
-            // I will fix the binding logic in next step.
-            
-            os_log("Ignored: PTT Only Mode (but audio received?)", log: log, type: .debug)
-            return
+            // In PTT mode, we process the transcript directly without wake word detection.
+            // The user explicitly triggered recording, so we should process whatever they said.
+            textToRoute = trimmed
+            os_log("PTT Mode: Processing transcript directly", log: log, type: .info)
         }
         
         let typingContext = sessionTypingMode || isTypingMode
@@ -1275,13 +1340,13 @@ final class SpeechManager: ObservableObject {
                 do {
                     let enhanced = try await llmProvider.enhanceDictation(text)
                     await MainActor.run {
-                        self.injector.paste(enhanced.isEmpty ? text : enhanced)
-                        self.status = "Pasted"
+                        self.injector.type(enhanced.isEmpty ? text : enhanced)
+                        self.status = "Typed"
                     }
                 } catch {
                     await MainActor.run {
-                        self.injector.paste(text)
-                        self.status = "Pasted (No LLM)"
+                        self.injector.type(text)
+                        self.status = "Typed (No LLM)"
                     }
                 }
             }
@@ -1296,13 +1361,33 @@ final class SpeechManager: ObservableObject {
             AutomationOutputs.shared.pasteFromClipboard()
             status = "Pasted (Cmd+V)"
         case .dictation(let text):
-            // If we were streaming, the text is already on screen (via typeText).
-            // Do NOT paste again unless we weren't in typing mode (e.g. forced dictation command).
-            if isTypingMode {
-                status = NSLocalizedString("speech.done", comment: "")
+            // If we were streaming, the text is already on screen.
+            // But if streaming lagged or was cut off, we must reconcile the difference.
+            
+            os_log("[DEBUG] handleIntent dictation: text='%{public}@', sessionTypingMode=%d, lastStreamedText='%{public}@'", 
+                   log: log, type: .info, text, sessionTypingMode, lastStreamedText)
+            
+            if sessionTypingMode {
+                // [CLEAN REPLACE] Delete everything we typed, then type the final text.
+                // This is the ONLY place backspaces happen - one clean operation at the end.
+                // screenTypedCount is always accurate because streaming is append-only.
+                
+                os_log("Final Sync: Clean replace - deleting %d screen chars, typing final '%{public}@' (len:%d)",
+                       log: log, type: .info, screenTypedCount, text, text.count)
+                
+                if screenTypedCount > 0 {
+                    AutomationOutputs.shared.backspace(count: screenTypedCount)
+                }
+                
+                if !text.isEmpty {
+                    injector.type(text)
+                }
+                
+                self.status = NSLocalizedString("speech.typed", comment: "")
             } else {
-                injector.paste(text)
-                self.status = NSLocalizedString("speech.pasted", comment: "")
+                os_log("[DEBUG] Not in typing mode, typing full text", log: log, type: .info)
+                injector.type(text)
+                self.status = NSLocalizedString("speech.typed", comment: "")
             }
         default:
             onIntent?(intent)
