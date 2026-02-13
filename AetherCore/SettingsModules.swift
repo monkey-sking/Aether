@@ -49,13 +49,23 @@ struct InputSettingsView: View {
                                 }
                                 Spacer()
                                 // Key Recorder here
+                                // Key Recorder here
                                 KeyRecorderView(
                                     binding: $appState.voicePTTBinding,
                                     onChange: { newBind in
                                         appState.updatePTTBinding(newBind)
-                                    }
+                                    },
+                                    font: .title3
                                 )
-                                .frame(width: 120)
+                                
+                                Button(action: {
+                                    appState.updatePTTBinding(HotkeyAction.pushToTalk.defaultBinding)
+                                }) {
+                                    Image(systemName: "arrow.counterclockwise")
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help(L10n.hotkeyResetSingle)
                             }
                             Text(L10n.activationShortcutHint)
                                 .font(.caption)

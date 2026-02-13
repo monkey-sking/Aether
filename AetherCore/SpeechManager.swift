@@ -324,19 +324,43 @@ final class SpeechManager: ObservableObject {
     }
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
-        let lang = activeLocale.identifier.starts(with: "zh") ? "中" : "En"
-        let passiveMessage: String = {
-            if isAlwaysListeningEnabled {
-                return isAwake ? NSLocalizedString("speech.waiting_command", comment: "") : NSLocalizedString("speech.waiting_wakeword", comment: "")
+        let mode: HUDMode
+        
+        // Logic:
+        // 1. Dictation -> .dictation
+        // 2. Always Listening -> .active (Mic Icon)
+        // 3. PTT (Not AlwaysListening) -> .active (Mic Icon)
+        // 4. Wake Word Only (Legacy/Standby) -> .active if awake, else .standby
+        
+        if isDictating {
+            mode = .dictation
+        } else if isAlwaysListeningEnabled {
+            mode = .active
+        } else if !isAlwaysListeningEnabled {
+            // PTT Mode (Implicitly running if called from startOnce)
+            mode = .active
+        } else if isWakeWordEnabled {
+            mode = isAwake ? .active : .standby
+        } else {
+            mode = .hidden
+        }
+
+        let message: String
+        if mode == .standby {
+            message = ""
+        } else if mode == .active {
+            if isAwake || !isAlwaysListeningEnabled {
+                message = NSLocalizedString("speech.waiting_command", comment: "")
+            } else {
+                message = NSLocalizedString("speech.listening", comment: "")
             }
-            return NSLocalizedString("speech.listening", comment: "")
-        }()
-        HotkeyFeedbackHUD.showContinuous(
-            message: passiveMessage,
-            isListening: true,
-            language: lang,
-            isDictating: isDictating
-        )
+        } else if mode == .dictation {
+            message = lastTranscript
+        } else {
+            message = ""
+        }
+        
+        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, isInteractive: isDictating)
     }
 
     private func scheduleContinuousRecovery(delay: TimeInterval = 0.25) {
@@ -355,7 +379,7 @@ final class SpeechManager: ObservableObject {
     }
 
     private var isTypingMode: Bool {
-        if HotkeyFeedbackHUD.typingContextSnapshot() {
+        if HUDManager.shared.lastKnownTypingState() {
             return true
         }
 
@@ -476,7 +500,7 @@ final class SpeechManager: ObservableObject {
             }
         }
         
-        return HotkeyFeedbackHUD.typingContextSnapshot()
+        return HUDManager.shared.lastKnownTypingState()
     }
 
     private func throttledTypingMode(interval: TimeInterval = 0.12) -> Bool {
@@ -597,7 +621,8 @@ final class SpeechManager: ObservableObject {
                     self.isDictating = self.sessionTypingMode
                     
                     // Update HUD with live transcript
-                    HotkeyFeedbackHUD.showContinuous(message: text.isEmpty ? NSLocalizedString("speech.listening", comment: "") : text, isListening: true, language: self.activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: self.isDictating)
+                    let mode: HUDMode = self.isDictating ? .dictation : .active
+                    HUDManager.shared.update(mode: mode, message: text.isEmpty ? NSLocalizedString("speech.listening", comment: "") : text, language: self.activeLocale.identifier, isInteractive: self.isDictating)
                     
                     // Handle Streaming Typing (if in typing mode)
                     if self.sessionTypingMode && !result.isFinal {
@@ -750,7 +775,7 @@ final class SpeechManager: ObservableObject {
                      // Update HUD with audio level
                      // RMS is usually very small (0.0 - 0.5 for normal speech). 
                      // We map it for visual feedback.
-                     HotkeyFeedbackHUD.shared.updateAudioLevel(rms)
+                     HUDManager.shared.updateAudioLevel(rms)
                      
                      if Int.random(in: 0...50) == 0 {
                           os_log("Audio RMS: %.4f", log: self.log, type: .debug, rms)
@@ -900,7 +925,7 @@ final class SpeechManager: ObservableObject {
         if isAlwaysListeningEnabled {
             refreshContinuousHUD(isDictating: false)
         } else {
-            HotkeyFeedbackHUD.hide()
+            HUDManager.shared.hide()
         }
         guard recognitionTask != nil else { return }
         // STOP REQUEST ONLY. Keep engine running.
