@@ -279,6 +279,17 @@ class AppState: ObservableObject {
             }
         }
     }
+
+    @Published var hudAutoHideSeconds: Double = UserDefaults.standard.object(forKey: "hudAutoHideSeconds") as? Double ?? 1.5 {
+        didSet {
+            let clamped = min(max(hudAutoHideSeconds, 0.5), 8.0)
+            if clamped != hudAutoHideSeconds {
+                hudAutoHideSeconds = clamped
+                return
+            }
+            UserDefaults.standard.set(clamped, forKey: "hudAutoHideSeconds")
+        }
+    }
     
     private let driverService = DriverService()
     private let motionService = MotionService()

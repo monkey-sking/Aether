@@ -45,6 +45,7 @@
 "control.llm_enhance_dictation" = "大模型增强听写";
 "control.prefer_inputmethod_caret" = "使用输入法光标引擎";
 "control.caret_engine_compare" = "记录 AX/输入法偏差";
+"control.hud_auto_hide" = "HUD 自动隐藏";
 "control.push_to_talk_hint" = "按住 ⌥Space 说话；常驻监听时说“ Aether … ”触发。";
 "control.toggle_tracking_hint" = "切换追踪";
 
@@ -102,6 +103,7 @@
 
 /* Speech Status */
 "speech.listening" = "正在聆听...";
+"speech.waiting_command" = "等待操作指令…";
 "speech.idle" = "空闲";
 "speech.unavailable" = "语音不可用";
 "speech.error" = "识别错误";

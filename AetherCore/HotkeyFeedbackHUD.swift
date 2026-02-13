@@ -188,7 +188,7 @@ final class HotkeyFeedbackHUD {
     
     static func show(_ message: String, icon: String? = nil) {
         shared.update(message: message, isListening: false)
-        shared.scheduleHide(delay: 1.5)
+        shared.scheduleHide(delay: shared.hudAutoHideDelay())
     }
     
     static func showContinuous(message: String, isListening: Bool, language: String, isDictating: Bool) {
@@ -275,6 +275,12 @@ final class HotkeyFeedbackHUD {
     private var bridgedCaretAt: Date?
     private var lastCaretCompareLogAt: Date = .distantPast
     private var lastBridgeRxLogAt: Date = .distantPast
+    private var lastMouseFollowRepositionAt: Date = .distantPast
+
+    private func hudAutoHideDelay() -> TimeInterval {
+        let value = UserDefaults.standard.object(forKey: "hudAutoHideSeconds") as? Double ?? 1.5
+        return min(max(value, 0.5), 8.0)
+    }
     
     private func startFollowTimer() {
         // 1. AX Observer (Event-Driven: Focus/Caret changes) — replaces Timer polling
@@ -287,6 +293,9 @@ final class HotkeyFeedbackHUD {
             guard let self = self else { return }
             // Only reposition in mouse-follow mode (no active caret)
             if self.caretRect == nil {
+                let now = Date()
+                if now.timeIntervalSince(self.lastMouseFollowRepositionAt) < 0.016 { return }
+                self.lastMouseFollowRepositionAt = now
                 DispatchQueue.main.async {
                     self.repositionWindow()
                 }
@@ -328,16 +337,24 @@ final class HotkeyFeedbackHUD {
         // 5. App Switching Monitor (Immediate Trigger on Cmd+Tab)
         let wsObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             self?.logger.debug("📱 App Switch detected. Forcing update.")
+            self?.isFetchingCaret = false
             self?.caretRect = nil // Reset caret on app switch
             self?.lastCaretRect = nil
             self?.lastCaretRectAt = nil
+            self?.caretSourceBundleID = nil
             self?.isCaretStickyActive = false
             self?.caretStickyTimer?.invalidate()
             self?.caretStickyTimer = nil
             self?.repositionWindow()
             // Re-establish AX observer for new app
             self?.setupAXObserver()
-            self?.scheduleFocusBurst()
+            if let s = self,
+               s.isCodexLike(appName: NSWorkspace.shared.frontmostApplication?.localizedName,
+                             bundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier) {
+                s.scheduleFocusBurst(delays: [0.0, 0.03, 0.09, 0.18, 0.32, 0.50])
+            } else {
+                self?.scheduleFocusBurst()
+            }
         }
         eventMonitors.append(wsObserver)
         
@@ -358,14 +375,19 @@ final class HotkeyFeedbackHUD {
         teardownAXObserver()
         
         guard let app = NSWorkspace.shared.frontmostApplication else { return }
+        if app.bundleIdentifier == Bundle.main.bundleIdentifier {
+            return
+        }
         let pid = app.processIdentifier
         
         var observer: AXObserver?
         let callback: AXObserverCallback = { (observer, element, notification, refcon) in
             guard let refcon = refcon else { return }
             let hud = Unmanaged<HotkeyFeedbackHUD>.fromOpaque(refcon).takeUnretainedValue()
-            let notifName = notification as String
-            hud.logger.debug("⚡ [AXEvent] \(notifName)")
+            if hud.shouldEmitXcodeDiagLog(minInterval: 1.2) {
+                let notifName = notification as String
+                hud.logger.debug("⚡ [AXEvent] \(notifName)")
+            }
             DispatchQueue.main.async {
                 hud.updateCaretRect()
             }
@@ -450,7 +472,13 @@ final class HotkeyFeedbackHUD {
         state.stateChanged
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
-                self?.repositionWindow()
+                guard let self = self else { return }
+                let front = NSWorkspace.shared.frontmostApplication
+                let codexFrontmost = self.isCodexLike(appName: front?.localizedName, bundleID: front?.bundleIdentifier)
+                if codexFrontmost && (self.state.isListening || self.state.isInteractive) {
+                    self.updateCaretRect()
+                }
+                self.repositionWindow()
             }
             .store(in: &cancellables)
     }
@@ -468,7 +496,11 @@ final class HotkeyFeedbackHUD {
     private var currentAppBundleID: String?
     private var lastFocusedAppName: String?
     private var lastFocusedBundleID: String?
+    private var caretSourceBundleID: String?
     private var inputContextRect: CGRect?
+    private var singleLineStepBySource: [String: CGFloat] = [:]
+    private var lastPreFlipRejectLogAt: Date = .distantPast
+    private var lastXcodeDiagLogAt: Date = .distantPast
     
     // Caret Sticky Logic (v0.1.4)
     private var caretStickyTimer: Timer?
@@ -484,11 +516,15 @@ final class HotkeyFeedbackHUD {
     }
 
     private func recentCaretRect(maxAge: TimeInterval = 0.28) -> CGRect? {
+        guard let rect = lastCaretRect, let ts = lastCaretRectAt else { return nil }
+        let age = Date().timeIntervalSince(ts)
         if isCodexLike(appName: currentAppName, bundleID: currentAppBundleID) {
+            if age <= min(maxAge, 0.18) {
+                return rect
+            }
             return nil
         }
-        guard let rect = lastCaretRect, let ts = lastCaretRectAt else { return nil }
-        if Date().timeIntervalSince(ts) <= maxAge {
+        if age <= maxAge {
             return rect
         }
         return nil
@@ -534,6 +570,77 @@ final class HotkeyFeedbackHUD {
         return false
     }
 
+    private func shouldEmitPreFlipRejectLog(minInterval: TimeInterval = 0.35) -> Bool {
+        let now = Date()
+        if now.timeIntervalSince(lastPreFlipRejectLogAt) >= minInterval {
+            lastPreFlipRejectLogAt = now
+            return true
+        }
+        return false
+    }
+
+    private func singleLineStepCacheKey(bundleID: String, role: String) -> String {
+        "\(bundleID)#\(role)"
+    }
+
+    private func preferredSingleLineStep(bundleID: String, role: String, fieldHeight: CGFloat) -> CGFloat {
+        let key = singleLineStepCacheKey(bundleID: bundleID, role: role)
+        if let cached = singleLineStepBySource[key] {
+            return min(max(cached, 8.0), 15.0)
+        }
+        return min(max(9.0, fieldHeight * 0.52), 13.0)
+    }
+
+    private func updateSingleLineStepSample(bundleID: String, role: String, observedStep: CGFloat) {
+        let key = singleLineStepCacheKey(bundleID: bundleID, role: role)
+        let clamped = min(max(observedStep, 8.0), 15.0)
+        if let old = singleLineStepBySource[key] {
+            singleLineStepBySource[key] = old * 0.7 + clamped * 0.3
+        } else {
+            singleLineStepBySource[key] = clamped
+        }
+    }
+
+    private func isCJKScalar(_ scalar: UnicodeScalar) -> Bool {
+        let v = scalar.value
+        return
+            (0x4E00...0x9FFF).contains(v) ||
+            (0x3400...0x4DBF).contains(v) ||
+            (0xF900...0xFAFF).contains(v) ||
+            (0x3040...0x30FF).contains(v) ||
+            (0xAC00...0xD7AF).contains(v)
+    }
+
+    private func characterAdvanceUnit(_ ch: Character) -> CGFloat {
+        let s = String(ch)
+        if s == "\n" || s == "\r" {
+            return 0.0
+        }
+        if s.unicodeScalars.contains(where: { isCJKScalar($0) }) {
+            return 1.0
+        }
+        if s.unicodeScalars.allSatisfy({ $0.isASCII }) {
+            if s.rangeOfCharacter(from: .decimalDigits) != nil || s.rangeOfCharacter(from: .letters) != nil {
+                return 0.56
+            }
+            if s.rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
+                return 0.33
+            }
+            return 0.50
+        }
+        return 0.82
+    }
+
+    private func weightedCaretUnits(in text: String, location: Int) -> CGFloat {
+        let clamped = max(0, min(location, text.count))
+        guard clamped > 0 else { return 0.0 }
+        var units: CGFloat = 0.0
+        for ch in text.prefix(clamped) {
+            units += characterAdvanceUnit(ch)
+        }
+        return units
+    }
+
     private func isTerminalLike(bundleID: String) -> Bool {
         let ids = [
             "com.apple.Terminal",
@@ -549,6 +656,34 @@ final class HotkeyFeedbackHUD {
         if loweredName.contains("codex") { return true }
         let loweredBundle = bundleID?.lowercased() ?? ""
         return loweredBundle.contains("codex")
+    }
+
+    private func isXcodeLike(appName: String?, bundleID: String?) -> Bool {
+        if bundleID == "com.apple.dt.Xcode" { return true }
+        let loweredName = appName?.lowercased() ?? ""
+        return loweredName == "xcode"
+    }
+
+    private func shouldEmitXcodeDiagLog(minInterval: TimeInterval = 0.6) -> Bool {
+        let now = Date()
+        if now.timeIntervalSince(lastXcodeDiagLogAt) >= minInterval {
+            lastXcodeDiagLogAt = now
+            return true
+        }
+        return false
+    }
+
+    private func isLikelySameAppFamily(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        if a.hasPrefix(b + ".") || b.hasPrefix(a + ".") { return true }
+        let aParts = a.split(separator: ".")
+        let bParts = b.split(separator: ".")
+        if aParts.count >= 2 && bParts.count >= 2 {
+            let aRoot = "\(aParts[0]).\(aParts[1])"
+            let bRoot = "\(bParts[0]).\(bParts[1])"
+            if aRoot == bRoot { return true }
+        }
+        return false
     }
 
     private func readAXBool(_ element: AXUIElement, attribute: String) -> Bool? {
@@ -587,16 +722,16 @@ final class HotkeyFeedbackHUD {
 
     private func stickyDuration(for bundleID: String?, appName: String?) -> TimeInterval {
         if isCodexLike(appName: appName, bundleID: bundleID) {
-            return 0.0
+            return 0.06
         }
-        guard let bundleID else { return 0.30 }
+        guard let bundleID else { return 0.08 }
         if isSiriLike(appName: appName, bundleID: bundleID) {
-            return 0.20
+            return 0.10
         }
         if isTerminalLike(bundleID: bundleID) {
-            return 0.12
+            return 0.05
         }
-        return 0.30
+        return 0.08
     }
 
     private func scheduleFocusBurst(delays: [TimeInterval] = [0.0, 0.03, 0.09, 0.18]) {
@@ -650,11 +785,33 @@ final class HotkeyFeedbackHUD {
         // Prevent stacking AX calls if previous one is hanging (common in Browsers)
         if isFetchingCaret { return }
         isFetchingCaret = true
+
+        // Hard short-circuit for Aether frontmost to avoid expensive AX polling/log churn
+        // against our own UI tree (which can be very chatty in the main window).
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier {
+            DispatchQueue.main.async {
+                self.isFetchingCaret = false
+                let hadCaretState = (self.caretRect != nil) || self.isCaretStickyActive || (self.inputContextRect != nil)
+                self.caretRect = nil
+                self.lastCaretRect = nil
+                self.lastCaretRectAt = nil
+                self.caretSourceBundleID = nil
+                self.inputContextRect = nil
+                self.isCaretStickyActive = false
+                self.caretStickyTimer?.invalidate()
+                self.caretStickyTimer = nil
+                if hadCaretState {
+                    self.repositionWindow()
+                }
+            }
+            return
+        }
         
         // Run on background to avoid blocking UI
         DispatchQueue.global(qos: .userInteractive).async {
             var newRect: CGRect? = nil
             var newInputContextRect: CGRect? = nil
+            var newCaretSourceBundleID: String? = nil
             var focusedIsEditable = false
             var shouldTemporarilyKeepLastCaret = false
             var usedInputMethodBridge = false
@@ -662,10 +819,12 @@ final class HotkeyFeedbackHUD {
             let compareEnabled = self.caretEngineCompareEnabled()
             var preferredBridgedRect: CGRect? = nil
             var preferredBridgedInputContextRect: CGRect? = nil
+            var preferredBridgedBundleID: String? = nil
 
             if let bridged = self.recentBridgedCaret(), preferIME {
                 focusedIsEditable = true
                 shouldTemporarilyKeepLastCaret = true
+                preferredBridgedBundleID = bridged.bundleID
                 if compareEnabled {
                     preferredBridgedRect = bridged.caret
                     preferredBridgedInputContextRect = bridged.context
@@ -673,6 +832,7 @@ final class HotkeyFeedbackHUD {
                 } else {
                     newRect = bridged.caret
                     newInputContextRect = bridged.context
+                    newCaretSourceBundleID = bridged.bundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                     usedInputMethodBridge = true
                     self.logger.debug("✅ [IME BRIDGE] Using bridged caret \(bridged.caret.debugDescription)")
                 }
@@ -691,9 +851,6 @@ final class HotkeyFeedbackHUD {
             func extractRect(from value: CFTypeRef) -> CGRect? {
                 var r = CGRect.zero
                 if AXValueGetValue(value as! AXValue, .cgRect, &r) {
-                    // RAW LOGGING FOR DIAGNOSIS
-                    self.logger.debug("--- [AX RAW] x=\(r.origin.x), y=\(r.origin.y), w=\(r.size.width), h=\(r.size.height)")
-                    
                     // UNIVERSAL MULTI-MONITOR NORMALIZATION
                     // Apple's Global Coordinate Systems:
                     // 1. AX System: Top-Left of primary screen is (0,0). Y increases down.
@@ -705,19 +862,7 @@ final class HotkeyFeedbackHUD {
                     
                     if let primary = NSScreen.screens.first {
                         let primaryHeight = primary.frame.height
-                        
-                        let originalAX_Y = r.origin.y
                         r.origin.y = primaryHeight - r.origin.y - r.size.height
-                        
-                        self.logger.debug("🧮 [UNIVERSAL FLIP] AX_Y=\(originalAX_Y) -> AppKit_Y=\(r.origin.y) (Using PrimaryHeight=\(primaryHeight))")
-                        
-                        // Verification against all screens
-                        for (i, screen) in NSScreen.screens.enumerated() {
-                            let f = screen.frame
-                            if f.contains(r.origin) {
-                                self.logger.debug("🎯 [FOUND ON SCREEN] #\(i) f=\(f.origin.x),\(f.origin.y) \(f.size.width)x\(f.size.height)")
-                            }
-                        }
                     }
                     return r
                 }
@@ -761,17 +906,26 @@ final class HotkeyFeedbackHUD {
                 self.currentAppBundleID = bundleID
                 self.lastFocusedAppName = appName
                 self.lastFocusedBundleID = bundleID
+                let codexDiag = self.isCodexLike(appName: appName, bundleID: bundleID)
                 
                 // v0.1.5: BLACKLIST Aether's own process to avoid hidden WebView focus
                 if bundleID == Bundle.main.bundleIdentifier {
                     // self.logger.debug("🛡 [BLACKLIST] Ignoring self-focus for Aether to avoid false-positive Typing Mode.")
                     DispatchQueue.main.async {
                         self.isFetchingCaret = false
+                        // Avoid high-frequency no-op relayout churn when Aether itself is frontmost.
+                        let hadCaretState = (self.caretRect != nil) || self.isCaretStickyActive || (self.inputContextRect != nil)
                         self.caretRect = nil
                         self.lastCaretRect = nil
                         self.lastCaretRectAt = nil
+                        self.caretSourceBundleID = nil
+                        self.inputContextRect = nil
                         self.isCaretStickyActive = false
-                        self.repositionWindow()
+                        self.caretStickyTimer?.invalidate()
+                        self.caretStickyTimer = nil
+                        if hadCaretState {
+                            self.repositionWindow()
+                        }
                     }
                     return
                 }
@@ -808,6 +962,9 @@ final class HotkeyFeedbackHUD {
                 }
                 
                 self.logger.debug("🔎 [FOCUS DETECTED] App: \(appName) (PID: \(pid)) | Role: \(role)")
+                if codexDiag && self.shouldEmitXcodeDiagLog() {
+                    self.logger.debug("⚠️ [CODEX DIAG] focus role=\(role) pid=\(pid)")
+                }
                 
                 // --- Editability Check ---
                 let directEditableRoles = ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
@@ -844,11 +1001,24 @@ final class HotkeyFeedbackHUD {
                 if self.isTerminalLike(bundleID: bundleID), axEditable != true && !hasInsertionContext {
                     isEditable = false
                 }
+                if self.isCodexLike(appName: appName, bundleID: bundleID),
+                   role == "AXTextArea" || role == "AXWebArea" {
+                    isEditable = (axFocused == true) && (hasInsertionContext || axEditable == true)
+                }
+                if self.isCodexLike(appName: appName, bundleID: bundleID),
+                   role == "AXGroup",
+                   hasInsertionContext,
+                   axFocused != false {
+                    isEditable = true
+                }
                 if axFocused == false && !self.isSiriLike(appName: appName, bundleID: bundleID) {
                     isEditable = false
                 }
                  
                  self.logger.debug("📝 [EDITABILITY] Role: \(role) → isEditable: \(isEditable) | AXFocused: \(String(describing: axFocused))")
+                 if codexDiag && self.shouldEmitXcodeDiagLog() {
+                     self.logger.debug("⚠️ [CODEX DIAG] editable=\(isEditable) axFocused=\(String(describing: axFocused)) axEditable=\(String(describing: axEditable)) insertion=\(hasInsertionContext)")
+                 }
                  focusedIsEditable = isEditable
                 
                 // --- NEW: Fetch Parent Window for validation ---
@@ -917,6 +1087,7 @@ final class HotkeyFeedbackHUD {
                 var caretWasBogus = false  // Track if caret returned garbage (0,0) for fallback logic
                 var sawNonCaretGeometry = false // Track "selection/bounds-like" rects to avoid bad fallback in web text areas
                 var selectedTextRange: CFRange?
+                var axTruthCaretRect: CGRect?
                 var markerRangeValue: CFTypeRef?
                 let markerStatus = AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRangeValue)
                 
@@ -931,7 +1102,9 @@ final class HotkeyFeedbackHUD {
                             
                             // PRE-FLIP: Reject known bogus marker geometries.
                             if (rawR.origin.x == 0 && rawR.origin.y == 0) || (rawR.width <= 1 && rawR.height <= 1) {
-                                self.logger.debug("🚨 [PRE-FLIP REJECT] Web Marker raw AX coords are bogus (\(rawR.debugDescription)).")
+                                if self.shouldEmitPreFlipRejectLog() {
+                                    self.logger.debug("🚨 [PRE-FLIP REJECT] Web Marker raw AX coords are bogus (\(rawR.debugDescription)).")
+                                }
                                 caretWasBogus = true
                             } else if rawR.width > 80 || rawR.height > 80 || (rawR.width * rawR.height) > 2400 {
                                 // Many web/electron apps sometimes return selected-block bounds here.
@@ -941,19 +1114,24 @@ final class HotkeyFeedbackHUD {
                                 // 1. Convert to AppKit
                                 if let r = extractRect(from: boundsValue!) {
                                     // 2. Validate in AppKit Coords
-                                    if isValid(r, in: windowFrame) {
-                                        newRect = r
-                                        self.logger.debug("✅ Web Marker Caret detected (Window Valid).")
-                                    } else if (windowFrame == nil || singleLineRoles.contains(role)) && isValidOnScreen(r) {
-                                        newRect = r
-                                        self.logger.debug("⚠️ Web Marker Caret detected (Screen Valid fallback for role: \(role)).")
-                                    } else {
-                                        self.logger.debug("🚨 [INVALID] Web Marker rejected by validation relative to Window/Screen.")
+                                        if isValid(r, in: windowFrame) {
+                                            newRect = r
+                                            axTruthCaretRect = r
+                                            self.logger.debug("✅ Web Marker Caret detected (Window Valid).")
+                                        } else if (windowFrame == nil || singleLineRoles.contains(role)) && isValidOnScreen(r) {
+                                            newRect = r
+                                            axTruthCaretRect = r
+                                            self.logger.debug("⚠️ Web Marker Caret detected (Screen Valid fallback for role: \(role)).")
+                                        } else {
+                                            self.logger.debug("🚨 [INVALID] Web Marker rejected by validation relative to Window/Screen.")
                                     }
                                 }
                             }
                         }
                     }
+                }
+                if codexDiag && self.shouldEmitXcodeDiagLog() {
+                    self.logger.debug("⚠️ [CODEX DIAG] markerStatus=\(markerStatus.rawValue)")
                 }
 
                 // 3. Get Selected Text Range (Standard/Native)
@@ -979,7 +1157,9 @@ final class HotkeyFeedbackHUD {
                                 
                                 // PRE-FLIP: Reject known bogus caret geometries.
                                 if (rawR.origin.x == 0 && rawR.origin.y == 0) || (rawR.width <= 1 && rawR.height <= 1) {
-                                    self.logger.debug("🚨 [PRE-FLIP REJECT] Standard Caret raw AX coords are bogus (\(rawR.debugDescription)).")
+                                    if self.shouldEmitPreFlipRejectLog() {
+                                        self.logger.debug("🚨 [PRE-FLIP REJECT] Standard Caret raw AX coords are bogus (\(rawR.debugDescription)).")
+                                    }
                                     caretWasBogus = true  // Signal: we KNOW it's an input field, just bad coords
                                 } else if rawR.width > 80 || rawR.height > 80 || (rawR.width * rawR.height) > 2400 {
                                     self.logger.debug("🚫 [NON-CARET GEOMETRY] Standard range looks like selection/bounds (\(rawR.debugDescription)); skip as caret.")
@@ -990,9 +1170,11 @@ final class HotkeyFeedbackHUD {
                                         // 2. Validate in AppKit Coords
                                         if isValid(r, in: windowFrame) {
                                             newRect = r
+                                            axTruthCaretRect = r
                                             self.logger.debug("✅ Standard Caret detected (Window Valid).")
                                         } else if (windowFrame == nil || singleLineRoles.contains(role)) && isValidOnScreen(r) {
                                             newRect = r
+                                            axTruthCaretRect = r
                                             self.logger.debug("⚠️ Standard Caret detected (Screen Valid fallback for role: \(role)).")
                                         } else {
                                             self.logger.debug("🚨 [INVALID] Caret rejected by validation.")
@@ -1002,12 +1184,62 @@ final class HotkeyFeedbackHUD {
                             }
                         }
                     }
+                    if codexDiag && self.shouldEmitXcodeDiagLog() {
+                        let sel = selectedTextRange.map { "\($0.location):\($0.length)" } ?? "nil"
+                        self.logger.debug("⚠️ [CODEX DIAG] rangeStatus=\(rangeStatus.rawValue) selectedRange=\(sel)")
+                    }
                     
                     if newRect == nil {
                             // Only log if Marker also failed
                             if markerStatus != .success {
                                 self.logger.debug("❌ AX range failure: \(rangeStatus.rawValue)")
                             }
+                    }
+                }
+
+                // AX baseline vs single-line estimate compare (independent of IME bridge).
+                if let axRect = axTruthCaretRect, singleLineRoles.contains(role), let range = selectedTextRange {
+                    var posValue: CFTypeRef?
+                    var sizeValue: CFTypeRef?
+                    if AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posValue) == .success,
+                       AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success {
+                        var p = CGPoint.zero
+                        var s = CGSize.zero
+                        if AXValueGetValue(posValue as! AXValue, .cgPoint, &p),
+                           AXValueGetValue(sizeValue as! AXValue, .cgSize, &s) {
+                            let rRaw = CGRect(origin: p, size: s)
+                            let axValue = AXValueCreate(.cgRect, [rRaw])
+                            if let rAppkit = extractRect(from: axValue as CFTypeRef) {
+                                let h = min(max(14.0, rAppkit.height - 6.0), 24.0)
+                                let y = rAppkit.minY + max(0.0, (rAppkit.height - h) * 0.5)
+                                let leadingInset = min(max(10.0, rAppkit.height * 0.5), 22.0)
+                                let trailingInset: CGFloat = 10.0
+                                let usableWidth = max(8.0, rAppkit.width - leadingInset - trailingInset)
+                                var caretXOffset: CGFloat = 0.0
+                                var valueRef: CFTypeRef?
+                                if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
+                                   let valueStr = valueRef as? String {
+                                    let total = max(0, valueStr.count)
+                                    let location = max(0, min(range.location + range.length, total))
+                                    if total > 0 {
+                                        let step = self.preferredSingleLineStep(bundleID: bundleID, role: role, fieldHeight: rAppkit.height)
+                                        let units = self.weightedCaretUnits(in: valueStr, location: location)
+                                        caretXOffset = min(units * step, usableWidth)
+                                        if units > 0 {
+                                            let observed = (axRect.midX - (rAppkit.minX + leadingInset)) / units
+                                            if observed.isFinite {
+                                                self.updateSingleLineStepSample(bundleID: bundleID, role: role, observedStep: observed)
+                                            }
+                                        }
+                                    }
+                                }
+                                let estimate = CGRect(x: rAppkit.minX + leadingInset + caretXOffset, y: y, width: 2.0, height: h)
+                                let delta = hypot(axRect.midX - estimate.midX, axRect.midY - estimate.midY)
+                                if self.shouldEmitCaretCompareLog(minInterval: 0.25) {
+                                    self.logger.debug("⚠️ [AX-EST COMPARE] delta=\(Int(delta)) | AX=\(axRect.debugDescription) | EST=\(estimate.debugDescription)")
+                                }
+                            }
+                        }
                     }
                 }
                     
@@ -1022,8 +1254,9 @@ final class HotkeyFeedbackHUD {
                     let validTextRoles = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
                     let isKnownInputRole = validTextRoles.contains(role)
                     
-                    let avoidElementFallbackForWebRole = (role == "AXTextArea" || role == "AXWebArea") && sawNonCaretGeometry
-                    if avoidElementFallbackForWebRole {
+                    let avoidElementFallbackForWebRole = (role == "AXTextArea" || role == "AXWebArea") && sawNonCaretGeometry && !codexDiag
+                    let avoidElementFallbackForCodexGroup = codexDiag && role == "AXGroup"
+                    if avoidElementFallbackForWebRole || avoidElementFallbackForCodexGroup {
                         self.logger.debug("🚫 [FALLBACK BLOCKED] Web text role had non-caret geometry; keep last valid caret instead of using element bounds.")
                         shouldTemporarilyKeepLastCaret = true
                     } else if isKnownInputRole || caretWasBogus || isEditable {
@@ -1090,9 +1323,10 @@ final class HotkeyFeedbackHUD {
                                                     let total = max(0, valueStr.count)
                                                     let location = max(0, min(range.location + range.length, total))
                                                     if total > 0 {
-                                                        // Fixed-width step model with one uniform advance for all characters.
-                                                        let step = min(max(9.0, r_appkit.height * 0.52), 13.0)
-                                                        caretXOffset = min(CGFloat(location) * step, usableWidth)
+                                                        // Fixed-width step model with per-app adaptive calibration.
+                                                        let step = self.preferredSingleLineStep(bundleID: bundleID, role: role, fieldHeight: r_appkit.height)
+                                                        let units = self.weightedCaretUnits(in: valueStr, location: location)
+                                                        caretXOffset = min(units * step, usableWidth)
                                                     }
                                                 }
                                             }
@@ -1118,6 +1352,9 @@ final class HotkeyFeedbackHUD {
                         self.logger.debug("🚫 [FALLBACK BLOCKED] Role '\(role)' is not a text field. Skipping element bounds.")
                     }
                 }
+                if codexDiag && self.shouldEmitXcodeDiagLog() {
+                    self.logger.debug("⚠️ [CODEX DIAG] resolveResult caret=\(newRect?.debugDescription ?? "nil") context=\(newInputContextRect?.debugDescription ?? "nil") keepLast=\(shouldTemporarilyKeepLastCaret)")
+                }
                 } else {
                     self.logger.debug("❌ AX focus failure: \(elementStatus.rawValue)")
                 }
@@ -1137,17 +1374,22 @@ final class HotkeyFeedbackHUD {
                 }
                 newRect = bridgedRect
                 newInputContextRect = preferredBridgedInputContextRect
+                newCaretSourceBundleID = preferredBridgedBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                 usedInputMethodBridge = true
+            }
+            if newRect != nil && newCaretSourceBundleID == nil {
+                newCaretSourceBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? self.currentAppBundleID ?? self.lastFocusedBundleID
             }
             DispatchQueue.main.async {
                 self.isFetchingCaret = false // Reset Flag
                 // If focus is lost or fails, CLEAR THE RECT immediately to avoid stale positioning
                 if newRect == nil {
-                    if self.isCodexLike(appName: self.lastFocusedAppName, bundleID: self.lastFocusedBundleID) {
+                    if !focusedIsEditable {
                         self.isCaretStickyActive = false
                         self.caretStickyTimer?.invalidate()
                         self.caretStickyTimer = nil
                         self.caretRect = nil
+                        self.caretSourceBundleID = nil
                         self.inputContextRect = nil
                         self.repositionWindow()
                         return
@@ -1155,7 +1397,6 @@ final class HotkeyFeedbackHUD {
                     // In editable context, AX can transiently fail or return selection bounds.
                     // Preserve last valid caret to avoid mode/position flicker.
                     if focusedIsEditable && shouldTemporarilyKeepLastCaret &&
-                        !self.isCodexLike(appName: self.lastFocusedAppName, bundleID: self.lastFocusedBundleID) &&
                         self.recentCaretRect() != nil {
                         self.logger.debug("🧷 [KEEP LAST CARET] Editable context without valid caret geometry; preserving previous caret.")
                         return
@@ -1172,6 +1413,7 @@ final class HotkeyFeedbackHUD {
                                 self.logger.debug("❄️ Sticky Grace Period expired, clearing caretRect.")
                                 self.isCaretStickyActive = false
                                 self.caretRect = nil
+                                self.caretSourceBundleID = nil
                                 self.inputContextRect = nil
                                 self.repositionWindow() // Final switch to Command Mode
                              }
@@ -1182,6 +1424,7 @@ final class HotkeyFeedbackHUD {
                         self.caretStickyTimer?.invalidate()
                         self.caretStickyTimer = nil
                         self.caretRect = nil
+                        self.caretSourceBundleID = nil
                         self.inputContextRect = nil
                         self.repositionWindow()
                     }
@@ -1197,6 +1440,7 @@ final class HotkeyFeedbackHUD {
                 }
                 
                 let oldRect = self.caretRect
+                let oldInputRect = self.inputContextRect
                 if self.lastCaretRect == nil, let initial = newRect {
                     self.logger.debug("🆕 Initial focus detected at \(initial.debugDescription)")
                 }
@@ -1204,6 +1448,7 @@ final class HotkeyFeedbackHUD {
                 self.caretRect = newRect
                 self.lastCaretRect = newRect
                 self.lastCaretRectAt = Date()
+                self.caretSourceBundleID = newCaretSourceBundleID
                 self.inputContextRect = newInputContextRect
 
                 // Reposition whenever caret anchor actually changes, not only on large jumps.
@@ -1218,6 +1463,9 @@ final class HotkeyFeedbackHUD {
                     }
                 default:
                     break
+                }
+                if !shouldReposition, oldInputRect != newInputContextRect {
+                    shouldReposition = true
                 }
 
                 if shouldReposition {
@@ -1249,6 +1497,21 @@ final class HotkeyFeedbackHUD {
         var activeCaret = self.caretRect
         if activeCaret == nil && self.isCaretStickyActive {
             activeCaret = self.recentCaretRect()
+        }
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        let codexFrontmost = isCodexLike(appName: frontApp?.localizedName, bundleID: frontApp?.bundleIdentifier)
+        if codexFrontmost,
+           let sourceBundle = self.caretSourceBundleID,
+           let frontBundle = frontApp?.bundleIdentifier,
+           !sourceBundle.isEmpty,
+           !isLikelySameAppFamily(sourceBundle, frontBundle) {
+            activeCaret = nil
+            self.isCaretStickyActive = false
+            self.caretStickyTimer?.invalidate()
+            self.caretStickyTimer = nil
+            self.caretRect = nil
+            self.caretSourceBundleID = nil
+            self.inputContextRect = nil
         }
         var finalTypingMode = (activeCaret != nil)
         var anchor: CGPoint = finalTypingMode ? CGPoint(x: (activeCaret!.width > 4 ? activeCaret!.maxX : activeCaret!.midX), y: activeCaret!.minY) : mouseLoc
@@ -1454,6 +1717,14 @@ final class HotkeyFeedbackHUD {
                 if state.language == "en-US" || state.language.starts(with: "en") { return "En" }
                 return state.language
             }()
+            let displayMessage: String = {
+                let listeningText = String(localized: "speech.listening")
+                let raw = state.message.trimmingCharacters(in: .whitespacesAndNewlines)
+                if state.isListening && !state.isDictating && (raw.isEmpty || raw == listeningText) {
+                    return String(localized: "speech.waiting_command")
+                }
+                return state.message
+            }()
             
             HStack(spacing: 8) {
                 // Mic Icon (Persistent per user request)
@@ -1470,8 +1741,8 @@ final class HotkeyFeedbackHUD {
                 if state.isDictating {
                     WaveformView(level: state.audioLevel)
                 } else {
-                    if !state.message.isEmpty {
-                        Text(state.message)
+                    if !displayMessage.isEmpty {
+                        Text(displayMessage)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(.white)
                             .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)

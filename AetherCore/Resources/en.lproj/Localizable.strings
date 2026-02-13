@@ -54,6 +54,7 @@
 "control.llm_enhance_dictation" = "LLM Enhance Dictation";
 "control.prefer_inputmethod_caret" = "Use IME Caret Engine";
 "control.caret_engine_compare" = "Log AX vs IME Delta";
+"control.hud_auto_hide" = "HUD Auto Hide";
 "control.push_to_talk_hint" = "Push-to-talk: hold ⌥Space. Always Listening: say “Aether …”";
 "control.toggle_tracking_hint" = "Toggle Tracking";
 
@@ -101,6 +102,7 @@
 
 /* Speech Status */
 "speech.listening" = "Listening...";
+"speech.waiting_command" = "Waiting for command...";
 "speech.idle" = "Idle";
 "speech.unavailable" = "Speech Unavailable";
 "speech.error" = "Speech Error";
