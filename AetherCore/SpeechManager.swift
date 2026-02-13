@@ -291,8 +291,14 @@ final class SpeechManager: ObservableObject {
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
         let lang = activeLocale.identifier.starts(with: "zh") ? "中" : "En"
+        let passiveMessage: String = {
+            if isAlwaysListeningEnabled {
+                return isAwake ? NSLocalizedString("speech.waiting_command", comment: "") : NSLocalizedString("speech.waiting_wakeword", comment: "")
+            }
+            return NSLocalizedString("speech.listening", comment: "")
+        }()
         HotkeyFeedbackHUD.showContinuous(
-            message: NSLocalizedString("speech.listening", comment: ""),
+            message: passiveMessage,
             isListening: true,
             language: lang,
             isDictating: isDictating
@@ -308,6 +314,10 @@ final class SpeechManager: ObservableObject {
                 self.startOnce()
             }
         }
+    }
+
+    private func shouldUseVoiceProcessing() -> Bool {
+        UserDefaults.standard.object(forKey: "useVoiceProcessingIO") as? Bool ?? false
     }
 
     private var isTypingMode: Bool {
@@ -645,12 +655,12 @@ final class SpeechManager: ObservableObject {
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         
-        // Enable Voice Processing IO (Echo Cancellation + HFP handling)
-        // This is critical for AirPods to work in bidirectional mode on macOS.
-        if #available(macOS 10.15, *) {
+        // Keep voice processing OFF by default to avoid ducking/volume attenuation
+        // in other apps while Aether is active.
+        if #available(macOS 10.15, *), shouldUseVoiceProcessing() {
             do {
                 try inputNode.setVoiceProcessingEnabled(true)
-                os_log("Voice Processing IO enabled.", log: log, type: .info)
+                os_log("Voice Processing IO enabled (explicit).", log: log, type: .info)
             } catch {
                 os_log("Failed to enable Voice Processing IO: %{public}@", log: log, type: .error, error.localizedDescription)
             }
@@ -754,6 +764,9 @@ final class SpeechManager: ObservableObject {
         status = "Processing…"
         os_log("Session Ended. Final Transcript: '%{public}@'", log: log, type: .default, transcript)
         handleTranscript(transcript)
+        if !isAlwaysListeningEnabled {
+            teardownEngine()
+        }
     }
     
     // Explicit teardown if needed (e.g. app quit)
@@ -874,6 +887,7 @@ final class SpeechManager: ObservableObject {
         continuousTimer?.invalidate()
         continuousTimer = nil
         stopAndFinalize()
+        teardownEngine()
     }
 
     private func tickContinuous() {

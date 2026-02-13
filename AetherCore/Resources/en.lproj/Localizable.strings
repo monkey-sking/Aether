@@ -52,10 +52,12 @@
 "control.force_driver_only" = "Force Driver Only";
 "control.always_listening" = "Always Listening";
 "control.always_listening_wake_window" = "Always-listening Active Window";
+"control.always_listening_wake_window_hint" = "Within this window, commands can run directly without saying the wake word again.";
 "control.llm_enhance_dictation" = "LLM Enhance Dictation";
 "control.prefer_inputmethod_caret" = "Use IME Caret Engine";
 "control.caret_engine_compare" = "Log AX vs IME Delta";
 "control.hud_auto_hide" = "HUD Auto Hide";
+"control.hud_auto_hide_hint" = "Affects one-shot tips only; continuous-listening HUD is not controlled here.";
 "control.push_to_talk_hint" = "Push-to-talk: hold ⌥Space. Always Listening: say “Aether …”";
 "control.toggle_tracking_hint" = "Toggle Tracking";
 
@@ -97,6 +99,16 @@
 "control.debug_mode" = "Debug Mode";
 "control.toggle_tracking_fmt %@" = "Toggle Tracking: %@";
 
+"section.quick_start" = "Quick Start";
+"section.runtime_status" = "Runtime Status";
+"section.voice_listening" = "Voice & Listening";
+"section.hud_settings" = "HUD Settings";
+"section.advanced_settings" = "Advanced Settings";
+"voice.state_now" = "Current Voice State";
+"voice.wakeword_required_now" = "Wake Word Required Now";
+"voice.yes" = "Yes";
+"voice.no" = "No";
+
 "menu.start_pointer_fmt %@" = "Start Pointer (%@)";
 "menu.stop_pointer_fmt %@" = "Stop Pointer (%@)";
 "menu.airpods_lock_fmt %@" = "🔒 AirPods Lock (%@)";
@@ -104,6 +116,7 @@
 /* Speech Status */
 "speech.listening" = "Listening...";
 "speech.waiting_command" = "Waiting for command...";
+"speech.waiting_wakeword" = "Waiting for wake word...";
 "speech.idle" = "Idle";
 "speech.unavailable" = "Speech Unavailable";
 "speech.error" = "Speech Error";
