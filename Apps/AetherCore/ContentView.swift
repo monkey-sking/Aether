@@ -138,6 +138,16 @@ struct ContentView: View {
                     
                     Toggle(L10n.showDockIcon, isOn: $appState.showDockIcon)
 
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(L10n.hudAutoHide)
+                            Spacer()
+                            Text(String(format: "%.1fs", appState.hudAutoHideSeconds))
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $appState.hudAutoHideSeconds, in: 0.5...5.0, step: 0.5)
+                    }
+
                     Text(L10n.pushToTalkHint)
                         .font(.caption2)
                         .foregroundColor(.secondary)
