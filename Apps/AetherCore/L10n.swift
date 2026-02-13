@@ -44,6 +44,7 @@ enum L10n {
     static let dwellClick: LocalizedStringKey = "control.dwell_click"
     static let forceDriverOnly: LocalizedStringKey = "control.force_driver_only"
     static let alwaysListening: LocalizedStringKey = "control.always_listening"
+    static let alwaysListeningWakeWindow: LocalizedStringKey = "control.always_listening_wake_window"
     static let llmEnhanceDictation: LocalizedStringKey = "control.llm_enhance_dictation"
     static let preferInputMethodCaret: LocalizedStringKey = "control.prefer_inputmethod_caret"
     static let caretEngineCompare: LocalizedStringKey = "control.caret_engine_compare"

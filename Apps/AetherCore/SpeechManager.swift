@@ -281,7 +281,33 @@ final class SpeechManager: ObservableObject {
         }
 
         guard let last = lastWakeTime else { return false }
-        return Date().timeIntervalSince(last) < 8.0 
+        return Date().timeIntervalSince(last) < alwaysListeningWakeWindowSeconds()
+    }
+
+    private func alwaysListeningWakeWindowSeconds() -> TimeInterval {
+        let value = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double ?? 8.0
+        return min(max(value, 3.0), 30.0)
+    }
+
+    private func refreshContinuousHUD(isDictating: Bool = false) {
+        let lang = activeLocale.identifier.starts(with: "zh") ? "中" : "En"
+        HotkeyFeedbackHUD.showContinuous(
+            message: NSLocalizedString("speech.listening", comment: ""),
+            isListening: true,
+            language: lang,
+            isDictating: isDictating
+        )
+    }
+
+    private func scheduleContinuousRecovery(delay: TimeInterval = 0.25) {
+        guard isAlwaysListeningEnabled else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self = self else { return }
+            guard self.isAlwaysListeningEnabled else { return }
+            if self.recognitionTask == nil {
+                self.startOnce()
+            }
+        }
     }
 
     private var isTypingMode: Bool {
@@ -485,7 +511,9 @@ final class SpeechManager: ObservableObject {
         failsafeTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: false) { [weak self] _ in
             os_log("Failsafe: Stopping session after 60s timeout.", log: GlobalLogger.speech, type: .error)
             Task { @MainActor in
-                self?.stopAndFinalize()
+                guard let self = self else { return }
+                self.stopAndFinalize()
+                self.scheduleContinuousRecovery()
             }
         }
 
@@ -507,7 +535,7 @@ final class SpeechManager: ObservableObject {
         audioRingBuffer.forEach { recognitionRequest?.append($0) }
         
         // [HUD] Show immediate feedback
-        HotkeyFeedbackHUD.showContinuous(message: NSLocalizedString("speech.listening", comment: ""), isListening: true, language: activeLocale.identifier.starts(with: "zh") ? "中" : "En", isDictating: isDictating)
+        refreshContinuousHUD(isDictating: isDictating)
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
@@ -577,6 +605,7 @@ final class SpeechManager: ObservableObject {
                     self.lastError = error.localizedDescription
                     os_log("Recognition Error: %{public}@", log: self.log, type: .error, error.localizedDescription)
                     self.stopAndFinalize()
+                    self.scheduleContinuousRecovery(delay: 0.4)
                 }
             }
         }
@@ -703,7 +732,11 @@ final class SpeechManager: ObservableObject {
     }
 
     func stopAndFinalize() {
-        HotkeyFeedbackHUD.hide()
+        if isAlwaysListeningEnabled {
+            refreshContinuousHUD(isDictating: false)
+        } else {
+            HotkeyFeedbackHUD.hide()
+        }
         guard recognitionTask != nil else { return }
         // STOP REQUEST ONLY. Keep engine running.
         
@@ -798,8 +831,7 @@ final class SpeechManager: ObservableObject {
             // 2. Feedback (Sound + HUD)
             playWakeSound()
             // Update HUD to remove "(Wake: Aether)" suffix and show active state
-            let lang = activeLocale.identifier.starts(with: "zh") ? "中" : "En"
-            HotkeyFeedbackHUD.showContinuous(message: NSLocalizedString("speech.listening", comment: ""), isListening: true, language: lang, isDictating: isDictating)
+            refreshContinuousHUD(isDictating: isDictating)
             return
         }
 
