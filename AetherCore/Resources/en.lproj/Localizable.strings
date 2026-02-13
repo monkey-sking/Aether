@@ -4,6 +4,7 @@
 "generic.idle" = "Idle";
 "generic.ready" = "Ready";
 "generic.tracking" = "Tracking";
+"generic.select_item" = "Select an item";
 
 /* App */
 "app.project_title" = "Project Aether";
@@ -137,3 +138,37 @@
 "dashboard.hint.command" = "Say a command like 'Click'";
 "dashboard.hint.wakeword" = "Say 'Aether' to wake up";
 "dashboard.hint.enable" = "Enable Voice Control to start";
+
+/* Command Center & Navigation */
+"command.center.title" = "Command Center";
+"command.center.voice_stream" = "Voice Stream";
+"command.center.motion_matrix" = "Motion Matrix";
+"status.system.active" = "System Active";
+"status.system.offline" = "System Offline";
+"action.recenter" = "Recenter";
+"navigation.section.controls" = "Controls";
+"navigation.item.system" = "System";
+"navigation.section.configuration" = "Configuration";
+
+/* Visualization */
+"viz.voice_signal" = "Voice Signal";
+"viz.last_command" = "LAST COMMAND";
+"viz.calibration" = "CALIBRATION";
+"viz.velocity" = "VELOCITY";
+
+/* Settings Modules */
+"settings.voice_input" = "Voice Input";
+"settings.wakeword_sensitivity" = "Wake Word Sensitivity";
+"settings.advanced_processing" = "Advanced Processing";
+"settings.smarter_dictation" = "Smarter Dictation";
+"settings.gestures_clicks" = "Gestures & Clicks";
+"settings.dwell_click_subtitle" = "Auto-click on hover";
+"settings.tilt_scroll_subtitle" = "Head tilt scrolls content";
+"settings.calibration" = "Calibration";
+"settings.current_status" = "Current Status:";
+"settings.driver_status" = "Driver Status";
+"action.recenter_matrix" = "Recenter Matrix";
+"status.active" = "Active";
+"status.disabled" = "Disabled";
+"status.paused" = "Paused";
+"calibration.normal" = "Normal";

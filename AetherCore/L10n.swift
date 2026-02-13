@@ -7,6 +7,7 @@ enum L10n {
     static let idle: LocalizedStringKey = "generic.idle"
     static let ready: LocalizedStringKey = "generic.ready"
     static let tracking: LocalizedStringKey = "generic.tracking"
+    static let selectItem: LocalizedStringKey = "generic.select_item"
 
     // App
     static let projectTitle: LocalizedStringKey = "app.project_title"
@@ -123,5 +124,42 @@ enum L10n {
 
     static let dashboardHintCommand: LocalizedStringKey = "dashboard.hint.command"
     static let dashboardHintWakeword: LocalizedStringKey = "dashboard.hint.wakeword"
+
     static let dashboardHintEnable: LocalizedStringKey = "dashboard.hint.enable"
+    
+    // Command Center
+    static let commandCenterTitle: LocalizedStringKey = "command.center.title"
+    static let commandCenterVoiceStream: LocalizedStringKey = "command.center.voice_stream"
+    static let commandCenterMotionMatrix: LocalizedStringKey = "command.center.motion_matrix"
+    static let systemActive: LocalizedStringKey = "status.system.active"
+    static let systemOffline: LocalizedStringKey = "status.system.offline"
+    static let actionRecenter: LocalizedStringKey = "action.recenter"
+    
+    // Navigation
+    static let navControls: LocalizedStringKey = "navigation.section.controls"
+    static let navSystem: LocalizedStringKey = "navigation.item.system"
+    static let navConfiguration: LocalizedStringKey = "navigation.section.configuration"
+    
+    // Visualization
+    static let vizVoiceSignal: LocalizedStringKey = "viz.voice_signal"
+    static let vizLastCommand: LocalizedStringKey = "viz.last_command"
+    static let vizCalibration: LocalizedStringKey = "viz.calibration"
+    static let vizVelocity: LocalizedStringKey = "viz.velocity"
+    
+    // Settings Settings
+    static let settingsVoiceInput: LocalizedStringKey = "settings.voice_input"
+    static let settingsWakewordSensitivity: LocalizedStringKey = "settings.wakeword_sensitivity"
+    static let settingsAdvancedProcessing: LocalizedStringKey = "settings.advanced_processing"
+    static let settingsSmarterDictation: LocalizedStringKey = "settings.smarter_dictation"
+    static let settingsGesturesClicks: LocalizedStringKey = "settings.gestures_clicks"
+    static let settingsDwellClickSubtitle: LocalizedStringKey = "settings.dwell_click_subtitle"
+    static let settingsTiltScrollSubtitle: LocalizedStringKey = "settings.tilt_scroll_subtitle"
+    static let settingsCalibration: LocalizedStringKey = "settings.calibration"
+    static let settingsCurrentStatus: LocalizedStringKey = "settings.current_status"
+    static let settingsDriverStatus: LocalizedStringKey = "settings.driver_status"
+    static let actionRecenterMatrix: LocalizedStringKey = "action.recenter_matrix"
+    static let statusActive: LocalizedStringKey = "status.active"
+    static let statusDisabled: LocalizedStringKey = "status.disabled"
+    static let statusPaused: LocalizedStringKey = "status.paused"
+    static let calibrationNormal: LocalizedStringKey = "calibration.normal"
 }

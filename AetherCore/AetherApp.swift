@@ -593,9 +593,13 @@ struct AetherApp: App {
     @StateObject private var appState = AppState()
     
     var body: some Scene {     
-        Settings {
-            SettingsView()
+        WindowGroup {
+            AetherMainView()
                 .environmentObject(appState)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .commands {
+            SidebarCommands() // Enable View -> Show/Hide Sidebar
         }
         
         AetherMenuBar()
@@ -603,7 +607,27 @@ struct AetherApp: App {
     }
 }
 
+// MARK: - Visual Backend
+struct EffectView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material
+    var blendingMode: NSVisualEffectView.BlendingMode
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+    }
+}
+
 // MARK: - Notification Names
+
 
 extension Notification.Name {
     static let toggleConnectionLock = Notification.Name("AetherToggleConnectionLock")
