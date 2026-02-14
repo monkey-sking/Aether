@@ -20,28 +20,25 @@ final class HUDManager {
     
     // MARK: - Public API
     
-    func update(mode: HUDMode, message: String = "", language: String? = nil, isInteractive: Bool = false) {
+    func update(mode: HUDMode, message: String = "", language: String) {
         
         // Main thread safety
         if !Thread.isMainThread {
-            DispatchQueue.main.async { self.update(mode: mode, message: message, language: language, isInteractive: isInteractive) }
+            DispatchQueue.main.async { self.update(mode: mode, message: message, language: language) }
             return
         }
         
-        let displayLang = language ?? Locale.current.identifier
-        state.update(mode: mode, message: message, language: displayLang, isInteractive: isInteractive)
+        state.update(mode: mode, message: message, language: language)
         
         // Mode-specific behavior
         switch mode {
         case .hidden:
             performHide()
         case .standby:
-            // Standby (Wake Word waiting) -> Persistent but minimal
             cancelHide()
             repositionWindow()
             ensureWindowVisible()
-        case .active, .dictation, .processing:
-            // Active interaction -> Persistent
+        case .listening, .command, .dictation, .processing:
             cancelHide()
             repositionWindow()
             ensureWindowVisible()
@@ -54,13 +51,13 @@ final class HUDManager {
         }
     }
     
-    func showTemporary(message: String) {
-        update(mode: .active, message: message)
+    func showTemporary(message: String, language: String? = nil) {
+        update(mode: .command, message: message, language: language ?? state.language)
         scheduleHide(delay: 2.0)
     }
     
     func hide() {
-        update(mode: .hidden)
+        update(mode: .hidden, language: state.language)
     }
     
     // Replacement for HotkeyFeedbackHUD.typingContextSnapshot()
@@ -149,13 +146,9 @@ final class HUDManager {
             finalTypingMode = true
         }
         
-        // Sync to State for UI icons
-        if state.isTypingMode != finalTypingMode {
-            state.isTypingMode = finalTypingMode
-        }
-        
-        // [Legacy Restore] Click-through behavior
-        panel.ignoresMouseEvents = !state.isInteractive
+        // Click-through: only allow mouse interaction when language toggle is visible
+        let interactiveModes: [HUDMode] = [.listening, .command, .dictation]
+        panel.ignoresMouseEvents = !interactiveModes.contains(state.mode)
         
         // 2. Determine Reference Screen
         let referencePoint = finalTypingMode ? anchor : mouseLoc

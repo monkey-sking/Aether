@@ -362,50 +362,35 @@ final class SpeechManager: ObservableObject {
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
         let mode: HUDMode
-        
-        // Logic:
-        // 1. Dictation -> .dictation
-        // 2. Always Listening -> .active (Mic Icon)
-        // 3. PTT (Not AlwaysListening) -> .active (Mic Icon)
-        // 4. Wake Word Only (Legacy/Standby) -> .active if awake, else .standby
-        
+        let message: String
+
+        // Priority 1: Standby (wake word waiting, not yet awake)
         if isWakeWordEnabled && isAlwaysListeningEnabled && !isAwake && !isDirectCommandEnabled {
-             // [Critical Fix] Timeout Priority:
-             // If timed out (Green Dot), we must show Standby even if we have stale dictation text.
-             // This ensures "Silence Timeout" actually updates the visual.
-             mode = .standby
-        } else if isDictating {
+            mode = .standby
+            message = ""
+        }
+        // Priority 2: Dictation (typing mode active)
+        else if isDictating {
             mode = .dictation
-        } else if isDirectCommandEnabled {
-            // Direct Command implies Always Active (no wake word needed)
-            mode = .active
-        } else if isAlwaysListeningEnabled {
-            // Always Listening (Mic On) + Awake (or No Wake Word) -> Active
-            mode = .active
-        } else if !isAlwaysListeningEnabled {
-            // PTT Mode
-            mode = isStopping ? .processing : .active
-        } else {
-            mode = .hidden
+            message = ""
+        }
+        // Priority 3: Processing (PTT released, waiting for final result)
+        else if isStopping {
+            mode = .processing
+            message = ""
+        }
+        // Priority 4: Command (has live transcript text)
+        else if !lastTranscript.isEmpty {
+            mode = .command
+            message = lastTranscript
+        }
+        // Priority 5: Listening (mic on, waiting for speech)
+        else {
+            mode = .listening
+            message = ""
         }
 
-        let message: String
-        if mode == .standby {
-            message = ""
-        } else if mode == .active {
-            // [Fix] Show live transcript if available, otherwise static text
-            if !lastTranscript.isEmpty {
-                message = lastTranscript
-            } else {
-                message = NSLocalizedString("speech.listening", comment: "")
-            }
-        } else if mode == .dictation {
-            message = lastTranscript
-        } else {
-            message = ""
-        }
-        
-        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, isInteractive: isDictating)
+        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier)
     }
 
     private func scheduleContinuousRecovery(delay: TimeInterval = 0.25) {
@@ -581,7 +566,7 @@ final class SpeechManager: ObservableObject {
         
         // Update HUD immediately to reflect the new language badge
         let hud = HUDManager.shared
-        hud.update(mode: hud.state.mode, message: hud.state.message, language: activeLocale.identifier, isInteractive: hud.state.isInteractive)
+        hud.update(mode: hud.state.mode, message: hud.state.message, language: activeLocale.identifier)
         
         // Restart session if running (streaming context)
         if recognitionTask != nil {
@@ -734,7 +719,7 @@ final class SpeechManager: ObservableObject {
                         self.refreshContinuousHUD(isDictating: self.isDictating)
                     } else if self.isStopping && !isFinal {
                         // Keep Showing "Processing..." until final result
-                        HUDManager.shared.update(mode: .processing, message: "", language: self.activeLocale.identifier, isInteractive: false)
+                        HUDManager.shared.update(mode: .processing, message: "", language: self.activeLocale.identifier)
                     }
                     
                     // Handle Streaming Typing (if in typing mode)
