@@ -22,6 +22,7 @@ struct HUDView: View {
                     .foregroundColor(.white)
                     .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
                     .fixedSize()
+                contextIcon
                 languageToggle
 
             case .command:
@@ -31,10 +32,13 @@ struct HUDView: View {
                     .foregroundColor(.white)
                     .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
                     .fixedSize()
+                contextIcon
                 languageToggle
 
             case .dictation:
+                micIcon
                 WaveformView(level: state.audioLevel)
+                contextIcon
                 languageToggle
 
             case .processing:
@@ -56,13 +60,20 @@ struct HUDView: View {
     // MARK: - Reusable Components
 
     private var micIcon: some View {
-        Image(systemName: "mic.fill")
-            .foregroundColor(.green)
+        Image(systemName: state.inputDeviceIcon)
+            .foregroundColor(.white)
             .font(.system(size: 14))
             .scaleEffect(1.0 + (state.audioLevel * 0.5))
             .shadow(radius: 1)
             .opacity(0.8 + (state.audioLevel * 0.2))
             .animation(.linear(duration: 0.1), value: state.audioLevel)
+    }
+
+    private var contextIcon: some View {
+        Image(systemName: state.isTypingContext ? "keyboard" : "command")
+            .font(.system(size: 12))
+            .foregroundColor(.white.opacity(0.8))
+            .shadow(radius: 1)
     }
 
     private var displayLanguage: String {

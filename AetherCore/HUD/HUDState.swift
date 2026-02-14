@@ -15,10 +15,14 @@ final class HUDState: ObservableObject {
     @Published var message: String = ""
     @Published var language: String = Locale.current.identifier
     @Published var audioLevel: CGFloat = 0.0
+    @Published var isTypingContext: Bool = false
+    @Published var inputDeviceIcon: String = "mic.fill"
 
-    func update(mode: HUDMode, message: String, language: String) {
+    func update(mode: HUDMode, message: String, language: String, isTypingContext: Bool, inputDeviceIcon: String) {
         self.mode = mode
         self.message = message
         self.language = language
+        self.isTypingContext = isTypingContext
+        self.inputDeviceIcon = inputDeviceIcon
     }
 }
