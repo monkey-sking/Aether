@@ -1,7 +1,26 @@
 #!/bin/zsh
 set -euo pipefail
 
-TRACE_FILE="${1:-/tmp/aether_decision_trace.txt}"
+TRACE_FILE="/tmp/aether_decision_trace.txt"
+RESET_AFTER_REPORT=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --reset|--clear)
+      RESET_AFTER_REPORT=1
+      shift
+      ;;
+    --trace)
+      TRACE_FILE="${2:-$TRACE_FILE}"
+      shift 2
+      ;;
+    *)
+      TRACE_FILE="$1"
+      shift
+      ;;
+  esac
+done
+
 MAX_LINES="${MAX_LINES:-2000}"
 
 if [[ ! -f "$TRACE_FILE" ]]; then
@@ -129,3 +148,9 @@ END {
   }
 }
 ' "$TMP_INPUT"
+
+if [[ $RESET_AFTER_REPORT -eq 1 ]]; then
+  : > "$TRACE_FILE"
+  echo
+  echo "trace cleared: $TRACE_FILE"
+fi

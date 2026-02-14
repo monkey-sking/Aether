@@ -1915,8 +1915,8 @@ final class AirPodsDetector {
     private var lastPlcmLine: String = ""
     private var lastPlcmPollAt: Date = .distantPast
     private let evidenceWindowShort: TimeInterval = 2.0
-    private let evidenceWindowLong: TimeInterval = 2.5
-    private let registryUnionWindow: TimeInterval = 1.1
+    private let evidenceWindowLong: TimeInterval = 2.0
+    private let registryUnionWindow: TimeInterval = 0.85
     private let plcmPollInterval: TimeInterval = 0.6
     private let startupGuardWindow: TimeInterval = 4.0
     private let upToBothDelay: TimeInterval = 0.3
@@ -1925,6 +1925,9 @@ final class AirPodsDetector {
     private let sideSwitchDelay: TimeInterval = 0.15
     private var singleOverrideUntil: Date = .distantPast
     private var singleOverrideSide: AirPodSide = .none
+    private var singleSideLockUntil: Date = .distantPast
+    private var singleSideLockedTo: AirPodSide = .none
+    private var f1FastBlockedUntil: Date = .distantPast
     
     // Logger (Reverted to NSLog for stability)
     private func logDebug(_ message: String) {
@@ -2056,15 +2059,24 @@ final class AirPodsDetector {
         let hasRegLeftUnion = has(recentRegistrySamples, within: registryUnionWindow, side: .left, now: now)
         let hasRegRightUnion = has(recentRegistrySamples, within: registryUnionWindow, side: .right, now: now)
         let hasRegBothShort = has(recentRegistrySamples, within: evidenceWindowShort, side: .both, now: now)
+        let regBothCountShort = count(recentRegistrySamples, within: evidenceWindowShort, side: .both, now: now)
         let plcmBothCountShort = count(recentPlcmSamples, within: evidenceWindowShort, side: .both, now: now)
-        let hasPlcmBothShort = plcmBothCountShort > 0
-        let bothEvidence = hasPlcmBothShort || hasRegBothShort || (hasRegLeftUnion && hasRegRightUnion)
+        let plcmBothStrong = plcmBothCountShort >= 2
+        let mixedBoth = plcmBothCountShort >= 1 && (hasRegBothShort || (hasRegLeftUnion && hasRegRightUnion))
+        let registryBothStrong = regBothCountShort >= 2 || (regLeftShort >= 2 && regRightShort >= 2)
+        let bothEvidence = plcmBothStrong || mixedBoth || registryBothStrong
 
         if now < singleOverrideUntil && (singleOverrideSide == .left || singleOverrideSide == .right) {
-            if plcmBothCountShort >= 2 {
+            let canBreakSingleOverride = plcmBothCountShort >= 2 || (plcmBothCountShort >= 1 && now >= f1FastBlockedUntil)
+            if canBreakSingleOverride {
                 singleOverrideUntil = .distantPast
                 singleOverrideSide = .none
             } else {
+                // R0 is allowed to keep same-side or move from none/both to single,
+                // but side-to-side flips should come from explicit Plcm single evidence only.
+                if (lastState == .left || lastState == .right) && singleOverrideSide != lastState {
+                    return (lastState, "R0-side-flip-blocked", false)
+                }
                 return (singleOverrideSide, "R0-single-override", false)
             }
         }
@@ -2287,7 +2299,18 @@ final class AirPodsDetector {
             let now = Date()
             // Fast lane: authoritative Plcm BOTH should reflect almost immediately on HUD.
             if authoritative && source == "bluetoothd-plcm" && self.lastState != .both {
-                self.logDebug("Rule F1-fast-plcm-both immediate")
+                let plcmBothStrongNow = self.count(self.recentPlcmSamples, within: 1.0, side: .both, now: now) >= 2
+                if now < self.f1FastBlockedUntil && !plcmBothStrongNow {
+                    self.logDebug("Rule F1-fast-plcm-both blocked until \(self.f1FastBlockedUntil)")
+                    return
+                }
+                // Outside cooldown, one fresh Plcm BOTH is enough to recover from stale single-side lock.
+                if !plcmBothStrongNow && now < self.f1FastBlockedUntil {
+                    self.logDebug("Rule F1-fast-plcm-both waiting for dual evidence")
+                    return
+                }
+                self.singleSideLockUntil = .distantPast
+                self.singleSideLockedTo = .none
                 self.applyState(.both, source: "\(source)|F1-fast")
                 return
             }
@@ -2310,6 +2333,9 @@ final class AirPodsDetector {
                     if now.timeIntervalSince(self.pendingSince) >= 0.45 {
                         self.singleOverrideSide = single
                         self.singleOverrideUntil = now.addingTimeInterval(2.2)
+                        self.singleSideLockedTo = single
+                        self.singleSideLockUntil = now.addingTimeInterval(1.2)
+                        self.f1FastBlockedUntil = now.addingTimeInterval(1.5)
                         self.applyState(single, source: "\(source)|F3-fast")
                         return
                     }
@@ -2324,6 +2350,9 @@ final class AirPodsDetector {
                         return
                     }
                     if now.timeIntervalSince(self.pendingSince) >= 0.25 {
+                        self.singleSideLockedTo = single
+                        self.singleSideLockUntil = now.addingTimeInterval(1.2)
+                        self.f1FastBlockedUntil = now.addingTimeInterval(1.5)
                         self.applyState(single, source: "\(source)|F2-fast")
                         return
                     }
@@ -2344,6 +2373,19 @@ final class AirPodsDetector {
             if target == self.lastState {
                 self.pendingTarget = nil
                 return
+            }
+
+            if now < self.singleSideLockUntil &&
+                (self.lastState == .left || self.lastState == .right) &&
+                (target == .left || target == .right) &&
+                target != self.lastState {
+                let allowAuthoritativeFlip = authoritative &&
+                    source == "bluetoothd-plcm-single" &&
+                    observedState == target
+                if !allowAuthoritativeFlip {
+                    self.logDebug("Rule L1-side-lock hold \(self.lastState.rawValue), reject \(target.rawValue) from \(source)")
+                    return
+                }
             }
 
             var requiredDelay = self.sideSwitchDelay
@@ -2377,6 +2419,14 @@ final class AirPodsDetector {
                 self.lastState = newState
                 self.lastStateTime = Date()
                 self.pendingTarget = nil
+                if newState == .left || newState == .right {
+                    self.singleSideLockedTo = newState
+                    self.singleSideLockUntil = Date().addingTimeInterval(1.2)
+                    self.f1FastBlockedUntil = Date().addingTimeInterval(1.5)
+                } else if newState == .both {
+                    self.singleSideLockUntil = .distantPast
+                    self.singleSideLockedTo = .none
+                }
                 // Proactively notify the system to refresh UI
                 NotificationCenter.default.post(name: .AirPodsStateChanged, object: newState)
             }
