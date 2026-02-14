@@ -2,10 +2,11 @@ import Foundation
 import AVFoundation
 import Speech
 import AppKit
-import os.log
+import os
 import ApplicationServices
 import Combine
 import CoreAudio
+import IOKit
 
 struct AudioInputDevice: Identifiable, Hashable {
     let id: AudioDeviceID
@@ -13,7 +14,7 @@ struct AudioInputDevice: Identifiable, Hashable {
     let uid: String
     let iconName: String
     
-    static let defaultSystem = AudioInputDevice(id: 0, name: String(localized: "settings.default_device"), uid: "SystemDefault", iconName: "mic.fill")
+    static let defaultSystem = AudioInputDevice(id: 0, name: String(localized: "settings.default_device"), uid: "SystemDefault", iconName: "mic.badge.exclamationmark")
 }
 
 enum VoiceIntent: Equatable {
@@ -302,9 +303,36 @@ final class SpeechManager: ObservableObject {
     }
     
     var currentInputDeviceIcon: String {
-        var deviceIDToUse = selectedInputDeviceID
+        // [Priority 1] Physical Hardware check - if truly empty, return error state
+        let realHardware = availableInputDevices.filter { $0.id != 0 }
+        if realHardware.isEmpty {
+            // Signal a diagnostic error state rather than a generic mic
+            return "mic.slash.fill"
+        }
+
+        let airpodSide = AirPodsDetector.shared.currentSide()
         
-        // If "System Default" (0) is selected, resolve the actual current default device ID
+        // [Priority 2] AirPods in-ear detection
+        if airpodSide != .none {
+            let modelDevice = availableInputDevices.first(where: { $0.iconName.contains("airpod") })
+            let baseIcon = modelDevice?.iconName ?? "airpodspro"
+            
+            switch airpodSide {
+            case .left:
+                if baseIcon == "airpodsmax" { return "airpodsmax" }
+                return "airpod.gen3.left"
+            case .right:
+                if baseIcon == "airpodsmax" { return "airpodsmax" }
+                return "airpod.gen3.right"
+            case .both:
+                if baseIcon == "airpodsmax" { return "airpodsmax" }
+                return "airpod.gen3"
+            case .none: break
+            }
+        }
+        
+        // [Priority 3] Current Selected/Default Audio Device
+        var deviceIDToUse = selectedInputDeviceID
         if deviceIDToUse == 0 {
             var address = AudioObjectPropertyAddress(
                 mSelector: kAudioHardwarePropertyDefaultInputDevice,
@@ -315,17 +343,11 @@ final class SpeechManager: ObservableObject {
             AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceIDToUse)
         }
         
-        let matchedDevice = availableInputDevices.first(where: { $0.id == deviceIDToUse })
-        
-        // [Fix] Logic for 'No hardware detected'
-        // If we are looking for the default (ID 0) or the resolved ID, 
-        // we check if we have ANY real hardware in the list.
-        let realHardware = availableInputDevices.filter { $0.id != 0 }
-        if realHardware.isEmpty {
-            return "mic.slash.fill"
+        if let matchedDevice = availableInputDevices.first(where: { $0.id == deviceIDToUse }) {
+            return matchedDevice.iconName
         }
         
-        return matchedDevice?.iconName ?? "mic.fill"
+        return AudioInputDevice.defaultSystem.iconName
     }
 
     @Published var isAlwaysListeningEnabled: Bool = UserDefaults.standard.bool(forKey: "isAlwaysListeningEnabled") {
@@ -1011,6 +1033,21 @@ final class SpeechManager: ObservableObject {
         guard status2 == noErr else { return }
         
         for id in deviceIDs {
+            // Get Name
+            var name: String = "Unknown Device"
+            var nameSize = UInt32(MemoryLayout<CFString>.size)
+            var nameAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceNameCFString,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            var nameRef: CFString?
+            
+            if AudioObjectGetPropertyData(id, &nameAddress, 0, nil, &nameSize, &nameRef) == noErr,
+               let cfName = nameRef {
+                name = cfName as String
+            }
+            
             // Check if input channels > 0
             var scope = kAudioDevicePropertyScopeInput
             var address = AudioObjectPropertyAddress(
@@ -1021,61 +1058,53 @@ final class SpeechManager: ObservableObject {
             
             var size: UInt32 = 0
             AudioObjectGetPropertyDataSize(id, &address, 0, nil, &size)
-            let bufferList = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: Int(size))
-            defer { bufferList.deallocate() }
             
-            AudioObjectGetPropertyData(id, &address, 0, nil, &size, bufferList)
-            
-            let buffers = UnsafeMutableAudioBufferListPointer(bufferList)
-            let channelCount = buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
-            
-            if channelCount > 0 {
-                // Get Name
-                var name: String = "Unknown Device"
-                var nameSize = UInt32(MemoryLayout<CFString>.size)
-                var nameAddress = AudioObjectPropertyAddress(
-                    mSelector: kAudioDevicePropertyDeviceNameCFString,
-                    mScope: kAudioObjectPropertyScopeGlobal,
-                    mElement: kAudioObjectPropertyElementMain
-                )
-                var nameRef: CFString?
+            if size > 0 {
+                let bufferList = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: Int(size))
+                defer { bufferList.deallocate() }
                 
-                if AudioObjectGetPropertyData(id, &nameAddress, 0, nil, &nameSize, &nameRef) == noErr,
-                   let cfName = nameRef {
-                    name = cfName as String
+                AudioObjectGetPropertyData(id, &address, 0, nil, &size, bufferList)
+                
+                let buffers = UnsafeMutableAudioBufferListPointer(bufferList)
+                let channelCount = buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
+                
+                NSLog("[SpeechManager] Device Found: \(name) (ID: \(id)) - Input Channels: \(channelCount)")
+                
+                if channelCount > 0 {
+                    // Get UID
+                    var uid: String = "\(id)"
+                    var uidSize = UInt32(MemoryLayout<CFString>.size)
+                    var uidAddress = AudioObjectPropertyAddress(
+                        mSelector: kAudioDevicePropertyDeviceUID,
+                        mScope: kAudioObjectPropertyScopeGlobal,
+                        mElement: kAudioObjectPropertyElementMain
+                    )
+                    var uidRef: CFString?
+                    if AudioObjectGetPropertyData(id, &uidAddress, 0, nil, &uidSize, &uidRef) == noErr,
+                       let cfUid = uidRef {
+                        uid = cfUid as String
+                    }
+                    
+                    // Improved Device Detection (AirPods, etc)
+                    var iconName = "mic.fill"
+                    let lowerName = name.lowercased()
+                    
+                    if lowerName.contains("airpods") {
+                        iconName = "airpods"
+                        if lowerName.contains("pro") { iconName = "airpodspro" }
+                        if lowerName.contains("max") { iconName = "airpodsmax" }
+                    } else if lowerName.contains("studio display") {
+                        iconName = "monitor"
+                    } else if lowerName.contains("external") {
+                        iconName = "mic.badge.plus"
+                    } else if lowerName.contains("macbook") || lowerName.contains("built-in") {
+                        iconName = "laptopcomputer"
+                    }
+                    
+                    devices.append(AudioInputDevice(id: id, name: name, uid: uid, iconName: iconName))
                 }
-                
-                // Get UID
-                var uid: String = "\(id)"
-                var uidSize = UInt32(MemoryLayout<CFString>.size)
-                var uidAddress = AudioObjectPropertyAddress(
-                    mSelector: kAudioDevicePropertyDeviceUID,
-                    mScope: kAudioObjectPropertyScopeGlobal,
-                    mElement: kAudioObjectPropertyElementMain
-                )
-                var uidRef: CFString?
-                if AudioObjectGetPropertyData(id, &uidAddress, 0, nil, &uidSize, &uidRef) == noErr,
-                   let cfUid = uidRef {
-                    uid = cfUid as String
-                }
-                
-                // Improved Device Detection (AirPods, etc)
-                var iconName = "mic.fill"
-                let lowerName = name.lowercased()
-                
-                if lowerName.contains("airpods") {
-                    iconName = "airpods"
-                    if lowerName.contains("pro") { iconName = "airpodspro" }
-                    if lowerName.contains("max") { iconName = "airpodsmax" }
-                } else if lowerName.contains("studio display") {
-                    iconName = "monitor"
-                } else if lowerName.contains("external") {
-                    iconName = "mic.badge.plus"
-                } else if lowerName.contains("macbook") || lowerName.contains("built-in") {
-                    iconName = "laptopcomputer"
-                }
-                
-                devices.append(AudioInputDevice(id: id, name: name, uid: uid, iconName: iconName))
+            } else {
+                 NSLog("[SpeechManager] Device Found: \(name) (ID: \(id)) - NO INPUT SCOPE DATA")
             }
         }
         
@@ -1209,9 +1238,13 @@ final class SpeechManager: ObservableObject {
     init() {
         GlobalLogger.lifecycle.info("SpeechManager Initialized")
         refreshInputDevices()
+        
+        // [New] Trigger AirPods Detector immediately on startup
+        _ = AirPodsDetector.shared.currentSide()
         NotificationCenter.default.addObserver(self, selector: #selector(pttDown), name: HeadMotionManager.pttDownNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(pttUp), name: HeadMotionManager.pttUpNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(toggleLanguage), name: Notification.Name("AetherToggleLanguage"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAirPodsChange), name: .AirPodsStateChanged, object: nil)
         
         // [Feature] Initialize Locale from UserDefaults
         refreshLocale()
@@ -1250,6 +1283,12 @@ final class SpeechManager: ObservableObject {
         
     }
     
+    
+    @objc private func handleAirPodsChange() {
+        // Force HUD icon refresh when AirPods state changes
+        refreshContinuousHUD()
+    }
+
     private func setupAudioDeviceListeners() {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
@@ -1695,4 +1734,221 @@ extension OSLog {
     func debug(_ message: String) {
         GlobalLogger.log(message, log: self, type: .debug)
     }
+}
+
+// MARK: - AirPods Detection Utility
+
+extension Notification.Name {
+    static let AirPodsStateChanged = Notification.Name("AirPodsStateChanged")
+}
+
+enum AirPodSide: String {
+    case both
+    case left
+    case right
+    case none
+}
+
+final class AirPodsDetector {
+    static let shared = AirPodsDetector()
+    
+    private init() {
+        startPolling()
+    }
+    
+    private var pollingTimer: Timer?
+    
+    private func startPolling() {
+        // Polling every 2 seconds in background
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            _ = self?.currentSide()
+        }
+        // Ensure it runs even if UI is busy
+        RunLoop.main.add(pollingTimer!, forMode: .common)
+    }
+    
+    private var lastState: AirPodSide = .none
+    private var lastStateTime: Date = .distantPast
+    private let debounceInterval: TimeInterval = 0.5
+    
+    // Logger (Reverted to NSLog for stability)
+    private func logDebug(_ message: String) {
+        let logStr = "\(Date()): \(message)\n"
+        NSLog("[AirPodsDetector] %@", message)
+        if let data = logStr.data(using: .utf8) {
+            if let fileHandle = FileHandle(forWritingAtPath: "/tmp/aether_decision_trace.txt") {
+                fileHandle.seekToEndOfFile()
+                fileHandle.write(data)
+                try? fileHandle.close()
+            } else {
+                try? logStr.write(to: URL(fileURLWithPath: "/tmp/ioreg_trace.txt"), atomically: true, encoding: .utf8)
+            }
+        }
+    }
+    
+    // V9.0: Registry Presence Check
+    // "Active/In-Ear" AirPods appear in IORegistry. "Idle/On-Desk" ones do not.
+    private func checkRegistryPresence(leftSerial: String?, rightSerial: String?) -> AirPodSide? {
+        self.logDebug("Registry Check Start: L_Serial=\(leftSerial ?? "nil"), R_Serial=\(rightSerial ?? "nil")")
+        guard leftSerial != nil || rightSerial != nil else { return nil }
+        
+        let task = Process()
+        task.launchPath = "/usr/sbin/ioreg"
+        task.arguments = ["-k", "SerialNumber", "-l"] // Only list entries with SerialNumbers
+        
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        
+        do {
+            try task.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8) else { return nil }
+            
+            let isLeftPresent: Bool = {
+                if let l = leftSerial, output.contains(l) { return true }
+                return false
+            }()
+            
+            let isRightPresent: Bool = {
+                if let r = rightSerial, output.contains(r) { return true }
+                return false
+            }()
+            
+            self.logDebug("Registry Check: OutputLen=\(output.count). L_Serial=\(leftSerial ?? "?") Found=\(isLeftPresent). R_Serial=\(rightSerial ?? "?") Found=\(isRightPresent)")
+            
+            // Definitive Logic:
+            if isLeftPresent && isRightPresent { return .both } // [Fix] Priority check for Both
+            if isLeftPresent { return .left }
+            if isRightPresent { return .right }
+            if isLeftPresent && isRightPresent { return .both } // Both active
+            
+            // If neither present, it might be a weird state, fall down to RSSI
+            return nil
+            
+        } catch {
+            return nil
+        }
+    }
+
+    private var isRefreshingFast = false
+    private var isRefreshingSlow = false
+    private let fastInterval: TimeInterval = 0.5
+    private let slowInterval: TimeInterval = 10.0
+    private var lastFastTime: Date = .distantPast
+    private var lastSlowTime: Date = .distantPast
+    
+    // Cache
+    private var cachedLeftSerial: String?
+    private var cachedRightSerial: String?
+    
+    // Non-blocking accessor
+    func currentSide() -> AirPodSide {
+        let now = Date()
+        
+        // 1. Trigger Fast Check (ioreg)
+        if !isRefreshingFast && now.timeIntervalSince(lastFastTime) > fastInterval {
+            refreshFast()
+        }
+        
+        // 2. Trigger Slow Check (system_profiler)
+        if !isRefreshingSlow && now.timeIntervalSince(lastSlowTime) > slowInterval {
+            refreshSlow()
+        }
+        
+        return lastState
+    }
+    
+    private func refreshFast() {
+        guard !isRefreshingFast else { return }
+        isRefreshingFast = true
+        
+        // Use cached serials for the fast check
+        let lSer = cachedLeftSerial
+        let rSer = cachedRightSerial
+        
+        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+            guard let self = self else { return }
+            
+            if let registrySide = self.checkRegistryPresence(leftSerial: lSer, rightSerial: rSer) {
+                // If registry is definitive, use it (Fast Path)
+                self.updateState(registrySide)
+            }
+            
+            DispatchQueue.main.async {
+                self.lastFastTime = Date()
+                self.isRefreshingFast = false
+            }
+        }
+    }
+    
+    private func refreshSlow() {
+        guard !isRefreshingSlow else { return }
+        isRefreshingSlow = true
+        
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            self.logDebug("Starting Slow Background Metadata Refresh...")
+            
+            var leftSerial: String?
+            var rightSerial: String?
+            var hasLeftBattery = false
+            var hasRightBattery = false
+            
+            let profilerTask = Process()
+            profilerTask.launchPath = "/usr/sbin/system_profiler"
+            profilerTask.arguments = ["SPBluetoothDataType"]
+            let profilerPipe = Pipe()
+            profilerTask.standardOutput = profilerPipe
+            
+            do {
+                try profilerTask.run()
+                let data = profilerPipe.fileHandleForReading.readDataToEndOfFile()
+                if let output = String(data: data, encoding: .utf8) {
+                    let sections = output.components(separatedBy: "Connected:")
+                    for section in sections {
+                        let lines = section.components(separatedBy: .newlines)
+                        for line in lines {
+                            if line.contains("Serial Number (Left):") {
+                                leftSerial = line.components(separatedBy: ":").last?.trimmingCharacters(in: .whitespaces)
+                            }
+                            if line.contains("Serial Number (Right):") {
+                                rightSerial = line.components(separatedBy: ":").last?.trimmingCharacters(in: .whitespaces)
+                            }
+                            if line.contains("Left Battery Level:") { hasLeftBattery = true }
+                            if line.contains("Right Battery Level:") { hasRightBattery = true }
+                        }
+                    }
+                }
+                
+                // Update Cache & State based on battery if registry is ambiguous
+                if let l = leftSerial { self.cachedLeftSerial = l }
+                if let r = rightSerial { self.cachedRightSerial = r }
+                
+                if hasLeftBattery && hasRightBattery {
+                    self.updateState(.both)
+                }
+            } catch {
+                self.logDebug("Slow Profiler Failed")
+            }
+            
+            DispatchQueue.main.async {
+                self.lastSlowTime = Date()
+                self.isRefreshingSlow = false
+            }
+        }
+    }
+            
+    
+    private func updateState(_ newState: AirPodSide) {
+        DispatchQueue.main.async {
+            if self.lastState != newState {
+                self.logDebug("State Transition: \(self.lastState) -> \(newState)")
+                self.lastState = newState
+                self.lastStateTime = Date()
+                // Proactively notify the system to refresh UI
+                NotificationCenter.default.post(name: .AirPodsStateChanged, object: newState)
+            }
+        }
+    }
+    
 }
