@@ -2,13 +2,18 @@ import SwiftUI
 
 struct HUDView: View {
     @ObservedObject var state: HUDState
-    @State private var isAnimating: Bool = false
+
     
     var body: some View {
         let displayLanguage: String = {
-            if state.language == "zh-CN" || state.language.starts(with: "zh") { return "中" }
-            if state.language == "en-US" || state.language.starts(with: "en") { return "En" }
-            return state.language
+            if state.language.starts(with: "zh") { return "中" }
+            if state.language.starts(with: "en") { return "En" }
+            if state.language.starts(with: "ja") { return "日" }
+            if state.language.starts(with: "ko") { return "한" }
+            if state.language.starts(with: "fr") { return "Fr" }
+            if state.language.starts(with: "de") { return "De" }
+            if state.language.starts(with: "es") { return "Es" }
+            return String(state.language.prefix(2)).capitalized
         }()
         
         let displayMessage: String = {
@@ -25,6 +30,8 @@ struct HUDView: View {
                 return state.message
             case .dictation:
                 return state.message
+            case .processing:
+                return ""
             case .hidden:
                 return ""
             }
@@ -53,6 +60,11 @@ struct HUDView: View {
                 EmptyView() 
             case .hidden:
                 EmptyView()
+            case .processing:
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white.opacity(0.8))
+                    .symbolEffect(.variableColor.iterative.reversing)
             }
             
             // Content Area
@@ -71,7 +83,10 @@ struct HUDView: View {
             }
             
             // Trailing Icons (Context)
-            if state.isTypingMode {
+            // [Fix] Only show keyboard in Active/Dictation modes. Explicitly hidden in .hidden/.processing.
+            // [Design] Standby should be minimal (Green Dot only), no keyboard icon until active.
+            let validKeyboardModes: [HUDMode] = [.active, .dictation]
+            if validKeyboardModes.contains(state.mode) && state.isTypingMode {
                 Image(systemName: "keyboard")
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.9))

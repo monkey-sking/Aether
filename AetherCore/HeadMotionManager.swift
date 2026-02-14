@@ -43,6 +43,13 @@ class HeadMotionManager: ObservableObject {
             UserDefaults.standard.set(isDebugModeEnabled, forKey: "isDebugModeEnabled")
         }
     }
+
+    
+    // [Fix] Respect PTT Toggle in Settings
+    // If false, the shortcut (Command/Mode) will NOT trigger PTT logic or HUD.
+    @Published var isPTTEnabled: Bool = UserDefaults.standard.object(forKey: "isPTTEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(isPTTEnabled, forKey: "isPTTEnabled") }
+    }
     
     // Experience Optimization Constants
     private let deadzone: Double = 0.005  // Ignore movements smaller than ~0.3 degrees
@@ -674,6 +681,22 @@ class HeadMotionManager: ObservableObject {
                         return nil
 
                     case .pushToTalk:
+                        // [Fix] STRICT CHECK: If PTT is disabled, do NOT consume the key, do NOT track source.
+                        guard manager.isPTTEnabled else { return nil } // Return nil here? No, return nil swallows!
+                        // We must return Unmanaged.passUnretained(event) to let it pass through.
+                        // Ideally we break or return specific logic. 
+                        // But we are inside a switch.
+                        // We need to return nil from the CLOSURE if we matched but want to pass through?
+                        // Wait. The loop returns `action`. If we return `action`, the caller handles it?
+                        // No, this is the callback.
+                        
+                        // Let's look at structure.
+                        // if let action = ... { switch action { ... } }
+                        // If we fall out of switch, we return Unmanaged... at end of function.
+                        // So 'break' works?
+                        
+                        guard manager.isPTTEnabled else { break }
+
                         let source = PTTSource.keyboard(Int(keyCode))
                         guard !manager.activePTTSources.contains(source) else { return nil }
                         
@@ -688,7 +711,7 @@ class HeadMotionManager: ObservableObject {
                                 object: nil
                             )
                         }
-                        return nil
+                        return nil // Consumes event (Good)
                     }
                 }
             }
@@ -744,6 +767,9 @@ class HeadMotionManager: ObservableObject {
                         return nil
 
                     case .pushToTalk:
+                        // [Fix] STRICT CHECK: If PTT is disabled, bypass.
+                        guard manager.isPTTEnabled else { break }
+                        
                         let source = PTTSource.mouse(btn)
                         if !manager.activePTTSources.contains(source) {
                             let wasPressed = manager.isPTTPressed
@@ -859,7 +885,9 @@ class HeadMotionManager: ObservableObject {
             }
         }
     }
-    }
+
+}
+
 
 // MARK: - Overlay Components
 struct DwellProgressView: View {

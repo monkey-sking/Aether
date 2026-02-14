@@ -122,6 +122,7 @@
 "speech.unavailable" = "Speech Unavailable";
 "speech.error" = "Speech Error";
 "speech.pasted" = "Pasted";
+"speech.typed" = "Typed";
 "speech.undo" = "Undo";
 "speech.done" = "Done";
 
@@ -196,3 +197,14 @@
 "status.disabled" = "Disabled";
 "status.paused" = "Paused";
 "calibration.normal" = "Normal";
+
+/* Language Selection */
+"settings.speech_language" = "Speech Language";
+"language.system" = "Follow System";
+"language.en_US" = "English (US)";
+"language.zh_CN" = "中文 (简体)";
+"language.ja_JP" = "日本語";
+"language.ko_KR" = "한국어";
+"language.fr_FR" = "Français";
+"language.de_DE" = "Deutsch";
+"language.es_ES" = "Español";
