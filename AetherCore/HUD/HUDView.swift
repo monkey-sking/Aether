@@ -63,10 +63,7 @@ struct HUDView: View {
         Image(systemName: state.inputDeviceIcon)
             .foregroundColor(.white)
             .font(.system(size: 14))
-            .scaleEffect(1.0 + (state.audioLevel * 0.5))
             .shadow(radius: 1)
-            .opacity(0.8 + (state.audioLevel * 0.2))
-            .animation(.linear(duration: 0.1), value: state.audioLevel)
     }
 
     private var contextIcon: some View {
@@ -143,15 +140,20 @@ struct WaveformView: View {
                 RoundedRectangle(cornerRadius: 1.5)
                 .fill(Color.green.opacity(0.8))
                 .frame(width: 3, height: barHeight(for: i))
-                .animation(.spring(response: 0.2, dampingFraction: 0.5), value: level)
+                .animation(.spring(response: 0.15, dampingFraction: 0.4, blendDuration: 0), value: level)
             }
         }
         .frame(height: 20)
     }
 
     private func barHeight(for index: Int) -> CGFloat {
-        let baseHeights: [CGFloat] = [6, 10, 14, 10, 6]
-        let variance = CGFloat.random(in: 0.8...1.2)
-        return max(3, baseHeights[index] * level * 2 * variance)
+        // [Optimization] Non-linear scaling (pow 0.8)
+        // This ensures the bars grow rapidly for small levels but resist 
+        // hitting the 'baseHeight' too easily for normal/loud speech.
+        let curveLevel = pow(level, 0.8)
+        
+        let baseHeights: [CGFloat] = [6, 11, 16, 11, 6]
+        let dynamicHeight = 3 + (baseHeights[index] - 3) * curveLevel
+        return min(baseHeights[index], dynamicHeight)
     }
 }

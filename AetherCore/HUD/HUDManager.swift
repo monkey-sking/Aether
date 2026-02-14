@@ -47,7 +47,9 @@ final class HUDManager {
     
     func updateAudioLevel(_ level: Float) {
         DispatchQueue.main.async {
-             self.state.audioLevel = CGFloat(min(level * 5.0, 1.0))
+             // Further reduced gain from 10.0 to 8.0 to ensure 
+             // normal speech doesn't constantly clip at 100%.
+             self.state.audioLevel = CGFloat(min(level * 8.0, 1.0))
         }
     }
     
