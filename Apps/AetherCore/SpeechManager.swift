@@ -900,57 +900,59 @@ final class SpeechManager: ObservableObject {
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
              guard let self = self else { return }
              
-             // Check if we need to downmix (if channels > 1)
              let format = buffer.format
+             var monoBuffer = buffer
+             
+             // 1. Downmix to Mono if needed (for recognition engine and RMS consistency)
              if format.channelCount > 1 {
-                 // Create Mono Format with SAME sample rate
-                 if let monoFormat = AVAudioFormat(commonFormat: format.commonFormat, sampleRate: format.sampleRate, channels: 1, interleaved: false),
-                    let monoBuffer = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: buffer.frameCapacity) {
-                     
-                     monoBuffer.frameLength = buffer.frameLength
-                     
-                     // Copy Channel 0 to Mono Buffer
-                     // (Assuming Ch0 contains the voice data, as seen in logs)
-                     if let srcData = buffer.floatChannelData?[0],
-                        let dstData = monoBuffer.floatChannelData?[0] {
+                 if let downmixed = AVAudioFormat(commonFormat: format.commonFormat, sampleRate: format.sampleRate, channels: 1, interleaved: false).flatMap({ AVAudioPCMBuffer(pcmFormat: $0, frameCapacity: buffer.frameCapacity) }) {
+                     downmixed.frameLength = buffer.frameLength
+                     if let srcData = buffer.floatChannelData?[0], let dstData = downmixed.floatChannelData?[0] {
                          memcpy(dstData, srcData, Int(buffer.frameLength) * MemoryLayout<Float>.size)
                      }
-                     
-                     // Calculate RMS
-                     var rms: Float = 0
-                     if let channelData = monoBuffer.floatChannelData?[0] {
-                         let channelDataPtr = UnsafeBufferPointer(start: channelData, count: Int(monoBuffer.frameLength))
-                         var sum: Float = 0
-                         for sample in channelDataPtr {
-                             sum += sample * sample
-                         }
-                         rms = sqrt(sum / Float(monoBuffer.frameLength))
-                     }
-                     
-                     // Update HUD with audio level
-                     // RMS is usually very small (0.0 - 0.5 for normal speech). 
-                     // We map it for visual feedback.
-                     HUDManager.shared.updateAudioLevel(rms)
-                     
-                     if Int.random(in: 0...50) == 0 {
-                          os_log("Audio RMS: %.4f", log: self.log, type: .debug, rms)
-                     }
-                                          self.recognitionRequest?.append(monoBuffer)
-                      
-                      // Update Ring Buffer (Main Thread for safety)
-                      DispatchQueue.main.async { [weak self] in
-                          guard let self = self else { return }
-                          self.audioRingBuffer.append(monoBuffer)
-                          if self.audioRingBuffer.count > self.ringBufferCapacity {
-                              self.audioRingBuffer.removeFirst()
-                          }
-                      }
-                      return
+                     monoBuffer = downmixed
                  }
              }
              
-             // Fallback: Use original buffer
-             self.recognitionRequest?.append(buffer)
+             // 2. Calculate RMS from the mono signal
+             var rms: Float = 0
+             if let channelData = monoBuffer.floatChannelData?[0] {
+                 let count = Int(monoBuffer.frameLength)
+                 if count > 0 {
+                     let channelDataPtr = UnsafeBufferPointer(start: channelData, count: count)
+                     var sum: Float = 0
+                     for i in 0..<count {
+                         let sample = channelDataPtr[i]
+                         sum += sample * sample
+                     }
+                     // Raw RMS
+                     let rawRms = sqrt(sum / Float(count))
+                     
+                     // [Enhancement] Non-linear scaling (sqrt) to boost low-level audio
+                     // This makes 'ordinary' mics feel much more responsive.
+                     // Mapping: 0.01 -> 0.1, 0.04 -> 0.2, etc.
+                     rms = sqrt(rawRms)
+                 }
+             }
+             
+             // 3. Update HUD with amplified level
+             // Multiplier moved to HUDManager for centralized control.
+             HUDManager.shared.updateAudioLevel(rms)
+             
+             if Int.random(in: 0...100) == 0 {
+                  os_log("Audio RMS: %.4f (scaled)", log: self.log, type: .debug, rms)
+             }
+             // 4. Send to recognition engine
+             self.recognitionRequest?.append(monoBuffer)
+             
+             // 5. Update Ring Buffer (Main Thread)
+             DispatchQueue.main.async { [weak self] in
+                 guard let self = self else { return }
+                 self.audioRingBuffer.append(monoBuffer)
+                 if self.audioRingBuffer.count > self.ringBufferCapacity {
+                     self.audioRingBuffer.removeFirst()
+                 }
+             }
         }
         
         audioEngine = engine
@@ -1197,6 +1199,9 @@ final class SpeechManager: ObservableObject {
              isAlwaysListeningEnabled = true
         }
 
+        // [Fix] Immediate refresh on system mic changes
+        setupAudioDeviceListeners()
+        
         // Ensure continuous mode (Standby/Green Dot) starts immediately if enabled
         if isAlwaysListeningEnabled {
             // run on next runloop to allow init to finish
@@ -1218,6 +1223,37 @@ final class SpeechManager: ObservableObject {
             
         
     }
+    
+    private func setupAudioDeviceListeners() {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        let block: AudioObjectPropertyListenerBlock = { _, _ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                os_log("System Default Input Device CHANGED. Refreshing...", log: self.log, type: .info)
+                self.refreshInputDevices()
+                
+                // If we are using system default (0), this changes our actual icon
+                if self.selectedInputDeviceID == 0 {
+                    let hud = HUDManager.shared
+                    hud.update(
+                        mode: hud.state.mode, 
+                        message: hud.state.message, 
+                        language: hud.state.language, 
+                        inputDeviceIcon: self.currentInputDeviceIcon
+                    )
+                }
+            }
+        }
+        
+        // We use the listener block API for better Swift integration
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, nil, block)
+    }        
+        
 
     private func playWakeSound() {
         NSSound(named: "Tink")?.play()
