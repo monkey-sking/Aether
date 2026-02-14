@@ -2,6 +2,14 @@ import SwiftUI
 
 struct HUDView: View {
     @ObservedObject var state: HUDState
+    
+    private static let symbolFallbacks: [String: [String]] = [
+        "airpod.gen3.left": ["airpod.left", "airpods", "headphones"],
+        "airpod.gen3.right": ["airpod.right", "airpods", "headphones"],
+        "airpod.gen3": ["airpods", "headphones"],
+        "airpodspro": ["airpods", "headphones"],
+        "airpodsmax": ["headphones"]
+    ]
 
     var body: some View {
         HStack(spacing: 8) {
@@ -60,13 +68,28 @@ struct HUDView: View {
     // MARK: - Reusable Components
 
     private var micIcon: some View {
-        Image(systemName: state.inputDeviceIcon.isEmpty ? "mic.slash" : state.inputDeviceIcon)
+        Image(systemName: resolvedSymbolName(for: state.inputDeviceIcon))
             .foregroundColor(.white)
             .font(.system(size: 14))
             .shadow(radius: 1)
-            // [UX Fix] If the icon string is invalid/blank, SwiftUI shows nothing. 
-            // We ensure it always has a fallback to mic.slash if the string is empty,
-            // but for completely invalid names (blinks), we rely on the logic layer.
+    }
+    
+    private func resolvedSymbolName(for requested: String) -> String {
+        let normalized = requested.trimmingCharacters(in: .whitespacesAndNewlines)
+        let primary = normalized.isEmpty ? "mic.slash" : normalized
+        if isValidSymbol(primary) { return primary }
+        
+        if let fallbacks = Self.symbolFallbacks[primary] {
+            for fallback in fallbacks where isValidSymbol(fallback) {
+                return fallback
+            }
+        }
+        
+        return isValidSymbol("mic.slash") ? "mic.slash" : "mic"
+    }
+    
+    private func isValidSymbol(_ name: String) -> Bool {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
     }
 
     private var contextIcon: some View {

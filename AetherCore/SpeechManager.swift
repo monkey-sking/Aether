@@ -379,6 +379,7 @@ final class SpeechManager: ObservableObject {
         
         if !anyTriggerActive {
             // All triggers are off -> Forced Silence
+            resetHUDTransientState()
             stopAndFinalize()
             teardownEngine()
             HUDManager.shared.hide()
@@ -388,6 +389,7 @@ final class SpeechManager: ObservableObject {
             if isAlwaysListeningEnabled || isWakeWordEnabled {
                 startContinuous()
             } else {
+                resetHUDTransientState()
                 // [Fix] Ensure HUD refreshes (and potential hides) if switching to PTT-only mode
                 refreshContinuousHUD()
             }
@@ -451,11 +453,18 @@ final class SpeechManager: ObservableObject {
     }
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
+        // Real trigger topology:
+        // - isAlwaysListeningEnabled: mic session for continuous recognition is active
+        // - isDirectCommandEnabled: always-on direct command mode
+        // - isWakeWordEnabled: wake gate enabled within continuous recognition
+        let isContinuousSessionEnabled = isAlwaysListeningEnabled
+        let isWakeGatedContinuous = isContinuousSessionEnabled && isWakeWordEnabled && !isDirectCommandEnabled
+        
         // [Audit Fix] Central Visibility Guard
         // The HUD should only be visible if:
         // 1. Continuous mode (Always Listening or Wake Word) is enabled.
         // 2. OR an active session is running (PTT, Processing, or Dictating).
-        let isContinuousActive = isAlwaysListeningEnabled || isWakeWordEnabled
+        let isContinuousActive = isContinuousSessionEnabled
         let isSessionActive = recognitionTask != nil || isStopping || isDictating
         
         if !isContinuousActive && !isSessionActive {
@@ -467,10 +476,22 @@ final class SpeechManager: ObservableObject {
         let mode: HUDMode
         var message: String = ""
         let realHardware = availableInputDevices.filter { $0.id != 0 }
+        let noMicMessage = activeLocale.identifier.starts(with: "zh") ? "未检测到麦克风" : "No Microphone Detected"
+
+        // Rule 0: No microphone should never appear as standby (green dot).
+        if realHardware.isEmpty {
+            HUDManager.shared.update(
+                mode: .listening,
+                message: noMicMessage,
+                language: activeLocale.identifier,
+                inputDeviceIcon: currentInputDeviceIcon
+            )
+            return
+        }
 
         // Rule 1: Standby (Green Dot)
         // Occurs in continuous mode when we are NOT 'awake' and NOT in an active payload state.
-        if isContinuousActive && !isAwake && !isDirectCommandEnabled && !isStopping && !isDictating && lastTranscript.isEmpty {
+        if isWakeGatedContinuous && !isAwake && !isStopping && !isDictating && lastTranscript.isEmpty {
             mode = .standby
         } 
         // Rule 2: Active Payload States
@@ -485,12 +506,19 @@ final class SpeechManager: ObservableObject {
         // Rule 3: Listening (The fallback active state)
         else {
             mode = .listening
-            if realHardware.isEmpty {
-                message = activeLocale.identifier.starts(with: "zh") ? "未检测到麦克风" : "No Microphone Detected"
-            }
         }
 
         HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, inputDeviceIcon: currentInputDeviceIcon)
+    }
+    
+    private func showPTTUnavailableHUD() {
+        let message = activeLocale.identifier.starts(with: "zh") ? "未检测到麦克风" : "No Microphone Detected"
+        HUDManager.shared.update(
+            mode: .listening,
+            message: message,
+            language: activeLocale.identifier,
+            inputDeviceIcon: currentInputDeviceIcon
+        )
     }
 
     private func scheduleContinuousRecovery(delay: TimeInterval = 0.25) {
@@ -704,8 +732,12 @@ final class SpeechManager: ObservableObject {
             status = NSLocalizedString("speech.error", comment: "") // Generic error for engine
             lastError = error.localizedDescription
             
-            // [Fix] Refresh HUD even on failure to show the "No Mic" or Error state
-            refreshContinuousHUD()
+            // In PTT mode we should still show visible feedback while key is held.
+            if isAlwaysListeningEnabled {
+                refreshContinuousHUD()
+            } else {
+                showPTTUnavailableHUD()
+            }
             return
         }
 
@@ -1178,7 +1210,16 @@ final class SpeechManager: ObservableObject {
         } else {
             HUDManager.shared.hide()
         }
-        guard let task = recognitionTask else { return }
+        guard let task = recognitionTask else {
+            // If there is no active task, we still must clear transient HUD-driving state.
+            resetHUDTransientState()
+            if isAlwaysListeningEnabled {
+                refreshContinuousHUD()
+            } else {
+                HUDManager.shared.hide()
+            }
+            return
+        }
         
         // [Fix] Don't cancel immediately. Use finish() to allow processing trailing audio.
         recognitionRequest?.endAudio()
@@ -1266,7 +1307,9 @@ final class SpeechManager: ObservableObject {
     init() {
         GlobalLogger.lifecycle.info("SpeechManager Initialized")
         refreshInputDevices()
-        refreshContinuousHUD() // [Fix] Populate icon on boot
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshContinuousHUD() // [Fix] Populate icon after startup graph settles
+        }
         
         // [New] Trigger AirPods Detector immediately on startup
         _ = AirPodsDetector.shared.currentSide()
@@ -1279,9 +1322,11 @@ final class SpeechManager: ObservableObject {
         refreshLocale()
 
         // [Fix] Startup State & Dependency
-        // Force evaluation of initial trigger states (PTT, Wake, Continuous)
-        // This ensures HUD is hidden on launch if all are Off.
-        syncRecognitionState()
+        // Delay trigger evaluation to the next run loop to avoid startup-time
+        // re-entrant HUD layout while SwiftUI scene graph is still initializing.
+        DispatchQueue.main.async { [weak self] in
+            self?.syncRecognitionState()
+        }
 
         // [Fix] Immediate refresh on system mic changes
         setupAudioDeviceListeners()
@@ -1406,12 +1451,23 @@ final class SpeechManager: ObservableObject {
         }
 
         // [Standard Mode] Start Session
+        let realHardware = availableInputDevices.contains { $0.id != 0 }
+        if !realHardware {
+            showPTTUnavailableHUD()
+        }
         startOnce()
     }
 
     @objc private func pttUp() {
         GlobalLogger.input.info("PTT UP")
         guard !isAlwaysListeningEnabled else { return } // PTT Release should NOT stop continuous mode
+        
+        // No active session: do not show ".processing" ellipsis.
+        guard recognitionTask != nil else {
+            isStopping = false
+            HUDManager.shared.hide()
+            return
+        }
         
         isStopping = true
         refreshContinuousHUD() // Update to .processing state immediately
@@ -1512,6 +1568,7 @@ final class SpeechManager: ObservableObject {
         stopTimer = nil
         failsafeTimer?.invalidate()
         failsafeTimer = nil
+        isStopping = false
         isDictating = false
         sessionTypingMode = false
         
@@ -1519,6 +1576,15 @@ final class SpeechManager: ObservableObject {
         // It will be cleared at the START of the next session in startOnce().
         
         // Engine NOT cleared
+    }
+    
+    private func resetHUDTransientState() {
+        isStopping = false
+        isDictating = false
+        sessionTypingMode = false
+        lastTranscript = ""
+        lastChangeAt = nil
+        lastStableText = ""
     }
 
     private func handleTranscript(_ transcript: String) {
@@ -1837,7 +1903,6 @@ final class AirPodsDetector {
             if isLeftPresent && isRightPresent { return .both } // [Fix] Priority check for Both
             if isLeftPresent { return .left }
             if isRightPresent { return .right }
-            if isLeftPresent && isRightPresent { return .both } // Both active
             
             // If neither present, it might be a weird state, fall down to RSSI
             return nil
@@ -1941,9 +2006,17 @@ final class AirPodsDetector {
                 if let l = leftSerial { self.cachedLeftSerial = l }
                 if let r = rightSerial { self.cachedRightSerial = r }
                 
+                let inferredSide: AirPodSide
                 if hasLeftBattery && hasRightBattery {
-                    self.updateState(.both)
+                    inferredSide = .both
+                } else if hasLeftBattery {
+                    inferredSide = .left
+                } else if hasRightBattery {
+                    inferredSide = .right
+                } else {
+                    inferredSide = .none
                 }
+                self.updateState(inferredSide)
             } catch {
                 self.logDebug("Slow Profiler Failed")
             }

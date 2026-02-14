@@ -163,8 +163,15 @@ final class HUDManager {
         let visibleFrame = currentScreen.visibleFrame
         
         // 3. Size Calculation
-        panel.contentView?.layoutSubtreeIfNeeded()
-        let size = panel.contentView?.fittingSize ?? CGSize(width: 120, height: 44)
+        // Avoid forcing a synchronous layout pass here; doing so during app startup
+        // can re-enter SwiftUI graph updates and trigger AG precondition crashes.
+        let existingSize = panel.frame.size
+        let size: CGSize
+        if existingSize.width > 1, existingSize.height > 1 {
+            size = existingSize
+        } else {
+            size = CGSize(width: 200, height: 60)
+        }
         
         // 4. Candidate Position Evaluation
         let padding: CGFloat = 16
@@ -316,4 +323,3 @@ final class HUDManager {
         })
     }
 }
-
