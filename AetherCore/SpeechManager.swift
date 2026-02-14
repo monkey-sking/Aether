@@ -315,7 +315,17 @@ final class SpeechManager: ObservableObject {
             AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceIDToUse)
         }
         
-        return availableInputDevices.first(where: { $0.id == deviceIDToUse })?.iconName ?? "mic.fill"
+        let matchedDevice = availableInputDevices.first(where: { $0.id == deviceIDToUse })
+        
+        // [Fix] Logic for 'No hardware detected'
+        // If we are looking for the default (ID 0) or the resolved ID, 
+        // we check if we have ANY real hardware in the list.
+        let realHardware = availableInputDevices.filter { $0.id != 0 }
+        if realHardware.isEmpty {
+            return "mic.slash.fill"
+        }
+        
+        return matchedDevice?.iconName ?? "mic.fill"
     }
 
     @Published var isAlwaysListeningEnabled: Bool = UserDefaults.standard.bool(forKey: "isAlwaysListeningEnabled") {
@@ -395,7 +405,9 @@ final class SpeechManager: ObservableObject {
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
         let mode: HUDMode
-        let message: String
+        var message: String
+        
+        let realHardware = availableInputDevices.filter { $0.id != 0 }
 
         // Priority 1: Standby (wake word waiting, not yet awake)
         if isWakeWordEnabled && isAlwaysListeningEnabled && !isAwake && !isDirectCommandEnabled {
@@ -420,7 +432,18 @@ final class SpeechManager: ObservableObject {
         // Priority 5: Listening (mic on, waiting for speech)
         else {
             mode = .listening
-            message = ""
+            
+            // [Fix] Hardware Awareness: Show feedback if NO real microphone detected
+            if realHardware.isEmpty {
+                // Determine fallback text based on current locale
+                if activeLocale.identifier.starts(with: "zh") {
+                    message = "未检测到麦克风"
+                } else {
+                    message = "No Microphone Detected"
+                }
+            } else {
+                message = ""
+            }
         }
 
         HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, inputDeviceIcon: currentInputDeviceIcon)
@@ -636,6 +659,9 @@ final class SpeechManager: ObservableObject {
         } catch {
             status = NSLocalizedString("speech.error", comment: "") // Generic error for engine
             lastError = error.localizedDescription
+            
+            // [Fix] Refresh HUD even on failure to show the "No Mic" or Error state
+            refreshContinuousHUD()
             return
         }
 
