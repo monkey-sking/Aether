@@ -4,6 +4,8 @@ struct HUDView: View {
     @ObservedObject var state: HUDState
     
     private static let symbolFallbacks: [String: [String]] = [
+        "airpodspro.left": ["airpod.gen3.left", "airpod.left", "airpods", "headphones"],
+        "airpodspro.right": ["airpod.gen3.right", "airpod.right", "airpods", "headphones"],
         "airpod.gen3.left": ["airpod.left", "airpods", "headphones"],
         "airpod.gen3.right": ["airpod.right", "airpods", "headphones"],
         "airpod.gen3": ["airpods", "headphones"],

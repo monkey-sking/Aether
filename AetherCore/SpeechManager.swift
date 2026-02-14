@@ -7,6 +7,7 @@ import ApplicationServices
 import Combine
 import CoreAudio
 import IOKit
+import IOBluetooth
 
 struct AudioInputDevice: Identifiable, Hashable {
     let id: AudioDeviceID
@@ -247,6 +248,8 @@ final class SpeechManager: ObservableObject {
             }
         }
     }
+    private var lastLoggedHUDIcon: String?
+    private var lastLoggedAirPodSide: AirPodSide = .none
     
     // [Fix] Add missing isPTTEnabled property to SpeechManager so we can check it
     @Published var isPTTEnabled: Bool = UserDefaults.standard.object(forKey: "isPTTEnabled") as? Bool ?? true {
@@ -312,7 +315,7 @@ final class SpeechManager: ObservableObject {
             // Signal a diagnostic error state rather than a generic mic
             return "mic.slash.fill"
         }
-        
+
         // [Priority 2] Current Selected/Default Audio Device
         var deviceIDToUse = selectedInputDeviceID
         if deviceIDToUse == 0 {
@@ -341,12 +344,15 @@ final class SpeechManager: ObservableObject {
             switch airpodSide {
             case .left:
                 if baseIcon == "airpodsmax" { return "airpodsmax" }
+                if baseIcon == "airpodspro" { return "airpodspro.left" }
                 return "airpod.gen3.left"
             case .right:
                 if baseIcon == "airpodsmax" { return "airpodsmax" }
+                if baseIcon == "airpodspro" { return "airpodspro.right" }
                 return "airpod.gen3.right"
             case .both:
                 if baseIcon == "airpodsmax" { return "airpodsmax" }
+                if baseIcon == "airpodspro" { return "airpodspro" }
                 return "airpod.gen3"
             case .none:
                 return matchedDevice.iconName
@@ -364,6 +370,40 @@ final class SpeechManager: ObservableObject {
         }
         
         return AudioInputDevice.defaultSystem.iconName
+    }
+
+    private func hudInputIcon() -> String {
+        let icon = currentInputDeviceIcon
+        let side = AirPodsDetector.shared.currentSide()
+        if icon != lastLoggedHUDIcon || side != lastLoggedAirPodSide {
+            var deviceIDToUse = selectedInputDeviceID
+            if deviceIDToUse == 0 {
+                var address = AudioObjectPropertyAddress(
+                    mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+                var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+                AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceIDToUse)
+            }
+            let activeName = availableInputDevices.first(where: { $0.id == deviceIDToUse })?.name ?? "unknown"
+            GlobalLogger.speech.info("[HUD Icon] icon=\(icon), side=\(side.rawValue), selectedID=\(selectedInputDeviceID), activeID=\(deviceIDToUse), activeName=\(activeName)")
+            let fileLog = "\(Date()): [HUD Icon] icon=\(icon), side=\(side.rawValue), selectedID=\(selectedInputDeviceID), activeID=\(deviceIDToUse), activeName=\(activeName)\n"
+            if let data = fileLog.data(using: .utf8) {
+                let tracePath = "/tmp/aether_hud_icon_trace.txt"
+                if !FileManager.default.fileExists(atPath: tracePath) {
+                    FileManager.default.createFile(atPath: tracePath, contents: nil)
+                }
+                if let fh = FileHandle(forWritingAtPath: tracePath) {
+                    fh.seekToEndOfFile()
+                    fh.write(data)
+                    try? fh.close()
+                }
+            }
+            lastLoggedHUDIcon = icon
+            lastLoggedAirPodSide = side
+        }
+        return icon
     }
 
     @Published var isAlwaysListeningEnabled: Bool = UserDefaults.standard.bool(forKey: "isAlwaysListeningEnabled") {
@@ -498,7 +538,7 @@ final class SpeechManager: ObservableObject {
                 mode: .listening,
                 message: noMicMessage,
                 language: activeLocale.identifier,
-                inputDeviceIcon: currentInputDeviceIcon
+                inputDeviceIcon: hudInputIcon()
             )
             return
         }
@@ -522,7 +562,7 @@ final class SpeechManager: ObservableObject {
             mode = .listening
         }
 
-        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, inputDeviceIcon: currentInputDeviceIcon)
+        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, inputDeviceIcon: hudInputIcon())
     }
     
     private func showPTTUnavailableHUD() {
@@ -531,7 +571,7 @@ final class SpeechManager: ObservableObject {
             mode: .listening,
             message: message,
             language: activeLocale.identifier,
-            inputDeviceIcon: currentInputDeviceIcon
+            inputDeviceIcon: hudInputIcon()
         )
     }
 
@@ -712,7 +752,7 @@ final class SpeechManager: ObservableObject {
         
         // Update HUD immediately to reflect the new language badge
         let hud = HUDManager.shared
-        hud.update(mode: hud.state.mode, message: hud.state.message, language: activeLocale.identifier, inputDeviceIcon: currentInputDeviceIcon)
+        hud.update(mode: hud.state.mode, message: hud.state.message, language: activeLocale.identifier, inputDeviceIcon: hudInputIcon())
         
         // Restart session if running (streaming context)
         if recognitionTask != nil {
@@ -1385,7 +1425,7 @@ final class SpeechManager: ObservableObject {
                         mode: hud.state.mode, 
                         message: hud.state.message, 
                         language: hud.state.language, 
-                        inputDeviceIcon: self.currentInputDeviceIcon
+                        inputDeviceIcon: self.hudInputIcon()
                     )
                 }
             }
@@ -1856,8 +1896,8 @@ final class AirPodsDetector {
     private var pollingTimer: Timer?
     
     private func startPolling() {
-        // Polling every 2 seconds in background
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        // Polling in background to keep UI icon responsive.
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
             _ = self?.currentSide()
         }
         // Ensure it runs even if UI is busy
@@ -1866,19 +1906,39 @@ final class AirPodsDetector {
     
     private var lastState: AirPodSide = .none
     private var lastStateTime: Date = .distantPast
-    private let debounceInterval: TimeInterval = 0.5
+    private var pendingTarget: AirPodSide?
+    private var pendingSince: Date = .distantPast
+    private let startupAt: Date = Date()
+    private var startupSawBothHint = false
+    private var recentRegistrySamples: [(time: Date, side: AirPodSide)] = []
+    private var recentPlcmSamples: [(time: Date, side: AirPodSide)] = []
+    private var lastPlcmLine: String = ""
+    private var lastPlcmPollAt: Date = .distantPast
+    private let evidenceWindowShort: TimeInterval = 2.0
+    private let evidenceWindowLong: TimeInterval = 2.5
+    private let registryUnionWindow: TimeInterval = 1.1
+    private let plcmPollInterval: TimeInterval = 0.6
+    private let startupGuardWindow: TimeInterval = 4.0
+    private let upToBothDelay: TimeInterval = 0.3
+    private let bothToSingleDelay: TimeInterval = 1.6
+    private let singleToNoneDelay: TimeInterval = 1.2
+    private let sideSwitchDelay: TimeInterval = 0.15
+    private var singleOverrideUntil: Date = .distantPast
+    private var singleOverrideSide: AirPodSide = .none
     
     // Logger (Reverted to NSLog for stability)
     private func logDebug(_ message: String) {
         let logStr = "\(Date()): \(message)\n"
         NSLog("[AirPodsDetector] %@", message)
         if let data = logStr.data(using: .utf8) {
-            if let fileHandle = FileHandle(forWritingAtPath: "/tmp/aether_decision_trace.txt") {
+            let tracePath = "/tmp/aether_decision_trace.txt"
+            if !FileManager.default.fileExists(atPath: tracePath) {
+                FileManager.default.createFile(atPath: tracePath, contents: nil)
+            }
+            if let fileHandle = FileHandle(forWritingAtPath: tracePath) {
                 fileHandle.seekToEndOfFile()
                 fileHandle.write(data)
                 try? fileHandle.close()
-            } else {
-                try? logStr.write(to: URL(fileURLWithPath: "/tmp/ioreg_trace.txt"), atomically: true, encoding: .utf8)
             }
         }
     }
@@ -1900,26 +1960,27 @@ final class AirPodsDetector {
             try task.run()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             guard let output = String(data: data, encoding: .utf8) else { return nil }
+            let normalizedOutput = output.lowercased()
             
             let isLeftPresent: Bool = {
-                if let l = leftSerial, output.contains(l) { return true }
+                if let l = leftSerial?.lowercased(), normalizedOutput.contains(l) { return true }
                 return false
             }()
             
             let isRightPresent: Bool = {
-                if let r = rightSerial, output.contains(r) { return true }
+                if let r = rightSerial?.lowercased(), normalizedOutput.contains(r) { return true }
                 return false
             }()
             
             self.logDebug("Registry Check: OutputLen=\(output.count). L_Serial=\(leftSerial ?? "?") Found=\(isLeftPresent). R_Serial=\(rightSerial ?? "?") Found=\(isRightPresent)")
             
-            // Definitive Logic:
-            if isLeftPresent && isRightPresent { return .both } // [Fix] Priority check for Both
+            // Definitive logic from explicit serial matches.
+            if isLeftPresent && isRightPresent { return .both }
             if isLeftPresent { return .left }
             if isRightPresent { return .right }
             
-            // If neither present, it might be a weird state, fall down to RSSI
-            return nil
+            // Serial exists but neither side is present in IORegistry.
+            return .none
             
         } catch {
             return nil
@@ -1928,14 +1989,182 @@ final class AirPodsDetector {
 
     private var isRefreshingFast = false
     private var isRefreshingSlow = false
-    private let fastInterval: TimeInterval = 0.5
-    private let slowInterval: TimeInterval = 10.0
+    private let fastInterval: TimeInterval = 0.4
+    private let slowInterval: TimeInterval = 4.0
     private var lastFastTime: Date = .distantPast
     private var lastSlowTime: Date = .distantPast
     
     // Cache
     private var cachedLeftSerial: String?
     private var cachedRightSerial: String?
+
+    private func normalizedSerial(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let cleaned = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+            .filter { $0.isLetter || $0.isNumber }
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private func pruneRegistrySamples(now: Date) {
+        recentRegistrySamples.removeAll { now.timeIntervalSince($0.time) > evidenceWindowLong }
+        recentPlcmSamples.removeAll { now.timeIntervalSince($0.time) > evidenceWindowLong }
+    }
+
+    private func recordRegistrySample(_ side: AirPodSide, now: Date) {
+        guard side == .left || side == .right || side == .both || side == .none else { return }
+        recentRegistrySamples.append((time: now, side: side))
+        pruneRegistrySamples(now: now)
+    }
+
+    private func recordPlcmSample(_ side: AirPodSide, now: Date) {
+        guard side == .left || side == .right || side == .both else { return }
+        recentPlcmSamples.append((time: now, side: side))
+        pruneRegistrySamples(now: now)
+    }
+
+    private func count(_ samples: [(time: Date, side: AirPodSide)], within window: TimeInterval, side: AirPodSide, now: Date) -> Int {
+        samples.reduce(0) { partial, sample in
+            guard now.timeIntervalSince(sample.time) <= window else { return partial }
+            return sample.side == side ? partial + 1 : partial
+        }
+    }
+
+    private func has(_ samples: [(time: Date, side: AirPodSide)], within window: TimeInterval, side: AirPodSide, now: Date) -> Bool {
+        samples.contains { now.timeIntervalSince($0.time) <= window && $0.side == side }
+    }
+
+    private func strongestSingleSide(now: Date) -> AirPodSide? {
+        let leftScore =
+            count(recentRegistrySamples, within: evidenceWindowShort, side: .left, now: now) +
+            count(recentPlcmSamples, within: evidenceWindowShort, side: .left, now: now) * 2
+        let rightScore =
+            count(recentRegistrySamples, within: evidenceWindowShort, side: .right, now: now) +
+            count(recentPlcmSamples, within: evidenceWindowShort, side: .right, now: now) * 2
+        if leftScore == rightScore { return nil }
+        return leftScore > rightScore ? .left : .right
+    }
+
+    private func deriveTargetState(now: Date) -> (state: AirPodSide, rule: String, bothEvidence: Bool) {
+        pruneRegistrySamples(now: now)
+
+        let regLeftShort = count(recentRegistrySamples, within: evidenceWindowShort, side: .left, now: now)
+        let regRightShort = count(recentRegistrySamples, within: evidenceWindowShort, side: .right, now: now)
+        let plcmLeftShort = count(recentPlcmSamples, within: evidenceWindowShort, side: .left, now: now)
+        let plcmRightShort = count(recentPlcmSamples, within: evidenceWindowShort, side: .right, now: now)
+        let hasRegLeftUnion = has(recentRegistrySamples, within: registryUnionWindow, side: .left, now: now)
+        let hasRegRightUnion = has(recentRegistrySamples, within: registryUnionWindow, side: .right, now: now)
+        let hasRegBothShort = has(recentRegistrySamples, within: evidenceWindowShort, side: .both, now: now)
+        let plcmBothCountShort = count(recentPlcmSamples, within: evidenceWindowShort, side: .both, now: now)
+        let hasPlcmBothShort = plcmBothCountShort > 0
+        let bothEvidence = hasPlcmBothShort || hasRegBothShort || (hasRegLeftUnion && hasRegRightUnion)
+
+        if now < singleOverrideUntil && (singleOverrideSide == .left || singleOverrideSide == .right) {
+            if plcmBothCountShort >= 2 {
+                singleOverrideUntil = .distantPast
+                singleOverrideSide = .none
+            } else {
+                return (singleOverrideSide, "R0-single-override", false)
+            }
+        }
+        if bothEvidence {
+            startupSawBothHint = true
+            return (.both, "R1-both-evidence", true)
+        }
+
+        let leftSignal = regLeftShort >= 2 || plcmLeftShort >= 1
+        let rightSignal = regRightShort >= 2 || plcmRightShort >= 1
+
+        if leftSignal != rightSignal {
+            let candidate: AirPodSide = leftSignal ? .left : .right
+            if lastState == .both {
+                let candidateStrength = candidate == .left
+                    ? (regLeftShort + plcmLeftShort * 2)
+                    : (regRightShort + plcmRightShort * 2)
+                let oppositeStrength = candidate == .left
+                    ? (regRightShort + plcmRightShort * 2)
+                    : (regLeftShort + plcmLeftShort * 2)
+
+                // When currently in BOTH, require stronger one-sided proof and no opposite-side freshness.
+                if oppositeStrength > 0 {
+                    return (.both, "R2c-hold-both-opposite-signal", false)
+                }
+                if candidateStrength < 4 {
+                    return (.both, "R2d-hold-both-weak-single", false)
+                }
+            }
+            return (candidate, "R2-single-evidence", false)
+        }
+
+        if let strong = strongestSingleSide(now: now), leftSignal || rightSignal {
+            return (strong, "R2b-single-score", false)
+        }
+
+        let latestRegistryAt = recentRegistrySamples.last?.time ?? .distantPast
+        let latestPlcmAt = recentPlcmSamples.last?.time ?? .distantPast
+        let quietFor = min(now.timeIntervalSince(latestRegistryAt), now.timeIntervalSince(latestPlcmAt))
+        if quietFor >= singleToNoneDelay {
+            return (.none, "R3-quiet-none", false)
+        }
+
+        return (lastState, "R4-hold", false)
+    }
+
+    private func updateBothStateFromBluetoothLog() {
+        let now = Date()
+        if now.timeIntervalSince(lastPlcmPollAt) < plcmPollInterval { return }
+        lastPlcmPollAt = now
+
+        let task = Process()
+        task.launchPath = "/usr/bin/log"
+        task.arguments = [
+            "show",
+            "--last", "12s",
+            "--style", "compact",
+            "--predicate", "process == \"bluetoothd\" AND eventMessage CONTAINS \"Plcm\""
+        ]
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        do {
+            try task.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8), !output.isEmpty else { return }
+            let lines = output.components(separatedBy: .newlines)
+            for line in lines.reversed() {
+                let lower = line.lowercased()
+                guard lower.contains("plcm") else { continue }
+                if line == lastPlcmLine { return }
+                lastPlcmLine = line
+                let now = Date()
+                if lower.contains("p inear") && lower.contains("s inear") {
+                    recordPlcmSample(.both, now: now)
+                    observeState(.both, source: "bluetoothd-plcm", authoritative: true)
+                    return
+                }
+                if lower.contains("p inear") || lower.contains("s inear") {
+                    let guessedSide: AirPodSide
+                    if lower.contains("prim left") {
+                        guessedSide = .left
+                    } else if lower.contains("prim right") {
+                        guessedSide = .right
+                    } else {
+                        guessedSide = .none
+                    }
+                    if guessedSide != .none {
+                        recordPlcmSample(guessedSide, now: now)
+                        singleOverrideSide = guessedSide
+                        singleOverrideUntil = now.addingTimeInterval(2.2)
+                        observeState(guessedSide, source: "bluetoothd-plcm-single", authoritative: true)
+                    }
+                    return
+                }
+            }
+        } catch {
+            logDebug("Bluetooth log parse failed")
+        }
+    }
     
     // Non-blocking accessor
     func currentSide() -> AirPodSide {
@@ -1966,9 +2195,10 @@ final class AirPodsDetector {
             guard let self = self else { return }
             
             if let registrySide = self.checkRegistryPresence(leftSerial: lSer, rightSerial: rSer) {
-                // If registry is definitive, use it (Fast Path)
-                self.updateState(registrySide)
+                self.recordRegistrySample(registrySide, now: Date())
+                self.observeState(registrySide, source: "registry", authoritative: false)
             }
+            self.updateBothStateFromBluetoothLog()
             
             DispatchQueue.main.async {
                 self.lastFastTime = Date()
@@ -1993,6 +2223,10 @@ final class AirPodsDetector {
             let profilerTask = Process()
             profilerTask.launchPath = "/usr/sbin/system_profiler"
             profilerTask.arguments = ["SPBluetoothDataType"]
+            profilerTask.environment = [
+                "LANG": "en_US.UTF-8",
+                "LC_ALL": "en_US.UTF-8"
+            ]
             let profilerPipe = Pipe()
             profilerTask.standardOutput = profilerPipe
             
@@ -2005,10 +2239,10 @@ final class AirPodsDetector {
                         let lines = section.components(separatedBy: .newlines)
                         for line in lines {
                             if line.contains("Serial Number (Left):") {
-                                leftSerial = line.components(separatedBy: ":").last?.trimmingCharacters(in: .whitespaces)
+                                leftSerial = self.normalizedSerial(line.components(separatedBy: ":").last)
                             }
                             if line.contains("Serial Number (Right):") {
-                                rightSerial = line.components(separatedBy: ":").last?.trimmingCharacters(in: .whitespaces)
+                                rightSerial = self.normalizedSerial(line.components(separatedBy: ":").last)
                             }
                             if line.contains("Left Battery Level:") { hasLeftBattery = true }
                             if line.contains("Right Battery Level:") { hasRightBattery = true }
@@ -2019,18 +2253,23 @@ final class AirPodsDetector {
                 // Update Cache & State based on battery if registry is ambiguous
                 if let l = leftSerial { self.cachedLeftSerial = l }
                 if let r = rightSerial { self.cachedRightSerial = r }
-                
-                let inferredSide: AirPodSide
-                if hasLeftBattery && hasRightBattery {
-                    inferredSide = .both
-                } else if hasLeftBattery {
-                    inferredSide = .left
-                } else if hasRightBattery {
-                    inferredSide = .right
+                self.logDebug("Profiler Cache Updated: L=\(self.cachedLeftSerial ?? "nil"), R=\(self.cachedRightSerial ?? "nil"), hasL=\(hasLeftBattery), hasR=\(hasRightBattery)")
+                self.updateBothStateFromBluetoothLog()
+
+                // Re-check registry immediately after refreshing serial cache.
+                if let registrySide = self.checkRegistryPresence(leftSerial: self.cachedLeftSerial, rightSerial: self.cachedRightSerial) {
+                    self.recordRegistrySample(registrySide, now: Date())
+                    self.observeState(registrySide, source: "registry-after-profiler", authoritative: false)
                 } else {
-                    inferredSide = .none
+                    // Battery fields are weak signals: only trust one-sided hints.
+                    if hasLeftBattery != hasRightBattery {
+                        self.observeState(hasLeftBattery ? .left : .right, source: "battery-hint", authoritative: false)
+                    } else if !hasLeftBattery && !hasRightBattery {
+                        self.observeState(.none, source: "battery-empty", authoritative: false)
+                    } else {
+                        self.logDebug("Profiler battery state ambiguous; keeping last state")
+                    }
                 }
-                self.updateState(inferredSide)
             } catch {
                 self.logDebug("Slow Profiler Failed")
             }
@@ -2043,16 +2282,104 @@ final class AirPodsDetector {
     }
             
     
-    private func updateState(_ newState: AirPodSide) {
+    private func observeState(_ observedState: AirPodSide, source: String, authoritative: Bool) {
+        DispatchQueue.main.async {
+            let now = Date()
+            // Fast lane: authoritative Plcm BOTH should reflect almost immediately on HUD.
+            if authoritative && source == "bluetoothd-plcm" && self.lastState != .both {
+                self.logDebug("Rule F1-fast-plcm-both immediate")
+                self.applyState(.both, source: "\(source)|F1-fast")
+                return
+            }
+
+            // Fast lane: authoritative Plcm single should win when BOTH is no longer fresh.
+            if authoritative &&
+                source == "bluetoothd-plcm-single" &&
+                (observedState == .left || observedState == .right) {
+                let recentPlcmBoth = self.has(self.recentPlcmSamples, within: 0.25, side: .both, now: now)
+                let single: AirPodSide = observedState
+
+                // From BOTH -> SINGLE: small guard, but do not get stuck in BOTH.
+                if self.lastState == .both && !recentPlcmBoth {
+                    if self.pendingTarget != single {
+                        self.pendingTarget = single
+                        self.pendingSince = now
+                        self.logDebug("Pending \(single.rawValue) via F3-both-to-single-plcm wait=0.45s")
+                        return
+                    }
+                    if now.timeIntervalSince(self.pendingSince) >= 0.45 {
+                        self.singleOverrideSide = single
+                        self.singleOverrideUntil = now.addingTimeInterval(2.2)
+                        self.applyState(single, source: "\(source)|F3-fast")
+                        return
+                    }
+                }
+
+                // From NONE -> SINGLE: keep tiny guard.
+                if self.lastState == .none {
+                    if self.pendingTarget != single {
+                        self.pendingTarget = single
+                        self.pendingSince = now
+                        self.logDebug("Pending \(single.rawValue) via F2-fast-plcm-single wait=0.25s")
+                        return
+                    }
+                    if now.timeIntervalSince(self.pendingSince) >= 0.25 {
+                        self.applyState(single, source: "\(source)|F2-fast")
+                        return
+                    }
+                }
+            }
+
+            // Fallback using fused windows and hysteresis.
+            let resolved = self.deriveTargetState(now: now)
+            let target = resolved.state
+
+            if now.timeIntervalSince(self.startupAt) <= self.startupGuardWindow &&
+                (target == .left || target == .right) &&
+                self.startupSawBothHint {
+                self.logDebug("Rule S0-startup-guard hold single=\(target.rawValue) src=\(source)")
+                return
+            }
+
+            if target == self.lastState {
+                self.pendingTarget = nil
+                return
+            }
+
+            var requiredDelay = self.sideSwitchDelay
+            if target == .both {
+                requiredDelay = self.upToBothDelay
+            } else if self.lastState == .both && (target == .left || target == .right) {
+                requiredDelay = self.bothToSingleDelay
+            } else if target == .none {
+                requiredDelay = self.singleToNoneDelay
+            } else if self.lastState == .none && (target == .left || target == .right) {
+                requiredDelay = authoritative ? 0.4 : 0.6
+            }
+
+            if self.pendingTarget != target {
+                self.pendingTarget = target
+                self.pendingSince = now
+                self.logDebug("Pending \(target.rawValue) via \(resolved.rule) from \(source), wait=\(String(format: "%.1f", requiredDelay))s")
+                return
+            }
+            if now.timeIntervalSince(self.pendingSince) < requiredDelay {
+                return
+            }
+
+            self.applyState(target, source: "\(source)|\(resolved.rule)")
+        }
+    }
+    private func applyState(_ newState: AirPodSide, source: String) {
         DispatchQueue.main.async {
             if self.lastState != newState {
-                self.logDebug("State Transition: \(self.lastState) -> \(newState)")
+                self.logDebug("State Transition(\(source)): \(self.lastState) -> \(newState)")
                 self.lastState = newState
                 self.lastStateTime = Date()
+                self.pendingTarget = nil
                 // Proactively notify the system to refresh UI
                 NotificationCenter.default.post(name: .AirPodsStateChanged, object: newState)
             }
         }
     }
-    
 }

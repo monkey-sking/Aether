@@ -11,6 +11,7 @@ final class HUDManager {
     
     private var hudWindow: NSPanel?
     private var hideTask: DispatchWorkItem?
+    private var pendingRepositionWorkItem: DispatchWorkItem?
     private var cancellables = Set<AnyCancellable>()
     
     private init() {
@@ -36,11 +37,11 @@ final class HUDManager {
             performHide()
         case .standby:
             cancelHide()
-            repositionWindow()
+            requestReposition(immediate: true)
             ensureWindowVisible()
         case .listening, .command, .dictation, .processing:
             cancelHide()
-            repositionWindow()
+            requestReposition(immediate: true)
             ensureWindowVisible()
         }
     }
@@ -74,17 +75,30 @@ final class HUDManager {
         detector.$currentUpdate
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.repositionWindow()
+                self?.requestReposition()
             }
             .store(in: &cancellables)
-            
-        // 2. State Updates (Content changed)
-        state.objectWillChange
+
+        // 2. State updates that can affect layout.
+        Publishers.CombineLatest4(state.$mode, state.$message, state.$language, state.$isTypingContext)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.repositionWindow()
+                self?.requestReposition()
             }
             .store(in: &cancellables)
+    }
+
+    private func requestReposition(immediate: Bool = false) {
+        pendingRepositionWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.repositionWindow()
+        }
+        pendingRepositionWorkItem = work
+        if immediate {
+            DispatchQueue.main.async(execute: work)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.012, execute: work)
+        }
     }
     
     private func ensureWindow() {
