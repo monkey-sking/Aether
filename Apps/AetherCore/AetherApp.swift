@@ -277,6 +277,27 @@ final class PermissionsService: ObservableObject {
 
 @MainActor
 class AppState: ObservableObject {
+    enum VoiceActivationMode: String, CaseIterable, Identifiable {
+        case pushToTalk
+        case wakeWord
+        case handsFree
+        
+        var id: String { rawValue }
+    }
+    
+    private static func loadActivationMode() -> VoiceActivationMode {
+        if let raw = UserDefaults.standard.string(forKey: "voiceActivationMode"),
+           let mode = VoiceActivationMode(rawValue: raw) {
+            return mode
+        }
+        
+        let always = UserDefaults.standard.bool(forKey: "isAlwaysListeningEnabled")
+        let wake = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? true
+        if always { return .handsFree }
+        if wake { return .wakeWord }
+        return .pushToTalk
+    }
+    
     @Published var driverStatus: String = "Idle"
     @Published var driverState: SystemExtensionActivationState = .idle
     @Published var isMotionTracking: Bool = false
@@ -302,11 +323,19 @@ class AppState: ObservableObject {
     @Published var lastVoiceTranscript: String = ""
     @Published var lastVoiceError: String = ""
     @Published var lastVoiceWakeTime: Date?
+    @Published var voiceActivationMode: VoiceActivationMode = AppState.loadActivationMode() {
+        didSet {
+            guard oldValue != voiceActivationMode else { return }
+            UserDefaults.standard.set(voiceActivationMode.rawValue, forKey: "voiceActivationMode")
+            applyVoiceActivationMode()
+        }
+    }
     
     // Voice Triggers
     @Published var isPTTEnabled: Bool = UserDefaults.standard.object(forKey: "isPTTEnabled") as? Bool ?? true {
         didSet { 
             UserDefaults.standard.set(isPTTEnabled, forKey: "isPTTEnabled")
+            guard !isApplyingActivationMode else { return }
             voiceService.setPTTEnabled(isPTTEnabled)
             HeadMotionManager.shared.isPTTEnabled = isPTTEnabled
             
@@ -327,6 +356,7 @@ class AppState: ObservableObject {
     @Published var isWakeWordEnabled: Bool = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? true {
         didSet { 
             UserDefaults.standard.set(isWakeWordEnabled, forKey: "isWakeWordEnabled")
+            guard !isApplyingActivationMode else { return }
             updateContinuousListeningState()
         }
     }
@@ -346,6 +376,7 @@ class AppState: ObservableObject {
         didSet {
             UserDefaults.standard.set(isAlwaysListeningEnabled, forKey: "isAlwaysListeningEnabled")
             guard oldValue != isAlwaysListeningEnabled else { return }
+            guard !isApplyingActivationMode else { return }
 
             if !isMutatingAlwaysListening, isAlwaysListeningEnabled {
                 if !microphoneAuthorized {
@@ -366,6 +397,7 @@ class AppState: ObservableObject {
         }
     }
     private var isMutatingAlwaysListening = false
+    private var isApplyingActivationMode = false
     
     private func updateContinuousListeningState() {
         // 1. Microphone State: Should be ON if EITHER "Wake Word" OR "Always Listening" is enabled.
@@ -377,6 +409,41 @@ class AppState: ObservableObject {
         
         // 3. Logic State: Wake Word Mode is ON if "Wake Word" is ON.
         voiceService.isWakeWordEnabled = isWakeWordEnabled
+    }
+    
+    private func applyVoiceActivationMode() {
+        isApplyingActivationMode = true
+        defer { isApplyingActivationMode = false }
+        
+        let requiresContinuousSession = voiceActivationMode != .pushToTalk
+        let micAuthorizedNow = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        let speechAuthorizedNow = SFSpeechRecognizer.authorizationStatus() == .authorized
+        if requiresContinuousSession {
+            if !micAuthorizedNow {
+                permissions.requestMicrophone()
+                refreshPermissions()
+                voiceActivationMode = .pushToTalk
+                return
+            }
+            if !speechAuthorizedNow {
+                permissions.requestSpeech()
+                refreshPermissions()
+                voiceActivationMode = .pushToTalk
+                return
+            }
+        }
+        
+        isPTTEnabled = true
+        isWakeWordEnabled = (voiceActivationMode == .wakeWord)
+        isAlwaysListeningEnabled = requiresContinuousSession
+        
+        HeadMotionManager.shared.isPTTEnabled = true
+        HotkeyManager.shared.registerPTT(voicePTTBinding)
+        
+        voiceService.setPTTEnabled(true)
+        voiceService.setAlwaysListeningEnabled(requiresContinuousSession)
+        voiceService.setDirectCommandEnabled(voiceActivationMode == .handsFree)
+        voiceService.setWakeWordEnabled(voiceActivationMode == .wakeWord)
     }
     
 
@@ -518,10 +585,6 @@ class AppState: ObservableObject {
             
 
             
-        voiceService.$isWakeWordEnabled
-            .receive(on: DispatchQueue.main)
-            .assign(to: &$isWakeWordEnabled)
-            
         voiceService.$isGazeWakeEnabled
             .receive(on: DispatchQueue.main)
             .assign(to: &$isGazeWakeEnabled)
@@ -531,17 +594,9 @@ class AppState: ObservableObject {
         // Restore OutputRouting state from persisted value
         OutputRouting.shared.forceDriverOnly = self.forceDriverOnly
         
-        // Restore VoiceService state from persisted values (Safe restoration)
-        // [Hotfix] Only enable if already authorized, otherwise wait for user interaction to avoid TCC crash.
-        let micAuth = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        let speechAuth = SFSpeechRecognizer.authorizationStatus() == .authorized
-        
-        if self.isAlwaysListeningEnabled && micAuth && speechAuth {
-            voiceService.setAlwaysListeningEnabled(true)
-        } else if self.isAlwaysListeningEnabled {
-            // If saved as true but not authorized, we MUST set to false to avoid crash, 
-            // but we don't overwrite UserDefaults yet to let user fix permissions.
-            self.isAlwaysListeningEnabled = false
+        // Restore voice activation state after initial SwiftUI graph setup to avoid startup re-entrancy.
+        DispatchQueue.main.async { [weak self] in
+            self?.applyVoiceActivationMode()
         }
         
         voiceService.setLLMEnhancementEnabled(self.isLLMEnhancementEnabled)
@@ -604,6 +659,7 @@ class AppState: ObservableObject {
                 if !micAuth || !speechAuth {
                     GlobalLogger.lifecycle.info("Permissons revoked, disabling Always Listening")
                     self.setAlwaysListeningEnabledInternal(false)
+                    self.voiceActivationMode = .pushToTalk
                 }
             }
         }
@@ -754,8 +810,7 @@ class AppState: ObservableObject {
                 return
             }
         }
-
-            isAlwaysListeningEnabled = enabled
+        voiceActivationMode = enabled ? .handsFree : .pushToTalk
     }
 
     private func setAlwaysListeningEnabledInternal(_ enabled: Bool) {

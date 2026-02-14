@@ -50,8 +50,8 @@ struct AetherMenuBar: Scene {
                 Toggle(
                     L10n.alwaysListening,
                     isOn: Binding(
-                        get: { appState.isAlwaysListeningEnabled },
-                        set: { appState.setAlwaysListeningEnabled($0) }
+                        get: { appState.voiceActivationMode == .handsFree },
+                        set: { appState.voiceActivationMode = $0 ? .handsFree : .pushToTalk }
                     )
                 )
                 Toggle(L10n.llmEnhanceDictation, isOn: $appState.isLLMEnhancementEnabled)

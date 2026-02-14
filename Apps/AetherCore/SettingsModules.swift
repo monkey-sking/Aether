@@ -108,7 +108,38 @@ struct InputSettingsView: View {
                         Label(L10n.activationMethods, systemImage: "bolt.fill")
                             .font(.headline)
                         
-                        // 1. Shortcut (PTT)
+                        // Activation mode (single choice)
+                        VStack(spacing: 10) {
+                            activationModeRow(
+                                mode: .pushToTalk,
+                                title: L10n.settingsActivationPushToTalk,
+                                subtitle: L10n.activationShortcutHint,
+                                icon: "keyboard"
+                            )
+                            activationModeRow(
+                                mode: .wakeWord,
+                                title: L10n.settingsActivationWakeWord,
+                                subtitle: L10n.activationWakeWordHint,
+                                icon: "waveform.badge.mic"
+                            )
+                            activationModeRow(
+                                mode: .handsFree,
+                                title: L10n.settingsActivationHandsFree,
+                                subtitle: L10n.activationAlwaysHint,
+                                icon: "ear.and.waveform"
+                            )
+                        }
+                        
+                        if appState.voiceActivationMode == .handsFree {
+                            Text(L10n.activationAlwaysWarning)
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        
+                        Divider()
+                        
+                        // PTT shortcut configuration
                         HStack(alignment: .center) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(L10n.activationShortcut)
@@ -139,55 +170,7 @@ struct InputSettingsView: View {
                                     .buttonStyle(.plain)
                                     .help(L10n.hotkeyResetSingle)
                                 }
-                                .opacity(appState.isPTTEnabled ? 1.0 : 0.5)
-                                .disabled(!appState.isPTTEnabled)
-                                
-                                Toggle("", isOn: $appState.isPTTEnabled)
-                                    .labelsHidden()
-                                    .toggleStyle(.switch)
                             }
-                        }
-                        
-                        Divider()
-                        
-                        // 2. Wake Word
-                        HStack(alignment: .center) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(L10n.settingsActivationWakeWord)
-                                    .font(.body)
-                                Text(L10n.activationWakeWordHint)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            Toggle("", isOn: $appState.isWakeWordEnabled)
-                                .labelsHidden()
-                                .toggleStyle(.switch)
-                        }
-                        
-                        Divider()
-                        
-                        // 3. Always Listening
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(L10n.alwaysListening)
-                                    .font(.body)
-                                Text(L10n.activationAlwaysHint)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                
-                                if appState.isAlwaysListeningEnabled {
-                                    Text(L10n.activationAlwaysWarning)
-                                        .font(.caption)
-                                        .foregroundColor(.orange)
-                                        .padding(.top, 2)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
-                            Spacer()
-                            Toggle("", isOn: $appState.isAlwaysListeningEnabled)
-                                .labelsHidden()
-                                .toggleStyle(.switch)
                         }
                     }
                 }
@@ -228,6 +211,44 @@ struct InputSettingsView: View {
         case "es-ES": return L10n.languageSpanish
         default: return LocalizedStringKey(identifier)
         }
+    }
+    
+    @ViewBuilder
+    private func activationModeRow(
+        mode: AppState.VoiceActivationMode,
+        title: LocalizedStringKey,
+        subtitle: LocalizedStringKey,
+        icon: String
+    ) -> some View {
+        Button {
+            appState.voiceActivationMode = mode
+        } label: {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: icon)
+                    .foregroundColor(.secondary)
+                    .frame(width: 18)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.body)
+                        .foregroundColor(.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                
+                Spacer()
+                
+                Image(systemName: appState.voiceActivationMode == mode ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(appState.voiceActivationMode == mode ? .accentColor : .secondary.opacity(0.5))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
     }
 }
 
