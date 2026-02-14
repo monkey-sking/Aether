@@ -119,8 +119,8 @@ final class CaretDetector: ObservableObject {
         }
         eventMonitors.append(wsObserver)
         
-        // Fallback Timer
-        followTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+        // Fallback Timer (High frequency for smooth mouse following)
+        followTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
             DispatchQueue.main.async { self?.recalcCaret() }
         }
     }
@@ -292,7 +292,8 @@ final class CaretDetector: ObservableObject {
             AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
             var role = roleValue as? String ?? ""
             
-            logger.error("HUD_DEBUG: Focused App='\(self.currentAppName ?? "unknown")', Bundle='\(bundleID)', Role='\(role)'")
+            // [Silence] Debug log was spamming console
+            // logger.error("HUD_DEBUG: Focused App='\(self.currentAppName ?? "unknown")', Bundle='\(bundleID)', Role='\(role)'")
             
             // Drill down
             if ["AXWindow", "AXSheet", "AXScrollArea", "AXSplitGroup"].contains(role) || isSiriLike(appName: self.currentAppName, bundleID: bundleID) {
@@ -307,7 +308,7 @@ final class CaretDetector: ObservableObject {
             }
             
             // Editability - adding AXGroup as a potential container for web-based inputs
-            var isEditable = ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea", "AXWebArea", "AXGroup"].contains(role)
+            var isEditable = ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea"].contains(role)
             let axEditable = readAXBool(element, attribute: "AXEditable")
             if axEditable == true { isEditable = true }
              

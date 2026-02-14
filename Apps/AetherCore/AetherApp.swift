@@ -113,6 +113,7 @@ final class VoiceService: ObservableObject {
     
     @Published var isAlwaysListeningEnabled: Bool = false
     @Published var isDirectCommandEnabled: Bool = false
+    @Published var isPTTEnabled: Bool = true
     @Published var isWakeWordEnabled: Bool = true
     @Published var isGazeWakeEnabled: Bool = true
     @Published var isAutoPunctuationEnabled: Bool = true
@@ -126,6 +127,14 @@ final class VoiceService: ObservableObject {
     var onIntent: ((VoiceIntent) -> Void)? {
         get { manager.onIntent }
         set { manager.onIntent = newValue }
+    }
+    
+    var explicitLocaleIdentifier: String? {
+        get { manager.explicitLocaleIdentifier }
+        set {
+            objectWillChange.send()
+            manager.explicitLocaleIdentifier = newValue
+        }
     }
 
     private let manager: SpeechManager
@@ -184,6 +193,10 @@ final class VoiceService: ObservableObject {
         manager.$isAutoPunctuationEnabled
             .receive(on: DispatchQueue.main)
             .assign(to: &$isAutoPunctuationEnabled)
+            
+        manager.$isPTTEnabled
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isPTTEnabled)
     }
 
     func refreshInputDevices() {
@@ -196,6 +209,10 @@ final class VoiceService: ObservableObject {
     
     func setDirectCommandEnabled(_ enabled: Bool) {
         manager.isDirectCommandEnabled = enabled
+    }
+    
+    func setPTTEnabled(_ enabled: Bool) {
+        manager.isPTTEnabled = enabled
     }
 
     func setWakeWordEnabled(_ enabled: Bool) {
@@ -288,7 +305,19 @@ class AppState: ObservableObject {
     
     // Voice Triggers
     @Published var isPTTEnabled: Bool = UserDefaults.standard.object(forKey: "isPTTEnabled") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(isPTTEnabled, forKey: "isPTTEnabled") }
+        didSet { 
+            UserDefaults.standard.set(isPTTEnabled, forKey: "isPTTEnabled")
+            voiceService.setPTTEnabled(isPTTEnabled)
+            HeadMotionManager.shared.isPTTEnabled = isPTTEnabled
+            
+            // [Fix] Dynamically Register/Unregister Hotkey
+            // If disabled, remove the binding so others can use it.
+            if isPTTEnabled {
+                HotkeyManager.shared.registerPTT(voicePTTBinding)
+            } else {
+                HotkeyManager.shared.unregisterPTT()
+            }
+        }
     }
     @Published var voicePTTBinding: HotkeyBinding = HotkeyBinding(
         keyCode: UserDefaults.standard.integer(forKey: "voicePTTKeyCode") == 0 ? Int(kVK_Space) : UserDefaults.standard.integer(forKey: "voicePTTKeyCode"),
@@ -370,8 +399,11 @@ class AppState: ObservableObject {
         self.voicePTTBinding = binding
         UserDefaults.standard.set(binding.keyCode, forKey: "voicePTTKeyCode")
         UserDefaults.standard.set(binding.modifiers, forKey: "voicePTTModifiers")
-        // Update Hotkey Manager
-        HotkeyManager.shared.registerPTT(binding)
+        
+        // Update Hotkey Manager ONLY if enabled
+        if isPTTEnabled {
+            HotkeyManager.shared.registerPTT(binding)
+        }
     }
     
     @Published var alwaysListeningWakeWindowSeconds: Double = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double ?? 8.0 {
@@ -463,6 +495,13 @@ class AppState: ObservableObject {
             .assign(to: &$calibrationStatus)
             
         // Voice Service Sync
+        // Forward voiceService changes to AppState so SwiftUI views observing
+        // appState (e.g. SettingsModules) react to nested property changes.
+        voiceService.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        
         voiceService.$availableInputDevices
             .receive(on: DispatchQueue.main)
             .assign(to: &$availableInputDevices)

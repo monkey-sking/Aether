@@ -163,6 +163,15 @@ enum L10n {
     static let settingsDictationMode: LocalizedStringKey = "settings.dictation_mode"
     static let settingsMicrophone: LocalizedStringKey = "settings.microphone"
     static let settingsNoMicrophone: LocalizedStringKey = "settings.no_microphone"
+    static let settingsSpeechLanguage: LocalizedStringKey = "settings.speech_language"
+    static let languageSystem: LocalizedStringKey = "language.system"
+    static let languageEnglishUS: LocalizedStringKey = "language.en_US"
+    static let languageChineseSC: LocalizedStringKey = "language.zh_CN"
+    static let languageJapanese: LocalizedStringKey = "language.ja_JP"
+    static let languageKorean: LocalizedStringKey = "language.ko_KR"
+    static let languageFrench: LocalizedStringKey = "language.fr_FR"
+    static let languageGerman: LocalizedStringKey = "language.de_DE"
+    static let languageSpanish: LocalizedStringKey = "language.es_ES"
     
     // Voice Activation
     static let settingsActivationTitle: LocalizedStringKey = "settings.activation.title"

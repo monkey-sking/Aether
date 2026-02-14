@@ -246,22 +246,48 @@ final class SpeechManager: ObservableObject {
         }
     }
     
+    // [Fix] Add missing isPTTEnabled property to SpeechManager so we can check it
+    @Published var isPTTEnabled: Bool = UserDefaults.standard.object(forKey: "isPTTEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(isPTTEnabled, forKey: "isPTTEnabled") }
+    }
+    
     // --- New Features (Build 2170) ---
-    @Published var activeLocale: Locale = {
-        if let identifier = UserDefaults.standard.string(forKey: "activeLocaleIdentifier") {
-            return Locale(identifier: identifier)
-        }
-        return Locale(identifier: "zh-CN")
-    }() {
+
+    @Published var activeLocale: Locale = Locale(identifier: "zh-CN") {
         didSet {
-            UserDefaults.standard.set(activeLocale.identifier, forKey: "activeLocaleIdentifier")
-            // Reset recognizer so next session uses new locale
-            recognizer = SFSpeechRecognizer(locale: activeLocale)
+            // Re-initialize recognizer on locale change
+            if oldValue.identifier != activeLocale.identifier {
+                recognizer = SFSpeechRecognizer(locale: activeLocale)
+                // [Fix] Restart session if locale changed
+                if isAlwaysListeningEnabled {
+                    startContinuous()
+                }
+            }
         }
     }
     
-    @Published var isAlwaysListeningEnabled: Bool = false {
+    // [Feature] Manual Language Selection
+    // If nil, use system locale. If set, force specific locale.
+    var explicitLocaleIdentifier: String? {
+        get { UserDefaults.standard.string(forKey: "speechLocaleIdentifier") }
+        set { 
+            UserDefaults.standard.set(newValue, forKey: "speechLocaleIdentifier")
+            refreshLocale()
+        }
+    }
+    
+    private func refreshLocale() {
+        if let id = explicitLocaleIdentifier, !id.isEmpty, id != "system" {
+            activeLocale = Locale(identifier: id)
+        } else {
+            activeLocale = Locale.current
+        }
+        os_log("Locale refreshed: %{public}@", log: log, type: .info, activeLocale.identifier)
+    }
+
+    @Published var isAlwaysListeningEnabled: Bool = UserDefaults.standard.bool(forKey: "isAlwaysListeningEnabled") {
         didSet {
+            UserDefaults.standard.set(isAlwaysListeningEnabled, forKey: "isAlwaysListeningEnabled")
             // This controls the MICROPHONE STATE (Continuous Recognition)
             if isAlwaysListeningEnabled {
                 startContinuous()
@@ -294,6 +320,7 @@ final class SpeechManager: ObservableObject {
     private var screenTypedCount: Int = 0  // Tracks actual chars typed on screen (grows monotonically)
     private var stopTimer: Timer?
     private var failsafeTimer: Timer?
+    private var wasAwake: Bool = false // Tracks previous wake state for UI updates
     private var audioRingBuffer: [AVAudioPCMBuffer] = []
     private let ringBufferCapacity = 10 // ~0.5s at 1024 frames/buffer
 
@@ -319,17 +346,18 @@ final class SpeechManager: ObservableObject {
     private var isAwake: Bool {
         // Gaze Wake: if looking at screen AND tracking is active -> Awake
         // Note: HeadMotionManager is MainActor, ensure safe access.
-        if isGazeWakeEnabled && HeadMotionManager.shared.isTracking && HeadMotionManager.shared.isLookingAtScreen {
+        // [Debug] Disable Gaze Wake to test Wake Word Timeout
+        /*if isGazeWakeEnabled && HeadMotionManager.shared.isTracking && HeadMotionManager.shared.isLookingAtScreen {
             return true
-        }
+        }*/
 
         guard let last = lastWakeTime else { return false }
         return Date().timeIntervalSince(last) < alwaysListeningWakeWindowSeconds()
     }
 
     private func alwaysListeningWakeWindowSeconds() -> TimeInterval {
-        let value = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double ?? 8.0
-        return min(max(value, 3.0), 30.0)
+        let value = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double ?? 4.0
+        return min(max(value, 2.0), 30.0)
     }
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
@@ -341,15 +369,22 @@ final class SpeechManager: ObservableObject {
         // 3. PTT (Not AlwaysListening) -> .active (Mic Icon)
         // 4. Wake Word Only (Legacy/Standby) -> .active if awake, else .standby
         
-        if isDictating {
+        if isWakeWordEnabled && isAlwaysListeningEnabled && !isAwake && !isDirectCommandEnabled {
+             // [Critical Fix] Timeout Priority:
+             // If timed out (Green Dot), we must show Standby even if we have stale dictation text.
+             // This ensures "Silence Timeout" actually updates the visual.
+             mode = .standby
+        } else if isDictating {
             mode = .dictation
+        } else if isDirectCommandEnabled {
+            // Direct Command implies Always Active (no wake word needed)
+            mode = .active
         } else if isAlwaysListeningEnabled {
+            // Always Listening (Mic On) + Awake (or No Wake Word) -> Active
             mode = .active
         } else if !isAlwaysListeningEnabled {
             // PTT Mode
-            mode = isStopping ? .hidden : .active
-        } else if isWakeWordEnabled {
-            mode = isAwake ? .active : .standby
+            mode = isStopping ? .processing : .active
         } else {
             mode = .hidden
         }
@@ -358,8 +393,9 @@ final class SpeechManager: ObservableObject {
         if mode == .standby {
             message = ""
         } else if mode == .active {
-            if isAwake || !isAlwaysListeningEnabled {
-                message = NSLocalizedString("speech.waiting_command", comment: "")
+            // [Fix] Show live transcript if available, otherwise static text
+            if !lastTranscript.isEmpty {
+                message = lastTranscript
             } else {
                 message = NSLocalizedString("speech.listening", comment: "")
             }
@@ -536,12 +572,16 @@ final class SpeechManager: ObservableObject {
 
     @objc func toggleLanguage() {
         if activeLocale.identifier.starts(with: "zh") {
-            activeLocale = Locale(identifier: "en-US")
+            explicitLocaleIdentifier = "en-US"
         } else {
-            activeLocale = Locale(identifier: "zh-CN")
+            explicitLocaleIdentifier = "zh-CN"
         }
         status = "Language: \(activeLocale.identifier)"
         os_log("Switched Language to: %{public}@", log: log, type: .info, activeLocale.identifier)
+        
+        // Update HUD immediately to reflect the new language badge
+        let hud = HUDManager.shared
+        hud.update(mode: hud.state.mode, message: hud.state.message, language: activeLocale.identifier, isInteractive: hud.state.isInteractive)
         
         // Restart session if running (streaming context)
         if recognitionTask != nil {
@@ -583,7 +623,13 @@ final class SpeechManager: ObservableObject {
         // Reset Streaming State
         lastStreamedText = ""  // [Fix] Clear here at session START, not in cleanup()
         screenTypedCount = 0  // Reset screen tracking
-        sessionTypingMode = isTypingMode // Snapshot at session start
+        // [Fix] Don't activate typing mode if we're waiting for wake word (Standby).
+        // Otherwise the HUD jumps straight to Active/Dictation on startup.
+        if isWakeWordEnabled && !isAwake && !isDirectCommandEnabled {
+            sessionTypingMode = false
+        } else {
+            sessionTypingMode = isTypingMode // Snapshot at session start
+        }
         isDictating = sessionTypingMode
 
         // [Stability] Reset Failsafe Timer (Stops recording after 60s max)
@@ -625,19 +671,70 @@ final class SpeechManager: ObservableObject {
             if let result = result {
                 DispatchQueue.main.async {
                     guard self.sessionGeneration == currentGeneration else { return }
-                    let text = result.bestTranscription.formattedString
+                    var text = result.bestTranscription.formattedString
+                    
+                    // [Fix] Wake Word Leak: Strip Wake Phrases from the beginning
+                    // Only applies if we are in Wake Word Mode (not Direct Command or PTT)
+                    if self.isWakeWordEnabled && !self.isDirectCommandEnabled {
+                        let lower = text.lowercased()
+                        // [Fix] Require minimum length to avoid false wake from noise fragments
+                        let isLongEnough = text.count >= 4
+                        for phrase in ["hey aether", "hi aether", "aether", "艾瑟"] {
+                            if isLongEnough && lower.starts(with: phrase) {
+                                // [Fix] Real-time Wake Detection
+                                // If we catch the wake word, WAKE UP immediately!
+                                if !self.isAwake {
+                                    self.lastWakeTime = Date()
+                                    self.playWakeSound()
+                                }
+                                
+                                // Drop the phrase + standard space/punctuation if present
+                                let dropCount = phrase.count
+                                let suffix = text.dropFirst(dropCount).trimmingCharacters(in: .whitespacesAndNewlines)
+                                text = suffix
+                                break // Only strip one prefix
+                            }
+                        }
+                    }
+
                     self.lastTranscript = text
                     self.lastChangeAt = Date()
                     let liveTyping = self.throttledTypingMode()
-                    self.sessionTypingMode = self.sessionTypingMode || liveTyping
+                    
+                    // [Fix] Typing Guard: Allow typing if:
+                    // 1. Awake (Wake Word mode active)
+                    // 2. Direct Command (Always listening)
+                    // 3. PTT (Manual activation - implied by !isAlwaysListeningEnabled)
+                    let canType = self.isAwake || self.isDirectCommandEnabled || !self.isAlwaysListeningEnabled
+                    self.sessionTypingMode = (self.sessionTypingMode || liveTyping) && canType
                     self.isDictating = self.sessionTypingMode
+                    
+                    // [UX Fix] Extend Wake Window logic
+                    // Only extend if:
+                    // 1. We have actual content (text not empty)
+                    // 2. OR we just woke up (transition from !Awake -> Awake is handled by the initial wake, 
+                    //    but here we handle continuous speech).
+                    // If text is empty (just wake word stripped), DO NOT extend. This lets it timeout if user says nothing.
+                    // [Fix] Only extend wake window if text is meaningful (>2 chars),
+                    // preventing noise fragments from keeping the system awake forever.
+                    if text.count > 2 && self.isAwake {
+                        self.lastWakeTime = Date()
+                    }
                     
                     // Update HUD with live transcript
                     // [UX] If we have text, show waveform (Dictation Mode) to avoid static text
                     // [Fix] Don't re-show HUD if stopping (PTT grace period) unless Always Listening
-                    if !self.isStopping || self.isAlwaysListeningEnabled {
-                        let mode: HUDMode = (!text.isEmpty || self.isDictating) ? .dictation : .active
-                        HUDManager.shared.update(mode: mode, message: text.isEmpty ? NSLocalizedString("speech.listening", comment: "") : text, language: self.activeLocale.identifier, isInteractive: self.isDictating)
+                    // [Fix] Don't re-show HUD if stopping (PTT grace period) unless Always Listening
+                    // [Refinement] If isFinal, strictly DO NOT update HUD here (handled in isFinal block)
+                    let isFinal = result.isFinal
+                    
+                    // [Fix] Unified HUD: Use single source of truth instead of inline computation.
+                    // This prevents state divergence between refreshContinuousHUD and callback.
+                    if (!self.isStopping || self.isAlwaysListeningEnabled) && !isFinal {
+                        self.refreshContinuousHUD(isDictating: self.isDictating)
+                    } else if self.isStopping && !isFinal {
+                        // Keep Showing "Processing..." until final result
+                        HUDManager.shared.update(mode: .processing, message: "", language: self.activeLocale.identifier, isInteractive: false)
                     }
                     
                     // Handle Streaming Typing (if in typing mode)
@@ -657,6 +754,7 @@ final class SpeechManager: ObservableObject {
                             self.handleTranscript(text)
                             if !self.isAlwaysListeningEnabled {
                                 self.teardownEngine()
+                                HUDManager.shared.hide() // [Critical Fix] Force hide after final processing
                             }
                         }
                     }
@@ -1019,10 +1117,13 @@ final class SpeechManager: ObservableObject {
             
             self.status = "Processing…"
             os_log("Session Finalized (Fallback). Final: '%{public}@'", log: self.log, type: .default, textToUse)
+            os_log("Session Finalized (Fallback). Final: '%{public}@'", log: self.log, type: .default, textToUse)
             self.handleTranscript(textToUse)
             
+            // [Critical Fix] Ensure HUD hides on fallback (if not already hidden by isFinal)
             if !self.isAlwaysListeningEnabled {
                 self.teardownEngine()
+                HUDManager.shared.hide()
             }
         }
         
@@ -1045,6 +1146,26 @@ final class SpeechManager: ObservableObject {
         NotificationCenter.default.addObserver(self, selector: #selector(pttDown), name: HeadMotionManager.pttDownNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(pttUp), name: HeadMotionManager.pttUpNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(toggleLanguage), name: Notification.Name("AetherToggleLanguage"), object: nil)
+        
+        // [Feature] Initialize Locale from UserDefaults
+        refreshLocale()
+
+        // [Fix] Startup State
+        // Ensure continuous mode (Standby/Green Dot) starts immediately if enabled
+        // [Fix] Startup State & Dependency
+        // If Wake Word is enabled, we MUST be Always Listening (Continuous Mode).
+        // Force sync this state on startup.
+        if isWakeWordEnabled && !isAlwaysListeningEnabled {
+             isAlwaysListeningEnabled = true
+        }
+
+        // Ensure continuous mode (Standby/Green Dot) starts immediately if enabled
+        if isAlwaysListeningEnabled {
+            // run on next runloop to allow init to finish
+            DispatchQueue.main.async { [weak self] in
+                self?.startContinuous()
+            }
+        }
 
         // Gaze Wake Feedback
         HeadMotionManager.shared.$isLookingAtScreen
@@ -1095,6 +1216,15 @@ final class SpeechManager: ObservableObject {
 
     @objc private func pttDown() {
         GlobalLogger.input.info("PTT DOWN")
+        // [Fix] Enforce PTT enabled check
+        // If the user unchecks "Push to Talk" in settings, this shortcut should do nothing.
+        // Note: In "Always Listening" mode, PTT acts as a wake trigger, so we might want to allow it?
+        // User said: "Shortcut mode unchecked, still triggers by shortcut -> bug".
+        // So we should strictly respect isPTTEnabled UNLESS isAlwaysListeningEnabled is arguably a different feature?
+        // Actually, if "Always Listening" is on, PTT is less relevant as a "mode" but acting as a "Wake" button.
+        // However, if the user explicitly disabled PTT, they probably don't want the key to do anything.
+        // Let's check `isPTTEnabled`.
+        guard isPTTEnabled else { return }
         
         // [Continuous Mode] PTT acts as "Force Wake" / "Manual Wake"
         if isAlwaysListeningEnabled {
@@ -1105,9 +1235,18 @@ final class SpeechManager: ObservableObject {
             
             // 2. Feedback (Sound + HUD)
             playWakeSound()
-            // Update HUD to remove "(Wake: Aether)" suffix and show active state
+             // Update HUD to remove "(Wake: Aether)" suffix and show active state
             refreshContinuousHUD(isDictating: isDictating)
+            
+            // [Fix] Ensure session is actually running!
+            // If recognitionTask failed/timed out but we are legally "Always Listening",
+            // PTT should restart it immediately.
+            if recognitionTask == nil || recognitionTask!.state != .running {
+                 os_log("PTT: Session dead in Continuous Mode -> Restarting", log: log, type: .default)
+                 startOnce()
+            }
             return
+
         }
 
         // [Standard Mode] Start Session
@@ -1119,7 +1258,7 @@ final class SpeechManager: ObservableObject {
         guard !isAlwaysListeningEnabled else { return } // PTT Release should NOT stop continuous mode
         
         isStopping = true
-        HUDManager.shared.hide() // Immediate visual feedback
+        refreshContinuousHUD() // Update to .processing state immediately
         
         // [Trailing Audio]
         // Delay stopping for 0.6s to catch the last syllable.
@@ -1139,6 +1278,12 @@ final class SpeechManager: ObservableObject {
         startOnce()
         continuousTimer?.invalidate()
         if isAlwaysListeningEnabled {
+            // [Fix] Force HUD update on startup to reflect Standby/Active state immediately
+            // Add slight delay to ensure HUDManager/Windows are ready
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.refreshContinuousHUD()
+            }
+            
             continuousTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     self?.tickContinuous()
@@ -1157,6 +1302,16 @@ final class SpeechManager: ObservableObject {
 
     private func tickContinuous() {
         guard isAlwaysListeningEnabled else { return }
+        
+        // [Fix] Wake State Monitor - MUST be before transcript checks
+        // Check if we transitioned from Awake -> Standby (Timeout) or vice versa
+        let currentlyAwake = self.isAwake
+        if currentlyAwake != wasAwake {
+            wasAwake = currentlyAwake
+            os_log("Wake State Changed: Awake=%{bool}d", log: log, type: .default, currentlyAwake)
+            refreshContinuousHUD()
+        }
+        
         guard let lastChange = lastChangeAt else { return }
         guard !lastTranscript.isEmpty else { return }
 
@@ -1230,9 +1385,10 @@ final class SpeechManager: ObservableObject {
             // ---------------------------------------------------------
             
             let lower = trimmed.lowercased()
-            let clean = lower.filter { !$0.isPunctuation }
-            let wakeEn = clean.hasPrefix("aether") || clean.hasPrefix("ether") || clean.hasPrefix("heyaether") || clean.hasPrefix("hey") || clean.hasPrefix("hi")
-            let wakeZh = trimmed.contains("艾瑟") || trimmed.contains("以太") || trimmed.contains("掉色") || trimmed.contains("艾色") || trimmed.contains("嘿") || trimmed.contains("喂")
+            // [Fix] Unify Wake Word Logic with recognitionTask
+            // Use strict prefix matching instead of loose .contains
+            let wakeEn = lower.hasPrefix("aether") || lower.hasPrefix("hey aether") || lower.hasPrefix("hi aether")
+            let wakeZh = trimmed.hasPrefix("艾瑟") || trimmed.hasPrefix("Aether") // Handle mixed case/script
             let isWakeWord = wakeEn || wakeZh
             
             if isWakeWordEnabled && isWakeWord {
@@ -1250,10 +1406,12 @@ final class SpeechManager: ObservableObject {
             // Mic is on, but Direct Command is OFF.
             // We rely solely on Wake Word or Active Window.
             
+             // We rely solely on Wake Word or Active Window.
+            
             let lower = trimmed.lowercased()
-            let clean = lower.filter { !$0.isPunctuation }
-            let wakeEn = clean.hasPrefix("aether") || clean.hasPrefix("ether") || clean.hasPrefix("heyaether") || clean.hasPrefix("hey") || clean.hasPrefix("hi")
-            let wakeZh = trimmed.contains("艾瑟") || trimmed.contains("以太") || trimmed.contains("掉色") || trimmed.contains("艾色") || trimmed.contains("嘿") || trimmed.contains("喂")
+            // [Fix] Unify Wake Word Logic
+            let wakeEn = lower.hasPrefix("aether") || lower.hasPrefix("hey aether") || lower.hasPrefix("hi aether")
+            let wakeZh = trimmed.hasPrefix("艾瑟") || trimmed.hasPrefix("Aether")
             let isWakeWord = wakeEn || wakeZh
             
             let isAwakeWindow = isAwake

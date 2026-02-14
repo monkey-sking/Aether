@@ -12,122 +12,202 @@ struct InputSettingsView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Label(L10n.settingsMicrophone, systemImage: "mic.fill")
-                                .font(.headline)
+                                .font(.body)
                             Spacer()
-                            Button(action: { appState.voiceService.refreshInputDevices() }) {
-                                Image(systemName: "arrow.triangle.2.circlepath")
+                            
+                            if appState.availableInputDevices.isEmpty {
+                                Text(L10n.settingsNoMicrophone)
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Menu {
+                                    ForEach(appState.availableInputDevices) { device in
+                                        Button(device.name) {
+                                            appState.selectedInputDeviceID = device.id
+                                        }
+                                    }
+                                } label: {
+                                    HStack {
+                                        if let device = appState.availableInputDevices.first(where: { $0.id == appState.selectedInputDeviceID }) {
+                                            Text(LocalizedStringKey(device.name))
+                                                .truncationMode(.tail)
+                                                .lineLimit(1)
+                                        } else {
+                                            Text(L10n.settingsNoMicrophone)
+                                                .truncationMode(.tail)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "chevron.up.chevron.down")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .frame(width: 200, alignment: .leading)
+                                    .background(Color(nsColor: .controlBackgroundColor))
+                                    .cornerRadius(6)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                                    )
+                                }
+
+                                .menuStyle(.borderlessButton)
+                                .buttonStyle(.plain)
+                                .fixedSize()
                             }
-                            .buttonStyle(.borderless)
                         }
                         
-                        if appState.availableInputDevices.isEmpty {
-                            Text(L10n.settingsNoMicrophone)
-                                .foregroundColor(.secondary)
-                        } else {
-                            Picker("", selection: $appState.selectedInputDeviceID) {
-                                ForEach(appState.availableInputDevices) { device in
-                                    Text(device.name).tag(device.id)
+                        Divider()
+                        
+                        HStack {
+                            Label(L10n.settingsSpeechLanguage, systemImage: "globe")
+                                .font(.body)
+                            Spacer()
+                            Menu {
+                                Button(L10n.languageSystem) { appState.voiceService.explicitLocaleIdentifier = nil }
+                                Divider()
+                                Button(L10n.languageChineseSC) { appState.voiceService.explicitLocaleIdentifier = "zh-CN" }
+                                Button(L10n.languageEnglishUS) { appState.voiceService.explicitLocaleIdentifier = "en-US" }
+                                Button(L10n.languageJapanese) { appState.voiceService.explicitLocaleIdentifier = "ja-JP" }
+                                Button(L10n.languageKorean) { appState.voiceService.explicitLocaleIdentifier = "ko-KR" }
+                                Button(L10n.languageFrench) { appState.voiceService.explicitLocaleIdentifier = "fr-FR" }
+                                Button(L10n.languageGerman) { appState.voiceService.explicitLocaleIdentifier = "de-DE" }
+                                Button(L10n.languageSpanish) { appState.voiceService.explicitLocaleIdentifier = "es-ES" }
+                            } label: {
+                                HStack {
+                                    Text(localeName(for: appState.voiceService.explicitLocaleIdentifier))
+                                        .truncationMode(.tail)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
                                 }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .frame(width: 200, alignment: .leading)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .cornerRadius(6)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                                )
                             }
-                            .labelsHidden()
+
+                            .menuStyle(.borderlessButton)
+                            .buttonStyle(.plain)
+                            .fixedSize()
                         }
                     }
                 }
-                        
+                
                 // Activation Section
                 GlassCard {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 20) {
                         Label(L10n.activationMethods, systemImage: "bolt.fill")
                             .font(.headline)
                         
                         // 1. Shortcut (PTT)
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Toggle(isOn: $appState.isPTTEnabled) {
-                                    Text(L10n.activationShortcut)
-                                        .font(.headline)
-                                }
-                                Spacer()
-                                // Key Recorder here
-                                // Key Recorder here
-                                KeyRecorderView(
-                                    binding: $appState.voicePTTBinding,
-                                    onChange: { newBind in
-                                        appState.updatePTTBinding(newBind)
-                                    },
-                                    font: .title3
-                                )
-                                
-                                Button(action: {
-                                    appState.updatePTTBinding(HotkeyAction.pushToTalk.defaultBinding)
-                                }) {
-                                    Image(systemName: "arrow.counterclockwise")
-                                        .foregroundColor(.secondary)
-                                }
-                                .buttonStyle(.plain)
-                                .help(L10n.hotkeyResetSingle)
+                        HStack(alignment: .center) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(L10n.activationShortcut)
+                                    .font(.body)
+                                Text(L10n.activationShortcutHint)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
-                            Text(L10n.activationShortcutHint)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer()
+                            
+                            HStack(spacing: 12) {
+                                HStack(spacing: 4) {
+                                    KeyRecorderView(
+                                        binding: $appState.voicePTTBinding,
+                                        onChange: { newBind in
+                                            appState.updatePTTBinding(newBind)
+                                        },
+                                        font: .body
+                                    )
+                                    
+                                    Button(action: {
+                                        appState.updatePTTBinding(HotkeyAction.pushToTalk.defaultBinding)
+                                    }) {
+                                        Image(systemName: "arrow.counterclockwise")
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help(L10n.hotkeyResetSingle)
+                                }
+                                .opacity(appState.isPTTEnabled ? 1.0 : 0.5)
+                                .disabled(!appState.isPTTEnabled)
+                                
+                                Toggle("", isOn: $appState.isPTTEnabled)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                            }
                         }
                         
                         Divider()
                         
                         // 2. Wake Word
-                        VStack(alignment: .leading, spacing: 8) {
-                            Toggle(isOn: $appState.isWakeWordEnabled) {
+                        HStack(alignment: .center) {
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text(L10n.settingsActivationWakeWord)
-                                    .font(.headline)
-                            }
-                            Text(L10n.activationWakeWordHint)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-
-                        Divider()
-
-                        // 3. Always Listening
-                        VStack(alignment: .leading, spacing: 8) {
-                            Toggle(isOn: $appState.isAlwaysListeningEnabled) {
-                                Text(L10n.settingsActivationHandsFree) // Reused "Hands-Free" text for "Always Listening"?
-                                // Or use L10n.alwaysListening? 
-                                // Let's use specific L10n.alwaysListening if available, or just "Always Listening"
-                                Text(L10n.alwaysListening)
-                                    .font(.headline)
-                            }
-                            Text(L10n.activationAlwaysHint)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            
-                            if appState.isAlwaysListeningEnabled {
-                                Text(L10n.activationAlwaysWarning)
+                                    .font(.body)
+                                Text(L10n.activationWakeWordHint)
                                     .font(.caption)
-                                    .foregroundColor(.orange)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                    .foregroundColor(.secondary)
                             }
+                            Spacer()
+                            Toggle("", isOn: $appState.isWakeWordEnabled)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                        }
+                        
+                        Divider()
+                        
+                        // 3. Always Listening
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(L10n.alwaysListening)
+                                    .font(.body)
+                                Text(L10n.activationAlwaysHint)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                if appState.isAlwaysListeningEnabled {
+                                    Text(L10n.activationAlwaysWarning)
+                                        .font(.caption)
+                                        .foregroundColor(.orange)
+                                        .padding(.top, 2)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            Spacer()
+                            Toggle("", isOn: $appState.isAlwaysListeningEnabled)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
                         }
                     }
                 }
                 
                 // Dictation Mode Settings
                 GlassCard {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Label(L10n.settingsDictationMode, systemImage: "text.quote")
-                                .font(.headline)
-                            
-                            ControlCard(
-                                title: L10n.llmEnhanceDictation,
-                                subtitle: L10n.settingsSmarterDictation,
-                                icon: "sparkles",
-                                color: .purple,
-                                isOn: $appState.isLLMEnhancementEnabled
-                            )
-                            
-                            Toggle(isOn: $appState.isAutoPunctuationEnabled) {
-                                Text(L10n.settingsAutoPunctuation)
-                            }
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label(L10n.settingsDictationMode, systemImage: "text.quote")
+                            .font(.headline)
+                        
+                        ControlCard(
+                            title: L10n.llmEnhanceDictation,
+                            subtitle: L10n.settingsSmarterDictation,
+                            icon: "sparkles",
+                            color: .purple,
+                            isOn: $appState.isLLMEnhancementEnabled
+                        )
+                        
+                        Toggle(isOn: $appState.isAutoPunctuationEnabled) {
+                            Text(L10n.settingsAutoPunctuation)
                         }
                     }
                 }
@@ -135,6 +215,21 @@ struct InputSettingsView: View {
             .padding()
         }
     }
+    
+    private func localeName(for identifier: String?) -> LocalizedStringKey {
+        guard let identifier = identifier else { return L10n.languageSystem }
+        switch identifier {
+        case "zh-CN": return L10n.languageChineseSC
+        case "en-US": return L10n.languageEnglishUS
+        case "ja-JP": return L10n.languageJapanese
+        case "ko-KR": return L10n.languageKorean
+        case "fr-FR": return L10n.languageFrench
+        case "de-DE": return L10n.languageGerman
+        case "es-ES": return L10n.languageSpanish
+        default: return LocalizedStringKey(identifier)
+        }
+    }
+}
 
 // MARK: - Output Settings (Motion)
 struct OutputSettingsView: View {

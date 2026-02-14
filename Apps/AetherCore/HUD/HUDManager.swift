@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import OSLog
 
 final class HUDManager {
     static let shared = HUDManager()
@@ -20,25 +21,26 @@ final class HUDManager {
     // MARK: - Public API
     
     func update(mode: HUDMode, message: String = "", language: String? = nil, isInteractive: Bool = false) {
+        
         // Main thread safety
         if !Thread.isMainThread {
             DispatchQueue.main.async { self.update(mode: mode, message: message, language: language, isInteractive: isInteractive) }
             return
         }
         
-        let displayLang = language ?? InputSourceManager.shared.currentInputSourceID
+        let displayLang = language ?? Locale.current.identifier
         state.update(mode: mode, message: message, language: displayLang, isInteractive: isInteractive)
         
         // Mode-specific behavior
         switch mode {
         case .hidden:
-            scheduleHide(delay: 0.1)
+            performHide()
         case .standby:
             // Standby (Wake Word waiting) -> Persistent but minimal
             cancelHide()
             repositionWindow()
             ensureWindowVisible()
-        case .active, .dictation:
+        case .active, .dictation, .processing:
             // Active interaction -> Persistent
             cancelHide()
             repositionWindow()
@@ -78,9 +80,9 @@ final class HUDManager {
             .store(in: &cancellables)
             
         // 2. State Updates (Content changed)
-        state.stateChanged
+        state.objectWillChange
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in
+            .sink { [weak self] _ in
                 self?.repositionWindow()
             }
             .store(in: &cancellables)
@@ -120,6 +122,10 @@ final class HUDManager {
     }
     
     private func repositionWindow() {
+        // [Ghost Keyboard Fix] Accessing mode from state should be main-thread safe enough here
+        // If hidden, DO NOT move or update content (prevents "Ghost Keyboard" when fading out)
+        if state.mode == .hidden { return }
+        
         guard let panel = hudWindow else { return }
         
         // --- Fullscreen Video Check ---
@@ -266,38 +272,23 @@ final class HUDManager {
     }
     
     private func calculateCandidate(_ pos: BindingPosition, anchor: CGPoint, size: CGSize, padding: CGFloat, isTyping: Bool) -> CGPoint {
-        // [Legacy Restore] 
-        // Typing Mode: Use padding (16) instead of 0 to create a gap.
+        // Typing Mode: Use padding (16) to create gap from caret.
         // Control Mode: Use 24 to clear cursor.
         let yOffset: CGFloat = isTyping ? padding : 24
         
         switch pos {
         case .topRight:
             return CGPoint(x: anchor.x + padding, y: anchor.y + yOffset)
-        case .bottomRight:
-            return CGPoint(x: anchor.x + padding, y: anchor.y - size.height - padding) // Below doesn't need extra Y offset usually if padding is enough? 
-            // Legacy: y = anchor.y - size.height - padding. (No yOffset added in legacy for bottom candidates? Let's check)
-            // Legacy: y = anchor.y + cand.offset.y. BottomRight offset: padding, -size.height - padding.
-            // So: anchor.y - size.height - padding. Correct.
-            // My code below uses + yOffset? 
-            // Logic: "Above" needs +yOffset. "Below" needs -yOffset? or just padding?
-            // Let's simplify: yOffset is strictly for "Above" candidates to clear the line height?
-            
-            // Actually, let's strictly follow Legacy Candidate logic:
-            // TopRight: (x + padding, y + padding)
         case .topLeft:
-             return CGPoint(x: anchor.x - size.width - padding, y: anchor.y + yOffset)
+            return CGPoint(x: anchor.x - size.width - padding, y: anchor.y + yOffset)
         case .topCenter:
-             return CGPoint(x: anchor.x - size.width / 2, y: anchor.y + padding + yOffset)
-             
+            return CGPoint(x: anchor.x - size.width / 2, y: anchor.y + yOffset)
         case .bottomRight:
-             // Legacy BottomRight was: y = anchor.y - size.height - padding
-             // We can just use -padding.
-             return CGPoint(x: anchor.x + padding, y: anchor.y - size.height - padding)
+            return CGPoint(x: anchor.x + padding, y: anchor.y - size.height - padding)
         case .bottomLeft:
-             return CGPoint(x: anchor.x - size.width - padding, y: anchor.y - size.height - padding)
+            return CGPoint(x: anchor.x - size.width - padding, y: anchor.y - size.height - padding)
         case .bottomCenter:
-             return CGPoint(x: anchor.x - size.width / 2, y: anchor.y - size.height - padding)
+            return CGPoint(x: anchor.x - size.width / 2, y: anchor.y - size.height - padding)
         }
     }
     
@@ -326,8 +317,3 @@ final class HUDManager {
     }
 }
 
-// Dummy InputSourceManager if not exists, or assume it exists in project
-class InputSourceManager {
-    static let shared = InputSourceManager()
-    var currentInputSourceID: String { "en-US" } // Placeholder
-}

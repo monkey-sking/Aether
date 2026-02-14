@@ -123,6 +123,7 @@
 "speech.unavailable" = "语音不可用";
 "speech.error" = "识别错误";
 "speech.pasted" = "已粘贴";
+"speech.typed" = "上屏";
 "speech.undo" = "撤销";
 "speech.done" = "完成";
 
@@ -170,12 +171,12 @@
 /* Voice Activation */
 "settings.activation.title" = "触发方式";
 "settings.activation_methods" = "触发方式";
-"settings.activation.shortcut" = "快捷键 (按键说话)";
-"settings.activation.shortcut_hint" = "按下快捷键以输入指令。";
-"settings.activation.wakeword_hint" = "说“Hey Aether”唤醒。";
-"settings.activation.always_hint" = "麦克风常驻开启，直接响应指令。";
-"settings.activation.always_warning" = "警告：耗电量较高。麦克风将持续工作。";
-"settings.activation.hands_free" = "免提模式";
+"settings.activation.shortcut" = "按键说话 (PTT)";
+"settings.activation.shortcut_hint" = "按下快捷键以输入指令或进行听写。";
+"settings.activation.wakeword_hint" = "即便在后台，说出“Hey Aether”即可唤醒。";
+"settings.activation.always_hint" = "麦克风常驻开启，无需唤醒词，直接下达指令。";
+"settings.activation.always_warning" = "注意：此模式耗电量较高。";
+"settings.activation.hands_free" = "直接指令 (免唤醒)";
 "settings.activation.push_to_talk" = "按键说话 (PTT)";
 "settings.activation.wake_word" = "唤醒词 (\"Hey Aether\")";
 "settings.activation.gaze_wake" = "注视唤醒 (看屏幕)";
@@ -197,3 +198,14 @@
 "status.disabled" = "已禁用";
 "status.paused" = "已暂停";
 "calibration.normal" = "正常";
+
+/* Language Selection */
+"settings.speech_language" = "语音语言";
+"language.system" = "跟随系统";
+"language.en_US" = "English (US)";
+"language.zh_CN" = "中文 (简体)";
+"language.ja_JP" = "日本語";
+"language.ko_KR" = "한국어";
+"language.fr_FR" = "Français";
+"language.de_DE" = "Deutsch";
+"language.es_ES" = "Español";
