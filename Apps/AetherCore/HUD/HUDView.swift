@@ -17,7 +17,7 @@ struct HUDView: View {
 
             case .listening:
                 micIcon
-                Text("speech.listening")
+                Text(state.message.isEmpty ? LocalizedStringKey("speech.listening") : LocalizedStringKey(state.message))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white)
                     .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)

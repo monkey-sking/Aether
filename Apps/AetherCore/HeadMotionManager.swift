@@ -705,7 +705,6 @@ class HeadMotionManager: ObservableObject {
                         
                         if !wasPressed {
                             GlobalLogger.input.info("Hotkey: PTT DOWN Detected (Keyboard)")
-                            HUDManager.shared.showTemporary(message: "🎤 Push to Talk")
                             NotificationCenter.default.post(
                                 name: HeadMotionManager.pttDownNotification,
                                 object: nil
@@ -777,7 +776,6 @@ class HeadMotionManager: ObservableObject {
                             
                             if !wasPressed {
                                 GlobalLogger.input.info("Mouse PTT DOWN Detected (Button \(btn))")
-                                HUDManager.shared.showTemporary(message: "🎤 Push to Talk")
                                 NotificationCenter.default.post(
                                     name: HeadMotionManager.pttDownNotification,
                                     object: nil
