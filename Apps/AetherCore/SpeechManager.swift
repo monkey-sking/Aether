@@ -11,8 +11,9 @@ struct AudioInputDevice: Identifiable, Hashable {
     let id: AudioDeviceID
     let name: String
     let uid: String
+    let iconName: String
     
-    static let defaultSystem = AudioInputDevice(id: 0, name: String(localized: "settings.default_device"), uid: "SystemDefault")
+    static let defaultSystem = AudioInputDevice(id: 0, name: String(localized: "settings.default_device"), uid: "SystemDefault", iconName: "mic.fill")
 }
 
 enum VoiceIntent: Equatable {
@@ -276,13 +277,45 @@ final class SpeechManager: ObservableObject {
         }
     }
     
+    // [Feature] Smart Language Toggle
+    // Remembers the last non-English locale to toggle back to from English.
+    var lastNonEnglishLocaleIdentifier: String {
+        get { UserDefaults.standard.string(forKey: "lastNonEnglishLocaleIdentifier") ?? "zh-CN" }
+        set { UserDefaults.standard.set(newValue, forKey: "lastNonEnglishLocaleIdentifier") }
+    }
+    
     private func refreshLocale() {
         if let id = explicitLocaleIdentifier, !id.isEmpty, id != "system" {
             activeLocale = Locale(identifier: id)
+            // [Smart Toggle] Update non-English memory if this is not English
+            if !id.starts(with: "en") {
+                lastNonEnglishLocaleIdentifier = id
+            }
         } else {
             activeLocale = Locale.current
+            let systemId = activeLocale.identifier
+            if !systemId.starts(with: "en") {
+                lastNonEnglishLocaleIdentifier = systemId
+            }
         }
         os_log("Locale refreshed: %{public}@", log: log, type: .info, activeLocale.identifier)
+    }
+    
+    var currentInputDeviceIcon: String {
+        var deviceIDToUse = selectedInputDeviceID
+        
+        // If "System Default" (0) is selected, resolve the actual current default device ID
+        if deviceIDToUse == 0 {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+            AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceIDToUse)
+        }
+        
+        return availableInputDevices.first(where: { $0.id == deviceIDToUse })?.iconName ?? "mic.fill"
     }
 
     @Published var isAlwaysListeningEnabled: Bool = UserDefaults.standard.bool(forKey: "isAlwaysListeningEnabled") {
@@ -390,7 +423,7 @@ final class SpeechManager: ObservableObject {
             message = ""
         }
 
-        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier)
+        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, inputDeviceIcon: currentInputDeviceIcon)
     }
 
     private func scheduleContinuousRecovery(delay: TimeInterval = 0.25) {
@@ -556,17 +589,21 @@ final class SpeechManager: ObservableObject {
     }
 
     @objc func toggleLanguage() {
-        if activeLocale.identifier.starts(with: "zh") {
-            explicitLocaleIdentifier = "en-US"
+        if activeLocale.identifier.starts(with: "en") {
+            // If current is English, toggle back to the last known non-English locale
+            explicitLocaleIdentifier = lastNonEnglishLocaleIdentifier
         } else {
-            explicitLocaleIdentifier = "zh-CN"
+            // If current is NOT English (CN, JA, FR, etc), switch to English 
+            // and ensure this is remembered as our "base" non-English language.
+            lastNonEnglishLocaleIdentifier = activeLocale.identifier
+            explicitLocaleIdentifier = "en-US"
         }
         status = "Language: \(activeLocale.identifier)"
         os_log("Switched Language to: %{public}@", log: log, type: .info, activeLocale.identifier)
         
         // Update HUD immediately to reflect the new language badge
         let hud = HUDManager.shared
-        hud.update(mode: hud.state.mode, message: hud.state.message, language: activeLocale.identifier)
+        hud.update(mode: hud.state.mode, message: hud.state.message, language: activeLocale.identifier, inputDeviceIcon: currentInputDeviceIcon)
         
         // Restart session if running (streaming context)
         if recognitionTask != nil {
@@ -719,7 +756,7 @@ final class SpeechManager: ObservableObject {
                         self.refreshContinuousHUD(isDictating: self.isDictating)
                     } else if self.isStopping && !isFinal {
                         // Keep Showing "Processing..." until final result
-                        HUDManager.shared.update(mode: .processing, message: "", language: self.activeLocale.identifier)
+                        HUDManager.shared.update(mode: .processing, message: "", language: self.activeLocale.identifier, inputDeviceIcon: self.currentInputDeviceIcon)
                     }
                     
                     // Handle Streaming Typing (if in typing mode)
@@ -994,7 +1031,23 @@ final class SpeechManager: ObservableObject {
                     uid = cfUid as String
                 }
                 
-                devices.append(AudioInputDevice(id: id, name: name, uid: uid))
+                // Improved Device Detection (AirPods, etc)
+                var iconName = "mic.fill"
+                let lowerName = name.lowercased()
+                
+                if lowerName.contains("airpods") {
+                    iconName = "airpods"
+                    if lowerName.contains("pro") { iconName = "airpodspro" }
+                    if lowerName.contains("max") { iconName = "airpodsmax" }
+                } else if lowerName.contains("studio display") {
+                    iconName = "monitor"
+                } else if lowerName.contains("external") {
+                    iconName = "mic.badge.plus"
+                } else if lowerName.contains("macbook") || lowerName.contains("built-in") {
+                    iconName = "laptopcomputer"
+                }
+                
+                devices.append(AudioInputDevice(id: id, name: name, uid: uid, iconName: iconName))
             }
         }
         

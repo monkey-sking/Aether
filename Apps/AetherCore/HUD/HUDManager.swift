@@ -20,15 +20,15 @@ final class HUDManager {
     
     // MARK: - Public API
     
-    func update(mode: HUDMode, message: String = "", language: String) {
+    func update(mode: HUDMode, message: String = "", language: String, inputDeviceIcon: String = "mic.fill") {
         
         // Main thread safety
         if !Thread.isMainThread {
-            DispatchQueue.main.async { self.update(mode: mode, message: message, language: language) }
+            DispatchQueue.main.async { self.update(mode: mode, message: message, language: language, inputDeviceIcon: inputDeviceIcon) }
             return
         }
         
-        state.update(mode: mode, message: message, language: language)
+        state.update(mode: mode, message: message, language: language, isTypingContext: lastKnownTypingState(), inputDeviceIcon: inputDeviceIcon)
         
         // Mode-specific behavior
         switch mode {
@@ -51,13 +51,13 @@ final class HUDManager {
         }
     }
     
-    func showTemporary(message: String, language: String? = nil) {
-        update(mode: .command, message: message, language: language ?? state.language)
+    func showTemporary(message: String, language: String? = nil, icon: String = "info.circle") {
+        update(mode: .command, message: message, language: language ?? state.language, inputDeviceIcon: icon)
         scheduleHide(delay: 2.0)
     }
     
     func hide() {
-        update(mode: .hidden, language: state.language)
+        update(mode: .hidden, language: state.language, inputDeviceIcon: state.inputDeviceIcon)
     }
     
     // Replacement for HotkeyFeedbackHUD.typingContextSnapshot()
@@ -144,6 +144,11 @@ final class HUDManager {
         } else if update.isSticky, let last = detector.recentCaretRect() {
             anchor = CGPoint(x: last.midX, y: last.midY)
             finalTypingMode = true
+        }
+        
+        // Sync to State for UI icons
+        if state.isTypingContext != finalTypingMode {
+            state.isTypingContext = finalTypingMode
         }
         
         // Click-through: only allow mouse interaction when language toggle is visible
