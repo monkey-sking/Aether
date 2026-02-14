@@ -312,29 +312,8 @@ final class SpeechManager: ObservableObject {
             // Signal a diagnostic error state rather than a generic mic
             return "mic.slash.fill"
         }
-
-        let airpodSide = AirPodsDetector.shared.currentSide()
         
-        // [Priority 2] AirPods in-ear detection
-        if airpodSide != .none {
-            let modelDevice = availableInputDevices.first(where: { $0.iconName.contains("airpod") })
-            let baseIcon = modelDevice?.iconName ?? "airpodspro"
-            
-            switch airpodSide {
-            case .left:
-                if baseIcon == "airpodsmax" { return "airpodsmax" }
-                return "airpod.gen3.left"
-            case .right:
-                if baseIcon == "airpodsmax" { return "airpodsmax" }
-                return "airpod.gen3.right"
-            case .both:
-                if baseIcon == "airpodsmax" { return "airpodsmax" }
-                return "airpod.gen3"
-            case .none: break
-            }
-        }
-        
-        // [Priority 3] Current Selected/Default Audio Device
+        // [Priority 2] Current Selected/Default Audio Device
         var deviceIDToUse = selectedInputDeviceID
         if deviceIDToUse == 0 {
             var address = AudioObjectPropertyAddress(
@@ -347,7 +326,41 @@ final class SpeechManager: ObservableObject {
         }
         
         if let matchedDevice = availableInputDevices.first(where: { $0.id == deviceIDToUse }) {
-            return matchedDevice.iconName
+            let lowerName = matchedDevice.name.lowercased()
+            let isCurrentDeviceAirPods = lowerName.contains("airpods") || matchedDevice.iconName.contains("airpod")
+            guard isCurrentDeviceAirPods else {
+                return matchedDevice.iconName
+            }
+
+            let airpodSide = AirPodsDetector.shared.currentSide()
+            if airpodSide == .none {
+                return matchedDevice.iconName
+            }
+
+            let baseIcon = matchedDevice.iconName
+            switch airpodSide {
+            case .left:
+                if baseIcon == "airpodsmax" { return "airpodsmax" }
+                return "airpod.gen3.left"
+            case .right:
+                if baseIcon == "airpodsmax" { return "airpodsmax" }
+                return "airpod.gen3.right"
+            case .both:
+                if baseIcon == "airpodsmax" { return "airpodsmax" }
+                return "airpod.gen3"
+            case .none:
+                return matchedDevice.iconName
+            }
+        }
+        
+        // Fallback: use system default icon
+        if selectedInputDeviceID != 0,
+           let selected = availableInputDevices.first(where: { $0.id == selectedInputDeviceID }) {
+            return selected.iconName
+        }
+
+        if let anyDefault = availableInputDevices.first(where: { $0.id != 0 }) {
+            return anyDefault.iconName
         }
         
         return AudioInputDevice.defaultSystem.iconName
@@ -395,6 +408,7 @@ final class SpeechManager: ObservableObject {
             }
         }
     }
+
     @Published var isGazeWakeEnabled: Bool = UserDefaults.standard.object(forKey: "isGazeWakeEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(isGazeWakeEnabled, forKey: "isGazeWakeEnabled") }
     }
