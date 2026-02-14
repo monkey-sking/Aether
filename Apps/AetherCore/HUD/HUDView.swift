@@ -60,10 +60,13 @@ struct HUDView: View {
     // MARK: - Reusable Components
 
     private var micIcon: some View {
-        Image(systemName: state.inputDeviceIcon)
+        Image(systemName: state.inputDeviceIcon.isEmpty ? "mic.slash" : state.inputDeviceIcon)
             .foregroundColor(.white)
             .font(.system(size: 14))
             .shadow(radius: 1)
+            // [UX Fix] If the icon string is invalid/blank, SwiftUI shows nothing. 
+            // We ensure it always has a fallback to mic.slash if the string is empty,
+            // but for completely invalid names (blinks), we rely on the logic layer.
     }
 
     private var contextIcon: some View {

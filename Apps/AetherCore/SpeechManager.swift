@@ -14,7 +14,7 @@ struct AudioInputDevice: Identifiable, Hashable {
     let uid: String
     let iconName: String
     
-    static let defaultSystem = AudioInputDevice(id: 0, name: String(localized: "settings.default_device"), uid: "SystemDefault", iconName: "mic.badge.exclamationmark")
+    static let defaultSystem = AudioInputDevice(id: 0, name: String(localized: "settings.default_device"), uid: "SystemDefault", iconName: "mic.slash")
 }
 
 enum VoiceIntent: Equatable {
@@ -250,7 +250,10 @@ final class SpeechManager: ObservableObject {
     
     // [Fix] Add missing isPTTEnabled property to SpeechManager so we can check it
     @Published var isPTTEnabled: Bool = UserDefaults.standard.object(forKey: "isPTTEnabled") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(isPTTEnabled, forKey: "isPTTEnabled") }
+        didSet { 
+            UserDefaults.standard.set(isPTTEnabled, forKey: "isPTTEnabled")
+            syncRecognitionState()
+        }
     }
     
     // --- New Features (Build 2170) ---
@@ -353,12 +356,7 @@ final class SpeechManager: ObservableObject {
     @Published var isAlwaysListeningEnabled: Bool = UserDefaults.standard.bool(forKey: "isAlwaysListeningEnabled") {
         didSet {
             UserDefaults.standard.set(isAlwaysListeningEnabled, forKey: "isAlwaysListeningEnabled")
-            // This controls the MICROPHONE STATE (Continuous Recognition)
-            if isAlwaysListeningEnabled {
-                startContinuous()
-            } else {
-                stopContinuous()
-            }
+            syncRecognitionState()
         }
     }
     
@@ -366,7 +364,34 @@ final class SpeechManager: ObservableObject {
     @Published var isDirectCommandEnabled: Bool = false
 
     @Published var isWakeWordEnabled: Bool = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(isWakeWordEnabled, forKey: "isWakeWordEnabled") }
+        didSet { 
+            UserDefaults.standard.set(isWakeWordEnabled, forKey: "isWakeWordEnabled") 
+            syncRecognitionState()
+        }
+    }
+    
+    /// Global Silence Check: If all triggers are OFF, ensure HUD is hidden and engine is DOWN.
+    private func syncRecognitionState() {
+        let anyTriggerActive = isAlwaysListeningEnabled || isWakeWordEnabled || isPTTEnabled
+        
+        os_log("Syncing Recognition State: PTT=%d, Wake=%d, Continuous=%d -> AnyActive=%d", 
+               log: log, type: .info, isPTTEnabled, isWakeWordEnabled, isAlwaysListeningEnabled, anyTriggerActive)
+        
+        if !anyTriggerActive {
+            // All triggers are off -> Forced Silence
+            stopAndFinalize()
+            teardownEngine()
+            HUDManager.shared.hide()
+        } else {
+            // At least one trigger is active.
+            // If Continuous or Wake Word is enabled, we should be in startContinuous mode.
+            if isAlwaysListeningEnabled || isWakeWordEnabled {
+                startContinuous()
+            } else {
+                // [Fix] Ensure HUD refreshes (and potential hides) if switching to PTT-only mode
+                refreshContinuousHUD()
+            }
+        }
     }
     @Published var isGazeWakeEnabled: Bool = UserDefaults.standard.object(forKey: "isGazeWakeEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(isGazeWakeEnabled, forKey: "isGazeWakeEnabled") }
@@ -426,45 +451,42 @@ final class SpeechManager: ObservableObject {
     }
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
-        let mode: HUDMode
-        var message: String
+        // [Audit Fix] Central Visibility Guard
+        // The HUD should only be visible if:
+        // 1. Continuous mode (Always Listening or Wake Word) is enabled.
+        // 2. OR an active session is running (PTT, Processing, or Dictating).
+        let isContinuousActive = isAlwaysListeningEnabled || isWakeWordEnabled
+        let isSessionActive = recognitionTask != nil || isStopping || isDictating
         
+        if !isContinuousActive && !isSessionActive {
+            HUDManager.shared.hide()
+            return
+        }
+
+        // [Mode Resolution] Determine exactly what the HUD should show
+        let mode: HUDMode
+        var message: String = ""
         let realHardware = availableInputDevices.filter { $0.id != 0 }
 
-        // Priority 1: Standby (wake word waiting, not yet awake)
-        if isWakeWordEnabled && isAlwaysListeningEnabled && !isAwake && !isDirectCommandEnabled {
+        // Rule 1: Standby (Green Dot)
+        // Occurs in continuous mode when we are NOT 'awake' and NOT in an active payload state.
+        if isContinuousActive && !isAwake && !isDirectCommandEnabled && !isStopping && !isDictating && lastTranscript.isEmpty {
             mode = .standby
-            message = ""
-        }
-        // Priority 2: Dictation (typing mode active)
+        } 
+        // Rule 2: Active Payload States
         else if isDictating {
             mode = .dictation
-            message = ""
-        }
-        // Priority 3: Processing (PTT released, waiting for final result)
-        else if isStopping {
+        } else if isStopping {
             mode = .processing
-            message = ""
-        }
-        // Priority 4: Command (has live transcript text)
-        else if !lastTranscript.isEmpty {
+        } else if !lastTranscript.isEmpty {
             mode = .command
             message = lastTranscript
-        }
-        // Priority 5: Listening (mic on, waiting for speech)
+        } 
+        // Rule 3: Listening (The fallback active state)
         else {
             mode = .listening
-            
-            // [Fix] Hardware Awareness: Show feedback if NO real microphone detected
             if realHardware.isEmpty {
-                // Determine fallback text based on current locale
-                if activeLocale.identifier.starts(with: "zh") {
-                    message = "未检测到麦克风"
-                } else {
-                    message = "No Microphone Detected"
-                }
-            } else {
-                message = ""
+                message = activeLocale.identifier.starts(with: "zh") ? "未检测到麦克风" : "No Microphone Detected"
             }
         }
 
@@ -804,7 +826,7 @@ final class SpeechManager: ObservableObject {
                         self.refreshContinuousHUD(isDictating: self.isDictating)
                     } else if self.isStopping && !isFinal {
                         // Keep Showing "Processing..." until final result
-                        HUDManager.shared.update(mode: .processing, message: "", language: self.activeLocale.identifier, inputDeviceIcon: self.currentInputDeviceIcon)
+                        self.refreshContinuousHUD()
                     }
                     
                     // Handle Streaming Typing (if in typing mode)
@@ -824,7 +846,7 @@ final class SpeechManager: ObservableObject {
                             self.handleTranscript(text)
                             if !self.isAlwaysListeningEnabled {
                                 self.teardownEngine()
-                                HUDManager.shared.hide() // [Critical Fix] Force hide after final processing
+                                self.refreshContinuousHUD() // [Fix] Unified Hide
                             }
                         }
                     }
@@ -1110,6 +1132,7 @@ final class SpeechManager: ObservableObject {
         
         DispatchQueue.main.async {
             self.availableInputDevices = devices
+            self.refreshContinuousHUD() // [Fix] Immediately update HUD icon when device list refreshes
         }
     }
     
@@ -1215,10 +1238,14 @@ final class SpeechManager: ObservableObject {
             os_log("Session Finalized (Fallback). Final: '%{public}@'", log: self.log, type: .default, textToUse)
             self.handleTranscript(textToUse)
             
+            self.isStopping = false // [FIX] Ensure processing state is reset
+            
             // [Critical Fix] Ensure HUD hides on fallback (if not already hidden by isFinal)
             if !self.isAlwaysListeningEnabled {
                 self.teardownEngine()
                 HUDManager.shared.hide()
+            } else {
+                self.refreshContinuousHUD() // Force refresh to Standby mode
             }
         }
         
@@ -1228,6 +1255,7 @@ final class SpeechManager: ObservableObject {
     
     // Explicit teardown if needed (e.g. app quit)
     func teardownEngine() {
+        isStopping = false
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
@@ -1238,6 +1266,7 @@ final class SpeechManager: ObservableObject {
     init() {
         GlobalLogger.lifecycle.info("SpeechManager Initialized")
         refreshInputDevices()
+        refreshContinuousHUD() // [Fix] Populate icon on boot
         
         // [New] Trigger AirPods Detector immediately on startup
         _ = AirPodsDetector.shared.currentSide()
@@ -1249,25 +1278,13 @@ final class SpeechManager: ObservableObject {
         // [Feature] Initialize Locale from UserDefaults
         refreshLocale()
 
-        // [Fix] Startup State
-        // Ensure continuous mode (Standby/Green Dot) starts immediately if enabled
         // [Fix] Startup State & Dependency
-        // If Wake Word is enabled, we MUST be Always Listening (Continuous Mode).
-        // Force sync this state on startup.
-        if isWakeWordEnabled && !isAlwaysListeningEnabled {
-             isAlwaysListeningEnabled = true
-        }
+        // Force evaluation of initial trigger states (PTT, Wake, Continuous)
+        // This ensures HUD is hidden on launch if all are Off.
+        syncRecognitionState()
 
         // [Fix] Immediate refresh on system mic changes
         setupAudioDeviceListeners()
-        
-        // Ensure continuous mode (Standby/Green Dot) starts immediately if enabled
-        if isAlwaysListeningEnabled {
-            // run on next runloop to allow init to finish
-            DispatchQueue.main.async { [weak self] in
-                self?.startContinuous()
-            }
-        }
 
         // Gaze Wake Feedback
         HeadMotionManager.shared.$isLookingAtScreen
