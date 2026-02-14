@@ -1905,7 +1905,6 @@ final class AirPodsDetector {
     }
     
     private var lastState: AirPodSide = .none
-    private var lastStateTime: Date = .distantPast
     private var pendingTarget: AirPodSide?
     private var pendingSince: Date = .distantPast
     private let startupAt: Date = Date()
@@ -1926,11 +1925,17 @@ final class AirPodsDetector {
     private var singleOverrideUntil: Date = .distantPast
     private var singleOverrideSide: AirPodSide = .none
     private var singleSideLockUntil: Date = .distantPast
-    private var singleSideLockedTo: AirPodSide = .none
     private var f1FastBlockedUntil: Date = .distantPast
+    private let verboseDecisionLogs = false
     
     // Logger (Reverted to NSLog for stability)
     private func logDebug(_ message: String) {
+        let lower = message.lowercased()
+        let isTransition = message.hasPrefix("State Transition(")
+        let isError = lower.contains("failed") || lower.contains("error")
+        if !verboseDecisionLogs && !isTransition && !isError {
+            return
+        }
         let logStr = "\(Date()): \(message)\n"
         NSLog("[AirPodsDetector] %@", message)
         if let data = logStr.data(using: .utf8) {
@@ -1993,7 +1998,7 @@ final class AirPodsDetector {
     private var isRefreshingFast = false
     private var isRefreshingSlow = false
     private let fastInterval: TimeInterval = 0.4
-    private let slowInterval: TimeInterval = 4.0
+    private let slowInterval: TimeInterval = 30.0
     private var lastFastTime: Date = .distantPast
     private var lastSlowTime: Date = .distantPast
     
@@ -2304,13 +2309,7 @@ final class AirPodsDetector {
                     self.logDebug("Rule F1-fast-plcm-both blocked until \(self.f1FastBlockedUntil)")
                     return
                 }
-                // Outside cooldown, one fresh Plcm BOTH is enough to recover from stale single-side lock.
-                if !plcmBothStrongNow && now < self.f1FastBlockedUntil {
-                    self.logDebug("Rule F1-fast-plcm-both waiting for dual evidence")
-                    return
-                }
                 self.singleSideLockUntil = .distantPast
-                self.singleSideLockedTo = .none
                 self.applyState(.both, source: "\(source)|F1-fast")
                 return
             }
@@ -2333,7 +2332,6 @@ final class AirPodsDetector {
                     if now.timeIntervalSince(self.pendingSince) >= 0.45 {
                         self.singleOverrideSide = single
                         self.singleOverrideUntil = now.addingTimeInterval(2.2)
-                        self.singleSideLockedTo = single
                         self.singleSideLockUntil = now.addingTimeInterval(1.2)
                         self.f1FastBlockedUntil = now.addingTimeInterval(1.5)
                         self.applyState(single, source: "\(source)|F3-fast")
@@ -2350,7 +2348,6 @@ final class AirPodsDetector {
                         return
                     }
                     if now.timeIntervalSince(self.pendingSince) >= 0.25 {
-                        self.singleSideLockedTo = single
                         self.singleSideLockUntil = now.addingTimeInterval(1.2)
                         self.f1FastBlockedUntil = now.addingTimeInterval(1.5)
                         self.applyState(single, source: "\(source)|F2-fast")
@@ -2417,15 +2414,12 @@ final class AirPodsDetector {
             if self.lastState != newState {
                 self.logDebug("State Transition(\(source)): \(self.lastState) -> \(newState)")
                 self.lastState = newState
-                self.lastStateTime = Date()
                 self.pendingTarget = nil
                 if newState == .left || newState == .right {
-                    self.singleSideLockedTo = newState
                     self.singleSideLockUntil = Date().addingTimeInterval(1.2)
                     self.f1FastBlockedUntil = Date().addingTimeInterval(1.5)
                 } else if newState == .both {
                     self.singleSideLockUntil = .distantPast
-                    self.singleSideLockedTo = .none
                 }
                 // Proactively notify the system to refresh UI
                 NotificationCenter.default.post(name: .AirPodsStateChanged, object: newState)
