@@ -7,7 +7,6 @@ import ApplicationServices
 import Combine
 import CoreAudio
 import IOKit
-import IOBluetooth
 
 struct AudioInputDevice: Identifiable, Hashable {
     let id: AudioDeviceID
