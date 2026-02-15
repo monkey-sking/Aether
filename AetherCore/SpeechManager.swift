@@ -635,12 +635,16 @@ final class SpeechManager: ObservableObject {
             return
         }
 
-        os_log("Segment timeout: finalizing after %.0fs (gen %d).", log: GlobalLogger.speech, type: .info, maxSec, gen)
-        stopMicProgressUI(keepVisible: true)
-        stopAndFinalize(keepHUDVisible: true)
-
         // If the user is still holding PTT (or we're in Always Listening), auto-restart capture.
         let shouldContinue = isPTTHeld || isAlwaysListeningEnabled
+
+        os_log("Segment timeout: finalizing after %.0fs (gen %d).", log: GlobalLogger.speech, type: .info, maxSec, gen)
+        // Mirror the PTT "trailing capture" UX: show ellipsis while we finalize the current segment.
+        isStopping = true
+        refreshContinuousHUD(isDictating: false)
+        stopMicProgressUI(keepVisible: shouldContinue)
+        stopAndFinalize(keepHUDVisible: shouldContinue)
+
         guard shouldContinue else { return }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
