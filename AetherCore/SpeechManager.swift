@@ -546,6 +546,10 @@ final class SpeechManager: ObservableObject {
     private var sessionTargetPID: pid_t?
     private var sessionTargetBundleID: String?
     private var didLogSessionTargetMismatch: Bool = false
+    private var hudOverrideUntil: Date = .distantPast
+    private var hudOverrideMode: HUDMode = .command
+    private var hudOverrideMessage: String = ""
+    private var hudOverrideIcon: String = "info.circle"
     private var cachedTypingMode: Bool = false
     private var lastTypingCheckAt: Date = .distantPast
     @Published var lastWakeTime: Date? // For context-aware wake window & UI feedback
@@ -697,15 +701,34 @@ final class SpeechManager: ObservableObject {
         let message = activeLocale.identifier.starts(with: "zh")
             ? "检测到焦点切换，本次语音未继续输入"
             : "Focus changed. Dictation skipped for this utterance."
-        HUDManager.shared.update(
-            mode: .command,
-            message: message,
-            language: activeLocale.identifier,
-            inputDeviceIcon: hudInputIcon()
-        )
+        setHUDOverride(mode: .command, message: message, icon: "exclamationmark.triangle.fill", duration: 1.6)
+        HUDManager.shared.update(mode: .command, message: message, language: activeLocale.identifier, inputDeviceIcon: "exclamationmark.triangle.fill")
+    }
+
+    private func setHUDOverride(mode: HUDMode, message: String, icon: String, duration: TimeInterval) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.hudOverrideMode = mode
+            self.hudOverrideMessage = message
+            self.hudOverrideIcon = icon
+            self.hudOverrideUntil = Date().addingTimeInterval(max(0.2, duration))
+        }
+    }
+
+    private func clearHUDOverride() {
+        hudOverrideUntil = .distantPast
+        hudOverrideMessage = ""
+        hudOverrideIcon = "info.circle"
     }
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
+        // Ensure transient "toast" messages are readable; avoid being immediately overwritten by the 0.3s ticker.
+        // Do not override the explicit `.processing` UX.
+        if !isStopping && Date() < hudOverrideUntil {
+            HUDManager.shared.update(mode: hudOverrideMode, message: hudOverrideMessage, language: activeLocale.identifier, inputDeviceIcon: hudOverrideIcon)
+            return
+        }
+
         // Real trigger topology:
         // - isAlwaysListeningEnabled: mic session for continuous recognition is active
         // - isDirectCommandEnabled: always-on direct command mode
@@ -721,6 +744,7 @@ final class SpeechManager: ObservableObject {
         let isSessionActive = recognitionTask != nil || isStopping || isDictating
         
         if !isContinuousActive && !isSessionActive {
+            clearHUDOverride()
             HUDManager.shared.hide()
             return
         }
@@ -1469,6 +1493,9 @@ final class SpeechManager: ObservableObject {
     }
 
     func stopAndFinalize(keepHUDVisible: Bool = false) {
+        if !keepHUDVisible {
+            clearHUDOverride()
+        }
         stopMicProgressUI(keepVisible: keepHUDVisible)
         if !keepHUDVisible {
             if isAlwaysListeningEnabled {
