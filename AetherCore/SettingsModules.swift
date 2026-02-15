@@ -197,33 +197,30 @@ struct InputSettingsView: View {
                         Divider()
 
                         Toggle("上下文术语纠错", isOn: $appState.speechTermCorrectionEnabled)
-                        Text("按场景分组（开发/办公/写作）启用纠错，每组可单独绑定多个 App。")
+                        Text("支持通用组与自定义分组。每组可独立启停、绑定 App、编辑词条规则。")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                        HStack {
+                            Button {
+                                appState.addSpeechTermGroup()
+                            } label: {
+                                Label("添加分组", systemImage: "plus")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(!appState.speechTermCorrectionEnabled)
+                            Spacer()
+                            Text("规则格式：`原词=>目标词` 或 `原词=>目标词=>cmd`")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
 
-                        SpeechTermGroupSettingsBlock(
-                            title: "开发类",
-                            subtitle: "示例：后果 → GitHub",
-                            isEnabled: $appState.speechTermGroupDevEnabled,
-                            appList: $appState.speechTermGroupDevApps,
-                            enabledAll: $appState.speechTermCorrectionEnabled
-                        )
-
-                        SpeechTermGroupSettingsBlock(
-                            title: "办公类",
-                            subtitle: "示例：飞鼠 → 飞书，叮叮 → 钉钉",
-                            isEnabled: $appState.speechTermGroupOfficeEnabled,
-                            appList: $appState.speechTermGroupOfficeApps,
-                            enabledAll: $appState.speechTermCorrectionEnabled
-                        )
-
-                        SpeechTermGroupSettingsBlock(
-                            title: "写作类",
-                            subtitle: "示例：逗好 → 逗号，句好 → 句号",
-                            isEnabled: $appState.speechTermGroupWritingEnabled,
-                            appList: $appState.speechTermGroupWritingApps,
-                            enabledAll: $appState.speechTermCorrectionEnabled
-                        )
+                        ForEach($appState.speechTermGroups) { $group in
+                            SpeechTermGroupSettingsBlock(
+                                group: $group,
+                                enabledAll: $appState.speechTermCorrectionEnabled,
+                                onDelete: { appState.removeSpeechTermGroup(id: group.id) }
+                            )
+                        }
                     }
                 }
             }
@@ -285,14 +282,12 @@ struct InputSettingsView: View {
 }
 
 private struct SpeechTermGroupSettingsBlock: View {
-    let title: String
-    let subtitle: String
-    @Binding var isEnabled: Bool
-    @Binding var appList: String
+    @Binding var group: AppState.SpeechTermGroupConfig
     @Binding var enabledAll: Bool
+    let onDelete: () -> Void
 
     private var currentItems: [String] {
-        appList
+        group.appList
             .components(separatedBy: CharacterSet(charactersIn: ",\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -301,7 +296,10 @@ private struct SpeechTermGroupSettingsBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Toggle(title, isOn: $isEnabled)
+                Toggle("", isOn: $group.isEnabled)
+                    .disabled(!enabledAll)
+                TextField("分组名", text: $group.name)
+                    .textFieldStyle(.roundedBorder)
                     .disabled(!enabledAll)
                 Spacer()
                 SpeechAppPickerMenu(
@@ -310,12 +308,37 @@ private struct SpeechTermGroupSettingsBlock: View {
                         appendBundleId(bundleId)
                     }
                 )
-                .disabled(!enabledAll || !isEnabled)
+                .disabled(!enabledAll || !group.isEnabled || group.applyToAllApps)
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .disabled(!enabledAll)
             }
-            Text(subtitle)
+            Toggle("通用组（全部 App 生效）", isOn: $group.applyToAllApps)
+                .disabled(!enabledAll || !group.isEnabled)
+
+            if !group.applyToAllApps {
+                Text("生效 App（bundle id，逗号/换行分隔）")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextEditor(text: $group.appList)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(minHeight: 64)
+                    .padding(6)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                    )
+                    .disabled(!enabledAll || !group.isEnabled)
+            }
+
+            Text("词条规则（每行一个）")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            TextEditor(text: $appList)
+            TextEditor(text: $group.rulesText)
                 .font(.system(.caption, design: .monospaced))
                 .frame(minHeight: 64)
                 .padding(6)
@@ -325,9 +348,12 @@ private struct SpeechTermGroupSettingsBlock: View {
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
                 )
-                .disabled(!enabledAll || !isEnabled)
+                .disabled(!enabledAll || !group.isEnabled)
         }
         .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+        .cornerRadius(8)
     }
 
     private func appendBundleId(_ bundleId: String) {
@@ -335,10 +361,10 @@ private struct SpeechTermGroupSettingsBlock: View {
         guard !trimmed.isEmpty else { return }
         let existing = currentItems.map { $0.lowercased() }
         guard !existing.contains(trimmed.lowercased()) else { return }
-        if appList.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            appList = trimmed
+        if group.appList.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            group.appList = trimmed
         } else {
-            appList += "\n\(trimmed)"
+            group.appList += "\n\(trimmed)"
         }
     }
 }

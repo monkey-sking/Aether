@@ -277,6 +277,81 @@ final class PermissionsService: ObservableObject {
 
 @MainActor
 class AppState: ObservableObject {
+    struct SpeechTermGroupConfig: Codable, Identifiable, Equatable {
+        var id: String
+        var name: String
+        var isEnabled: Bool
+        var applyToAllApps: Bool
+        var appList: String
+        var rulesText: String
+
+        init(
+            id: String = UUID().uuidString,
+            name: String,
+            isEnabled: Bool = true,
+            applyToAllApps: Bool = false,
+            appList: String = "",
+            rulesText: String = ""
+        ) {
+            self.id = id
+            self.name = name
+            self.isEnabled = isEnabled
+            self.applyToAllApps = applyToAllApps
+            self.appList = appList
+            self.rulesText = rulesText
+        }
+    }
+
+    private static let speechTermGroupsStorageKey = "speechTermGroupsV2"
+
+    private static func defaultSpeechTermGroups() -> [SpeechTermGroupConfig] {
+        [
+            SpeechTermGroupConfig(
+                name: "通用组",
+                isEnabled: true,
+                applyToAllApps: true,
+                appList: "",
+                rulesText: "git hub=>GitHub"
+            ),
+            SpeechTermGroupConfig(
+                name: "开发类",
+                isEnabled: true,
+                applyToAllApps: false,
+                appList: "com.apple.Terminal,\ncom.apple.dt.Xcode,\ncom.microsoft.VSCode,\ncom.openai.codex,\ncom.openai.chatgpt",
+                rulesText: "后果=>GitHub=>cmd"
+            ),
+            SpeechTermGroupConfig(
+                name: "办公类",
+                isEnabled: true,
+                applyToAllApps: false,
+                appList: "com.microsoft.Word,\ncom.microsoft.Excel,\ncom.microsoft.Powerpoint,\ncom.tencent.wework,\ncom.apple.mail",
+                rulesText: "飞鼠=>飞书\n叮叮=>钉钉\n定定=>钉钉\n未信=>微信"
+            ),
+            SpeechTermGroupConfig(
+                name: "写作类",
+                isEnabled: true,
+                applyToAllApps: false,
+                appList: "com.apple.TextEdit,\ncom.apple.Notes,\ncom.coteditor.CotEditor,\ncom.sublimetext.4,\ncom.zed.Zed",
+                rulesText: "逗好=>逗号\n句好=>句号"
+            )
+        ]
+    }
+
+    private static func loadSpeechTermGroups() -> [SpeechTermGroupConfig] {
+        if let data = UserDefaults.standard.data(forKey: speechTermGroupsStorageKey),
+           let groups = try? JSONDecoder().decode([SpeechTermGroupConfig].self, from: data),
+           !groups.isEmpty {
+            return groups
+        }
+        return defaultSpeechTermGroups()
+    }
+
+    private static func saveSpeechTermGroups(_ groups: [SpeechTermGroupConfig]) {
+        if let data = try? JSONEncoder().encode(groups) {
+            UserDefaults.standard.set(data, forKey: speechTermGroupsStorageKey)
+        }
+    }
+
     enum VoiceActivationMode: String, CaseIterable, Identifiable {
         case pushToTalk
         case wakeWord
@@ -467,37 +542,28 @@ class AppState: ObservableObject {
             UserDefaults.standard.set(speechTermCorrectionEnabled, forKey: "speechTermCorrectionEnabled")
         }
     }
-    @Published var speechTermGroupDevEnabled: Bool = UserDefaults.standard.object(forKey: "speechTermGroupDevEnabled") as? Bool ?? true {
+    @Published var speechTermGroups: [SpeechTermGroupConfig] = AppState.loadSpeechTermGroups() {
         didSet {
-            UserDefaults.standard.set(speechTermGroupDevEnabled, forKey: "speechTermGroupDevEnabled")
+            AppState.saveSpeechTermGroups(speechTermGroups)
         }
     }
-    @Published var speechTermGroupOfficeEnabled: Bool = UserDefaults.standard.object(forKey: "speechTermGroupOfficeEnabled") as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(speechTermGroupOfficeEnabled, forKey: "speechTermGroupOfficeEnabled")
-        }
+
+    func addSpeechTermGroup() {
+        speechTermGroups.append(
+            SpeechTermGroupConfig(
+                name: "新分组",
+                isEnabled: true,
+                applyToAllApps: false,
+                appList: "",
+                rulesText: ""
+            )
+        )
     }
-    @Published var speechTermGroupWritingEnabled: Bool = UserDefaults.standard.object(forKey: "speechTermGroupWritingEnabled") as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(speechTermGroupWritingEnabled, forKey: "speechTermGroupWritingEnabled")
-        }
-    }
-    @Published var speechTermGroupDevApps: String = UserDefaults.standard.string(forKey: "speechTermGroupDevApps")
-        ?? "com.apple.Terminal,\ncom.apple.dt.Xcode,\ncom.microsoft.VSCode,\ncom.openai.codex,\ncom.openai.chatgpt" {
-        didSet {
-            UserDefaults.standard.set(speechTermGroupDevApps, forKey: "speechTermGroupDevApps")
-        }
-    }
-    @Published var speechTermGroupOfficeApps: String = UserDefaults.standard.string(forKey: "speechTermGroupOfficeApps")
-        ?? "com.microsoft.Word,\ncom.microsoft.Excel,\ncom.microsoft.Powerpoint,\ncom.tencent.wework,\ncom.apple.mail" {
-        didSet {
-            UserDefaults.standard.set(speechTermGroupOfficeApps, forKey: "speechTermGroupOfficeApps")
-        }
-    }
-    @Published var speechTermGroupWritingApps: String = UserDefaults.standard.string(forKey: "speechTermGroupWritingApps")
-        ?? "com.apple.TextEdit,\ncom.apple.Notes,\ncom.coteditor.CotEditor,\ncom.sublimetext.4,\ncom.zed.Zed" {
-        didSet {
-            UserDefaults.standard.set(speechTermGroupWritingApps, forKey: "speechTermGroupWritingApps")
+
+    func removeSpeechTermGroup(id: String) {
+        speechTermGroups.removeAll { $0.id == id }
+        if speechTermGroups.isEmpty {
+            speechTermGroups = AppState.defaultSpeechTermGroups()
         }
     }
     
