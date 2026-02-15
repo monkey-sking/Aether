@@ -1214,7 +1214,14 @@ final class SpeechManager: ObservableObject {
             request.addsPunctuation = isAutoPunctuationEnabled
         }
         // Important: Add contextual strings to improve specific command recognition
-        request.contextualStrings = ["点击", "双击", "向下", "向上", "右键", "Click", "Double Click", "Scroll Down", "Scroll Up", "Right Click"]
+        request.contextualStrings = [
+            // Pointer / UI ops
+            "点击", "双击", "向下", "向上", "右键",
+            "Click", "Double Click", "Scroll Down", "Scroll Up", "Right Click",
+            // Dev / mixed-language proper nouns (helps zh locales keep common English terms)
+            "GitHub", "github", "git", "repo", "repository", "issue", "pull request", "PR",
+            "commit", "branch", "merge", "rebase", "checkout", "clone", "push", "pull", "origin", "main", "develop", "release"
+        ]
 
         recognitionRequest = request
         lastTranscript = ""
