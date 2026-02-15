@@ -17,6 +17,9 @@ final class HUDState: ObservableObject {
     @Published var audioLevel: CGFloat = 0.0
     @Published var isTypingContext: Bool = false
     @Published var inputDeviceIcon: String = "mic.fill"
+    // 0...1 progress for current recording segment (visual ring around mic icon).
+    @Published var micProgress: CGFloat = 0.0
+    @Published var isMicProgressVisible: Bool = false
 
     func update(mode: HUDMode, message: String, language: String, isTypingContext: Bool, inputDeviceIcon: String) {
         self.mode = mode

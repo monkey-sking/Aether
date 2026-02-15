@@ -515,6 +515,9 @@ final class SpeechManager: ObservableObject {
     private var stopTimer: Timer?
     private var failsafeTimer: Timer?
     private var segmentTimer: Timer?
+    private var micProgressTimer: Timer?
+    private var segmentStartedAt: Date = .distantPast
+    private var segmentDurationSec: TimeInterval = 0
     private var isPTTHeld: Bool = false
     private var wasAwake: Bool = false // Tracks previous wake state for UI updates
     private var audioRingBuffer: [AVAudioPCMBuffer] = []
@@ -583,6 +586,42 @@ final class SpeechManager: ObservableObject {
         }
     }
 
+    private func startMicProgressUI(durationSec: TimeInterval, generation gen: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard self.sessionGeneration == gen else { return }
+
+            self.micProgressTimer?.invalidate()
+            self.micProgressTimer = nil
+
+            self.segmentStartedAt = Date()
+            self.segmentDurationSec = max(durationSec, 0.1)
+
+            HUDManager.shared.updateMicProgress(progress: 0.0, visible: true)
+            self.micProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                guard self.sessionGeneration == gen else { return }
+                let elapsed = Date().timeIntervalSince(self.segmentStartedAt)
+                let p = CGFloat(min(max(elapsed / self.segmentDurationSec, 0.0), 1.0))
+                HUDManager.shared.updateMicProgress(progress: p, visible: true)
+            }
+        }
+    }
+
+    private func stopMicProgressUI(keepVisible: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.micProgressTimer?.invalidate()
+            self.micProgressTimer = nil
+            if keepVisible {
+                // Freeze at 100% briefly; next session start will reset to 0.
+                HUDManager.shared.updateMicProgress(progress: 1.0, visible: true)
+            } else {
+                HUDManager.shared.updateMicProgress(progress: 0.0, visible: false)
+            }
+        }
+    }
+
     @MainActor
     private func handleSegmentTimeout(expectedGeneration gen: Int, maxSec: TimeInterval) {
         guard sessionGeneration == gen else { return }
@@ -597,6 +636,7 @@ final class SpeechManager: ObservableObject {
         }
 
         os_log("Segment timeout: finalizing after %.0fs (gen %d).", log: GlobalLogger.speech, type: .info, maxSec, gen)
+        stopMicProgressUI(keepVisible: true)
         stopAndFinalize(keepHUDVisible: true)
 
         // If the user is still holding PTT (or we're in Always Listening), auto-restart capture.
@@ -971,6 +1011,7 @@ final class SpeechManager: ObservableObject {
         // [Stability] Segment long recordings to avoid SFSpeechRecognizer long-stream bugs.
         failsafeTimer?.invalidate()
         scheduleSegmentTimer(forGeneration: currentGeneration)
+        startMicProgressUI(durationSec: maxRecordingSegmentSeconds(), generation: currentGeneration)
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -1424,6 +1465,7 @@ final class SpeechManager: ObservableObject {
     }
 
     func stopAndFinalize(keepHUDVisible: Bool = false) {
+        stopMicProgressUI(keepVisible: keepHUDVisible)
         if !keepHUDVisible {
             if isAlwaysListeningEnabled {
                 refreshContinuousHUD(isDictating: false)
@@ -1526,6 +1568,8 @@ final class SpeechManager: ObservableObject {
         isStopping = false
         segmentTimer?.invalidate()
         segmentTimer = nil
+        micProgressTimer?.invalidate()
+        micProgressTimer = nil
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
