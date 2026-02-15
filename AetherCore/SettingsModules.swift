@@ -5,7 +5,45 @@ import AppKit
 struct InputSettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var editingGroupID: String?
-    
+
+    private var microphoneOptions: [FixedPopUpOption] {
+        appState.availableInputDevices.map { device in
+            FixedPopUpOption(id: String(device.id), title: device.name)
+        }
+    }
+
+    private var microphoneSelection: Binding<String> {
+        Binding(
+            get: { String(appState.selectedInputDeviceID) },
+            set: { newValue in
+                guard let matched = appState.availableInputDevices.first(where: { String($0.id) == newValue }) else { return }
+                appState.selectedInputDeviceID = matched.id
+            }
+        )
+    }
+
+    private var localeOptions: [FixedPopUpOption] {
+        [
+            .init(id: "system", title: NSLocalizedString("language.system", comment: "")),
+            .init(id: "zh-CN", title: NSLocalizedString("language.zh_CN", comment: "")),
+            .init(id: "en-US", title: NSLocalizedString("language.en_US", comment: "")),
+            .init(id: "ja-JP", title: NSLocalizedString("language.ja_JP", comment: "")),
+            .init(id: "ko-KR", title: NSLocalizedString("language.ko_KR", comment: "")),
+            .init(id: "fr-FR", title: NSLocalizedString("language.fr_FR", comment: "")),
+            .init(id: "de-DE", title: NSLocalizedString("language.de_DE", comment: "")),
+            .init(id: "es-ES", title: NSLocalizedString("language.es_ES", comment: "")),
+        ]
+    }
+
+    private var localeSelection: Binding<String> {
+        Binding(
+            get: { appState.voiceService.explicitLocaleIdentifier ?? "system" },
+            set: { newValue in
+                appState.voiceService.explicitLocaleIdentifier = (newValue == "system") ? nil : newValue
+            }
+        )
+    }
+
     var body: some View {
         ScrollView(.vertical) {
             VStack(spacing: 20) {
@@ -21,42 +59,10 @@ struct InputSettingsView: View {
                                 Text(L10n.settingsNoMicrophone)
                                     .foregroundColor(.secondary)
                             } else {
-                                Menu {
-                                    ForEach(appState.availableInputDevices) { device in
-                                        Button(device.name) {
-                                            appState.selectedInputDeviceID = device.id
-                                        }
-                                    }
-                                } label: {
-                                    HStack {
-                                        if let device = appState.availableInputDevices.first(where: { $0.id == appState.selectedInputDeviceID }) {
-                                            Text(LocalizedStringKey(device.name))
-                                                .truncationMode(.tail)
-                                                .lineLimit(1)
-                                        } else {
-                                            Text(L10n.settingsNoMicrophone)
-                                                .truncationMode(.tail)
-                                                .lineLimit(1)
-                                        }
-                                        Spacer()
-                                        Image(systemName: "chevron.up.chevron.down")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .frame(width: 200, alignment: .leading)
-                                    .background(Color(nsColor: .controlBackgroundColor))
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                                    )
-                                }
-
-                                .menuStyle(.borderlessButton)
-                                .buttonStyle(.plain)
-                                .fixedSize()
+                                FixedWidthPopUpMenu(
+                                    options: microphoneOptions,
+                                    selection: microphoneSelection
+                                )
                             }
                         }
                         
@@ -66,40 +72,10 @@ struct InputSettingsView: View {
                             Label(L10n.settingsSpeechLanguage, systemImage: "globe")
                                 .font(.body)
                             Spacer()
-                            Menu {
-                                Button(L10n.languageSystem) { appState.voiceService.explicitLocaleIdentifier = nil }
-                                Divider()
-                                Button(L10n.languageChineseSC) { appState.voiceService.explicitLocaleIdentifier = "zh-CN" }
-                                Button(L10n.languageEnglishUS) { appState.voiceService.explicitLocaleIdentifier = "en-US" }
-                                Button(L10n.languageJapanese) { appState.voiceService.explicitLocaleIdentifier = "ja-JP" }
-                                Button(L10n.languageKorean) { appState.voiceService.explicitLocaleIdentifier = "ko-KR" }
-                                Button(L10n.languageFrench) { appState.voiceService.explicitLocaleIdentifier = "fr-FR" }
-                                Button(L10n.languageGerman) { appState.voiceService.explicitLocaleIdentifier = "de-DE" }
-                                Button(L10n.languageSpanish) { appState.voiceService.explicitLocaleIdentifier = "es-ES" }
-                            } label: {
-                                HStack {
-                                    Text(localeName(for: appState.voiceService.explicitLocaleIdentifier))
-                                        .truncationMode(.tail)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Image(systemName: "chevron.up.chevron.down")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .frame(width: 200, alignment: .leading)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .cornerRadius(6)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                                )
-                            }
-
-                            .menuStyle(.borderlessButton)
-                            .buttonStyle(.plain)
-                            .fixedSize()
+                            FixedWidthPopUpMenu(
+                                options: localeOptions,
+                                selection: localeSelection
+                            )
                         }
                     }
                 }
@@ -202,17 +178,18 @@ struct InputSettingsView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                         HStack {
+                            Text("规则格式：`原词=>目标词` 或 `原词=>目标词=>cmd`")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Spacer()
                             Button {
                                 appState.addSpeechTermGroup()
                             } label: {
                                 Label("添加分组", systemImage: "plus")
                             }
-                            .buttonStyle(.borderless)
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
                             .disabled(!appState.speechTermCorrectionEnabled)
-                            Spacer()
-                            Text("规则格式：`原词=>目标词` 或 `原词=>目标词=>cmd`")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
                         }
 
                         ForEach($appState.speechTermGroups) { $group in
@@ -241,20 +218,6 @@ struct InputSettingsView: View {
             } else {
                 EmptyView()
             }
-        }
-    }
-    
-    private func localeName(for identifier: String?) -> LocalizedStringKey {
-        guard let identifier = identifier else { return L10n.languageSystem }
-        switch identifier {
-        case "zh-CN": return L10n.languageChineseSC
-        case "en-US": return L10n.languageEnglishUS
-        case "ja-JP": return L10n.languageJapanese
-        case "ko-KR": return L10n.languageKorean
-        case "fr-FR": return L10n.languageFrench
-        case "de-DE": return L10n.languageGerman
-        case "es-ES": return L10n.languageSpanish
-        default: return LocalizedStringKey(identifier)
         }
     }
     
@@ -592,6 +555,91 @@ private struct SpeechAppPickerMenu: View {
             guard response == .OK, let url = panel.url else { return }
             guard let bundle = Bundle(url: url), let bid = bundle.bundleIdentifier, !bid.isEmpty else { return }
             onAdd(bid)
+        }
+    }
+}
+
+private struct FixedPopUpOption: Equatable {
+    let id: String
+    let title: String
+}
+
+private struct FixedWidthPopUpMenu: NSViewRepresentable {
+    var options: [FixedPopUpOption]
+    @Binding var selection: String
+
+    final class SelectedOnlyPopUpButton: NSPopUpButton {
+        var horizontalPadding: CGFloat = 34
+
+        override var intrinsicContentSize: NSSize {
+            let base = super.intrinsicContentSize
+            guard let title = selectedItem?.title, !title.isEmpty else { return base }
+            let fontToUse = font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small))
+            let titleWidth = (title as NSString).size(withAttributes: [.font: fontToUse]).width
+            return NSSize(width: ceil(titleWidth + horizontalPadding), height: base.height)
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var parent: FixedWidthPopUpMenu
+
+        init(parent: FixedWidthPopUpMenu) {
+            self.parent = parent
+        }
+
+        @objc func selectionChanged(_ sender: NSPopUpButton) {
+            let idx = sender.indexOfSelectedItem
+            guard idx >= 0 && idx < parent.options.count else { return }
+            let selectedID = parent.options[idx].id
+            if parent.selection != selectedID {
+                parent.selection = selectedID
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = SelectedOnlyPopUpButton(frame: .zero, pullsDown: false)
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.selectionChanged(_:))
+        button.lineBreakMode = .byTruncatingTail
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        rebuildItems(button)
+        button.sizeToFit()
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        context.coordinator.parent = self
+
+        let existingTitles = button.itemTitles
+        let desiredTitles = options.map(\.title)
+        if existingTitles != desiredTitles {
+            rebuildItems(button)
+        }
+
+        if let idx = options.firstIndex(where: { $0.id == selection }),
+           button.indexOfSelectedItem != idx {
+            button.selectItem(at: idx)
+        } else if !options.isEmpty && button.indexOfSelectedItem < 0 {
+            button.selectItem(at: 0)
+        }
+        button.invalidateIntrinsicContentSize()
+    }
+
+    private func rebuildItems(_ button: NSPopUpButton) {
+        button.removeAllItems()
+        button.addItems(withTitles: options.map(\.title))
+        if let idx = options.firstIndex(where: { $0.id == selection }) {
+            button.selectItem(at: idx)
+        } else if !options.isEmpty {
+            button.selectItem(at: 0)
         }
     }
 }

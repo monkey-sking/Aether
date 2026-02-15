@@ -948,8 +948,8 @@ struct AetherApp: App {
     @NSApplicationDelegateAdaptor(AetherAppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
     
-    var body: some Scene {     
-        WindowGroup(id: "main") {
+    var body: some Scene {
+        Window("Aether", id: "main") {
             AetherMainView()
                 .environmentObject(appState)
         }
