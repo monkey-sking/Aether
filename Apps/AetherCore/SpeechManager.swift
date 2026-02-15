@@ -522,6 +522,8 @@ final class SpeechManager: ObservableObject {
     private var micProgressLockedPID: pid_t?
     private var isPTTHeld: Bool = false
     private var wasAwake: Bool = false // Tracks previous wake state for UI updates
+    private var lastSpeechAt: Date = .distantPast
+    private var utteranceStartedAt: Date = .distantPast
     private var audioRingBuffer: [AVAudioPCMBuffer] = []
     private let ringBufferCapacity = 10 // ~0.5s at 1024 frames/buffer
 
@@ -621,6 +623,9 @@ final class SpeechManager: ObservableObject {
                 guard self.sessionGeneration == gen else { return }
                 self.pauseMicProgressForFocusChangeIfNeeded()
                 guard !self.isMicProgressPausedForTarget else { return }
+                Task { @MainActor in
+                    self.maybeFinalizeOnTrailingSilence()
+                }
 
                 // Gate progress on "actual voice activity" to avoid the ring advancing during silence.
                 // We use the HUD audio level as a cheap VAD proxy.
@@ -742,6 +747,39 @@ final class SpeechManager: ObservableObject {
             duration: 1.6
         )
         os_log("Mic progress paused due to focus change. lockedPID=%d currentPID=%d", log: log, type: .info, lockedPID, currentPID)
+    }
+
+    @MainActor
+    private func maybeFinalizeOnTrailingSilence() {
+        guard isAlwaysListeningEnabled else { return }
+        guard recognitionTask != nil else { return }
+        guard !isStopping else { return }
+        guard !lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        let now = Date()
+        let trailingSilenceMs = UserDefaults.standard.object(forKey: "trailingSilenceMs") as? Double ?? 900.0
+        let minUtteranceMs = UserDefaults.standard.object(forKey: "minUtteranceMs") as? Double ?? 450.0
+        let maxUtteranceMs = UserDefaults.standard.object(forKey: "maxUtteranceMs") as? Double ?? 15000.0
+
+        let startedAt = utteranceStartedAt == .distantPast ? now : utteranceStartedAt
+        let utteranceAgeMs = now.timeIntervalSince(startedAt) * 1000.0
+        let silenceAgeMs = now.timeIntervalSince(lastSpeechAt) * 1000.0
+
+        // Don't EOS while we are in wake-gated standby.
+        let isStandbyWakeWord = isAlwaysListeningEnabled && isWakeWordEnabled && !isAwake && !isDirectCommandEnabled && !sessionTypingMode
+        if isStandbyWakeWord { return }
+
+        if utteranceAgeMs >= maxUtteranceMs {
+            os_log("EOS: max utterance reached (%.0fms). Finalizing.", log: log, type: .info, utteranceAgeMs)
+        } else {
+            guard utteranceAgeMs >= minUtteranceMs else { return }
+            guard silenceAgeMs >= trailingSilenceMs else { return }
+            os_log("EOS: trailing silence (%.0fms). Finalizing.", log: log, type: .info, silenceAgeMs)
+        }
+
+        isStopping = true
+        refreshContinuousHUD(isDictating: false) // show ellipsis
+        stopAndFinalize(keepHUDVisible: true)
     }
 
     private func isSessionInputTargetValidForInjection() -> Bool {
@@ -1228,8 +1266,17 @@ final class SpeechManager: ObservableObject {
                         }
                     }
 
-                    self.lastTranscript = text
-                    self.lastChangeAt = Date()
+                    // Only update "last change" timestamps when the text actually changes.
+                    // Noise can cause repeated callbacks; refreshing timestamps here would prevent EOS detection.
+                    let now = Date()
+                    let prev = self.lastTranscript
+                    if text != prev {
+                        self.lastTranscript = text
+                        self.lastChangeAt = now
+                        if self.utteranceStartedAt == .distantPast && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            self.utteranceStartedAt = now
+                        }
+                    }
 
                     // Direct Command mode: treat "start of a new utterance" as an explicit re-arm for the current focus.
                     let hasPayload = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1455,6 +1502,10 @@ final class SpeechManager: ObservableObject {
              // 3. Update HUD with amplified level
              // Multiplier moved to HUDManager for centralized control.
              HUDManager.shared.updateAudioLevel(rms)
+
+             // Track voice activity timestamps on main (used for EOS / progress gating).
+             let vadThreshold = UserDefaults.standard.object(forKey: "micProgressVADThreshold") as? Double ?? 0.07
+             let voiceActive = Double(rms) >= vadThreshold
              
              if Int.random(in: 0...100) == 0 {
                   os_log("Audio RMS: %.4f (scaled)", log: self.log, type: .debug, rms)
@@ -1465,6 +1516,12 @@ final class SpeechManager: ObservableObject {
              // 5. Update Ring Buffer (Main Thread)
              DispatchQueue.main.async { [weak self] in
                  guard let self = self else { return }
+                 if voiceActive {
+                     self.lastSpeechAt = Date()
+                     if self.utteranceStartedAt == .distantPast {
+                         self.utteranceStartedAt = self.lastSpeechAt
+                     }
+                 }
                  self.audioRingBuffer.append(monoBuffer)
                  if self.audioRingBuffer.count > self.ringBufferCapacity {
                      self.audioRingBuffer.removeFirst()
