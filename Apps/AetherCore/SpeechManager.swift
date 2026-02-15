@@ -1808,6 +1808,21 @@ final class SpeechManager: ObservableObject {
             wasAwake = currentlyAwake
             os_log("Wake State Changed: Awake=%{bool}d", log: log, type: .default, currentlyAwake)
             refreshContinuousHUD()
+
+            // When using wake-gated continuous mode, reset the segment progress visual at the moment we wake.
+            // In long standby periods we intentionally avoid segmenting, so any "progress" would be stale.
+            if currentlyAwake {
+                startMicProgressUI(durationSec: maxRecordingSegmentSeconds(), generation: sessionGeneration)
+            }
+        }
+
+        // In wake-gated standby we don't segment, and we also don't need to tick the mic progress timer.
+        // Stop it to reduce CPU usage and avoid showing a stale filled ring after waking.
+        let isWakeGatedContinuous = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
+        if isWakeGatedContinuous && !currentlyAwake {
+            if micProgressTimer != nil || HUDManager.shared.state.isMicProgressVisible {
+                stopMicProgressUI(keepVisible: false)
+            }
         }
 
         let taskState = recognitionTask?.state
