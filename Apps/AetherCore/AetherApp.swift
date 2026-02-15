@@ -461,6 +461,22 @@ class AppState: ObservableObject {
             voiceService.setAutoPunctuationEnabled(isAutoPunctuationEnabled)
         }
     }
+
+    @Published var speechFixDevTerms: Bool = UserDefaults.standard.object(forKey: "speechFixDevTerms") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(speechFixDevTerms, forKey: "speechFixDevTerms")
+        }
+    }
+    @Published var speechFixDevTermsUseWhitelist: Bool = UserDefaults.standard.object(forKey: "speechFixDevTermsUseWhitelist") as? Bool ?? false {
+        didSet {
+            UserDefaults.standard.set(speechFixDevTermsUseWhitelist, forKey: "speechFixDevTermsUseWhitelist")
+        }
+    }
+    @Published var speechFixDevTermsWhitelist: String = UserDefaults.standard.string(forKey: "speechFixDevTermsWhitelist") ?? "" {
+        didSet {
+            UserDefaults.standard.set(speechFixDevTermsWhitelist, forKey: "speechFixDevTermsWhitelist")
+        }
+    }
     
     func updatePTTBinding(_ binding: HotkeyBinding) {
         self.voicePTTBinding = binding

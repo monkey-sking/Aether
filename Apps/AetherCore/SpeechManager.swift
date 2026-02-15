@@ -803,6 +803,76 @@ final class SpeechManager: ObservableObject {
         HUDManager.shared.update(mode: .command, message: message, language: activeLocale.identifier, inputDeviceIcon: "exclamationmark.triangle.fill")
     }
 
+    private func shouldEnableDevTermCorrection() -> Bool {
+        if UserDefaults.standard.object(forKey: "speechFixDevTerms") == nil { return true }
+        return UserDefaults.standard.bool(forKey: "speechFixDevTerms")
+    }
+
+    private func shouldUseDevTermCorrectionWhitelist() -> Bool {
+        UserDefaults.standard.object(forKey: "speechFixDevTermsUseWhitelist") as? Bool ?? false
+    }
+
+    private func devTermCorrectionWhitelist() -> [String] {
+        let raw = UserDefaults.standard.string(forKey: "speechFixDevTermsWhitelist") ?? ""
+        return raw
+            .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+    }
+
+    private func isDevelopmentBundleID(_ bundleID: String?) -> Bool {
+        let b = (bundleID ?? "").lowercased()
+        if b.isEmpty { return false }
+        let markers = [
+            "xcode", "vscode", "cursor", "jetbrains", "sublime", "zed",
+            "terminal", "iterm", "warp",
+            "github", "git", "codex", "antigravity"
+        ]
+        return markers.contains { b.contains($0) }
+    }
+
+    private func isDevelopmentSpeechContext() -> Bool {
+        let target = (sessionTargetBundleID ?? "").lowercased()
+        let frontmost = (NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "").lowercased()
+
+        if shouldUseDevTermCorrectionWhitelist() {
+            let whitelist = devTermCorrectionWhitelist()
+            guard !whitelist.isEmpty else { return false }
+            func matchesWhitelist(_ bundleID: String) -> Bool {
+                guard !bundleID.isEmpty else { return false }
+                return whitelist.contains { bundleID.contains($0) }
+            }
+            return matchesWhitelist(target) || matchesWhitelist(frontmost)
+        }
+
+        if isDevelopmentBundleID(target) { return true }
+        return isDevelopmentBundleID(frontmost)
+    }
+
+    private func isGitHubCommandLikePhrase(_ text: String) -> Bool {
+        let s = text.lowercased()
+        let zhKeywords = ["提交", "分支", "仓库", "代码", "拉取", "推送", "合并", "变基", "开pr", "issue", "代码库"]
+        let enKeywords = ["git", "repo", "repository", "branch", "commit", "push", "pull", "merge", "rebase", "pr", "issue", "github"]
+        if zhKeywords.contains(where: { s.contains($0) }) { return true }
+        if enKeywords.contains(where: { s.contains($0) }) { return true }
+        let actionHints = ["打开", "去", "到", "看", "搜", "查", "open", "go to", "search", "check"]
+        return actionHints.contains(where: { s.contains($0) })
+    }
+
+    private func applyDevelopmentSpeechCorrections(_ raw: String) -> String {
+        guard shouldEnableDevTermCorrection() else { return raw }
+        guard raw.contains("后果") else { return raw }
+        guard isDevelopmentSpeechContext() else { return raw }
+        guard raw.count <= 64 else { return raw }
+        guard isGitHubCommandLikePhrase(raw) else { return raw }
+
+        let corrected = raw.replacingOccurrences(of: "后果", with: "GitHub")
+        if corrected != raw {
+            os_log("Applied dev-term correction: '%{public}@' -> '%{public}@'", log: log, type: .info, raw, corrected)
+        }
+        return corrected
+    }
+
     private func setHUDOverride(mode: HUDMode, message: String, icon: String, duration: TimeInterval) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1272,6 +1342,8 @@ final class SpeechManager: ObservableObject {
                             }
                         }
                     }
+
+                    text = self.applyDevelopmentSpeechCorrections(text)
 
                     // Only update "last change" timestamps when the text actually changes.
                     // Noise can cause repeated callbacks; refreshing timestamps here would prevent EOS detection.

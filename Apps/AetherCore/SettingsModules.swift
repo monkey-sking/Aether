@@ -192,6 +192,38 @@ struct InputSettingsView: View {
                         Toggle(isOn: $appState.isAutoPunctuationEnabled) {
                             Text(L10n.settingsAutoPunctuation)
                         }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("开发术语纠错（如“后果”→“GitHub”）", isOn: $appState.speechFixDevTerms)
+                            Text("仅在开发语境下生效，减少中英混合识别错误。")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Toggle("仅在指定 App 启用", isOn: $appState.speechFixDevTermsUseWhitelist)
+                                .disabled(!appState.speechFixDevTerms)
+
+                            if appState.speechFixDevTermsUseWhitelist {
+                                Text("App 白名单（支持多个，按行或逗号分隔，支持 bundle id 片段）")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                TextEditor(text: $appState.speechFixDevTermsWhitelist)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .frame(minHeight: 72)
+                                    .padding(6)
+                                    .background(Color(nsColor: .controlBackgroundColor))
+                                    .cornerRadius(6)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                                    )
+                                    .disabled(!appState.speechFixDevTerms)
+                                Text("示例：com.apple.Terminal, com.apple.dt.Xcode, com.microsoft.VSCode, com.openai.codex")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
                 }
             }
