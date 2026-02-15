@@ -518,6 +518,8 @@ final class SpeechManager: ObservableObject {
     private var micProgressTimer: Timer?
     private var segmentStartedAt: Date = .distantPast
     private var segmentDurationSec: TimeInterval = 0
+    private var isMicProgressPausedForTarget: Bool = false
+    private var micProgressLockedPID: pid_t?
     private var isPTTHeld: Bool = false
     private var wasAwake: Bool = false // Tracks previous wake state for UI updates
     private var audioRingBuffer: [AVAudioPCMBuffer] = []
@@ -546,10 +548,12 @@ final class SpeechManager: ObservableObject {
     private var sessionTargetPID: pid_t?
     private var sessionTargetBundleID: String?
     private var didLogSessionTargetMismatch: Bool = false
+    private var lastFocusToastAt: Date = .distantPast
     private var hudOverrideUntil: Date = .distantPast
     private var hudOverrideMode: HUDMode = .command
     private var hudOverrideMessage: String = ""
     private var hudOverrideIcon: String = "info.circle"
+    private var isUtteranceActive: Bool = false
     private var cachedTypingMode: Bool = false
     private var lastTypingCheckAt: Date = .distantPast
     @Published var lastWakeTime: Date? // For context-aware wake window & UI feedback
@@ -601,10 +605,22 @@ final class SpeechManager: ObservableObject {
             self.segmentStartedAt = Date()
             self.segmentDurationSec = max(durationSec, 0.1)
 
+            // Target semantics: lock ring to the current session target; if focus already changed, start paused.
+            self.micProgressLockedPID = self.sessionTargetPID
+            if let lockedPID = self.micProgressLockedPID,
+               let currentPID = self.currentFocusedPID(),
+               currentPID != lockedPID {
+                self.isMicProgressPausedForTarget = true
+            } else {
+                self.isMicProgressPausedForTarget = false
+            }
+
             HUDManager.shared.updateMicProgress(progress: 0.0, visible: true)
             self.micProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
                 guard let self else { return }
                 guard self.sessionGeneration == gen else { return }
+                self.pauseMicProgressForFocusChangeIfNeeded()
+                guard !self.isMicProgressPausedForTarget else { return }
                 let elapsed = Date().timeIntervalSince(self.segmentStartedAt)
                 let p = CGFloat(min(max(elapsed / self.segmentDurationSec, 0.0), 1.0))
                 HUDManager.shared.updateMicProgress(progress: p, visible: true)
@@ -617,9 +633,13 @@ final class SpeechManager: ObservableObject {
             guard let self else { return }
             self.micProgressTimer?.invalidate()
             self.micProgressTimer = nil
+            let wasPausedForTarget = self.isMicProgressPausedForTarget
+            self.isMicProgressPausedForTarget = false
+            self.micProgressLockedPID = nil
             if keepVisible {
-                // Freeze at 100% briefly; next session start will reset to 0.
-                HUDManager.shared.updateMicProgress(progress: 1.0, visible: true)
+                // If we paused due to focus change, keep the ring visible but reset to 0.
+                // Otherwise, freezing at 100% gives a subtle "segment boundary" cue.
+                HUDManager.shared.updateMicProgress(progress: wasPausedForTarget ? 0.0 : 1.0, visible: true)
             } else {
                 HUDManager.shared.updateMicProgress(progress: 0.0, visible: false)
             }
@@ -682,6 +702,36 @@ final class SpeechManager: ObservableObject {
         } else {
             sessionTargetBundleID = nil
         }
+    }
+
+    private func rearmInputTarget(reason: String) {
+        lockSessionInputTarget()
+        micProgressLockedPID = sessionTargetPID
+        isMicProgressPausedForTarget = false
+        segmentStartedAt = Date()
+        HUDManager.shared.updateMicProgress(progress: 0.0, visible: true)
+        os_log("Re-armed input target (reason=%{public}@) lockedPID=%d", log: log, type: .info, reason, sessionTargetPID ?? -1)
+    }
+
+    private func pauseMicProgressForFocusChangeIfNeeded() {
+        guard HUDManager.shared.state.isMicProgressVisible else { return }
+        guard let lockedPID = micProgressLockedPID else { return }
+        guard let currentPID = currentFocusedPID() else { return }
+        guard currentPID != lockedPID else { return }
+        guard !isMicProgressPausedForTarget else { return }
+
+        // Target semantics: focus change immediately pauses and resets the ring (still visible).
+        isMicProgressPausedForTarget = true
+        HUDManager.shared.updateMicProgress(progress: 0.0, visible: true)
+        setHUDOverride(
+            mode: .command,
+            message: activeLocale.identifier.starts(with: "zh")
+                ? "检测到焦点切换，已暂停输入，需要重新触发"
+                : "Focus changed. Input paused. Trigger again.",
+            icon: "exclamationmark.triangle.fill",
+            duration: 1.6
+        )
+        os_log("Mic progress paused due to focus change. lockedPID=%d currentPID=%d", log: log, type: .info, lockedPID, currentPID)
     }
 
     private func isSessionInputTargetValidForInjection() -> Bool {
@@ -812,6 +862,75 @@ final class SpeechManager: ObservableObject {
 
     private func shouldUseVoiceProcessing() -> Bool {
         UserDefaults.standard.object(forKey: "useVoiceProcessingIO") as? Bool ?? false
+    }
+
+    private func shouldAutoEnableVoiceProcessingForSpeakers() -> Bool {
+        // Default ON: fixes "external speakers leaking into mic" for built-in mic use.
+        // Users can force-enable via `useVoiceProcessingIO` or disable auto via this key.
+        if UserDefaults.standard.object(forKey: "autoVoiceProcessingForSpeakers") == nil { return true }
+        return UserDefaults.standard.object(forKey: "autoVoiceProcessingForSpeakers") as? Bool ?? true
+    }
+
+    private func systemDefaultDeviceID(selector: AudioObjectPropertySelector) -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID)
+        guard status == noErr, deviceID != 0 else { return nil }
+        return deviceID
+    }
+
+    private func audioDeviceName(_ id: AudioDeviceID) -> String? {
+        var nameAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var nameRef: CFString = "" as CFString
+        var nameSize = UInt32(MemoryLayout<CFString>.size)
+        let status = AudioObjectGetPropertyData(id, &nameAddress, 0, nil, &nameSize, &nameRef)
+        guard status == noErr else { return nil }
+        return nameRef as String
+    }
+
+    private func shouldAutoEnableVoiceProcessingIO() -> Bool {
+        guard shouldAutoEnableVoiceProcessingForSpeakers() else { return false }
+
+        let inputID: AudioDeviceID? = (selectedInputDeviceID != 0)
+            ? selectedInputDeviceID
+            : systemDefaultDeviceID(selector: kAudioHardwarePropertyDefaultInputDevice)
+        let outputID: AudioDeviceID? = systemDefaultDeviceID(selector: kAudioHardwarePropertyDefaultOutputDevice)
+
+        let inputName = inputID.flatMap { audioDeviceName($0) } ?? ""
+        let outputName = outputID.flatMap { audioDeviceName($0) } ?? ""
+
+        let inLower = inputName.lowercased()
+        let outLower = outputName.lowercased()
+
+        func looksLikeBuiltInMic(_ s: String) -> Bool {
+            if s.contains("built-in") || s.contains("internal") || s.contains("macbook") || s.contains("imac") { return true }
+            if s.contains("内建") || s.contains("内部") { return true }
+            return false
+        }
+
+        func looksLikeHeadphones(_ s: String) -> Bool {
+            if s.contains("airpods") { return true }
+            if s.contains("headphone") || s.contains("earphone") || s.contains("earbud") || s.contains("buds") { return true }
+            if s.contains("耳机") { return true }
+            if s.contains("wh-") { return true }
+            return false
+        }
+
+        // Only auto-enable AEC when using a built-in mic and output is likely speakers (not headphones).
+        guard looksLikeBuiltInMic(inLower) else { return false }
+        guard !looksLikeHeadphones(outLower) else { return false }
+
+        os_log("Auto VoiceProcessingIO decision: input='%{public}@' output='%{public}@' -> enable", log: log, type: .info, inputName, outputName)
+        return true
     }
 
     private var isTypingMode: Bool {
@@ -1084,6 +1203,10 @@ final class SpeechManager: ObservableObject {
                                 if !self.isAwake {
                                     self.lastWakeTime = Date()
                                     self.playWakeSound()
+                                    // Target semantics: wake word is an explicit re-arm in wake-gated continuous mode.
+                                    if self.isAlwaysListeningEnabled && self.isWakeWordEnabled && !self.isDirectCommandEnabled {
+                                        self.rearmInputTarget(reason: "wake-word")
+                                    }
                                 }
                                 
                                 // Drop the phrase + standard space/punctuation if present
@@ -1097,6 +1220,18 @@ final class SpeechManager: ObservableObject {
 
                     self.lastTranscript = text
                     self.lastChangeAt = Date()
+
+                    // Direct Command mode: treat "start of a new utterance" as an explicit re-arm for the current focus.
+                    let hasPayload = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    if hasPayload && !self.isUtteranceActive {
+                        self.isUtteranceActive = true
+                        if self.isAlwaysListeningEnabled && self.isDirectCommandEnabled {
+                            self.rearmInputTarget(reason: "direct-utterance-start")
+                        }
+                    }
+                    if !hasPayload && self.isUtteranceActive {
+                        self.isUtteranceActive = false
+                    }
                     let liveTyping = self.throttledTypingMode()
                     
                     // [Fix] Typing Guard: Allow typing if:
@@ -1243,14 +1378,16 @@ final class SpeechManager: ObservableObject {
         // Set device BEFORE accessing format or installing tap
         setInputDeviceForEngine(engine)
         
-        // Keep voice processing OFF by default to avoid ducking/volume attenuation
-        // in other apps while Aether is active.
-        if #available(macOS 10.15, *), shouldUseVoiceProcessing() {
+        // Voice Processing (AEC/NS)
+        // Auto-enable only in the "built-in mic + speakers" scenario to reduce feedback/echo pickup.
+        // Users can force-enable via `useVoiceProcessingIO`. Auto can be disabled via `autoVoiceProcessingForSpeakers`.
+        if #available(macOS 10.15, *) {
+            let shouldEnable = shouldUseVoiceProcessing() || shouldAutoEnableVoiceProcessingIO()
             do {
-                try inputNode.setVoiceProcessingEnabled(true)
-                os_log("Voice Processing IO enabled (explicit).", log: log, type: .info)
+                try inputNode.setVoiceProcessingEnabled(shouldEnable)
+                os_log("Voice Processing IO %{public}@.", log: log, type: .info, shouldEnable ? "enabled" : "disabled")
             } catch {
-                os_log("Failed to enable Voice Processing IO: %{public}@", log: log, type: .error, error.localizedDescription)
+                os_log("Failed to set Voice Processing IO=%{public}@ : %{public}@", log: log, type: .error, String(describing: shouldEnable), error.localizedDescription)
             }
         }
 
@@ -1843,6 +1980,10 @@ final class SpeechManager: ObservableObject {
             // When using wake-gated continuous mode, reset the segment progress visual at the moment we wake.
             // In long standby periods we intentionally avoid segmenting, so any "progress" would be stale.
             if currentlyAwake {
+                // Wake-gated mode: waking is an explicit "re-arm" for the current focus.
+                if isWakeWordEnabled && !isDirectCommandEnabled {
+                    rearmInputTarget(reason: "wake-window-open")
+                }
                 startMicProgressUI(durationSec: maxRecordingSegmentSeconds(), generation: sessionGeneration)
             }
         }
@@ -1855,6 +1996,9 @@ final class SpeechManager: ObservableObject {
                 stopMicProgressUI(keepVisible: false)
             }
         }
+
+        // Target semantics: any focus change while the ring is active pauses and resets it.
+        pauseMicProgressForFocusChangeIfNeeded()
 
         let taskState = recognitionTask?.state
         let taskRunning = taskState == .running || taskState == .starting
@@ -1891,6 +2035,7 @@ final class SpeechManager: ObservableObject {
         let text = lastTranscript
         lastTranscript = ""
         lastChangeAt = nil
+        isUtteranceActive = false
 
         os_log("End of utterance detected: '%{public}@'", log: log, type: .default, text)
 
@@ -1930,6 +2075,7 @@ final class SpeechManager: ObservableObject {
         sessionTargetPID = nil
         sessionTargetBundleID = nil
         didLogSessionTargetMismatch = false
+        isUtteranceActive = false
         
         // [Fix] DON'T clear lastStreamedText here! handleTranscript needs it for differential sync.
         // It will be cleared at the START of the next session in startOnce().
@@ -1944,6 +2090,7 @@ final class SpeechManager: ObservableObject {
         sessionTargetPID = nil
         sessionTargetBundleID = nil
         didLogSessionTargetMismatch = false
+        isUtteranceActive = false
         lastTranscript = ""
         lastChangeAt = nil
         lastStableText = ""
@@ -2142,7 +2289,11 @@ final class SpeechManager: ObservableObject {
         guard let currentPID = currentFocusedPID() else { return false }
         let matches = currentPID == lockedPID
         if !matches {
-            showInputTargetChangedHUD()
+            let now = Date()
+            if now.timeIntervalSince(lastFocusToastAt) > 1.2 {
+                lastFocusToastAt = now
+                showInputTargetChangedHUD()
+            }
         }
         return matches
     }
