@@ -462,19 +462,42 @@ class AppState: ObservableObject {
         }
     }
 
-    @Published var speechFixDevTerms: Bool = UserDefaults.standard.object(forKey: "speechFixDevTerms") as? Bool ?? true {
+    @Published var speechTermCorrectionEnabled: Bool = UserDefaults.standard.object(forKey: "speechTermCorrectionEnabled") as? Bool ?? true {
         didSet {
-            UserDefaults.standard.set(speechFixDevTerms, forKey: "speechFixDevTerms")
+            UserDefaults.standard.set(speechTermCorrectionEnabled, forKey: "speechTermCorrectionEnabled")
         }
     }
-    @Published var speechFixDevTermsUseWhitelist: Bool = UserDefaults.standard.object(forKey: "speechFixDevTermsUseWhitelist") as? Bool ?? false {
+    @Published var speechTermGroupDevEnabled: Bool = UserDefaults.standard.object(forKey: "speechTermGroupDevEnabled") as? Bool ?? true {
         didSet {
-            UserDefaults.standard.set(speechFixDevTermsUseWhitelist, forKey: "speechFixDevTermsUseWhitelist")
+            UserDefaults.standard.set(speechTermGroupDevEnabled, forKey: "speechTermGroupDevEnabled")
         }
     }
-    @Published var speechFixDevTermsWhitelist: String = UserDefaults.standard.string(forKey: "speechFixDevTermsWhitelist") ?? "" {
+    @Published var speechTermGroupOfficeEnabled: Bool = UserDefaults.standard.object(forKey: "speechTermGroupOfficeEnabled") as? Bool ?? true {
         didSet {
-            UserDefaults.standard.set(speechFixDevTermsWhitelist, forKey: "speechFixDevTermsWhitelist")
+            UserDefaults.standard.set(speechTermGroupOfficeEnabled, forKey: "speechTermGroupOfficeEnabled")
+        }
+    }
+    @Published var speechTermGroupWritingEnabled: Bool = UserDefaults.standard.object(forKey: "speechTermGroupWritingEnabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(speechTermGroupWritingEnabled, forKey: "speechTermGroupWritingEnabled")
+        }
+    }
+    @Published var speechTermGroupDevApps: String = UserDefaults.standard.string(forKey: "speechTermGroupDevApps")
+        ?? "com.apple.Terminal,\ncom.apple.dt.Xcode,\ncom.microsoft.VSCode,\ncom.openai.codex,\ncom.openai.chatgpt" {
+        didSet {
+            UserDefaults.standard.set(speechTermGroupDevApps, forKey: "speechTermGroupDevApps")
+        }
+    }
+    @Published var speechTermGroupOfficeApps: String = UserDefaults.standard.string(forKey: "speechTermGroupOfficeApps")
+        ?? "com.microsoft.Word,\ncom.microsoft.Excel,\ncom.microsoft.Powerpoint,\ncom.tencent.wework,\ncom.apple.mail" {
+        didSet {
+            UserDefaults.standard.set(speechTermGroupOfficeApps, forKey: "speechTermGroupOfficeApps")
+        }
+    }
+    @Published var speechTermGroupWritingApps: String = UserDefaults.standard.string(forKey: "speechTermGroupWritingApps")
+        ?? "com.apple.TextEdit,\ncom.apple.Notes,\ncom.coteditor.CotEditor,\ncom.sublimetext.4,\ncom.zed.Zed" {
+        didSet {
+            UserDefaults.standard.set(speechTermGroupWritingApps, forKey: "speechTermGroupWritingApps")
         }
     }
     

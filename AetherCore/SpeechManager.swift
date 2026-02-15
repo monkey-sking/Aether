@@ -803,50 +803,88 @@ final class SpeechManager: ObservableObject {
         HUDManager.shared.update(mode: .command, message: message, language: activeLocale.identifier, inputDeviceIcon: "exclamationmark.triangle.fill")
     }
 
-    private func shouldEnableDevTermCorrection() -> Bool {
+    private enum SpeechTermGroup: CaseIterable {
+        case development
+        case office
+        case writing
+    }
+
+    private struct SpeechReplacementRule {
+        let from: String
+        let to: String
+        let requiresCommandLike: Bool
+    }
+
+    private func shouldEnableSpeechTermCorrection() -> Bool {
+        if UserDefaults.standard.object(forKey: "speechTermCorrectionEnabled") != nil {
+            return UserDefaults.standard.bool(forKey: "speechTermCorrectionEnabled")
+        }
+        // Compatibility fallback for previous dev-only switch.
         if UserDefaults.standard.object(forKey: "speechFixDevTerms") == nil { return true }
         return UserDefaults.standard.bool(forKey: "speechFixDevTerms")
     }
 
-    private func shouldUseDevTermCorrectionWhitelist() -> Bool {
-        UserDefaults.standard.object(forKey: "speechFixDevTermsUseWhitelist") as? Bool ?? false
+    private func isGroupEnabled(_ group: SpeechTermGroup) -> Bool {
+        switch group {
+        case .development:
+            if UserDefaults.standard.object(forKey: "speechTermGroupDevEnabled") != nil {
+                return UserDefaults.standard.bool(forKey: "speechTermGroupDevEnabled")
+            }
+            // Compatibility fallback for previous dev-only switch.
+            if UserDefaults.standard.object(forKey: "speechFixDevTerms") != nil {
+                return UserDefaults.standard.bool(forKey: "speechFixDevTerms")
+            }
+            return true
+        case .office:
+            if UserDefaults.standard.object(forKey: "speechTermGroupOfficeEnabled") == nil { return true }
+            return UserDefaults.standard.bool(forKey: "speechTermGroupOfficeEnabled")
+        case .writing:
+            if UserDefaults.standard.object(forKey: "speechTermGroupWritingEnabled") == nil { return true }
+            return UserDefaults.standard.bool(forKey: "speechTermGroupWritingEnabled")
+        }
     }
 
-    private func devTermCorrectionWhitelist() -> [String] {
-        let raw = UserDefaults.standard.string(forKey: "speechFixDevTermsWhitelist") ?? ""
+    private func groupAppWhitelist(_ group: SpeechTermGroup) -> [String] {
+        let key: String
+        switch group {
+        case .development:
+            if UserDefaults.standard.object(forKey: "speechTermGroupDevApps") == nil,
+               let legacy = UserDefaults.standard.string(forKey: "speechFixDevTermsWhitelist"),
+               !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return legacy
+                    .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                    .filter { !$0.isEmpty }
+            }
+            key = "speechTermGroupDevApps"
+        case .office:
+            key = "speechTermGroupOfficeApps"
+        case .writing:
+            key = "speechTermGroupWritingApps"
+        }
+        let raw = UserDefaults.standard.string(forKey: key) ?? ""
         return raw
             .components(separatedBy: CharacterSet(charactersIn: ",\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .filter { !$0.isEmpty }
     }
 
-    private func isDevelopmentBundleID(_ bundleID: String?) -> Bool {
-        let b = (bundleID ?? "").lowercased()
-        if b.isEmpty { return false }
-        let markers = [
-            "xcode", "vscode", "cursor", "jetbrains", "sublime", "zed",
-            "terminal", "iterm", "warp",
-            "github", "git", "codex", "antigravity"
-        ]
-        return markers.contains { b.contains($0) }
-    }
-
-    private func isDevelopmentSpeechContext() -> Bool {
+    private func currentContextBundleIDs() -> [String] {
         let target = (sessionTargetBundleID ?? "").lowercased()
         let frontmost = (NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "").lowercased()
+        return [target, frontmost].filter { !$0.isEmpty }
+    }
 
-        if shouldUseDevTermCorrectionWhitelist() {
-            let whitelist = devTermCorrectionWhitelist()
+    private func activeGroupsForCurrentContext() -> [SpeechTermGroup] {
+        let bundles = currentContextBundleIDs()
+        guard !bundles.isEmpty else { return [] }
+
+        return SpeechTermGroup.allCases.filter { group in
+            guard isGroupEnabled(group) else { return false }
+            let whitelist = groupAppWhitelist(group)
             guard !whitelist.isEmpty else { return false }
-            func matchesWhitelist(_ bundleID: String) -> Bool {
-                guard !bundleID.isEmpty else { return false }
-                return whitelist.contains { bundleID.contains($0) }
-            }
-            return matchesWhitelist(target) || matchesWhitelist(frontmost)
+            return bundles.contains { b in whitelist.contains(where: { b.contains($0) }) }
         }
-
-        if isDevelopmentBundleID(target) { return true }
-        return isDevelopmentBundleID(frontmost)
     }
 
     private func isGitHubCommandLikePhrase(_ text: String) -> Bool {
@@ -859,16 +897,46 @@ final class SpeechManager: ObservableObject {
         return actionHints.contains(where: { s.contains($0) })
     }
 
-    private func applyDevelopmentSpeechCorrections(_ raw: String) -> String {
-        guard shouldEnableDevTermCorrection() else { return raw }
-        guard raw.contains("后果") else { return raw }
-        guard isDevelopmentSpeechContext() else { return raw }
-        guard raw.count <= 64 else { return raw }
-        guard isGitHubCommandLikePhrase(raw) else { return raw }
+    private func replacementRules(for group: SpeechTermGroup) -> [SpeechReplacementRule] {
+        switch group {
+        case .development:
+            return [
+                SpeechReplacementRule(from: "后果", to: "GitHub", requiresCommandLike: true),
+                SpeechReplacementRule(from: "git hub", to: "GitHub", requiresCommandLike: false)
+            ]
+        case .office:
+            return [
+                SpeechReplacementRule(from: "飞鼠", to: "飞书", requiresCommandLike: false),
+                SpeechReplacementRule(from: "叮叮", to: "钉钉", requiresCommandLike: false),
+                SpeechReplacementRule(from: "定定", to: "钉钉", requiresCommandLike: false),
+                SpeechReplacementRule(from: "未信", to: "微信", requiresCommandLike: false)
+            ]
+        case .writing:
+            return [
+                SpeechReplacementRule(from: "逗好", to: "逗号", requiresCommandLike: false),
+                SpeechReplacementRule(from: "句好", to: "句号", requiresCommandLike: false)
+            ]
+        }
+    }
 
-        let corrected = raw.replacingOccurrences(of: "后果", with: "GitHub")
+    private func applyContextualSpeechCorrections(_ raw: String) -> String {
+        guard shouldEnableSpeechTermCorrection() else { return raw }
+        guard raw.count <= 120 else { return raw }
+
+        let groups = activeGroupsForCurrentContext()
+        guard !groups.isEmpty else { return raw }
+
+        var corrected = raw
+        for group in groups {
+            for rule in replacementRules(for: group) {
+                guard corrected.contains(rule.from) else { continue }
+                if rule.requiresCommandLike && !isGitHubCommandLikePhrase(corrected) { continue }
+                corrected = corrected.replacingOccurrences(of: rule.from, with: rule.to)
+            }
+        }
+
         if corrected != raw {
-            os_log("Applied dev-term correction: '%{public}@' -> '%{public}@'", log: log, type: .info, raw, corrected)
+            os_log("Applied contextual correction: '%{public}@' -> '%{public}@'", log: log, type: .info, raw, corrected)
         }
         return corrected
     }
@@ -1343,7 +1411,7 @@ final class SpeechManager: ObservableObject {
                         }
                     }
 
-                    text = self.applyDevelopmentSpeechCorrections(text)
+                    text = self.applyContextualSpeechCorrections(text)
 
                     // Only update "last change" timestamps when the text actually changes.
                     // Noise can cause repeated callbacks; refreshing timestamps here would prevent EOS detection.
