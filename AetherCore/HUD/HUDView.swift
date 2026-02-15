@@ -70,10 +70,27 @@ struct HUDView: View {
     // MARK: - Reusable Components
 
     private var micIcon: some View {
-        Image(systemName: resolvedSymbolName(for: state.inputDeviceIcon))
-            .foregroundColor(.white)
-            .font(.system(size: 14))
-            .shadow(radius: 1)
+        ZStack {
+            if state.isMicProgressVisible && (state.mode == .listening || state.mode == .command || state.mode == .dictation) {
+                Circle()
+                    .stroke(Color.white.opacity(0.22), lineWidth: 2)
+                    .frame(width: 22, height: 22)
+                Circle()
+                    .trim(from: 0, to: state.micProgress)
+                    .stroke(
+                        Color.green.opacity(0.9),
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: 22, height: 22)
+            }
+
+            Image(systemName: resolvedSymbolName(for: state.inputDeviceIcon))
+                .foregroundColor(.white)
+                .font(.system(size: 14))
+                .shadow(radius: 1)
+        }
+        .frame(width: 22, height: 22)
     }
     
     private func resolvedSymbolName(for requested: String) -> String {

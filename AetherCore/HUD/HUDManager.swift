@@ -45,6 +45,11 @@ final class HUDManager {
         }
         
         state.update(mode: mode, message: message, language: language, isTypingContext: lastKnownTypingState(), inputDeviceIcon: inputDeviceIcon)
+        if mode == .hidden {
+            // Ensure transient indicators don't linger when the HUD is dismissed.
+            state.isMicProgressVisible = false
+            state.micProgress = 0.0
+        }
         
         // Mode-specific behavior
         switch mode {
@@ -59,6 +64,16 @@ final class HUDManager {
             requestReposition(immediate: true)
             ensureWindowVisible()
         }
+    }
+
+    func updateMicProgress(progress: CGFloat, visible: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { self.updateMicProgress(progress: progress, visible: visible) }
+            return
+        }
+        let clamped = min(max(progress, 0.0), 1.0)
+        state.micProgress = clamped
+        state.isMicProgressVisible = visible
     }
     
     func updateAudioLevel(_ level: Float) {
