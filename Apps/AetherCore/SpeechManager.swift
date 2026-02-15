@@ -803,10 +803,13 @@ final class SpeechManager: ObservableObject {
         HUDManager.shared.update(mode: .command, message: message, language: activeLocale.identifier, inputDeviceIcon: "exclamationmark.triangle.fill")
     }
 
-    private enum SpeechTermGroup: CaseIterable {
-        case development
-        case office
-        case writing
+    private struct SpeechTermGroup: Codable {
+        var id: String
+        var name: String
+        var isEnabled: Bool
+        var applyToAllApps: Bool
+        var appList: String
+        var rulesText: String
     }
 
     private struct SpeechReplacementRule {
@@ -824,49 +827,19 @@ final class SpeechManager: ObservableObject {
         return UserDefaults.standard.bool(forKey: "speechFixDevTerms")
     }
 
-    private func isGroupEnabled(_ group: SpeechTermGroup) -> Bool {
-        switch group {
-        case .development:
-            if UserDefaults.standard.object(forKey: "speechTermGroupDevEnabled") != nil {
-                return UserDefaults.standard.bool(forKey: "speechTermGroupDevEnabled")
-            }
-            // Compatibility fallback for previous dev-only switch.
-            if UserDefaults.standard.object(forKey: "speechFixDevTerms") != nil {
-                return UserDefaults.standard.bool(forKey: "speechFixDevTerms")
-            }
-            return true
-        case .office:
-            if UserDefaults.standard.object(forKey: "speechTermGroupOfficeEnabled") == nil { return true }
-            return UserDefaults.standard.bool(forKey: "speechTermGroupOfficeEnabled")
-        case .writing:
-            if UserDefaults.standard.object(forKey: "speechTermGroupWritingEnabled") == nil { return true }
-            return UserDefaults.standard.bool(forKey: "speechTermGroupWritingEnabled")
-        }
-    }
-
-    private func groupAppWhitelist(_ group: SpeechTermGroup) -> [String] {
-        let key: String
-        switch group {
-        case .development:
-            if UserDefaults.standard.object(forKey: "speechTermGroupDevApps") == nil,
-               let legacy = UserDefaults.standard.string(forKey: "speechFixDevTermsWhitelist"),
-               !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return legacy
-                    .components(separatedBy: CharacterSet(charactersIn: ",\n"))
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                    .filter { !$0.isEmpty }
-            }
-            key = "speechTermGroupDevApps"
-        case .office:
-            key = "speechTermGroupOfficeApps"
-        case .writing:
-            key = "speechTermGroupWritingApps"
-        }
-        let raw = UserDefaults.standard.string(forKey: key) ?? ""
+    private func groupAppWhitelist(_ raw: String) -> [String] {
         return raw
             .components(separatedBy: CharacterSet(charactersIn: ",\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .filter { !$0.isEmpty }
+    }
+
+    private func loadSpeechTermGroups() -> [SpeechTermGroup] {
+        if let data = UserDefaults.standard.data(forKey: "speechTermGroupsV2"),
+           let groups = try? JSONDecoder().decode([SpeechTermGroup].self, from: data) {
+            return groups
+        }
+        return []
     }
 
     private func currentContextBundleIDs() -> [String] {
@@ -876,12 +849,14 @@ final class SpeechManager: ObservableObject {
     }
 
     private func activeGroupsForCurrentContext() -> [SpeechTermGroup] {
+        let groups = loadSpeechTermGroups()
+        guard !groups.isEmpty else { return [] }
         let bundles = currentContextBundleIDs()
-        guard !bundles.isEmpty else { return [] }
-
-        return SpeechTermGroup.allCases.filter { group in
-            guard isGroupEnabled(group) else { return false }
-            let whitelist = groupAppWhitelist(group)
+        return groups.filter { group in
+            guard group.isEnabled else { return false }
+            if group.applyToAllApps { return true }
+            guard !bundles.isEmpty else { return false }
+            let whitelist = groupAppWhitelist(group.appList)
             guard !whitelist.isEmpty else { return false }
             return bundles.contains { b in whitelist.contains(where: { b.contains($0) }) }
         }
@@ -897,26 +872,38 @@ final class SpeechManager: ObservableObject {
         return actionHints.contains(where: { s.contains($0) })
     }
 
+    private func replacementRules(from rawText: String) -> [SpeechReplacementRule] {
+        rawText
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+            .compactMap { line in
+                let parts = line.components(separatedBy: "=>").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                guard parts.count >= 2 else { return nil }
+                let requiresCmd = (parts.count >= 3 && parts[2].lowercased().contains("cmd"))
+                guard !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+                return SpeechReplacementRule(from: parts[0], to: parts[1], requiresCommandLike: requiresCmd)
+            }
+    }
+
+    private func applyLegacyFallbackCorrection(_ raw: String) -> String {
+        guard shouldEnableSpeechTermCorrection() else { return raw }
+        guard raw.contains("后果") else { return raw }
+        let legacyWhitelist = UserDefaults.standard.string(forKey: "speechFixDevTermsWhitelist") ?? ""
+        let targets = groupAppWhitelist(legacyWhitelist)
+        if targets.isEmpty { return raw }
+        let bundles = currentContextBundleIDs()
+        guard bundles.contains(where: { b in targets.contains(where: { b.contains($0) }) }) else { return raw }
+        if !isGitHubCommandLikePhrase(raw) { return raw }
+        return raw.replacingOccurrences(of: "后果", with: "GitHub")
+    }
+
     private func replacementRules(for group: SpeechTermGroup) -> [SpeechReplacementRule] {
-        switch group {
-        case .development:
-            return [
-                SpeechReplacementRule(from: "后果", to: "GitHub", requiresCommandLike: true),
-                SpeechReplacementRule(from: "git hub", to: "GitHub", requiresCommandLike: false)
-            ]
-        case .office:
-            return [
-                SpeechReplacementRule(from: "飞鼠", to: "飞书", requiresCommandLike: false),
-                SpeechReplacementRule(from: "叮叮", to: "钉钉", requiresCommandLike: false),
-                SpeechReplacementRule(from: "定定", to: "钉钉", requiresCommandLike: false),
-                SpeechReplacementRule(from: "未信", to: "微信", requiresCommandLike: false)
-            ]
-        case .writing:
-            return [
-                SpeechReplacementRule(from: "逗好", to: "逗号", requiresCommandLike: false),
-                SpeechReplacementRule(from: "句好", to: "句号", requiresCommandLike: false)
-            ]
+        let rules = replacementRules(from: group.rulesText)
+        if !rules.isEmpty {
+            return rules
         }
+        return []
     }
 
     private func applyContextualSpeechCorrections(_ raw: String) -> String {
@@ -924,7 +911,9 @@ final class SpeechManager: ObservableObject {
         guard raw.count <= 120 else { return raw }
 
         let groups = activeGroupsForCurrentContext()
-        guard !groups.isEmpty else { return raw }
+        if groups.isEmpty {
+            return applyLegacyFallbackCorrection(raw)
+        }
 
         var corrected = raw
         for group in groups {
