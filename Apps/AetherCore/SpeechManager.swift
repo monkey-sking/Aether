@@ -621,6 +621,16 @@ final class SpeechManager: ObservableObject {
                 guard self.sessionGeneration == gen else { return }
                 self.pauseMicProgressForFocusChangeIfNeeded()
                 guard !self.isMicProgressPausedForTarget else { return }
+
+                // Gate progress on "actual voice activity" to avoid the ring advancing during silence.
+                // We use the HUD audio level as a cheap VAD proxy.
+                let vadThreshold = UserDefaults.standard.object(forKey: "micProgressVADThreshold") as? Double ?? 0.07
+                let level = Double(HUDManager.shared.state.audioLevel)
+                let hasVoiceActivity = level >= vadThreshold
+                if !hasVoiceActivity {
+                    // Keep it visible but don't advance.
+                    return
+                }
                 let elapsed = Date().timeIntervalSince(self.segmentStartedAt)
                 let p = CGFloat(min(max(elapsed / self.segmentDurationSec, 0.0), 1.0))
                 HUDManager.shared.updateMicProgress(progress: p, visible: true)
