@@ -4,6 +4,7 @@ import AppKit
 // MARK: - Input Settings (Voice)
 struct InputSettingsView: View {
     @EnvironmentObject var appState: AppState
+    @State private var editingGroupID: String?
     
     var body: some View {
         ScrollView(.vertical) {
@@ -215,9 +216,10 @@ struct InputSettingsView: View {
                         }
 
                         ForEach($appState.speechTermGroups) { $group in
-                            SpeechTermGroupSettingsBlock(
+                            SpeechTermGroupCard(
                                 group: $group,
                                 enabledAll: $appState.speechTermCorrectionEnabled,
+                                onEdit: { editingGroupID = group.id },
                                 onDelete: { appState.removeSpeechTermGroup(id: group.id) }
                             )
                         }
@@ -225,6 +227,20 @@ struct InputSettingsView: View {
                 }
             }
             .padding()
+        }
+        .sheet(isPresented: Binding(
+            get: { editingGroupID != nil },
+            set: { if !$0 { editingGroupID = nil } }
+        )) {
+            if let id = editingGroupID,
+               let idx = appState.speechTermGroups.firstIndex(where: { $0.id == id }) {
+                SpeechTermGroupEditorSheet(
+                    group: $appState.speechTermGroups[idx],
+                    enabledAll: $appState.speechTermCorrectionEnabled
+                )
+            } else {
+                EmptyView()
+            }
         }
     }
     
@@ -281,50 +297,124 @@ struct InputSettingsView: View {
     }
 }
 
-private struct SpeechTermGroupSettingsBlock: View {
-    @Binding var group: AppState.SpeechTermGroupConfig
-    @Binding var enabledAll: Bool
-    let onDelete: () -> Void
-
-    private var currentItems: [String] {
-        group.appList
+private enum SpeechGroupAppCodec {
+    static func parse(_ raw: String) -> [String] {
+        raw
             .components(separatedBy: CharacterSet(charactersIn: ",\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
 
+    static func join(_ items: [String]) -> String {
+        items.joined(separator: "\n")
+    }
+}
+
+private struct SpeechTermGroupCard: View {
+    @Binding var group: AppState.SpeechTermGroupConfig
+    @Binding var enabledAll: Bool
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    private var appItems: [String] { SpeechGroupAppCodec.parse(group.appList) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Toggle("", isOn: $group.isEnabled)
-                    .disabled(!enabledAll)
-                TextField("分组名", text: $group.name)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(!enabledAll)
-                Spacer()
-                SpeechAppPickerMenu(
-                    existingBundleIds: Set(currentItems.map { $0.lowercased() }),
-                    onAdd: { bundleId in
-                        appendBundleId(bundleId)
-                    }
-                )
-                .disabled(!enabledAll || !group.isEnabled || group.applyToAllApps)
-                Button(role: .destructive, action: onDelete) {
-                    Image(systemName: "trash")
-                }
+        HStack(spacing: 10) {
+            SpeechGroupAppPreview(apps: appItems, applyToAll: group.applyToAllApps)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.name)
+                    .font(.body.weight(.semibold))
+                Text(group.applyToAllApps ? "全部 App 生效" : "\(appItems.count) 个 App")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Toggle("", isOn: $group.isEnabled)
+                .disabled(!enabledAll)
+            Button("编辑") { onEdit() }
                 .buttonStyle(.borderless)
                 .disabled(!enabledAll)
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
             }
+            .buttonStyle(.borderless)
+            .disabled(!enabledAll)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
+        .cornerRadius(8)
+    }
+}
+
+private struct SpeechTermGroupEditorSheet: View {
+    @Binding var group: AppState.SpeechTermGroupConfig
+    let enabledAll: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    private var appItems: [String] { SpeechGroupAppCodec.parse(group.appList) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("编辑分组")
+                    .font(.headline)
+                Spacer()
+                Button("完成") { dismiss() }
+            }
+
+            TextField("分组名", text: $group.name)
+                .textFieldStyle(.roundedBorder)
+                .disabled(!enabledAll)
+
+            Toggle("启用此分组", isOn: $group.isEnabled)
+                .disabled(!enabledAll)
             Toggle("通用组（全部 App 生效）", isOn: $group.applyToAllApps)
                 .disabled(!enabledAll || !group.isEnabled)
 
             if !group.applyToAllApps {
-                Text("生效 App（bundle id，逗号/换行分隔）")
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("生效 App")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        SpeechAppPickerMenu(
+                            existingBundleIds: Set(appItems.map { $0.lowercased() }),
+                            onAdd: { bid in
+                                var items = appItems
+                                if !items.map({ $0.lowercased() }).contains(bid.lowercased()) {
+                                    items.append(bid)
+                                }
+                                group.appList = SpeechGroupAppCodec.join(items)
+                            }
+                        )
+                        .disabled(!enabledAll || !group.isEnabled)
+                    }
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(appItems, id: \.self) { bundleID in
+                                SpeechAppChip(bundleID: bundleID) {
+                                    var items = appItems
+                                    items.removeAll { $0 == bundleID }
+                                    group.appList = SpeechGroupAppCodec.join(items)
+                                }
+                            }
+                        }
+                    }
+                    .frame(minHeight: 88, maxHeight: 130)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("词条规则")
+                    .font(.subheadline.weight(.semibold))
+                Text("每行一条：`原词=>目标词`，可选 `=>cmd` 仅命令语境生效。")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextEditor(text: $group.appList)
+                TextEditor(text: $group.rulesText)
                     .font(.system(.caption, design: .monospaced))
-                    .frame(minHeight: 64)
+                    .frame(minHeight: 120)
                     .padding(6)
                     .background(Color(nsColor: .controlBackgroundColor))
                     .cornerRadius(6)
@@ -334,38 +424,103 @@ private struct SpeechTermGroupSettingsBlock: View {
                     )
                     .disabled(!enabledAll || !group.isEnabled)
             }
-
-            Text("词条规则（每行一个）")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            TextEditor(text: $group.rulesText)
-                .font(.system(.caption, design: .monospaced))
-                .frame(minHeight: 64)
-                .padding(6)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .cornerRadius(6)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                )
-                .disabled(!enabledAll || !group.isEnabled)
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 8)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
-        .cornerRadius(8)
+        .padding(16)
+        .frame(width: 560, height: 520)
     }
+}
 
-    private func appendBundleId(_ bundleId: String) {
-        let trimmed = bundleId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let existing = currentItems.map { $0.lowercased() }
-        guard !existing.contains(trimmed.lowercased()) else { return }
-        if group.appList.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            group.appList = trimmed
-        } else {
-            group.appList += "\n\(trimmed)"
+private struct SpeechGroupAppPreview: View {
+    let apps: [String]
+    let applyToAll: Bool
+
+    var body: some View {
+        HStack(spacing: -6) {
+            if applyToAll {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.system(size: 14))
+                    .frame(width: 26, height: 26)
+                    .background(Color.accentColor.opacity(0.18))
+                    .clipShape(Circle())
+            } else {
+                ForEach(Array(apps.prefix(3)), id: \.self) { bid in
+                    SpeechAppIcon(bundleID: bid)
+                        .frame(width: 26, height: 26)
+                }
+                if apps.count > 3 {
+                    Text("+\(apps.count - 3)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 4)
+                }
+            }
         }
+    }
+}
+
+private struct SpeechAppChip: View {
+    let bundleID: String
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            SpeechAppIcon(bundleID: bundleID)
+                .frame(width: 20, height: 20)
+            Text(SpeechAppMetaStore.name(for: bundleID))
+                .lineLimit(1)
+            Spacer()
+            Text(bundleID)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(6)
+    }
+}
+
+private enum SpeechAppMetaStore {
+    static func name(for bundleID: String) -> String {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
+           let bundle = Bundle(url: url),
+           let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+                ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String {
+            return name
+        }
+        return bundleID
+    }
+}
+
+private struct SpeechAppIcon: View {
+    let bundleID: String
+
+    var body: some View {
+        Group {
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                    .resizable()
+                    .interpolation(.high)
+            } else {
+                Image(systemName: "app.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundColor(.secondary)
+                    .padding(4)
+            }
+        }
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+        )
     }
 }
 
@@ -400,8 +555,16 @@ private struct SpeechAppPickerMenu: View {
             } else {
                 Text("运行中应用")
                 ForEach(runningCandidates) { app in
-                    Button("\(app.name) (\(app.bundleId))") {
+                    Button {
                         onAdd(app.bundleId)
+                    } label: {
+                        HStack(spacing: 8) {
+                            SpeechAppIcon(bundleID: app.bundleId)
+                                .frame(width: 16, height: 16)
+                            Text(app.name)
+                            Text("(\(app.bundleId))")
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
                 Divider()
