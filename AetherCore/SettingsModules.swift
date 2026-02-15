@@ -236,7 +236,7 @@ struct InputSettingsView: View {
                let idx = appState.speechTermGroups.firstIndex(where: { $0.id == id }) {
                 SpeechTermGroupEditorSheet(
                     group: $appState.speechTermGroups[idx],
-                    enabledAll: $appState.speechTermCorrectionEnabled
+                    enabledAll: appState.speechTermCorrectionEnabled
                 )
             } else {
                 EmptyView()
