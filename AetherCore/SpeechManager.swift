@@ -37,6 +37,8 @@ enum VoiceIntent: Equatable {
     case unknown(String)
 }
 
+extension VoiceIntent: Sendable {}
+
 final class VoiceCommandRouter {
     func route(transcript raw: String, isTypingMode: Bool = false) -> VoiceIntent {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -233,6 +235,50 @@ final class TextInjector {
 
 @MainActor
 final class SpeechManager: ObservableObject {
+    private struct IntentJob: Sendable {
+        let seq: Int
+        let intent: VoiceIntent
+        let localeIdentifier: String
+        let llmEnhancementEnabled: Bool
+        let sessionTypingMode: Bool
+        let screenTypedCount: Int
+        let targetPID: pid_t?
+        let targetBundleID: String?
+    }
+
+    private struct ProcessedJob: Sendable {
+        let seq: Int
+        let intent: VoiceIntent
+        let localeIdentifier: String
+        let sessionTypingMode: Bool
+        let screenTypedCount: Int
+        let targetPID: pid_t?
+        let targetBundleID: String?
+        let diagnostics: String?
+    }
+
+    private actor IntentPipeline {
+        private var nextSeq: Int = 0
+        private var expectedSeq: Int = 0
+        private var readyBySeq: [Int: ProcessedJob] = [:]
+
+        func allocateSeq() -> Int {
+            let s = nextSeq
+            nextSeq += 1
+            return s
+        }
+
+        func submit(_ job: ProcessedJob) -> [ProcessedJob] {
+            readyBySeq[job.seq] = job
+            var out: [ProcessedJob] = []
+            while let j = readyBySeq.removeValue(forKey: expectedSeq) {
+                out.append(j)
+                expectedSeq += 1
+            }
+            return out
+        }
+    }
+
     @Published var status: String = "Idle"
     @Published var lastTranscript: String = ""
     @Published var lastError: String = ""
@@ -241,9 +287,12 @@ final class SpeechManager: ObservableObject {
     @Published var availableInputDevices: [AudioInputDevice] = []
     @Published var selectedInputDeviceID: AudioDeviceID = 0 { // 0 = System Default
         didSet {
-            // Only restart if changed and engine is running
+            // Only restart if changed and capture path is active.
             if oldValue != selectedInputDeviceID {
-                restartEngineForNewDevice()
+                let captureActive = (audioEngine?.isRunning == true) || recognitionTask != nil || isAlwaysListeningEnabled
+                if captureActive {
+                    scheduleEngineRestart(reason: "input-device-selection")
+                }
             }
         }
     }
@@ -465,6 +514,8 @@ final class SpeechManager: ObservableObject {
     private var screenTypedCount: Int = 0  // Tracks actual chars typed on screen (grows monotonically)
     private var stopTimer: Timer?
     private var failsafeTimer: Timer?
+    private var segmentTimer: Timer?
+    private var isPTTHeld: Bool = false
     private var wasAwake: Bool = false // Tracks previous wake state for UI updates
     private var audioRingBuffer: [AVAudioPCMBuffer] = []
     private let ringBufferCapacity = 10 // ~0.5s at 1024 frames/buffer
@@ -473,20 +524,30 @@ final class SpeechManager: ObservableObject {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var finalizationWorkItem: DispatchWorkItem? // For cancellable delayed finalization
+    private var pendingEngineRestartWorkItem: DispatchWorkItem?
+    private var lastEngineRestartAt: Date = .distantPast
+    private let engineRestartDebounce: TimeInterval = 0.55
+    private let engineRestartMinInterval: TimeInterval = 1.5
+    private var continuousRecoveryGraceUntil: Date = .distantPast
     
     // Recognizer (Updated on locale change)
     private var recognizer: SFSpeechRecognizer? = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
 
     private var continuousTimer: Timer?
+    private var lastContinuousStartAt: Date = .distantPast
     private var isStopping: Bool = false // Prevent HUD flicker during trailing audio capture
     private var lastChangeAt: Date?
     private var lastStableText: String = ""
     private var sessionGeneration: Int = 0 
     private var sessionTypingMode: Bool = false
+    private var sessionTargetPID: pid_t?
+    private var sessionTargetBundleID: String?
+    private var didLogSessionTargetMismatch: Bool = false
     private var cachedTypingMode: Bool = false
     private var lastTypingCheckAt: Date = .distantPast
     @Published var lastWakeTime: Date? // For context-aware wake window & UI feedback
     private var cancellables = Set<AnyCancellable>()
+    private let intentPipeline = IntentPipeline()
 
     private var isAwake: Bool {
         // Gaze Wake: if looking at screen AND tracking is active -> Awake
@@ -503,6 +564,101 @@ final class SpeechManager: ObservableObject {
     private func alwaysListeningWakeWindowSeconds() -> TimeInterval {
         let value = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double ?? 4.0
         return min(max(value, 2.0), 30.0)
+    }
+
+    private func maxRecordingSegmentSeconds() -> TimeInterval {
+        // Apple Speech streaming tasks can degrade/hang on long sessions.
+        // Segmenting reduces failure rate for long dictation.
+        let v = UserDefaults.standard.object(forKey: "maxRecordingSegmentSeconds") as? Double ?? 32.0
+        return min(max(v, 10.0), 120.0)
+    }
+
+    private func scheduleSegmentTimer(forGeneration gen: Int) {
+        segmentTimer?.invalidate()
+        let maxSec = maxRecordingSegmentSeconds()
+        segmentTimer = Timer.scheduledTimer(withTimeInterval: maxSec, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleSegmentTimeout(expectedGeneration: gen, maxSec: maxSec)
+            }
+        }
+    }
+
+    @MainActor
+    private func handleSegmentTimeout(expectedGeneration gen: Int, maxSec: TimeInterval) {
+        guard sessionGeneration == gen else { return }
+        guard recognitionTask != nil else { return }
+        guard !isStopping else { return }
+
+        // Only segment active payload sessions. In wake-word standby we should not churn sessions.
+        let isStandbyWakeWord = isAlwaysListeningEnabled && isWakeWordEnabled && !isAwake && !isDirectCommandEnabled && !sessionTypingMode
+        if isStandbyWakeWord {
+            scheduleSegmentTimer(forGeneration: gen)
+            return
+        }
+
+        os_log("Segment timeout: finalizing after %.0fs (gen %d).", log: GlobalLogger.speech, type: .info, maxSec, gen)
+        stopAndFinalize(keepHUDVisible: true)
+
+        // If the user is still holding PTT (or we're in Always Listening), auto-restart capture.
+        let shouldContinue = isPTTHeld || isAlwaysListeningEnabled
+        guard shouldContinue else { return }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
+            guard let self else { return }
+            // Avoid starting a new session if another already started.
+            if self.recognitionTask == nil && !self.isStopping {
+                self.startOnce()
+            }
+        }
+    }
+
+    private func currentFocusedPID() -> pid_t? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
+              let focusedElement else {
+            return nil
+        }
+        let element = focusedElement as! AXUIElement
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        return pid > 0 ? pid : nil
+    }
+
+    private func lockSessionInputTarget() {
+        sessionTargetPID = currentFocusedPID()
+        didLogSessionTargetMismatch = false
+        if let pid = sessionTargetPID,
+           let app = NSRunningApplication(processIdentifier: pid) {
+            sessionTargetBundleID = app.bundleIdentifier
+        } else {
+            sessionTargetBundleID = nil
+        }
+    }
+
+    private func isSessionInputTargetValidForInjection() -> Bool {
+        guard let lockedPID = sessionTargetPID else { return true }
+        guard let currentPID = currentFocusedPID() else { return false }
+        let matches = currentPID == lockedPID
+        if !matches && !didLogSessionTargetMismatch {
+            os_log("Typing target changed. lockedPID=%d currentPID=%d. Skip injection for this session.",
+                   log: log, type: .info, lockedPID, currentPID)
+            showInputTargetChangedHUD()
+            didLogSessionTargetMismatch = true
+        }
+        return matches
+    }
+
+    private func showInputTargetChangedHUD() {
+        let message = activeLocale.identifier.starts(with: "zh")
+            ? "检测到焦点切换，本次语音未继续输入"
+            : "Focus changed. Dictation skipped for this utterance."
+        HUDManager.shared.update(
+            mode: .command,
+            message: message,
+            language: activeLocale.identifier,
+            inputDeviceIcon: hudInputIcon()
+        )
     }
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
@@ -576,6 +732,7 @@ final class SpeechManager: ObservableObject {
 
     private func scheduleContinuousRecovery(delay: TimeInterval = 0.25) {
         guard isAlwaysListeningEnabled else { return }
+        continuousRecoveryGraceUntil = Date().addingTimeInterval(delay + 0.6)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self = self else { return }
             guard self.isAlwaysListeningEnabled else { return }
@@ -788,6 +945,7 @@ final class SpeechManager: ObservableObject {
             // In PTT mode we should still show visible feedback while key is held.
             if isAlwaysListeningEnabled {
                 refreshContinuousHUD()
+                scheduleContinuousRecovery(delay: 0.8)
             } else {
                 showPTTUnavailableHUD()
             }
@@ -796,6 +954,7 @@ final class SpeechManager: ObservableObject {
 
         sessionGeneration += 1
         let currentGeneration = sessionGeneration
+        lockSessionInputTarget()
         
         // Reset Streaming State
         lastStreamedText = ""  // [Fix] Clear here at session START, not in cleanup()
@@ -809,16 +968,9 @@ final class SpeechManager: ObservableObject {
         }
         isDictating = sessionTypingMode
 
-        // [Stability] Reset Failsafe Timer (Stops recording after 60s max)
+        // [Stability] Segment long recordings to avoid SFSpeechRecognizer long-stream bugs.
         failsafeTimer?.invalidate()
-        failsafeTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: false) { [weak self] _ in
-            os_log("Failsafe: Stopping session after 60s timeout.", log: GlobalLogger.speech, type: .error)
-            Task { @MainActor in
-                guard let self = self else { return }
-                self.stopAndFinalize()
-                self.scheduleContinuousRecovery()
-            }
-        }
+        scheduleSegmentTimer(forGeneration: currentGeneration)
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -916,7 +1068,7 @@ final class SpeechManager: ObservableObject {
                     
                     // Handle Streaming Typing (if in typing mode)
                     // [DYNAMIC SYNC] Real-time corrections with stability guard
-                    if self.sessionTypingMode {
+                    if self.sessionTypingMode && self.isSessionInputTargetValidForInjection() {
                         self.handleStreamingTyping(currentText: text)
                     }
                     
@@ -961,18 +1113,12 @@ final class SpeechManager: ObservableObject {
                     // Instead, we just loop back (restart) silently.
                     if isNoSpeechError {
                         os_log("No Speech Detected (Timeout). Resetting...", log: self.log, type: .info)
-                        self.stopAndFinalize()
-                        // If continuous mode is on, logic elsewhere (e.g. stopContinuous/startContinuous or manual restart) 
-                        // might need to be triggered. 
-                        // Actually, `stopAndFinalize` stops the engine.
-                        // In `startContinuous`, we use a timer to restart? No, we use `continuousTimer` for TICKs.
-                        // But if the engine errors out, we need to restart it if `isAlwaysListeningEnabled`.
-                        
                         if self.isAlwaysListeningEnabled {
-                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                 // Auto-restart for continuous listening
-                                 self.startOnce()
-                             }
+                            self.teardownSession()
+                            self.refreshContinuousHUD()
+                            self.scheduleContinuousRecovery(delay: 0.12)
+                        } else {
+                            self.stopAndFinalize()
                         }
                         return
                     }
@@ -1221,14 +1367,34 @@ final class SpeechManager: ObservableObject {
         }
     }
     
-    private func restartEngineForNewDevice() {
-        os_log("Restarting engine for new device...", log: log, type: .default)
+    private func scheduleEngineRestart(reason: String, debounce: TimeInterval? = nil) {
+        let wait = debounce ?? engineRestartDebounce
+        pendingEngineRestartWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingEngineRestartWorkItem = nil
+            self.performEngineRestart(reason: reason)
+        }
+        pendingEngineRestartWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
+    }
+
+    private func performEngineRestart(reason: String) {
+        let elapsed = Date().timeIntervalSince(lastEngineRestartAt)
+        if elapsed < engineRestartMinInterval {
+            let remaining = engineRestartMinInterval - elapsed
+            scheduleEngineRestart(reason: "\(reason)-throttled", debounce: remaining)
+            return
+        }
+
+        os_log("Restarting engine (reason=%{public}@)...", log: log, type: .default, reason)
         stopAndFinalize()
-        // Wait briefly for tear down
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-             if self.isAlwaysListeningEnabled {
-                 self.startOnce()
-             }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else { return }
+            if self.isAlwaysListeningEnabled {
+                self.startOnce()
+            }
+            self.lastEngineRestartAt = Date()
         }
     }
     
@@ -1257,19 +1423,23 @@ final class SpeechManager: ObservableObject {
         }
     }
 
-    func stopAndFinalize() {
-        if isAlwaysListeningEnabled {
-            refreshContinuousHUD(isDictating: false)
-        } else {
-            HUDManager.shared.hide()
+    func stopAndFinalize(keepHUDVisible: Bool = false) {
+        if !keepHUDVisible {
+            if isAlwaysListeningEnabled {
+                refreshContinuousHUD(isDictating: false)
+            } else {
+                HUDManager.shared.hide()
+            }
         }
         guard let task = recognitionTask else {
             // If there is no active task, we still must clear transient HUD-driving state.
             resetHUDTransientState()
-            if isAlwaysListeningEnabled {
-                refreshContinuousHUD()
-            } else {
-                HUDManager.shared.hide()
+            if !keepHUDVisible {
+                if isAlwaysListeningEnabled {
+                    refreshContinuousHUD()
+                } else {
+                    HUDManager.shared.hide()
+                }
             }
             return
         }
@@ -1337,9 +1507,13 @@ final class SpeechManager: ObservableObject {
             // [Critical Fix] Ensure HUD hides on fallback (if not already hidden by isFinal)
             if !self.isAlwaysListeningEnabled {
                 self.teardownEngine()
-                HUDManager.shared.hide()
+                if !keepHUDVisible {
+                    HUDManager.shared.hide()
+                }
             } else {
-                self.refreshContinuousHUD() // Force refresh to Standby mode
+                if !keepHUDVisible {
+                    self.refreshContinuousHUD() // Force refresh to Standby mode
+                }
             }
         }
         
@@ -1350,6 +1524,8 @@ final class SpeechManager: ObservableObject {
     // Explicit teardown if needed (e.g. app quit)
     func teardownEngine() {
         isStopping = false
+        segmentTimer?.invalidate()
+        segmentTimer = nil
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
@@ -1427,6 +1603,11 @@ final class SpeechManager: ObservableObject {
                         inputDeviceIcon: self.hudInputIcon()
                     )
                 }
+
+                let captureActive = (self.audioEngine?.isRunning == true) || self.recognitionTask != nil || self.isAlwaysListeningEnabled
+                if captureActive {
+                    self.scheduleEngineRestart(reason: "default-input-device-changed")
+                }
             }
         }
         
@@ -1470,6 +1651,7 @@ final class SpeechManager: ObservableObject {
 
     @objc private func pttDown() {
         GlobalLogger.input.info("PTT DOWN")
+        isPTTHeld = true
         // [Fix] Enforce PTT enabled check
         // If the user unchecks "Push to Talk" in settings, this shortcut should do nothing.
         // Note: In "Always Listening" mode, PTT acts as a wake trigger, so we might want to allow it?
@@ -1513,6 +1695,7 @@ final class SpeechManager: ObservableObject {
 
     @objc private func pttUp() {
         GlobalLogger.input.info("PTT UP")
+        isPTTHeld = false
         guard !isAlwaysListeningEnabled else { return } // PTT Release should NOT stop continuous mode
         
         // No active session: do not show ".processing" ellipsis.
@@ -1537,6 +1720,12 @@ final class SpeechManager: ObservableObject {
     }
 
     private func startContinuous() {
+        let now = Date()
+        if now.timeIntervalSince(lastContinuousStartAt) < 0.8 {
+            return
+        }
+        lastContinuousStartAt = now
+
         // Continuous mode: require a wake phrase to reduce accidental actions.
         status = NSLocalizedString("speech.listening", comment: "") + " (Wake: “Aether/艾瑟”)"
         os_log("Starting Continuous Mode (Wake Word Required)", log: log, type: .default)
@@ -1575,6 +1764,30 @@ final class SpeechManager: ObservableObject {
             wasAwake = currentlyAwake
             os_log("Wake State Changed: Awake=%{bool}d", log: log, type: .default, currentlyAwake)
             refreshContinuousHUD()
+        }
+
+        let taskState = recognitionTask?.state
+        let taskRunning = taskState == .running || taskState == .starting
+        let engineRunning = audioEngine?.isRunning == true
+        if !taskRunning || !engineRunning {
+            if Date() < continuousRecoveryGraceUntil {
+                return
+            }
+            if !engineRunning {
+                if pendingEngineRestartWorkItem == nil {
+                    os_log("Continuous health-check failed. taskState=%{public}@ engineRunning=%{bool}d -> scheduling engine restart",
+                           log: log, type: .error, String(describing: taskState), engineRunning)
+                    scheduleEngineRestart(reason: "continuous-health-check-engine-down")
+                }
+                return
+            }
+
+            if taskState == nil || taskState == .finishing || taskState == .canceling || taskState == .completed {
+                os_log("Continuous health-check task rollover. taskState=%{public}@ engineRunning=%{bool}d -> scheduling task recovery",
+                       log: log, type: .info, String(describing: taskState), engineRunning)
+                scheduleContinuousRecovery(delay: 0.12)
+            }
+            return
         }
         
         guard let lastChange = lastChangeAt else { return }
@@ -1624,6 +1837,9 @@ final class SpeechManager: ObservableObject {
         isStopping = false
         isDictating = false
         sessionTypingMode = false
+        sessionTargetPID = nil
+        sessionTargetBundleID = nil
+        didLogSessionTargetMismatch = false
         
         // [Fix] DON'T clear lastStreamedText here! handleTranscript needs it for differential sync.
         // It will be cleared at the START of the next session in startOnce().
@@ -1635,6 +1851,9 @@ final class SpeechManager: ObservableObject {
         isStopping = false
         isDictating = false
         sessionTypingMode = false
+        sessionTargetPID = nil
+        sessionTargetBundleID = nil
+        didLogSessionTargetMismatch = false
         lastTranscript = ""
         lastChangeAt = nil
         lastStableText = ""
@@ -1741,7 +1960,134 @@ final class SpeechManager: ObservableObject {
             lastWakeTime = Date()
         }
         
-        handleIntent(intent)
+        // Parallelize heavy work (LLM / typing injection) so we can start capturing the next utterance immediately.
+        enqueueIntentForParallelExecution(intent, typingContext: typingContext)
+    }
+
+    private func enqueueIntentForParallelExecution(_ intent: VoiceIntent, typingContext: Bool) {
+        // Capture all state that will be wiped/reset by the next session.
+        let localeID = activeLocale.identifier
+        let job = IntentJob(
+            seq: -1, // filled below
+            intent: intent,
+            localeIdentifier: localeID,
+            llmEnhancementEnabled: isLLMEnhancementEnabled,
+            sessionTypingMode: typingContext ? sessionTypingMode : false,
+            screenTypedCount: typingContext ? screenTypedCount : 0,
+            targetPID: typingContext ? sessionTargetPID : nil,
+            targetBundleID: typingContext ? sessionTargetBundleID : nil
+        )
+
+        Task { [weak self] in
+            guard let self else { return }
+            let seq = await self.intentPipeline.allocateSeq()
+            let seeded = IntentJob(
+                seq: seq,
+                intent: job.intent,
+                localeIdentifier: job.localeIdentifier,
+                llmEnhancementEnabled: job.llmEnhancementEnabled,
+                sessionTypingMode: job.sessionTypingMode,
+                screenTypedCount: job.screenTypedCount,
+                targetPID: job.targetPID,
+                targetBundleID: job.targetBundleID
+            )
+
+            Task.detached(priority: .userInitiated) { [weak self] in
+                guard let self else { return }
+                let processed = await self.processIntentJob(seeded)
+                let ready = await self.intentPipeline.submit(processed)
+                for r in ready {
+                    await MainActor.run { [weak self] in
+                        self?.applyProcessedJob(r)
+                    }
+                }
+            }
+        }
+    }
+
+    private func processIntentJob(_ job: IntentJob) async -> ProcessedJob {
+        // Heavy work off the capture loop. Keep execution deterministic by not touching mutable UI state.
+        if case .dictation(let text) = job.intent, job.llmEnhancementEnabled, let llmProvider {
+            do {
+                let enhanced = try await llmProvider.enhanceDictation(text)
+                let finalText = enhanced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : enhanced
+                return ProcessedJob(
+                    seq: job.seq,
+                    intent: .dictation(finalText),
+                    localeIdentifier: job.localeIdentifier,
+                    sessionTypingMode: job.sessionTypingMode,
+                    screenTypedCount: job.screenTypedCount,
+                    targetPID: job.targetPID,
+                    targetBundleID: job.targetBundleID,
+                    diagnostics: "llm=ok"
+                )
+            } catch {
+                return ProcessedJob(
+                    seq: job.seq,
+                    intent: job.intent,
+                    localeIdentifier: job.localeIdentifier,
+                    sessionTypingMode: job.sessionTypingMode,
+                    screenTypedCount: job.screenTypedCount,
+                    targetPID: job.targetPID,
+                    targetBundleID: job.targetBundleID,
+                    diagnostics: "llm=failed(\(error.localizedDescription))"
+                )
+            }
+        }
+
+        return ProcessedJob(
+            seq: job.seq,
+            intent: job.intent,
+            localeIdentifier: job.localeIdentifier,
+            sessionTypingMode: job.sessionTypingMode,
+            screenTypedCount: job.screenTypedCount,
+            targetPID: job.targetPID,
+            targetBundleID: job.targetBundleID,
+            diagnostics: nil
+        )
+    }
+
+    private func isJobInputTargetValidForInjection(_ job: ProcessedJob) -> Bool {
+        guard let lockedPID = job.targetPID else { return true }
+        guard let currentPID = currentFocusedPID() else { return false }
+        let matches = currentPID == lockedPID
+        if !matches {
+            showInputTargetChangedHUD()
+        }
+        return matches
+    }
+
+    private func applyProcessedJob(_ job: ProcessedJob) {
+        // Note: execution is serialized by IntentPipeline drain order.
+        switch job.intent {
+        case .undo:
+            injector.undoPasteIfRecent()
+            status = NSLocalizedString("speech.undo", comment: "")
+        case .paste:
+            AutomationOutputs.shared.pasteFromClipboard()
+            status = "Pasted (Cmd+V)"
+        case .dictation(let text):
+            guard isJobInputTargetValidForInjection(job) else {
+                status = NSLocalizedString("speech.done", comment: "")
+                return
+            }
+
+            if job.sessionTypingMode {
+                if job.screenTypedCount > 0 {
+                    AutomationOutputs.shared.backspace(count: job.screenTypedCount)
+                }
+                if !text.isEmpty {
+                    injector.type(text)
+                }
+                status = NSLocalizedString("speech.typed", comment: "")
+            } else {
+                injector.type(text)
+                status = NSLocalizedString("speech.typed", comment: "")
+            }
+        default:
+            onIntent?(job.intent)
+            status = NSLocalizedString("speech.done", comment: "")
+        }
     }
 
     private func stripWakeWord(from text: String) -> String {
@@ -1768,24 +2114,6 @@ final class SpeechManager: ObservableObject {
 
     private func handleIntent(_ intent: VoiceIntent) {
         os_log("Routing Intent: %{public}@", log: log, type: .default, String(describing: intent))
-        
-        if case .dictation(let text) = intent, isLLMEnhancementEnabled, let llmProvider {
-            Task {
-                do {
-                    let enhanced = try await llmProvider.enhanceDictation(text)
-                    await MainActor.run {
-                        self.injector.type(enhanced.isEmpty ? text : enhanced)
-                        self.status = "Typed"
-                    }
-                } catch {
-                    await MainActor.run {
-                        self.injector.type(text)
-                        self.status = "Typed (No LLM)"
-                    }
-                }
-            }
-            return
-        }
 
         switch intent {
         case .undo:
@@ -1795,6 +2123,10 @@ final class SpeechManager: ObservableObject {
             AutomationOutputs.shared.pasteFromClipboard()
             status = "Pasted (Cmd+V)"
         case .dictation(let text):
+            guard isSessionInputTargetValidForInjection() else {
+                status = NSLocalizedString("speech.done", comment: "")
+                return
+            }
             // If we were streaming, the text is already on screen.
             // But if streaming lagged or was cut off, we must reconcile the difference.
             
@@ -1918,9 +2250,12 @@ final class AirPodsDetector {
     private let plcmPollInterval: TimeInterval = 0.6
     private let startupGuardWindow: TimeInterval = 4.0
     private let upToBothDelay: TimeInterval = 0.3
-    private let bothToSingleDelay: TimeInterval = 1.6
+    private let bothToSingleDelay: TimeInterval = 0.6
     private let singleToNoneDelay: TimeInterval = 1.2
     private let sideSwitchDelay: TimeInterval = 0.15
+    private let singleOverrideWindow: TimeInterval = 1.0
+    private let singleSideLockWindow: TimeInterval = 0.7
+    private let fastBothBlockWindow: TimeInterval = 1.0
     private var singleOverrideUntil: Date = .distantPast
     private var singleOverrideSide: AirPodSide = .none
     private var singleSideLockUntil: Date = .distantPast
@@ -1952,8 +2287,7 @@ final class AirPodsDetector {
     
     // V9.0: Registry Presence Check
     // "Active/In-Ear" AirPods appear in IORegistry. "Idle/On-Desk" ones do not.
-    private func checkRegistryPresence(leftSerial: String?, rightSerial: String?) -> AirPodSide? {
-        self.logDebug("Registry Check Start: L_Serial=\(leftSerial ?? "nil"), R_Serial=\(rightSerial ?? "nil")")
+    private static func checkRegistryPresence(leftSerial: String?, rightSerial: String?) -> AirPodSide? {
         guard leftSerial != nil || rightSerial != nil else { return nil }
         
         let task = Process()
@@ -1979,8 +2313,6 @@ final class AirPodsDetector {
                 return false
             }()
             
-            self.logDebug("Registry Check: OutputLen=\(output.count). L_Serial=\(leftSerial ?? "?") Found=\(isLeftPresent). R_Serial=\(rightSerial ?? "?") Found=\(isRightPresent)")
-            
             // Definitive logic from explicit serial matches.
             if isLeftPresent && isRightPresent { return .both }
             if isLeftPresent { return .left }
@@ -2005,7 +2337,7 @@ final class AirPodsDetector {
     private var cachedLeftSerial: String?
     private var cachedRightSerial: String?
 
-    private func normalizedSerial(_ raw: String?) -> String? {
+    private static func normalizedSerial(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let cleaned = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2127,11 +2459,12 @@ final class AirPodsDetector {
         return (lastState, "R4-hold", false)
     }
 
-    private func updateBothStateFromBluetoothLog() {
-        let now = Date()
-        if now.timeIntervalSince(lastPlcmPollAt) < plcmPollInterval { return }
-        lastPlcmPollAt = now
+    private enum PlcmSample {
+        case both(line: String)
+        case single(side: AirPodSide, line: String)
+    }
 
+    private static func fetchLatestPlcmSample() -> PlcmSample? {
         let task = Process()
         task.launchPath = "/usr/bin/log"
         task.arguments = [
@@ -2146,39 +2479,56 @@ final class AirPodsDetector {
         do {
             try task.run()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: data, encoding: .utf8), !output.isEmpty else { return }
+            guard let output = String(data: data, encoding: .utf8), !output.isEmpty else { return nil }
             let lines = output.components(separatedBy: .newlines)
             for line in lines.reversed() {
                 let lower = line.lowercased()
                 guard lower.contains("plcm") else { continue }
-                if line == lastPlcmLine { return }
-                lastPlcmLine = line
-                let now = Date()
                 if lower.contains("p inear") && lower.contains("s inear") {
-                    recordPlcmSample(.both, now: now)
-                    observeState(.both, source: "bluetoothd-plcm", authoritative: true)
-                    return
+                    return .both(line: line)
                 }
                 if lower.contains("p inear") || lower.contains("s inear") {
-                    let guessedSide: AirPodSide
                     if lower.contains("prim left") {
-                        guessedSide = .left
-                    } else if lower.contains("prim right") {
-                        guessedSide = .right
-                    } else {
-                        guessedSide = .none
+                        return .single(side: .left, line: line)
                     }
-                    if guessedSide != .none {
-                        recordPlcmSample(guessedSide, now: now)
-                        singleOverrideSide = guessedSide
-                        singleOverrideUntil = now.addingTimeInterval(2.2)
-                        observeState(guessedSide, source: "bluetoothd-plcm-single", authoritative: true)
+                    if lower.contains("prim right") {
+                        return .single(side: .right, line: line)
                     }
-                    return
                 }
             }
         } catch {
-            logDebug("Bluetooth log parse failed")
+            return nil
+        }
+        return nil
+    }
+
+    private func updateBothStateFromBluetoothLog() {
+        let now = Date()
+        if now.timeIntervalSince(lastPlcmPollAt) < plcmPollInterval { return }
+        lastPlcmPollAt = now
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let sample = Self.fetchLatestPlcmSample()
+            DispatchQueue.main.async {
+                guard let sample else { return }
+                switch sample {
+                case .both(let line):
+                    guard line != self.lastPlcmLine else { return }
+                    self.lastPlcmLine = line
+                    let now = Date()
+                    self.recordPlcmSample(.both, now: now)
+                    self.observeState(.both, source: "bluetoothd-plcm", authoritative: true)
+                case .single(let side, let line):
+                    guard line != self.lastPlcmLine else { return }
+                    self.lastPlcmLine = line
+                    let now = Date()
+                    self.recordPlcmSample(side, now: now)
+                    self.singleOverrideSide = side
+                    self.singleOverrideUntil = now.addingTimeInterval(self.singleOverrideWindow)
+                    self.observeState(side, source: "bluetoothd-plcm-single", authoritative: true)
+                }
+            }
         }
     }
     
@@ -2209,14 +2559,14 @@ final class AirPodsDetector {
         
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
             guard let self = self else { return }
-            
-            if let registrySide = self.checkRegistryPresence(leftSerial: lSer, rightSerial: rSer) {
-                self.recordRegistrySample(registrySide, now: Date())
-                self.observeState(registrySide, source: "registry", authoritative: false)
-            }
-            self.updateBothStateFromBluetoothLog()
-            
+            let registrySide = Self.checkRegistryPresence(leftSerial: lSer, rightSerial: rSer)
+
             DispatchQueue.main.async {
+                if let registrySide {
+                    self.recordRegistrySample(registrySide, now: Date())
+                    self.observeState(registrySide, source: "registry", authoritative: false)
+                }
+                self.updateBothStateFromBluetoothLog()
                 self.lastFastTime = Date()
                 self.isRefreshingFast = false
             }
@@ -2226,11 +2576,11 @@ final class AirPodsDetector {
     private func refreshSlow() {
         guard !isRefreshingSlow else { return }
         isRefreshingSlow = true
+        let cachedLeft = cachedLeftSerial
+        let cachedRight = cachedRightSerial
         
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
-            self.logDebug("Starting Slow Background Metadata Refresh...")
-            
             var leftSerial: String?
             var rightSerial: String?
             var hasLeftBattery = false
@@ -2255,44 +2605,51 @@ final class AirPodsDetector {
                         let lines = section.components(separatedBy: .newlines)
                         for line in lines {
                             if line.contains("Serial Number (Left):") {
-                                leftSerial = self.normalizedSerial(line.components(separatedBy: ":").last)
+                                leftSerial = Self.normalizedSerial(line.components(separatedBy: ":").last)
                             }
                             if line.contains("Serial Number (Right):") {
-                                rightSerial = self.normalizedSerial(line.components(separatedBy: ":").last)
+                                rightSerial = Self.normalizedSerial(line.components(separatedBy: ":").last)
                             }
                             if line.contains("Left Battery Level:") { hasLeftBattery = true }
                             if line.contains("Right Battery Level:") { hasRightBattery = true }
                         }
                     }
                 }
+                let mergedLeft = leftSerial ?? cachedLeft
+                let mergedRight = rightSerial ?? cachedRight
+                let registrySide = Self.checkRegistryPresence(leftSerial: mergedLeft, rightSerial: mergedRight)
                 
                 // Update Cache & State based on battery if registry is ambiguous
-                if let l = leftSerial { self.cachedLeftSerial = l }
-                if let r = rightSerial { self.cachedRightSerial = r }
-                self.logDebug("Profiler Cache Updated: L=\(self.cachedLeftSerial ?? "nil"), R=\(self.cachedRightSerial ?? "nil"), hasL=\(hasLeftBattery), hasR=\(hasRightBattery)")
-                self.updateBothStateFromBluetoothLog()
+                DispatchQueue.main.async {
+                    if let l = leftSerial { self.cachedLeftSerial = l }
+                    if let r = rightSerial { self.cachedRightSerial = r }
+                    self.logDebug("Profiler Cache Updated: L=\(self.cachedLeftSerial ?? "nil"), R=\(self.cachedRightSerial ?? "nil"), hasL=\(hasLeftBattery), hasR=\(hasRightBattery)")
+                    self.updateBothStateFromBluetoothLog()
 
-                // Re-check registry immediately after refreshing serial cache.
-                if let registrySide = self.checkRegistryPresence(leftSerial: self.cachedLeftSerial, rightSerial: self.cachedRightSerial) {
-                    self.recordRegistrySample(registrySide, now: Date())
-                    self.observeState(registrySide, source: "registry-after-profiler", authoritative: false)
-                } else {
-                    // Battery fields are weak signals: only trust one-sided hints.
-                    if hasLeftBattery != hasRightBattery {
-                        self.observeState(hasLeftBattery ? .left : .right, source: "battery-hint", authoritative: false)
-                    } else if !hasLeftBattery && !hasRightBattery {
-                        self.observeState(.none, source: "battery-empty", authoritative: false)
+                    // Re-check registry immediately after refreshing serial cache.
+                    if let registrySide {
+                        self.recordRegistrySample(registrySide, now: Date())
+                        self.observeState(registrySide, source: "registry-after-profiler", authoritative: false)
                     } else {
-                        self.logDebug("Profiler battery state ambiguous; keeping last state")
+                        // Battery fields are weak signals: only trust one-sided hints.
+                        if hasLeftBattery != hasRightBattery {
+                            self.observeState(hasLeftBattery ? .left : .right, source: "battery-hint", authoritative: false)
+                        } else if !hasLeftBattery && !hasRightBattery {
+                            self.observeState(.none, source: "battery-empty", authoritative: false)
+                        } else {
+                            self.logDebug("Profiler battery state ambiguous; keeping last state")
+                        }
                     }
+                    self.lastSlowTime = Date()
+                    self.isRefreshingSlow = false
                 }
             } catch {
-                self.logDebug("Slow Profiler Failed")
-            }
-            
-            DispatchQueue.main.async {
-                self.lastSlowTime = Date()
-                self.isRefreshingSlow = false
+                DispatchQueue.main.async {
+                    self.logDebug("Slow Profiler Failed")
+                    self.lastSlowTime = Date()
+                    self.isRefreshingSlow = false
+                }
+                return
             }
         }
     }
@@ -2325,14 +2682,14 @@ final class AirPodsDetector {
                     if self.pendingTarget != single {
                         self.pendingTarget = single
                         self.pendingSince = now
-                        self.logDebug("Pending \(single.rawValue) via F3-both-to-single-plcm wait=0.45s")
+                        self.logDebug("Pending \(single.rawValue) via F3-both-to-single-plcm wait=0.20s")
                         return
                     }
-                    if now.timeIntervalSince(self.pendingSince) >= 0.45 {
+                    if now.timeIntervalSince(self.pendingSince) >= 0.20 {
                         self.singleOverrideSide = single
-                        self.singleOverrideUntil = now.addingTimeInterval(2.2)
-                        self.singleSideLockUntil = now.addingTimeInterval(1.2)
-                        self.f1FastBlockedUntil = now.addingTimeInterval(1.5)
+                        self.singleOverrideUntil = now.addingTimeInterval(self.singleOverrideWindow)
+                        self.singleSideLockUntil = now.addingTimeInterval(self.singleSideLockWindow)
+                        self.f1FastBlockedUntil = now.addingTimeInterval(self.fastBothBlockWindow)
                         self.applyState(single, source: "\(source)|F3-fast")
                         return
                     }
@@ -2346,9 +2703,9 @@ final class AirPodsDetector {
                         self.logDebug("Pending \(single.rawValue) via F2-fast-plcm-single wait=0.25s")
                         return
                     }
-                    if now.timeIntervalSince(self.pendingSince) >= 0.25 {
-                        self.singleSideLockUntil = now.addingTimeInterval(1.2)
-                        self.f1FastBlockedUntil = now.addingTimeInterval(1.5)
+                    if now.timeIntervalSince(self.pendingSince) >= 0.20 {
+                        self.singleSideLockUntil = now.addingTimeInterval(self.singleSideLockWindow)
+                        self.f1FastBlockedUntil = now.addingTimeInterval(self.fastBothBlockWindow)
                         self.applyState(single, source: "\(source)|F2-fast")
                         return
                     }
@@ -2415,8 +2772,8 @@ final class AirPodsDetector {
                 self.lastState = newState
                 self.pendingTarget = nil
                 if newState == .left || newState == .right {
-                    self.singleSideLockUntil = Date().addingTimeInterval(1.2)
-                    self.f1FastBlockedUntil = Date().addingTimeInterval(1.5)
+                    self.singleSideLockUntil = Date().addingTimeInterval(self.singleSideLockWindow)
+                    self.f1FastBlockedUntil = Date().addingTimeInterval(self.fastBothBlockWindow)
                 } else if newState == .both {
                     self.singleSideLockUntil = .distantPast
                 }

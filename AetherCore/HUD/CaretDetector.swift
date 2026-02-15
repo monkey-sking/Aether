@@ -324,10 +324,7 @@ final class CaretDetector: ObservableObject {
                      var p = CGPoint.zero; var s = CGSize.zero
                      if AXValueGetValue(posVal as! AXValue, .cgPoint, &p), AXValueGetValue(sizeVal as! AXValue, .cgSize, &s) {
                          let rawWin = CGRect(origin: p, size: s)
-                         if let primary = NSScreen.screens.first {
-                             let appKitY = primary.frame.height - rawWin.origin.y - rawWin.height
-                             windowFrame = CGRect(x: rawWin.origin.x, y: appKitY, width: rawWin.width, height: rawWin.height)
-                         }
+                         windowFrame = appKitRectFromAX(rawWin)
                      }
                  }
              }
@@ -457,8 +454,16 @@ final class CaretDetector: ObservableObject {
                                                          let total = max(0, valueStr.count)
                                                          let location = max(0, min(range.location + range.length, total))
                                                          if total > 0 {
+                                                             // Fixed-step model works better for short strings; clamp for long strings.
                                                              let step = min(max(9.0, r_appkit.height * 0.52), 13.0)
-                                                             caretXOffset = min(CGFloat(location) * step, usableWidth)
+                                                             let unitsSoFar = self.weightedAdvanceUnits(valueStr, upToCharacters: location)
+                                                             let totalUnits = max(0.1, self.weightedTotalUnits(valueStr))
+                                                             let totalPx = totalUnits * step
+                                                             if totalPx <= usableWidth {
+                                                                 caretXOffset = min(unitsSoFar * step, usableWidth)
+                                                             } else {
+                                                                 caretXOffset = min(unitsSoFar * step, usableWidth)
+                                                             }
                                                          }
                                                      }
                                                 }
@@ -580,12 +585,20 @@ final class CaretDetector: ObservableObject {
     private func extractRect(from value: CFTypeRef) -> CGRect? {
         var r = CGRect.zero
         if AXValueGetValue(value as! AXValue, .cgRect, &r) {
-            if let primary = NSScreen.screens.first {
-                r.origin.y = primary.frame.height - r.origin.y - r.size.height
-            }
-            return r
+            return appKitRectFromAX(r)
         }
         return nil
+    }
+
+    private func appKitRectFromAX(_ axRect: CGRect) -> CGRect? {
+        let desktopMaxY = NSScreen.screens.map(\.frame.maxY).max() ?? 0
+        guard desktopMaxY > 0 else { return nil }
+        return CGRect(
+            x: axRect.origin.x,
+            y: desktopMaxY - axRect.origin.y - axRect.size.height,
+            width: axRect.size.width,
+            height: axRect.size.height
+        )
     }
     
     private func isValid(_ r: CGRect, in w: CGRect?) -> Bool {
@@ -630,6 +643,61 @@ final class CaretDetector: ObservableObject {
         if let b = value as? Bool { return b }
         if let n = value as? NSNumber { return n.boolValue }
         return nil
+    }
+
+    // For single-line web/native fields (address/search bars), AX often exposes bounds for the control
+    // but not the caret. Use a crude proportional model that treats CJK/emoji as wider than ASCII.
+    private func weightedAdvanceUnits(_ s: String, upToCharacters n: Int) -> CGFloat {
+        if n <= 0 { return 0 }
+        var units: CGFloat = 0
+        var i = 0
+        for ch in s {
+            if i >= n { break }
+            units += characterAdvanceUnit(ch)
+            i += 1
+        }
+        return units
+    }
+
+    private func weightedTotalUnits(_ s: String) -> CGFloat {
+        var units: CGFloat = 0
+        for ch in s {
+            units += characterAdvanceUnit(ch)
+        }
+        return units
+    }
+
+    private func characterAdvanceUnit(_ ch: Character) -> CGFloat {
+        if ch == " " { return 0.33 }
+        let scalarView = String(ch).unicodeScalars
+        if scalarView.count == 1, let u = scalarView.first {
+            if u.isASCII {
+                // Digits/ASCII letters tend to be narrower than CJK.
+                if (u.value >= 48 && u.value <= 57) { return 0.62 } // 0-9
+                if (u.value >= 65 && u.value <= 90) { return 0.60 } // A-Z
+                if (u.value >= 97 && u.value <= 122) { return 0.58 } // a-z
+                return 0.48 // punctuation/symbols
+            }
+            if isCJKScalar(u) { return 1.0 }
+            if u.value > 0xFFFF { return 1.1 } // likely emoji/surrogate plane
+            return 0.9
+        }
+        // Multi-scalar graphemes (emoji sequences etc.)
+        for u in scalarView {
+            if isCJKScalar(u) { return 1.0 }
+            if u.value > 0xFFFF { return 1.1 }
+        }
+        return 0.95
+    }
+
+    private func isCJKScalar(_ u: UnicodeScalar) -> Bool {
+        let v = u.value
+        if (0x4E00...0x9FFF).contains(v) { return true } // CJK Unified Ideographs
+        if (0x3400...0x4DBF).contains(v) { return true } // CJK Extension A
+        if (0xF900...0xFAFF).contains(v) { return true } // CJK Compatibility Ideographs
+        if (0x3040...0x30FF).contains(v) { return true } // Hiragana/Katakana
+        if (0xAC00...0xD7AF).contains(v) { return true } // Hangul
+        return false
     }
     
     private func findFirstTextField(in element: AXUIElement, depth: Int = 5) -> AXUIElement? {
