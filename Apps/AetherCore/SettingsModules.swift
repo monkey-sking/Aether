@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Input Settings (Voice)
 struct InputSettingsView: View {
@@ -195,35 +196,34 @@ struct InputSettingsView: View {
 
                         Divider()
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            Toggle("开发术语纠错（如“后果”→“GitHub”）", isOn: $appState.speechFixDevTerms)
-                            Text("仅在开发语境下生效，减少中英混合识别错误。")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                        Toggle("上下文术语纠错", isOn: $appState.speechTermCorrectionEnabled)
+                        Text("按场景分组（开发/办公/写作）启用纠错，每组可单独绑定多个 App。")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
 
-                            Toggle("仅在指定 App 启用", isOn: $appState.speechFixDevTermsUseWhitelist)
-                                .disabled(!appState.speechFixDevTerms)
+                        SpeechTermGroupSettingsBlock(
+                            title: "开发类",
+                            subtitle: "示例：后果 → GitHub",
+                            isEnabled: $appState.speechTermGroupDevEnabled,
+                            appList: $appState.speechTermGroupDevApps,
+                            enabledAll: $appState.speechTermCorrectionEnabled
+                        )
 
-                            if appState.speechFixDevTermsUseWhitelist {
-                                Text("App 白名单（支持多个，按行或逗号分隔，支持 bundle id 片段）")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                TextEditor(text: $appState.speechFixDevTermsWhitelist)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .frame(minHeight: 72)
-                                    .padding(6)
-                                    .background(Color(nsColor: .controlBackgroundColor))
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                                    )
-                                    .disabled(!appState.speechFixDevTerms)
-                                Text("示例：com.apple.Terminal, com.apple.dt.Xcode, com.microsoft.VSCode, com.openai.codex")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
+                        SpeechTermGroupSettingsBlock(
+                            title: "办公类",
+                            subtitle: "示例：飞鼠 → 飞书，叮叮 → 钉钉",
+                            isEnabled: $appState.speechTermGroupOfficeEnabled,
+                            appList: $appState.speechTermGroupOfficeApps,
+                            enabledAll: $appState.speechTermCorrectionEnabled
+                        )
+
+                        SpeechTermGroupSettingsBlock(
+                            title: "写作类",
+                            subtitle: "示例：逗好 → 逗号，句好 → 句号",
+                            isEnabled: $appState.speechTermGroupWritingEnabled,
+                            appList: $appState.speechTermGroupWritingApps,
+                            enabledAll: $appState.speechTermCorrectionEnabled
+                        )
                     }
                 }
             }
@@ -281,6 +281,129 @@ struct InputSettingsView: View {
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct SpeechTermGroupSettingsBlock: View {
+    let title: String
+    let subtitle: String
+    @Binding var isEnabled: Bool
+    @Binding var appList: String
+    @Binding var enabledAll: Bool
+
+    private var currentItems: [String] {
+        appList
+            .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Toggle(title, isOn: $isEnabled)
+                    .disabled(!enabledAll)
+                Spacer()
+                SpeechAppPickerMenu(
+                    existingBundleIds: Set(currentItems.map { $0.lowercased() }),
+                    onAdd: { bundleId in
+                        appendBundleId(bundleId)
+                    }
+                )
+                .disabled(!enabledAll || !isEnabled)
+            }
+            Text(subtitle)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            TextEditor(text: $appList)
+                .font(.system(.caption, design: .monospaced))
+                .frame(minHeight: 64)
+                .padding(6)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                )
+                .disabled(!enabledAll || !isEnabled)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func appendBundleId(_ bundleId: String) {
+        let trimmed = bundleId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let existing = currentItems.map { $0.lowercased() }
+        guard !existing.contains(trimmed.lowercased()) else { return }
+        if appList.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            appList = trimmed
+        } else {
+            appList += "\n\(trimmed)"
+        }
+    }
+}
+
+private struct SpeechAppPickerMenu: View {
+    let existingBundleIds: Set<String>
+    let onAdd: (String) -> Void
+
+    private struct Candidate: Identifiable {
+        let id: String
+        let name: String
+        let bundleId: String
+    }
+
+    private var runningCandidates: [Candidate] {
+        var seen = Set<String>()
+        let apps = NSWorkspace.shared.runningApplications.compactMap { app -> Candidate? in
+            guard app.activationPolicy == .regular else { return nil }
+            guard let bid = app.bundleIdentifier, !bid.isEmpty else { return nil }
+            let key = bid.lowercased()
+            guard !existingBundleIds.contains(key) else { return nil }
+            guard !seen.contains(key) else { return nil }
+            seen.insert(key)
+            return Candidate(id: bid, name: app.localizedName ?? bid, bundleId: bid)
+        }
+        return apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    var body: some View {
+        Menu {
+            if runningCandidates.isEmpty {
+                Text("无可添加的运行中应用")
+            } else {
+                Text("运行中应用")
+                ForEach(runningCandidates) { app in
+                    Button("\(app.name) (\(app.bundleId))") {
+                        onAdd(app.bundleId)
+                    }
+                }
+                Divider()
+            }
+
+            Button("手动选择应用…") {
+                chooseApplication()
+            }
+        } label: {
+            Label("添加程序", systemImage: "plus")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private func chooseApplication() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.prompt = "添加"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            guard let bundle = Bundle(url: url), let bid = bundle.bundleIdentifier, !bid.isEmpty else { return }
+            onAdd(bid)
+        }
     }
 }
 
