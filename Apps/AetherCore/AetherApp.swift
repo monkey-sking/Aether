@@ -844,7 +844,7 @@ struct AetherApp: App {
     @StateObject private var appState = AppState()
     
     var body: some Scene {     
-        WindowGroup {
+        WindowGroup(id: "main") {
             AetherMainView()
                 .environmentObject(appState)
         }

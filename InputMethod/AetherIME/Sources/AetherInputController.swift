@@ -157,13 +157,22 @@ final class AetherInputController: IMKInputController {
             Self.log("⚠️ [IME TX AX] raw rect too small \(raw.debugDescription)")
             return nil
         }
-        guard let primary = NSScreen.screens.first else {
+        guard let rect = appKitRectFromAX(raw) else {
             Self.log("⚠️ [IME TX AX] no screen")
             return nil
         }
-        // AX Y is top-left based; convert to AppKit screen coords.
-        let appKitY = primary.frame.height - raw.origin.y - raw.height
-        return CGRect(x: raw.origin.x, y: appKitY, width: raw.width, height: raw.height)
+        return rect
+    }
+
+    private func appKitRectFromAX(_ axRect: CGRect) -> CGRect? {
+        let desktopMaxY = NSScreen.screens.map(\.frame.maxY).max() ?? 0
+        guard desktopMaxY > 0 else { return nil }
+        return CGRect(
+            x: axRect.origin.x,
+            y: desktopMaxY - axRect.origin.y - axRect.size.height,
+            width: axRect.size.width,
+            height: axRect.size.height
+        )
     }
 
     private static func log(_ message: String, force: Bool = false) {

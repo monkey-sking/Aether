@@ -127,7 +127,6 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
 
 // MARK: - Manager
 
-@MainActor
 final class HotkeyManager: ObservableObject {
     static let shared = HotkeyManager()
     
@@ -135,8 +134,14 @@ final class HotkeyManager: ObservableObject {
     private let logger = Logger(subsystem: "com.7fei.Aether", category: "Hotkeys")
 
     @Published var bindings: [HotkeyAction: HotkeyBinding] {
-        didSet { save() }
+        didSet {
+            save()
+            refreshSnapshot()
+        }
     }
+
+    private let snapshotLock = NSLock()
+    private var bindingsSnapshot: [HotkeyAction: HotkeyBinding] = [:]
 
     private static let storageKey = "AetherHotkeyBindings"
     private static let modifierMask: UInt64 =
@@ -157,14 +162,26 @@ final class HotkeyManager: ObservableObject {
             }
             self.bindings = defaults
         }
+        refreshSnapshot()
+    }
+
+    private func refreshSnapshot() {
+        snapshotLock.lock()
+        bindingsSnapshot = bindings
+        snapshotLock.unlock()
+    }
+
+    private func snapshotBindings() -> [HotkeyAction: HotkeyBinding] {
+        snapshotLock.lock()
+        let snapshot = bindingsSnapshot
+        snapshotLock.unlock()
+        return snapshot
     }
 
     /// Called from Event Tap to match a keyDown event.
     /// Thread-safe: only reads data, and bindings dict is value-type snapshot.
-    nonisolated func matchKeyDown(keyCode: Int64, flags: CGEventFlags) -> HotkeyAction? {
-        // Capture bindings snapshot — this is safe because Dictionary is a value type
-        // and @Published writes happen on MainActor.
-        let snapshot = MainActor.assumeIsolated { bindings }
+    func matchKeyDown(keyCode: Int64, flags: CGEventFlags) -> HotkeyAction? {
+        let snapshot = snapshotBindings()
         
         // Setup local logger (thread-safe struct) since we are nonisolated
         let log = Logger(subsystem: "com.7fei.Aether", category: "Hotkeys")
@@ -217,12 +234,9 @@ final class HotkeyManager: ObservableObject {
     }
 
     /// Match a mouse button down event
-    nonisolated func matchMouseDown(button: Int, flags: CGEventFlags) -> HotkeyAction? {
-        let snapshot = MainActor.assumeIsolated { bindings }
+    func matchMouseDown(button: Int, flags: CGEventFlags) -> HotkeyAction? {
+        let snapshot = snapshotBindings()
         let maskedFlags = flags.rawValue & Self.modifierMask
-        
-        // Setup local logger (thread-safe struct) since we are nonisolated
-        let log = Logger(subsystem: "com.7fei.Aether", category: "Hotkeys")
         
         for (action, binding) in snapshot {
             if let b = binding.mouseButton, b == button {
@@ -236,7 +250,7 @@ final class HotkeyManager: ObservableObject {
     }
     
     /// Match a mouse button up event
-    nonisolated func matchMouseUp(button: Int, flags: CGEventFlags) -> HotkeyAction? {
+    func matchMouseUp(button: Int, flags: CGEventFlags) -> HotkeyAction? {
          // Same logic as down for now, caller decides what to do with the action
         return matchMouseDown(button: button, flags: flags)
     }
@@ -306,11 +320,9 @@ final class HotkeyManager: ObservableObject {
 
     /// The keyCode of the current PTT binding, for keyUp matching.
     /// Nonisolated so it can be called from the Event Tap callback.
-    nonisolated var pttBinding: (keyCode: Int, mouseButton: Int?) {
-        MainActor.assumeIsolated {
-            let b = binding(for: .pushToTalk)
-            return (b.keyCode, b.mouseButton)
-        }
+    var pttBinding: (keyCode: Int, mouseButton: Int?) {
+        let b = snapshotBindings()[.pushToTalk] ?? HotkeyAction.pushToTalk.defaultBinding
+        return (b.keyCode, b.mouseButton)
     }
 
     private func save() {

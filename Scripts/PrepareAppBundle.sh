@@ -59,5 +59,5 @@ else
   /usr/bin/codesign --force --deep --sign - "$APP_PATH" >/dev/null
 fi
 
-/usr/bin/codesign --verify --deep --strict "$APP_PATH" >/dev/null 2>&1 || true
+/usr/bin/codesign --verify --deep --strict "$APP_PATH" >/dev/null 2>&1
 echo "OK: codesign refreshed"

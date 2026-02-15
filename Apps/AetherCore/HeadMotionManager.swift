@@ -660,7 +660,7 @@ class HeadMotionManager: ObservableObject {
                 }
 
                 // Dynamic hotkey matching via HotkeyManager
-                if let action = MainActor.assumeIsolated({ HotkeyManager.shared.matchKeyDown(keyCode: keyCode, flags: flags) }) {
+                if let action = HotkeyManager.shared.matchKeyDown(keyCode: keyCode, flags: flags) {
                     switch action {
                     case .toggleTracking:
                         if manager.isTracking {
@@ -718,7 +718,7 @@ class HeadMotionManager: ObservableObject {
             if type == .keyUp {
                 // PTT Up — match the configured PTT key code OR just check if this key is in active sources
                 // Note: HotkeyManager might map multiple keys? Assuming simple 1-1 for now.
-                let pttKeyCode = MainActor.assumeIsolated({ HotkeyManager.shared.pttBinding.keyCode })
+                let pttKeyCode = HotkeyManager.shared.pttBinding.keyCode
                 let source = PTTSource.keyboard(Int(keyCode))
                 
                 // If this specific key was part of PTT activation
@@ -745,7 +745,7 @@ class HeadMotionManager: ObservableObject {
             if type == .otherMouseDown {
                 let btn = Int(event.getIntegerValueField(.mouseEventButtonNumber))
                 
-                if let action = MainActor.assumeIsolated({ HotkeyManager.shared.matchMouseDown(button: btn, flags: flags) }) {
+                if let action = HotkeyManager.shared.matchMouseDown(button: btn, flags: flags) {
                     switch action {
                     case .toggleTracking:
                         if manager.isTracking {
