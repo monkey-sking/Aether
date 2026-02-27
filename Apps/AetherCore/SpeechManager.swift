@@ -18,6 +18,7 @@ struct AudioInputDevice: Identifiable, Hashable {
 }
 @MainActor
 final class SpeechManager: ObservableObject {
+    private let log = GlobalLogger.speech
     private struct IntentJob: Sendable {
         let seq: Int
         let intent: VoiceIntent
@@ -219,18 +220,6 @@ final class SpeechManager: ObservableObject {
             }
             let activeName = availableInputDevices.first(where: { $0.id == deviceIDToUse })?.name ?? "unknown"
             GlobalLogger.speech.info("[HUD Icon] icon=\(icon), side=\(side.rawValue), selectedID=\(selectedInputDeviceID), activeID=\(deviceIDToUse), activeName=\(activeName)")
-            let fileLog = "\(Date()): [HUD Icon] icon=\(icon), side=\(side.rawValue), selectedID=\(selectedInputDeviceID), activeID=\(deviceIDToUse), activeName=\(activeName)\n"
-            if let data = fileLog.data(using: .utf8) {
-                let tracePath = "/tmp/aether_hud_icon_trace.txt"
-                if !FileManager.default.fileExists(atPath: tracePath) {
-                    FileManager.default.createFile(atPath: tracePath, contents: nil)
-                }
-                if let fh = FileHandle(forWritingAtPath: tracePath) {
-                    fh.seekToEndOfFile()
-                    fh.write(data)
-                    try? fh.close()
-                }
-            }
             lastLoggedHUDIcon = icon
             lastLoggedAirPodSide = side
         }
@@ -392,19 +381,13 @@ final class SpeechManager: ObservableObject {
 
             // Target semantics: lock ring to the current session target; if focus already changed, start paused.
             self.micProgressLockedPID = self.sessionTargetPID
-            if let lockedPID = self.micProgressLockedPID,
-               let currentPID = self.currentFocusedPID(),
-               currentPID != lockedPID {
-                self.isMicProgressPausedForTarget = true
-            } else {
                 self.isMicProgressPausedForTarget = false
-            }
 
             HUDManager.shared.updateMicProgress(progress: 0.0, visible: true)
             self.micProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
                 guard let self else { return }
                 guard self.sessionGeneration == gen else { return }
-                self.pauseMicProgressForFocusChangeIfNeeded()
+                guard self.sessionGeneration == gen else { return }
                 guard !self.isMicProgressPausedForTarget else { return }
                 Task { @MainActor in
                     self.maybeFinalizeOnTrailingSilence()
@@ -509,31 +492,6 @@ final class SpeechManager: ObservableObject {
         segmentStartedAt = Date()
         HUDManager.shared.updateMicProgress(progress: 0.0, visible: true)
         os_log("Re-armed input target (reason=%{public}@) lockedPID=%d", log: log, type: .info, reason, sessionTargetPID ?? -1)
-    }
-
-    private func pauseMicProgressForFocusChangeIfNeeded() {
-        guard HUDManager.shared.state.isMicProgressVisible else { return }
-        guard let lockedPID = micProgressLockedPID else { return }
-        guard let currentPID = currentFocusedPID() else { return }
-        guard currentPID != lockedPID else { return }
-        guard !isMicProgressPausedForTarget else { return }
-
-        // [Concurrency Update] Do NOT pause continuous dictation on focus change. 
-        // We now allow speech to be captured while focus changes, and injection will 
-        // handle background targeting.
-        
-        // Target semantics: focus change immediately pauses and resets the ring (still visible).
-        // isMicProgressPausedForTarget = true
-        // HUDManager.shared.updateMicProgress(progress: 0.0, visible: true)
-        // setHUDOverride(
-        //     mode: .command,
-        //     message: activeLocale.identifier.starts(with: "zh")
-        //         ? "检测到焦点切换，已暂停输入，需要重新触发"
-        //         : "Focus changed. Input paused. Trigger again.",
-        //     icon: "exclamationmark.triangle.fill",
-        //     duration: 1.6
-        // )
-        os_log("Focus changed during dictation (lockedPID=%d currentPID=%d). Continuing capture.", log: log, type: .info, lockedPID, currentPID)
     }
 
     @MainActor
@@ -1021,8 +979,8 @@ final class SpeechManager: ObservableObject {
     var onIntent: ((VoiceIntent) -> Void)?
     var llmProvider: LLMProvider?
 
-    private let log = OSLog(subsystem: "com.7fei.Aether", category: "Speech")
     
+
     // Helper to use NSLocalizedString which handles dynamic strings better than String(localized:)
     private func setStatus(_ key: String) {
         self.status = NSLocalizedString(key, comment: "")
@@ -1972,8 +1930,7 @@ final class SpeechManager: ObservableObject {
             }
         }
 
-        // Target semantics: any focus change while the ring is active pauses and resets it.
-        pauseMicProgressForFocusChangeIfNeeded()
+        // Target semantics removed due to concurrent execution model.
 
         let taskState = recognitionTask?.state
         let taskRunning = taskState == .running || taskState == .starting
@@ -2153,12 +2110,38 @@ final class SpeechManager: ObservableObject {
             os_log("PTT Mode: Processing transcript directly", log: log, type: .info)
         }
         
-        let typingContext = sessionTypingMode || isTypingMode
-        if typingContext {
-            os_log("Context: Typing Mode Detected", log: log, type: .info)
+        // Calculate Routing Bias based on Manual Override, Posture and Context
+        let motion = HeadMotionManager.shared
+        let posture = motion.currentPostureBias
+        var routingBias: VoiceCommandRouter.RoutingBias = .neutral
+        
+        // 1. Manual User Squeeze Override (Highest Priority)
+        if let squeezeOverride = motion.manualSqueezeFocus {
+            routingBias = squeezeOverride ? .forceCommand : .forceDictation
+        } else {
+            // 2. Posture-Based Bias
+            switch posture {
+            case .tiltRight:
+                routingBias = .forceCommand
+            case .tiltLeft, .lookLow:
+                routingBias = .forceDictation
+            case .neutral:
+                // 3. Context-Based Auto Bias
+                routingBias = sessionTypingMode ? .dictationPreferred : .commandPreferred
+            }
         }
 
-        let intent = router.route(transcript: textToRoute, isTypingMode: typingContext)
+        os_log("Speech Routing Bias: %{public}@ (Posture: %{public}@, Squeeze: %{public}@, Typing: %d)", 
+               log: log, type: .info, 
+               String(describing: routingBias), 
+               posture.rawValue, 
+               motion.manualSqueezeFocus == nil ? "auto" : String(describing: motion.manualSqueezeFocus!),
+               sessionTypingMode)
+
+        let intent = router.route(transcript: textToRoute, bias: routingBias)
+        
+        os_log("Speech: Intent decided [%{public}@] for transcript [%{public}@]. Bias was [%{public}@].", 
+               log: log, type: .info, String(describing: intent), textToRoute, String(describing: routingBias))
         
         // Update Wake Time
         if wakeWordDetected {
@@ -2173,7 +2156,7 @@ final class SpeechManager: ObservableObject {
         }
         
         // Parallelize heavy work (LLM / typing injection) so we can start capturing the next utterance immediately.
-        enqueueIntentForParallelExecution(intent, typingContext: typingContext)
+        enqueueIntentForParallelExecution(intent, typingContext: sessionTypingMode)
     }
 
     private func enqueueIntentForParallelExecution(_ intent: VoiceIntent, typingContext: Bool) {
@@ -2383,6 +2366,8 @@ enum GlobalLogger {
     static let speech = OSLog(subsystem: subsystem, category: "Speech")
     static let lifecycle = OSLog(subsystem: subsystem, category: "Lifecycle")
     static let input = OSLog(subsystem: subsystem, category: "Input")
+    static let motion = OSLog(subsystem: subsystem, category: "Motion")
+    static let router = OSLog(subsystem: subsystem, category: "Router")
 
     static func log(_ message: String, log: OSLog, type: OSLogType = .default) {
         // Always print to stderr for immediate terminal feedback.
@@ -2391,6 +2376,8 @@ enum GlobalLogger {
         if log === speech { category = "Speech" }
         else if log === lifecycle { category = "Lifecycle" }
         else if log === input { category = "Input" }
+        else if log === motion { category = "Motion" }
+        else if log === router { category = "Router" }
         else { category = "Aether" }
 
         let formatted = "\(Date()) [\(category)] \(message)\n"

@@ -17,6 +17,8 @@ fi
 mkdir -p "$BUILD_DIR"
 mkdir -p "$DERIVED_DATA_PATH"
 
+BUILD_NUMBER=$(date +%Y%m%d%H%M)
+
 echo "Building ${APP_NAME} (${CONFIGURATION}) -> ${BUILD_DIR}"
 echo "Tip: set signing in Xcode (Signing & Capabilities)."
 
@@ -28,6 +30,14 @@ EXTRA_BUILD_FLAGS=(
   "CLANG_ENABLE_CODE_COVERAGE=NO"
   "ENABLE_CODE_COVERAGE=NO"
   "ENABLE_TESTABILITY=NO"
+  "CLANG_PROFILE_INSTR_GENERATE=NO"
+  "GENERATE_PROFILING_CODE=NO"
+  "OTHER_CFLAGS=-fno-profile-instr-generate"
+  "OTHER_CPLUSPLUSFLAGS=-fno-profile-instr-generate"
+  "OTHER_LDFLAGS=-fno-profile-instr-generate"
+  "LLVM_LTO=NO"
+  "ENABLE_PREVIEWS=NO"
+  "CLANG_USE_OPTIMIZATION_PROFILE=NO"
 )
 if [[ "${AETHER_UNSIGNED:-0}" == "1" ]]; then
   EXTRA_BUILD_FLAGS+=(
@@ -72,6 +82,7 @@ run_xcodebuild() {
     -derivedDataPath "$DERIVED_DATA_PATH" \
     build \
     CONFIGURATION_BUILD_DIR="$BUILD_DIR" \
+    CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
     STRIP_INSTALLED_PRODUCT=NO \
     ${1+"$@"}
 }
