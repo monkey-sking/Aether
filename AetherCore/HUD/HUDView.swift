@@ -3,16 +3,6 @@ import SwiftUI
 struct HUDView: View {
     @ObservedObject var state: HUDState
     
-    private static let symbolFallbacks: [String: [String]] = [
-        "airpodspro.left": ["airpod.gen3.left", "airpod.left", "airpods", "headphones"],
-        "airpodspro.right": ["airpod.gen3.right", "airpod.right", "airpods", "headphones"],
-        "airpod.gen3.left": ["airpod.left", "airpods", "headphones"],
-        "airpod.gen3.right": ["airpod.right", "airpods", "headphones"],
-        "airpod.gen3": ["airpods", "headphones"],
-        "airpodspro": ["airpods", "headphones"],
-        "airpodsmax": ["headphones"]
-    ]
-
     var body: some View {
         HStack(spacing: 8) {
             switch state.mode {
@@ -96,19 +86,7 @@ struct HUDView: View {
     private func resolvedSymbolName(for requested: String) -> String {
         let normalized = requested.trimmingCharacters(in: .whitespacesAndNewlines)
         let primary = normalized.isEmpty ? "mic.slash" : normalized
-        if isValidSymbol(primary) { return primary }
-        
-        if let fallbacks = Self.symbolFallbacks[primary] {
-            for fallback in fallbacks where isValidSymbol(fallback) {
-                return fallback
-            }
-        }
-        
-        return isValidSymbol("mic.slash") ? "mic.slash" : "mic"
-    }
-    
-    private func isValidSymbol(_ name: String) -> Bool {
-        NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
+        return primary
     }
 
     private var contextIcon: some View {
