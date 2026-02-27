@@ -321,8 +321,9 @@ final class CaretDetector: ObservableObject {
                  var sizeVal: CFTypeRef?
                  if AXUIElementCopyAttributeValue(windowElement, kAXPositionAttribute as CFString, &posVal) == .success,
                     AXUIElementCopyAttributeValue(windowElement, kAXSizeAttribute as CFString, &sizeVal) == .success {
+                     let posV = posVal as! AXValue; let sizeV = sizeVal as! AXValue
                      var p = CGPoint.zero; var s = CGSize.zero
-                     if AXValueGetValue(posVal as! AXValue, .cgPoint, &p), AXValueGetValue(sizeVal as! AXValue, .cgSize, &s) {
+                     if AXValueGetValue(posV, .cgPoint, &p), AXValueGetValue(sizeV, .cgSize, &s) {
                          let rawWin = CGRect(origin: p, size: s)
                          windowFrame = appKitRectFromAX(rawWin)
                      }
@@ -340,7 +341,8 @@ final class CaretDetector: ObservableObject {
                      if AXUIElementCopyParameterizedAttributeValue(element, "AXBoundsForTextMarkerRange" as CFString, markerRangeValue!, &boundsValue) == .success {
                           // [Legacy Restore] Pre-Extract Validation
                           var rawR = CGRect.zero
-                          if AXValueGetValue(boundsValue as! AXValue, .cgRect, &rawR) {
+                          let bVal = boundsValue as! AXValue
+                          if AXValueGetValue(bVal, .cgRect, &rawR) {
                               if (rawR.origin.x == 0 && rawR.origin.y == 0) || (rawR.width <= 1 && rawR.height <= 1) {
                                   // Bogus
                               } else if rawR.width > 80 || rawR.height > 80 {
@@ -365,7 +367,8 @@ final class CaretDetector: ObservableObject {
                              
                              // [Legacy Restore] Strict Validation for Standard Range
                              var rawR = CGRect.zero
-                             if AXValueGetValue(boundsValue as! AXValue, .cgRect, &rawR) {
+                             let bVal = boundsValue as! AXValue
+                             if AXValueGetValue(bVal, .cgRect, &rawR) {
                                   // 1. Bogus Check (0,0) or Tiny
                                   if (rawR.origin.x == 0 && rawR.origin.y == 0) || (rawR.width <= 1 && rawR.height <= 1) {
                                       self.logger.debug("🚨 [PRE-FLIP REJECT] Bogus standard range: \(rawR.debugDescription)")
@@ -394,8 +397,9 @@ final class CaretDetector: ObservableObject {
                  var sizeValue: CFTypeRef?
                  if AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posValue) == .success,
                     AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success {
+                     let posV = posValue as! AXValue; let sizeV = sizeValue as! AXValue
                      var p = CGPoint.zero; var s = CGSize.zero
-                     if AXValueGetValue(posValue as! AXValue, .cgPoint, &p), AXValueGetValue(sizeValue as! AXValue, .cgSize, &s) {
+                     if AXValueGetValue(posV, .cgPoint, &p), AXValueGetValue(sizeV, .cgSize, &s) {
                          let axVal = AXValueCreate(.cgRect, [CGRect(origin: p, size: s)])
                          if let r_appkit = extractRect(from: axVal as CFTypeRef) {
                              if isValid(r_appkit, in: windowFrame) {
@@ -450,7 +454,8 @@ final class CaretDetector: ObservableObject {
                                                    AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success {
                                                     
                                                      var range = CFRange()
-                                                     if AXValueGetValue(selectedRangeValue as! AXValue, .cfRange, &range) {
+                                                     let selV = selectedRangeValue as! AXValue
+                                                     if AXValueGetValue(selV, .cfRange, &range) {
                                                          let total = max(0, valueStr.count)
                                                          let location = max(0, min(range.location + range.length, total))
                                                          if total > 0 {
@@ -584,7 +589,8 @@ final class CaretDetector: ObservableObject {
     
     private func extractRect(from value: CFTypeRef) -> CGRect? {
         var r = CGRect.zero
-        if AXValueGetValue(value as! AXValue, .cgRect, &r) {
+        let axVal = value as! AXValue
+        if AXValueGetValue(axVal, .cgRect, &r) {
             return appKitRectFromAX(r)
         }
         return nil

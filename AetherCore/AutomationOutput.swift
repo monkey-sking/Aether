@@ -11,8 +11,8 @@ protocol AutomationOutput {
     func pasteFromClipboard()
     func scroll(dx: Int, dy: Int)
     func drag(start: Bool, at point: CGPoint?)
-    func backspace(count: Int)
-    func typeText(_ text: String)
+    func backspace(count: Int, targetPID: pid_t?)
+    func typeText(_ text: String, targetPID: pid_t?)
 }
 
 final class OutputRouting: ObservableObject {
@@ -200,7 +200,7 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
         }
     }
 
-    func backspace(count: Int) {
+    func backspace(count: Int, targetPID: pid_t?) {
         guard count > 0 else { return }
         let source = CGEventSource(stateID: .combinedSessionState)
         let deleteKey: CGKeyCode = 51
@@ -213,11 +213,19 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
         }
     }
 
-    func typeText(_ text: String) {
+    func typeText(_ text: String, targetPID: pid_t?) {
         let source = CGEventSource(stateID: .combinedSessionState)
-        // Iterate over UTF-16 code units to handle unicode correctly
+        
+        // [Concurrency Update] Attempt Background AX Injection if targetPID is provided and != current
+        if let targetPID = targetPID {
+            if injectTextViaAX(text: text, pid: targetPID) {
+                // Successfully injected via Accessibility API into background app
+                return
+            }
+        }
+        
+        // Fallback to active window injection via CGEvent
         for char in text.utf16 {
-            // Virtual Key 0 (A) is a placeholder. Unicode string overrides it.
             let key: CGKeyCode = 0 
             
             if let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true) {
@@ -232,6 +240,44 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
                 up.post(tap: .cghidEventTap)
             }
         }
+    }
+    
+    // Recursive search for the focused element in a specific app
+    private func findFocusedElement(in element: AXUIElement) -> AXUIElement? {
+        var focusedElement: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success {
+            return (focusedElement as! AXUIElement)
+        }
+        return nil
+    }
+
+    private func injectTextViaAX(text: String, pid: pid_t) -> Bool {
+        let appRef = AXUIElementCreateApplication(pid)
+        guard let focusedElement = findFocusedElement(in: appRef) else {
+            os_log("Background Injection failed: Could not find focused element in PID %d", type: .info, pid)
+            return false
+        }
+        
+        var role: CFTypeRef?
+        AXUIElementCopyAttributeValue(focusedElement, kAXRoleAttribute as CFString, &role)
+        let roleStr = (role as? String) ?? ""
+        
+        let textCF = text as CFTypeRef
+        
+        // First try AXValue (Text fields)
+        if AXUIElementSetAttributeValue(focusedElement, kAXValueAttribute as CFString, textCF) == .success {
+            os_log("Background Injection success via AXValue into PID %d (Role: %{public}@)", type: .info, pid, roleStr)
+            return true
+        }
+        
+        // Then try AXSelectedText (Documents / Text Areas)
+        if AXUIElementSetAttributeValue(focusedElement, kAXSelectedTextAttribute as CFString, textCF) == .success {
+            os_log("Background Injection success via AXSelectedText into PID %d (Role: %{public}@)", type: .info, pid, roleStr)
+            return true
+        }
+
+        os_log("Background Injection failed: Element did not accept text in PID %d (Role: %{public}@)", type: .info, pid, roleStr)
+        return false
     }
 }
 
@@ -287,8 +333,8 @@ final class PreferredAutomationOutput: AutomationOutput {
         OutputRouting.shared.setTextOutputPath("CoreGraphics")
     }
 
-    func typeText(_ text: String) {
-        fallback.typeText(text)
+    func typeText(_ text: String, targetPID: pid_t?) {
+        fallback.typeText(text, targetPID: targetPID)
         OutputRouting.shared.setTextOutputPath("CoreGraphics")
     }
 
@@ -319,8 +365,8 @@ final class PreferredAutomationOutput: AutomationOutput {
         OutputRouting.shared.setPointerOutputPath("CoreGraphics (Drag)")
     }
     
-    func backspace(count: Int) {
-        fallback.backspace(count: count)
+    func backspace(count: Int, targetPID: pid_t?) {
+        fallback.backspace(count: count, targetPID: targetPID)
         OutputRouting.shared.setTextOutputPath("CoreGraphics")
     }
 }
