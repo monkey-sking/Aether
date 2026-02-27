@@ -377,14 +377,6 @@ class AppState: ObservableObject {
     @Published var driverState: SystemExtensionActivationState = .idle
     @Published var isMotionTracking: Bool = false
     @Published var attitudeData: String = "No Data"
-    @Published var pointerOutputPath: String = OutputRouting.shared.pointerOutputPath
-    @Published var textOutputPath: String = OutputRouting.shared.textOutputPath
-    @Published var forceDriverOnly: Bool = UserDefaults.standard.bool(forKey: "forceDriverOnly") {
-        didSet {
-            UserDefaults.standard.set(forceDriverOnly, forKey: "forceDriverOnly")
-            OutputRouting.shared.forceDriverOnly = forceDriverOnly
-        }
-    }
     
     @Published var calibrationStatus: String = "Normal"
     @Published var isDwellClickEnabled: Bool = UserDefaults.standard.object(forKey: "isDwellClickEnabled_v3") as? Bool ?? false {
@@ -696,9 +688,6 @@ class AppState: ObservableObject {
             
         motionService.isDwellClickEnabled = self.isDwellClickEnabled
         
-        // Restore OutputRouting state from persisted value
-        OutputRouting.shared.forceDriverOnly = self.forceDriverOnly
-        
         // Restore voice activation state after initial SwiftUI graph setup to avoid startup re-entrancy.
         DispatchQueue.main.async { [weak self] in
             self?.applyVoiceActivationMode()
@@ -714,14 +703,6 @@ class AppState: ObservableObject {
             .assign(to: &$lastVoiceError)
         voiceService.$lastWakeTime
             .assign(to: &$lastVoiceWakeTime)
-
-        OutputRouting.shared.$pointerOutputPath
-            .receive(on: DispatchQueue.main)
-            .assign(to: &$pointerOutputPath)
-
-        OutputRouting.shared.$textOutputPath
-            .receive(on: DispatchQueue.main)
-            .assign(to: &$textOutputPath)
 
 
         voiceService.onIntent = { [weak self] intent in

@@ -9,9 +9,6 @@ struct AetherMenuBar: Scene {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.menuPointer) + Text(": ") + Text(appState.isMotionTracking ? L10n.on : L10n.off)
                 Text(L10n.menuVoice) + Text(": \(appState.voiceStatus)")
-                Text(L10n.pointerOutput) + Text(": \(appState.pointerOutputPath)")
-                Text(L10n.textOutput) + Text(": \(appState.textOutputPath)")
-                Text(L10n.mode) + Text(": ") + Text(appState.forceDriverOnly ? L10n.modeDriverOnly : L10n.modeAuto)
                 if appState.driverState == .needsUserApproval {
                     Text(L10n.menuDriver) + Text(": ") + Text(L10n.systemExtensionNeedsApproval)
                     Button(L10n.openPrivacyAndSecurity) {
@@ -41,7 +38,6 @@ struct AetherMenuBar: Scene {
                 Divider()
 
                 Toggle(L10n.dwellClick, isOn: $appState.isDwellClickEnabled)
-                Toggle(L10n.forceDriverOnly, isOn: $appState.forceDriverOnly)
                 Toggle(
                     L10n.alwaysListening,
                     isOn: Binding(

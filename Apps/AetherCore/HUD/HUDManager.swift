@@ -31,7 +31,48 @@ final class HUDManager {
     
     private init() {
         setupSubscriptions()
+        setupPostureObservation()
         detector.start()
+    }
+    
+    private func setupPostureObservation() {
+        HeadMotionManager.shared.$currentPostureBias
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] bias in
+                self?.handlePostureChange(bias)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func handlePostureChange(_ bias: HeadMotionManager.PostureBias) {
+        // Only update HUD if we are in an active state (not hidden or standby)
+        guard state.mode != .hidden && state.mode != .standby else { return }
+        
+        switch bias {
+        case .tiltRight:
+            updatePostureFeedback(mode: .command, icon: "bolt.fill")
+        case .tiltLeft, .lookLow:
+            updatePostureFeedback(mode: .dictation, icon: "keyboard")
+        case .neutral:
+            // Revert to automatic based on context
+            let autoMode: HUDMode = lastKnownTypingState() ? .dictation : .command
+            let autoIcon = lastKnownTypingState() ? "keyboard" : "mic.fill"
+            updatePostureFeedback(mode: autoMode, icon: autoIcon)
+        }
+    }
+    
+    private func updatePostureFeedback(mode: HUDMode, icon: String) {
+        if state.mode != mode || state.inputDeviceIcon != icon {
+            state.mode = mode
+            state.inputDeviceIcon = icon
+            if isDebugModeEnabled {
+                os_log("HUD Posture Override: %{public}@ (Icon: %{public}@)", log: OSLog.default, type: .debug, mode.rawValue, icon)
+            }
+        }
+    }
+
+    private var isDebugModeEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "isDebugModeEnabled")
     }
     
     // MARK: - Public API
