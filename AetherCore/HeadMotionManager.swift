@@ -11,12 +11,21 @@ import Carbon
 import Carbon.HIToolbox
 import MediaPlayer
 
+
+
 class HeadMotionManager: ObservableObject {
     static let shared = HeadMotionManager()
 
     static let pttDownNotification = Notification.Name("AetherPTTDown")
     static let pttUpNotification = Notification.Name("AetherPTTUp")
     
+    enum PostureBias: String, Sendable {
+        case neutral
+        case tiltLeft   // Bias for Dictation
+        case tiltRight  // Bias for Command
+        case lookLow    // Bias for Dictation (optional, like reading a script)
+    }
+
     private init() {
         // Hotkeys require Accessibility trust. Install the event tap only after permissions are granted.
         setupAirPodsCommands()
@@ -27,9 +36,10 @@ class HeadMotionManager: ObservableObject {
     private var stabilityTimer: Timer?
     private var connectionTimer: Timer?
     private var lastDataTime: Date?
+    var didLogEventTapKeyDebugHint: Bool = false
     
     private let motionManager = CMHeadphoneMotionManager()
-    private let log = OSLog(subsystem: "com.7fei.Aether", category: "MotionManager")
+    private let log = GlobalLogger.motion
     
     @Published var isTracking: Bool = false
     @Published var attitudeText: String = "No Data"
@@ -77,6 +87,11 @@ class HeadMotionManager: ObservableObject {
     private var maxPitch: Double = 0.2
     private var isCalibratingRange: Bool = false
     
+    @Published var currentPostureBias: PostureBias = .neutral
+    @Published var manualSqueezeFocus: Bool? = nil // nil = auto, true = force command, false = force dictation
+    private let postureThresholdRoll: Double = 0.25 // ~14 degrees
+    private let postureThresholdPitch: Double = 0.35 // ~20 degrees for "Low"
+    
     // Smoothing
     private var currentX: CGFloat = 0
     private var currentY: CGFloat = 0
@@ -106,10 +121,6 @@ class HeadMotionManager: ObservableObject {
     }
     private var activePTTSources: Set<PTTSource> = []
     private var isPTTPressed: Bool { !activePTTSources.isEmpty }
-    
-    // Legacy flag for compatibility, computed from set
-    // private var isPTTPressed: Bool = false // Replaced by computed property
-    private var didLogEventTapKeyDebugHint: Bool = false
     
     // Store aggregate desktop dimensions
     private var desktopFrame: NSRect = .zero
@@ -220,6 +231,9 @@ class HeadMotionManager: ObservableObject {
                 os_log("AirPods Stream Detected", log: self.log)
             }
             
+            // Update Posture Bias based on Roll and Pitch
+            self.updatePostureBias(attitude: attitude)
+            
             // Baseline (Center)
             if !self.isCalibrated {
                 self.baseYaw = attitude.yaw
@@ -300,6 +314,32 @@ class HeadMotionManager: ObservableObject {
             
             // Handle Tilt Scroll
             self.handleTiltScroll(pitch: offPitch)
+        }
+    }
+    
+    private func updatePostureBias(attitude: CMAttitude) {
+        // We use Roll for Left/Right tilt
+        // Roll: positive is Tilt Right, negative is Tilt Left (approx)
+        let roll = attitude.roll
+        let pitch = attitude.pitch - basePitch
+        
+        var newBias: PostureBias = .neutral
+        
+        if roll > postureThresholdRoll {
+            newBias = .tiltRight
+        } else if roll < -postureThresholdRoll {
+            newBias = .tiltLeft
+        } else if pitch > postureThresholdPitch {
+            newBias = .lookLow
+        }
+        
+        if newBias != currentPostureBias {
+            DispatchQueue.main.async {
+                self.currentPostureBias = newBias
+                if self.isDebugModeEnabled {
+                    os_log("Posture Bias Changed: %{public}@", log: self.log, type: .debug, newBias.rawValue)
+                }
+            }
         }
     }
     
@@ -553,8 +593,24 @@ class HeadMotionManager: ObservableObject {
     
     private func handleClickCommand() {
         guard isTracking, isLookingAtScreen else { return }
-        os_log("AirPods: Single Press -> Left Click", log: log)
-        DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY)) }
+        
+        // If PTT is active, Squeeze acts as a mode toggle/inverter
+        if isPTTPressed {
+            os_log("AirPods: Squeeze during PTT -> Toggle Recognition Mode", log: log)
+            DispatchQueue.main.async {
+                // If we were auto-detected as typing, force command. Otherwise force dictation.
+                let currentlyTyping = HUDManager.shared.lastKnownTypingState()
+                let currentBias = self.manualSqueezeFocus ?? currentlyTyping // false = dictation, true = command
+                self.manualSqueezeFocus = !currentBias
+                
+                // Audio feedback for mode switch
+                NSSound.beep()
+            }
+        } else {
+            // Normal operation: Single Press -> Left Click
+            os_log("AirPods: Single Press -> Left Click", log: log)
+            DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY)) }
+        }
     }
     
     // ... triggerMouseClick (unchanged) ...
@@ -705,6 +761,7 @@ class HeadMotionManager: ObservableObject {
                         
                         if !wasPressed {
                             GlobalLogger.input.info("Hotkey: PTT DOWN Detected (Keyboard)")
+                            manager.manualSqueezeFocus = nil // Reset override on new PTT session
                             NotificationCenter.default.post(
                                 name: HeadMotionManager.pttDownNotification,
                                 object: nil
@@ -776,6 +833,7 @@ class HeadMotionManager: ObservableObject {
                             
                             if !wasPressed {
                                 GlobalLogger.input.info("Mouse PTT DOWN Detected (Button \(btn))")
+                                manager.manualSqueezeFocus = nil // Reset override
                                 NotificationCenter.default.post(
                                     name: HeadMotionManager.pttDownNotification,
                                     object: nil
