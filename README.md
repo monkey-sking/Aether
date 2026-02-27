@@ -21,9 +21,6 @@ Project Aether 是一个构建在 macOS 生态上的分布式感知网络。它�
     *   **零延迟响应**: 基于 Combine 的反应式状态管理，毫秒级切换显示内容。
     *   **智能定位**: 自动识别输入框 (Text Field) 与非输入区域，动态切换跟随策略 (Caret vs Mouse)。
     *   **抗干扰**: 针对各类无边框应用 (Electron/Arc) 的坐标系修正与容错处理 (Role-Based Fallback)。
-*   **⌨️ 隐形输入法 (AetherIME)**
-    *   **精准光标感知**: 作为一个“隐形”输入法存在，利用 `NSTextInputClient` 协议直接从应用内部获取精准的光标坐标。
-    *   **系统级补盲**: 解决 Accessibility API 在某些应用 (如终端、旧版编辑器) 中无法获取光标或延迟过高的问题。
 
 ## 📁 项目结构 (Directory Structure)
 
@@ -38,8 +35,7 @@ Aether/
 │   └── AetherDriver/         # DriverKit Extension - 虚拟神经中枢 (Virtual HID)
 │       ├── AetherDriver.cpp          # 驱动逻辑入口
 │       └── AetherUserClient.cpp      # App 与 Driver 通信层
-├── InputMethod/              # 隐形输入法 (AetherIME)
-│   └── AetherIME/            # 用于获取精准光标位置的辅助 IME
+
 ├── Shared/                   # 共享数据模型与协议 (IPC / XPC)
 ├── Scripts/                  # 自动化构建脚手架 (Build, Sign, Package)
 ├── docs/                     # 项目文档 (PRD, Roadmap, User Concept)

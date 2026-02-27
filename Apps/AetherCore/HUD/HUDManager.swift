@@ -264,11 +264,10 @@ final class HUDManager {
             cachedAXFocusRect = nil
             return nil
         }
-        let posVal = posRef as! AXValue
-        let sizeVal = sizeRef as! AXValue
-
         var p = CGPoint.zero
         var s = CGSize.zero
+        let posVal = posRef as! AXValue
+        let sizeVal = sizeRef as! AXValue
         guard AXValueGetValue(posVal, .cgPoint, &p),
               AXValueGetValue(sizeVal, .cgSize, &s) else {
             cachedAXFocusRect = nil
@@ -306,7 +305,8 @@ final class HUDManager {
             guard err == .success, let boundsVal = boundsRef else { return nil }
             guard CFGetTypeID(boundsVal) == AXValueGetTypeID() else { return nil }
             var axRect = CGRect.zero
-            guard AXValueGetValue((boundsVal as! AXValue), .cgRect, &axRect) else { return nil }
+            let axV = boundsVal as! AXValue
+            guard AXValueGetValue(axV, .cgRect, &axRect) else { return nil }
             return appKitRectFromAX(axRect)
         }
 
@@ -378,10 +378,10 @@ final class HUDManager {
             cachedAXEstimatedCaretBounds = nil
             return nil
         }
-        let posVal = posRef as! AXValue
-        let sizeVal = sizeRef as! AXValue
         var p = CGPoint.zero
         var s = CGSize.zero
+        let posVal = posRef as! AXValue
+        let sizeVal = sizeRef as! AXValue
         guard AXValueGetValue(posVal, .cgPoint, &p),
               AXValueGetValue(sizeVal, .cgSize, &s) else {
             cachedAXEstimatedCaretPoint = nil
@@ -411,7 +411,8 @@ final class HUDManager {
             return nil
         }
         var range = CFRange()
-        guard AXValueGetValue(selectedRangeValue as! AXValue, .cfRange, &range) else {
+        let axV = selectedRangeValue as! AXValue
+        guard AXValueGetValue(axV, .cfRange, &range) else {
             cachedAXEstimatedCaretPoint = nil
             cachedAXEstimatedCaretBounds = nil
             return nil
