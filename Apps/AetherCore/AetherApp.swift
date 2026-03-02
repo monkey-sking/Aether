@@ -623,6 +623,7 @@ class AppState: ObservableObject {
 
     private var windowController: NSWindowController?
     private var cancellables = Set<AnyCancellable>()
+    private var hasShownAccessibilityHint: Bool = false
 
     
     init() {
@@ -720,6 +721,19 @@ class AppState: ObservableObject {
                 speechAuthorized: speechAuthorized
             )
 
+            // Missing Accessibility breaks AX focus/caret detection, so input mode won't switch.
+            if !accessibilityTrusted {
+                if !self.hasShownAccessibilityHint {
+                    self.hasShownAccessibilityHint = true
+                    HUDManager.shared.showTemporary(
+                        message: String(localized: "driver.error.need_accessibility"),
+                        icon: "hand.raised.fill"
+                    )
+                }
+            } else {
+                self.hasShownAccessibilityHint = false
+            }
+
             // Safety: if Always Listening is enabled but permissions got revoked, shut it off.
             // BUGFIX: Only reset if the app has actually initialized permissions. 
             // On startup, these values might be false temporarily before refresh() is called.
@@ -743,6 +757,25 @@ class AppState: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.connectionLock.toggle()
+            }
+            .store(in: &cancellables)
+
+        // Refresh permissions when the app comes back to foreground (e.g. after changing System Settings).
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.refreshPermissions()
+            }
+            .store(in: &cancellables)
+
+        // If Accessibility is missing, keep polling so UI/hotkeys/HUD state updates promptly after user grants it.
+        Timer.publish(every: 1.0, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if !self.accessibilityTrusted || self.onboardingStep == .accessibility {
+                    self.refreshPermissions()
+                }
             }
             .store(in: &cancellables)
 
