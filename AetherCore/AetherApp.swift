@@ -624,6 +624,7 @@ class AppState: ObservableObject {
     private var windowController: NSWindowController?
     private var cancellables = Set<AnyCancellable>()
     private var hasShownAccessibilityHint: Bool = false
+    private var hasRequestedAccessibilityPromptThisRun: Bool = false
 
     
     init() {
@@ -729,6 +730,10 @@ class AppState: ObservableObject {
                         message: String(localized: "driver.error.need_accessibility"),
                         icon: "hand.raised.fill"
                     )
+                }
+                if !self.hasRequestedAccessibilityPromptThisRun {
+                    self.hasRequestedAccessibilityPromptThisRun = true
+                    self.permissions.requestAccessibility()
                 }
             } else {
                 self.hasShownAccessibilityHint = false
