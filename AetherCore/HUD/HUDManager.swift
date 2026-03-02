@@ -825,6 +825,7 @@ final class HUDManager {
         let axCaret = axCaretRectThrottled()
         let axEstimated = axEstimatedCaretContextThrottled()
         let axFocusInfo = axFocusedElementDebugSignatureThrottled()
+        let axTrusted = AXIsProcessTrusted()
         
         // 1. Determine Anchor & Mode
         var anchor = mouseLoc
@@ -1095,7 +1096,7 @@ final class HUDManager {
                     let ageMs = Int(now.timeIntervalSince(lastInputInteractionAt) * 1000)
                     return "\(Int(p.x)),\(Int(p.y))@\(ageMs)ms"
                 }()
-                let sig = "mode=\(state.mode.rawValue) uiTyping=\(uiTypingMode) layoutTyping=\(layoutTypingMode) sticky=\(update.isSticky) anchor=\(Int(anchor.x)),\(Int(anchor.y)) lastPt=\(lastPtSig) inputRect=\(fmt(update.inputRect)) typingRect=\(fmt(typingRect)) axCaret=\(fmt(axCaret)) axFocus=\(fmt(axFocusRect)) axInfo=\(axFocusInfo) lastGood=\(fmt(lastGoodTypingRect)) caret=\(fmt(update.caretRect)) final=\(Int(pos.x)),\(Int(pos.y)) size=\(Int(size.width))x\(Int(size.height))"
+                let sig = "mode=\(state.mode.rawValue) uiTyping=\(uiTypingMode) layoutTyping=\(layoutTypingMode) sticky=\(update.isSticky) axTrusted=\(axTrusted ? 1 : 0) anchor=\(Int(anchor.x)),\(Int(anchor.y)) lastPt=\(lastPtSig) inputRect=\(fmt(update.inputRect)) typingRect=\(fmt(typingRect)) axCaret=\(fmt(axCaret)) axFocus=\(fmt(axFocusRect)) axInfo=\(axFocusInfo) lastGood=\(fmt(lastGoodTypingRect)) caret=\(fmt(update.caretRect)) final=\(Int(pos.x)),\(Int(pos.y)) size=\(Int(size.width))x\(Int(size.height))"
                 if sig != lastAnchorTraceSignature {
                     lastAnchorTraceSignature = sig
                     let line = "\(now): \(sig)\n"
