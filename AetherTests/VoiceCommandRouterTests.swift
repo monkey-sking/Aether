@@ -90,3 +90,32 @@ final class VoiceCommandRouterTests: XCTestCase {
         )
     }
 }
+
+final class DictationSafetyTests: XCTestCase {
+    func testTypingFinalizationPlannerAppendSuffix() {
+        let plan = TypingFinalizationPlanner.makePlan(streamedText: "你好世", finalText: "你好世界")
+        XCTAssertEqual(plan, .append("界"))
+    }
+
+    func testTypingFinalizationPlannerNoDestructiveReplace() {
+        let plan = TypingFinalizationPlanner.makePlan(streamedText: "你好世界", finalText: "你好")
+        XCTAssertEqual(plan, .noChange("non-append-diff"))
+    }
+
+    func testTypingFinalizationPlannerEmptyStreamAppendsWholeText() {
+        let plan = TypingFinalizationPlanner.makePlan(streamedText: "", finalText: "hello")
+        XCTAssertEqual(plan, .append("hello"))
+    }
+
+    func testUtteranceExecutionGuardDeduplicatesSameUtterance() {
+        var guardState = UtteranceExecutionGuard(maxHistory: 8)
+        XCTAssertTrue(guardState.shouldExecute(sessionGeneration: 7, utteranceID: 42))
+        XCTAssertFalse(guardState.shouldExecute(sessionGeneration: 7, utteranceID: 42))
+    }
+
+    func testUtteranceExecutionGuardAllowsSameUtteranceAcrossSessions() {
+        var guardState = UtteranceExecutionGuard(maxHistory: 8)
+        XCTAssertTrue(guardState.shouldExecute(sessionGeneration: 7, utteranceID: 42))
+        XCTAssertTrue(guardState.shouldExecute(sessionGeneration: 8, utteranceID: 42))
+    }
+}
