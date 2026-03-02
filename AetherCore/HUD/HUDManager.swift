@@ -187,6 +187,14 @@ final class HUDManager {
             return nil
         }
 
+        func boolAttr(_ e: AXUIElement, _ name: CFString) -> Bool? {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(e, name, &value) == .success else { return nil }
+            if let b = value as? Bool { return b }
+            if let n = value as? NSNumber { return n.boolValue }
+            return nil
+        }
+
         var roleRef: CFTypeRef?
         let role = (AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success)
             ? (roleRef as? String ?? "")
@@ -207,23 +215,64 @@ final class HUDManager {
             var v: CFTypeRef?
             return AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &v) == .success
         }()
-        let hasInsertionContext = hasSelectedRange || hasMarkerRange
+        let hasInsertionContextOnFocus = hasSelectedRange || hasMarkerRange
+
+        func hasInsertionContext(_ e: AXUIElement) -> Bool {
+            var selectedRangeValue: CFTypeRef?
+            if AXUIElementCopyAttributeValue(e, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success {
+                return true
+            }
+            var markerRangeValue: CFTypeRef?
+            if AXUIElementCopyAttributeValue(e, "AXSelectedTextMarkerRange" as CFString, &markerRangeValue) == .success {
+                return true
+            }
+            return false
+        }
+
+        func hasEditableDescendant(_ e: AXUIElement, depth: Int = 4) -> Bool {
+            if depth <= 0 { return false }
+            var childrenRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(e, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+                  let children = childrenRef as? [AXUIElement] else {
+                return false
+            }
+
+            let directRoles = [kAXTextFieldRole as String, "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
+            let conditionalRoles = [kAXTextAreaRole as String, "AXWebArea", "AXStaticText"]
+            for child in children {
+                var roleRef: CFTypeRef?
+                let childRole = (AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleRef) == .success) ? (roleRef as? String ?? "") : ""
+                if directRoles.contains(childRole) { return true }
+                if conditionalRoles.contains(childRole),
+                   (boolAttr(child, "AXEditable" as CFString) == true || hasInsertionContext(child)) {
+                    return true
+                }
+                if hasInsertionContext(child) { return true }
+                if hasEditableDescendant(child, depth: depth - 1) { return true }
+            }
+            return false
+        }
 
         // Role-based fallback: treat common input roles as typing context.
         if directEditableRoles.contains(role) { return true }
 
+        if (role == "AXGroup" || role == "AXScrollArea" || role == "AXSplitGroup" || role == "AXRadioButton" || role == "AXButton"),
+           hasEditableDescendant(element) {
+            return true
+        }
+
         // WebArea is extremely common as a focused element in web UIs even when not in a text box.
-        // Require insertion-context + useful geometry to avoid stale AXWebArea false-positives.
+        // Old stable behavior preferred OR to reduce false negatives when switching focus in web apps.
         if role == "AXWebArea" {
-            guard hasInsertionContext else { return false }
-            if axCaretRectThrottled() != nil { return true }
-            if let r = detector.currentUpdate.inputRect, isTypingBoxSizedRect(r), !isProbablyWholeWindowRect(r) { return true }
-            if let r = axFocusedElementRectThrottled(), isTypingBoxSizedRect(r), !isProbablyWholeWindowRect(r) { return true }
-            return false
+            return editable || hasInsertionContextOnFocus
+        }
+
+        if role == kAXTextAreaRole as String {
+            return hasInsertionContextOnFocus
         }
 
         // As a last resort, accept insertion-context attributes for non-WebArea elements.
-        if hasInsertionContext {
+        if hasInsertionContextOnFocus {
             return true
         }
 
