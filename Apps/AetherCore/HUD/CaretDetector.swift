@@ -119,8 +119,8 @@ final class CaretDetector: ObservableObject {
         }
         eventMonitors.append(wsObserver)
         
-        // Fallback Timer (20Hz) to balance responsiveness and idle CPU.
-        followTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        // Legacy behavior: high-frequency fallback for smoother focus/caret catch-up.
+        followTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
             DispatchQueue.main.async { self?.recalcCaret() }
         }
     }
@@ -243,9 +243,41 @@ final class CaretDetector: ObservableObject {
         var focusedIsEditable = false
         var shouldTemporarilyKeepLastCaret = false
         var usedInputMethodBridge = false // Simplified: always try AX first, or IME if preferred
-        
-        // 1. IME Bridge Check (Simplified)
-        // ... (Skipping complex compare logic for brevity, implementing functional check)
+
+        // 1. IME Bridge Check (fresh bridge update wins when AX is flaky across app/focus switches).
+        if let bridgedAt = bridgedCaretAt,
+           Date().timeIntervalSince(bridgedAt) <= 0.45,
+           let rawBridgeCaret = bridgedCaretRect,
+           let bridgeCaret = normalizeBridgeRect(rawBridgeCaret) {
+            let frontBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            let bundleMatches = (bridgedBundleID == nil) || (frontBundle == nil) || (bridgedBundleID == frontBundle)
+            if bundleMatches {
+                newRect = bridgeCaret
+                if let rawContext = bridgedInputContextRect {
+                    newInputContextRect = normalizeBridgeRect(rawContext) ?? rawContext
+                }
+                newCaretSourceBundleID = bridgedBundleID ?? frontBundle
+                focusedIsEditable = true
+                usedInputMethodBridge = true
+            }
+        }
+
+        if usedInputMethodBridge {
+            DispatchQueue.main.async {
+                self.isFetchingCaret = false
+                self.isCaretStickyActive = false
+                self.caretStickyTimer?.invalidate()
+                self.caretStickyTimer = nil
+
+                self.caretRect = newRect
+                self.lastCaretRect = newRect
+                self.lastCaretRectAt = Date()
+                self.caretSourceBundleID = newCaretSourceBundleID
+                self.inputContextRect = newInputContextRect
+                self.updateState()
+            }
+            return
+        }
         
         // 2. AX System Wide
         let systemWide = AXUIElementCreateSystemWide()
@@ -594,6 +626,30 @@ final class CaretDetector: ObservableObject {
             return appKitRectFromAX(r)
         }
         return nil
+    }
+
+    private func normalizeBridgeRect(_ rect: CGRect) -> CGRect? {
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        if isRectOnAnyScreen(rect) { return rect }
+
+        let desktopMaxY = NSScreen.screens.map(\.frame.maxY).max() ?? 0
+        guard desktopMaxY > 0 else { return nil }
+        let flipped = CGRect(
+            x: rect.origin.x,
+            y: desktopMaxY - rect.origin.y - rect.size.height,
+            width: rect.size.width,
+            height: rect.size.height
+        )
+        return isRectOnAnyScreen(flipped) ? flipped : nil
+    }
+
+    private func isRectOnAnyScreen(_ rect: CGRect) -> Bool {
+        for screen in NSScreen.screens {
+            if screen.frame.intersects(rect) || screen.visibleFrame.intersects(rect) {
+                return true
+            }
+        }
+        return false
     }
 
     private func appKitRectFromAX(_ axRect: CGRect) -> CGRect? {
