@@ -2391,7 +2391,8 @@ final class SpeechManager: ObservableObject {
 
     private func processIntentJob(_ job: IntentJob) async -> ProcessedJob {
         // Heavy work off the capture loop. Keep execution deterministic by not touching mutable UI state.
-        if case .dictation(let text) = job.intent, job.llmEnhancementEnabled, !job.sessionTypingMode, let llmProvider {
+        // LLM rewrite is dictation-only and should run in typing sessions, not command sessions.
+        if case .dictation(let text) = job.intent, job.llmEnhancementEnabled, job.sessionTypingMode, let llmProvider {
             do {
                 let enhanced = try await llmProvider.enhanceDictation(text)
                 let finalText = enhanced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : enhanced

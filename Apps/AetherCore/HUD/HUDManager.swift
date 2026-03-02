@@ -147,14 +147,16 @@ final class HUDManager {
             return true
         }
 
-        // Codex/Antigravity-style web UIs: treat typing context as true only if we can obtain
-        // input-box-sized geometry (or caret bounds). This avoids getting "stuck" in input mode
-        // when AX reports a huge editable container.
-        if isWeirdWebTypingApp(bundleID: detector.currentUpdate.sourceBundleID) {
-            if axCaretRectThrottled() != nil { return true }
-            if let r = detector.currentUpdate.inputRect, isTypingBoxSizedRect(r), !isProbablyWholeWindowRect(r) { return true }
-            if let r = axFocusedElementRectThrottled(), isTypingBoxSizedRect(r), !isProbablyWholeWindowRect(r) { return true }
-            return false
+        // Geometry-first fallback (works better for browser/webview inputs where AX role is often AXWebArea).
+        if axCaretRectThrottled() != nil { return true }
+        if let r = detector.currentUpdate.inputRect, isTypingBoxSizedRect(r), !isProbablyWholeWindowRect(r) {
+            return true
+        }
+        if let r = axFocusedElementRectThrottled(),
+           isTypingBoxSizedRect(r),
+           !isProbablyWholeWindowRect(r),
+           isAXFocusedElementInsertionContextAvailable() {
+            return true
         }
 
         let now = Date()
@@ -165,14 +167,6 @@ final class HUDManager {
         let v = isAXFocusedElementEditable()
         cachedAXTypingState = v
         return v
-    }
-
-    private func isWeirdWebTypingApp(bundleID: String?) -> Bool {
-        let b = (bundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "").lowercased()
-        if b.contains("codex") { return true }
-        if b.contains("antigravity") { return true }
-        // Future: add more "web-based" special cases here.
-        return false
     }
 
     private func isAXFocusedElementEditable() -> Bool {
@@ -205,14 +199,6 @@ final class HUDManager {
         let editable = boolAttr("AXEditable" as CFString) == true
         if editable { return true }
 
-        // Role-based fallback: treat common input roles as typing context.
-        if directEditableRoles.contains(role) { return true }
-
-        // WebArea is extremely common as a focused element in web UIs even when not in a text box.
-        // Without AXEditable, we treat it as non-typing to allow exiting "input mode" when clicking elsewhere.
-        if role == "AXWebArea" { return false }
-
-        // As a last resort, accept insertion-context attributes for non-WebArea elements.
         let hasSelectedRange: Bool = {
             var v: CFTypeRef?
             return AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &v) == .success
@@ -221,10 +207,46 @@ final class HUDManager {
             var v: CFTypeRef?
             return AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &v) == .success
         }()
-        if hasSelectedRange || hasMarkerRange {
+        let hasInsertionContext = hasSelectedRange || hasMarkerRange
+
+        // Role-based fallback: treat common input roles as typing context.
+        if directEditableRoles.contains(role) { return true }
+
+        // WebArea is extremely common as a focused element in web UIs even when not in a text box.
+        // Require insertion-context + useful geometry to avoid stale AXWebArea false-positives.
+        if role == "AXWebArea" {
+            guard hasInsertionContext else { return false }
+            if axCaretRectThrottled() != nil { return true }
+            if let r = detector.currentUpdate.inputRect, isTypingBoxSizedRect(r), !isProbablyWholeWindowRect(r) { return true }
+            if let r = axFocusedElementRectThrottled(), isTypingBoxSizedRect(r), !isProbablyWholeWindowRect(r) { return true }
+            return false
+        }
+
+        // As a last resort, accept insertion-context attributes for non-WebArea elements.
+        if hasInsertionContext {
             return true
         }
 
+        return false
+    }
+
+    private func isAXFocusedElementInsertionContextAvailable() -> Bool {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
+              let focusedElement else {
+            return false
+        }
+        let element = focusedElement as! AXUIElement
+
+        var selectedRangeRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeRef) == .success {
+            return true
+        }
+        var markerRangeRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRangeRef) == .success {
+            return true
+        }
         return false
     }
 
@@ -253,7 +275,8 @@ final class HUDManager {
         let area = r.width * r.height
         let screenArea = s.width * s.height
         if screenArea > 0, area > screenArea * 0.22 { return true }
-        if r.height > 160 { return true }
+        // Allow medium/tall text inputs (multi-line composer) without classifying them as whole-window.
+        if r.height > 280 { return true }
         if r.width > s.width * 0.92, r.height > 60 { return true }
         return (r.width > s.width * 0.65) && (r.height > s.height * 0.45)
     }
@@ -263,7 +286,7 @@ final class HUDManager {
         // Codex prompt box tends to be short; the big editor pane is tall.
         if r.width <= 0 || r.height <= 0 { return false }
         if r.height < 18 { return false }
-        if r.height > 110 { return false }
+        if r.height > 220 { return false }
         if r.width < 140 { return false }
         return true
     }
