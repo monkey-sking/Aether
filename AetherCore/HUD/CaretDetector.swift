@@ -339,8 +339,10 @@ final class CaretDetector: ObservableObject {
                 }
             }
             
-            // Editability - adding AXGroup as a potential container for web-based inputs
-            var isEditable = ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea"].contains(role)
+            // Keep web/container roles in the editable candidate list.
+            // Older stable behavior treated AXWebArea/AXGroup as valid entry points,
+            // then relied on range/bounds validation to reject bad geometry.
+            var isEditable = ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea", "AXWebArea", "AXGroup"].contains(role)
             let axEditable = readAXBool(element, attribute: "AXEditable")
             if axEditable == true { isEditable = true }
              
