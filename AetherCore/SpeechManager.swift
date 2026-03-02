@@ -16,6 +16,63 @@ struct AudioInputDevice: Identifiable, Hashable {
     
     static let defaultSystem = AudioInputDevice(id: 0, name: String(localized: "settings.default_device"), uid: "SystemDefault", iconName: "mic.slash")
 }
+
+enum TypingFinalizationPlan: Equatable {
+    case noChange(String)
+    case append(String)
+}
+
+enum TypingFinalizationPlanner {
+    static func makePlan(streamedText: String, finalText: String) -> TypingFinalizationPlan {
+        if finalText.isEmpty {
+            return .noChange("final-empty")
+        }
+        if streamedText.isEmpty {
+            return .append(finalText)
+        }
+        if finalText == streamedText {
+            return .noChange("already-streamed")
+        }
+        if finalText.hasPrefix(streamedText) {
+            let suffix = String(finalText.dropFirst(streamedText.count))
+            return suffix.isEmpty ? .noChange("already-streamed") : .append(suffix)
+        }
+
+        // Safety-first: avoid destructive corrections (backspace/replace) in typing mode.
+        return .noChange("non-append-diff")
+    }
+}
+
+struct UtteranceExecutionGuard {
+    private var seenOrder: [String] = []
+    private var seenSet: Set<String> = []
+    private let maxHistory: Int
+
+    init(maxHistory: Int = 64) {
+        self.maxHistory = max(8, maxHistory)
+    }
+
+    mutating func shouldExecute(sessionGeneration: Int, utteranceID: Int) -> Bool {
+        guard utteranceID > 0 else { return true }
+
+        let key = "\(sessionGeneration)#\(utteranceID)"
+        if seenSet.contains(key) { return false }
+
+        seenSet.insert(key)
+        seenOrder.append(key)
+        while seenOrder.count > maxHistory {
+            let removed = seenOrder.removeFirst()
+            seenSet.remove(removed)
+        }
+        return true
+    }
+
+    mutating func reset() {
+        seenOrder.removeAll()
+        seenSet.removeAll()
+    }
+}
+
 @MainActor
 final class SpeechManager: ObservableObject {
     private let log = GlobalLogger.speech
@@ -24,22 +81,28 @@ final class SpeechManager: ObservableObject {
         let intent: VoiceIntent
         let localeIdentifier: String
         let llmEnhancementEnabled: Bool
+        let originSessionGeneration: Int
+        let utteranceID: Int
         let sessionTypingMode: Bool
         let streamedTextSnapshot: String
         let screenTypedCount: Int
         let targetPID: pid_t?
         let targetBundleID: String?
+        let targetElementFingerprint: String?
     }
 
     private struct ProcessedJob: Sendable {
         let seq: Int
         let intent: VoiceIntent
         let localeIdentifier: String
+        let originSessionGeneration: Int
+        let utteranceID: Int
         let sessionTypingMode: Bool
         let streamedTextSnapshot: String
         let screenTypedCount: Int
         let targetPID: pid_t?
         let targetBundleID: String?
+        let targetElementFingerprint: String?
         let diagnostics: String?
     }
 
@@ -320,9 +383,12 @@ final class SpeechManager: ObservableObject {
     private var lastChangeAt: Date?
     private var lastStableText: String = ""
     private var sessionGeneration: Int = 0 
+    private var activeUtteranceID: Int = 0
+    private var nextUtteranceID: Int = 1
     private var sessionTypingMode: Bool = false
     private var sessionTargetPID: pid_t?
     private var sessionTargetBundleID: String?
+    private var sessionTargetElementFingerprint: String?
     private var didLogSessionTargetMismatch: Bool = false
     private var lastFocusToastAt: Date = .distantPast
     private var hudOverrideUntil: Date = .distantPast
@@ -335,6 +401,7 @@ final class SpeechManager: ObservableObject {
     @Published var lastWakeTime: Date? // For context-aware wake window & UI feedback
     private var cancellables = Set<AnyCancellable>()
     private let intentPipeline = IntentPipeline()
+    private var utteranceExecutionGuard = UtteranceExecutionGuard(maxHistory: 128)
 
     private var isAwake: Bool {
         // Gaze Wake: if looking at screen AND tracking is active -> Awake
@@ -463,28 +530,108 @@ final class SpeechManager: ObservableObject {
         }
     }
 
-    private func currentFocusedPID() -> pid_t? {
-        let systemWide = AXUIElementCreateSystemWide()
-        var focusedElement: AnyObject?
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
-              let elementRef = focusedElement else {
+    private struct FocusedInputSnapshot {
+        let pid: pid_t
+        let bundleID: String?
+        let elementFingerprint: String?
+    }
+
+    private func axStringAttribute(_ element: AXUIElement, _ attribute: CFString) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
+              let raw = value as? String else {
             return nil
         }
-        let element = elementRef as! AXUIElement
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func axCGPointAttribute(_ element: AXUIElement, _ attribute: CFString) -> CGPoint? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
+              let raw = value,
+              CFGetTypeID(raw) == AXValueGetTypeID() else {
+            return nil
+        }
+        let axValue = raw as! AXValue
+        guard AXValueGetType(axValue) == .cgPoint else { return nil }
+        var point = CGPoint.zero
+        return AXValueGetValue(axValue, .cgPoint, &point) ? point : nil
+    }
+
+    private func axCGSizeAttribute(_ element: AXUIElement, _ attribute: CFString) -> CGSize? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
+              let raw = value,
+              CFGetTypeID(raw) == AXValueGetTypeID() else {
+            return nil
+        }
+        let axValue = raw as! AXValue
+        guard AXValueGetType(axValue) == .cgSize else { return nil }
+        var size = CGSize.zero
+        return AXValueGetValue(axValue, .cgSize, &size) ? size : nil
+    }
+
+    private func sanitizeFingerprintToken(_ raw: String?, fallback: String = "-") -> String {
+        guard let raw, !raw.isEmpty else { return fallback }
+        return raw
+            .replacingOccurrences(of: "|", with: "/")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func makeElementFingerprint(_ element: AXUIElement) -> String {
+        let role = sanitizeFingerprintToken(axStringAttribute(element, kAXRoleAttribute as CFString), fallback: "?")
+        let subrole = sanitizeFingerprintToken(axStringAttribute(element, kAXSubroleAttribute as CFString))
+        let identifier = sanitizeFingerprintToken(axStringAttribute(element, "AXIdentifier" as CFString))
+        let title = sanitizeFingerprintToken(axStringAttribute(element, kAXTitleAttribute as CFString))
+        let placeholder = sanitizeFingerprintToken(axStringAttribute(element, "AXPlaceholderValue" as CFString))
+
+        let pos = axCGPointAttribute(element, kAXPositionAttribute as CFString)
+        let size = axCGSizeAttribute(element, kAXSizeAttribute as CFString)
+        let posSig = pos.map { "\(Int($0.x.rounded()))x\(Int($0.y.rounded()))" } ?? "-"
+        let sizeSig = size.map { "\(Int($0.width.rounded()))x\(Int($0.height.rounded()))" } ?? "-"
+
+        var windowTitle = "-"
+        var windowRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXWindowAttribute as CFString, &windowRef) == .success,
+           let windowRaw = windowRef,
+           CFGetTypeID(windowRaw) == AXUIElementGetTypeID() {
+            let windowElement = windowRaw as! AXUIElement
+            windowTitle = sanitizeFingerprintToken(axStringAttribute(windowElement, kAXTitleAttribute as CFString))
+        }
+
+        return [role, subrole, identifier, title, placeholder, windowTitle, posSig, sizeSig].joined(separator: "|")
+    }
+
+    private func currentFocusedInputSnapshot() -> FocusedInputSnapshot? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedElement: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
+              let focusedRaw = focusedElement,
+              CFGetTypeID(focusedRaw) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        let element = focusedRaw as! AXUIElement
+
         var pid: pid_t = 0
         AXUIElementGetPid(element, &pid)
-        return pid > 0 ? pid : nil
+        guard pid > 0 else { return nil }
+
+        let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+        let fingerprint = makeElementFingerprint(element)
+        return FocusedInputSnapshot(pid: pid, bundleID: bundleID, elementFingerprint: fingerprint)
+    }
+
+    private func currentFocusedPID() -> pid_t? {
+        currentFocusedInputSnapshot()?.pid
     }
 
     private func lockSessionInputTarget() {
-        sessionTargetPID = currentFocusedPID()
+        let snapshot = currentFocusedInputSnapshot()
+        sessionTargetPID = snapshot?.pid
+        sessionTargetBundleID = snapshot?.bundleID
+        sessionTargetElementFingerprint = snapshot?.elementFingerprint
         didLogSessionTargetMismatch = false
-        if let pid = sessionTargetPID,
-           let app = NSRunningApplication(processIdentifier: pid) {
-            sessionTargetBundleID = app.bundleIdentifier
-        } else {
-            sessionTargetBundleID = nil
-        }
     }
 
     private func rearmInputTarget(reason: String) {
@@ -1014,6 +1161,8 @@ final class SpeechManager: ObservableObject {
 
     func startOnce() {
         isStopping = false
+        activeUtteranceID = 0
+        utteranceStartedAt = .distantPast
         // [Stability] Cancel any existing task/timer to prevent stale state
         stopTimer?.invalidate()
         stopTimer = nil
@@ -1144,6 +1293,10 @@ final class SpeechManager: ObservableObject {
                         self.lastChangeAt = now
                         if self.utteranceStartedAt == .distantPast && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             self.utteranceStartedAt = now
+                            if self.activeUtteranceID == 0 {
+                                self.activeUtteranceID = self.nextUtteranceID
+                                self.nextUtteranceID += 1
+                            }
                         }
                     }
 
@@ -1151,6 +1304,10 @@ final class SpeechManager: ObservableObject {
                     let hasPayload = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     if hasPayload && !self.isUtteranceActive {
                         self.isUtteranceActive = true
+                        if self.activeUtteranceID == 0 {
+                            self.activeUtteranceID = self.nextUtteranceID
+                            self.nextUtteranceID += 1
+                        }
                         if self.isAlwaysListeningEnabled && self.isDirectCommandEnabled {
                             self.rearmInputTarget(reason: "direct-utterance-start")
                         }
@@ -1210,7 +1367,7 @@ final class SpeechManager: ObservableObject {
                         
                         // Trigger finalization immediately
                         if self.isStopping {
-                            self.handleTranscript(text)
+                            self.handleTranscript(text, utteranceID: self.activeUtteranceID)
                             if !self.isAlwaysListeningEnabled {
                                 self.teardownEngine()
                                 self.refreshContinuousHUD() // [Fix] Unified Hide
@@ -1645,7 +1802,7 @@ final class SpeechManager: ObservableObject {
             self.status = "Processing…"
             os_log("Session Finalized (Fallback). Final: '%{public}@'", log: self.log, type: .default, textToUse)
             os_log("Session Finalized (Fallback). Final: '%{public}@'", log: self.log, type: .default, textToUse)
-            self.handleTranscript(textToUse)
+            self.handleTranscript(textToUse, utteranceID: self.activeUtteranceID)
             
             self.isStopping = false // [FIX] Ensure processing state is reset
             
@@ -1975,7 +2132,7 @@ final class SpeechManager: ObservableObject {
 
         // [Fix] Handle transcript BEFORE teardown so `sessionTypingMode` and `lastStreamedText` are valid.
         // Sync check needs state.
-        handleTranscript(text)
+        handleTranscript(text, utteranceID: activeUtteranceID)
         
         // Stop current session WITHOUT processing (we already handled it).
         teardownSession()
@@ -2006,10 +2163,13 @@ final class SpeechManager: ObservableObject {
         isStopping = false
         isDictating = false
         sessionTypingMode = false
+        activeUtteranceID = 0
         sessionTargetPID = nil
         sessionTargetBundleID = nil
+        sessionTargetElementFingerprint = nil
         didLogSessionTargetMismatch = false
         isUtteranceActive = false
+        utteranceStartedAt = .distantPast
         
         // [Fix] DON'T clear lastStreamedText here! handleTranscript needs it for differential sync.
         // It will be cleared at the START of the next session in startOnce().
@@ -2021,16 +2181,19 @@ final class SpeechManager: ObservableObject {
         isStopping = false
         isDictating = false
         sessionTypingMode = false
+        activeUtteranceID = 0
         sessionTargetPID = nil
         sessionTargetBundleID = nil
+        sessionTargetElementFingerprint = nil
         didLogSessionTargetMismatch = false
         isUtteranceActive = false
+        utteranceStartedAt = .distantPast
         lastTranscript = ""
         lastChangeAt = nil
         lastStableText = ""
     }
 
-    private func handleTranscript(_ transcript: String) {
+    private func handleTranscript(_ transcript: String, utteranceID: Int? = nil) {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { 
             os_log("Transcript empty, ignoring.", log: log, type: .debug)
@@ -2158,10 +2321,26 @@ final class SpeechManager: ObservableObject {
         }
         
         // Parallelize heavy work (LLM / typing injection) so we can start capturing the next utterance immediately.
-        enqueueIntentForParallelExecution(intent, typingContext: sessionTypingMode)
+        var resolvedUtteranceID = utteranceID ?? activeUtteranceID
+        if resolvedUtteranceID <= 0 {
+            resolvedUtteranceID = nextUtteranceID
+            nextUtteranceID += 1
+            activeUtteranceID = resolvedUtteranceID
+        }
+        enqueueIntentForParallelExecution(
+            intent,
+            typingContext: sessionTypingMode,
+            utteranceID: resolvedUtteranceID,
+            originSessionGeneration: sessionGeneration
+        )
     }
 
-    private func enqueueIntentForParallelExecution(_ intent: VoiceIntent, typingContext: Bool) {
+    private func enqueueIntentForParallelExecution(
+        _ intent: VoiceIntent,
+        typingContext: Bool,
+        utteranceID: Int,
+        originSessionGeneration: Int
+    ) {
         // Capture all state that will be wiped/reset by the next session.
         let localeID = activeLocale.identifier
         let job = IntentJob(
@@ -2169,11 +2348,14 @@ final class SpeechManager: ObservableObject {
             intent: intent,
             localeIdentifier: localeID,
             llmEnhancementEnabled: isLLMEnhancementEnabled,
+            originSessionGeneration: originSessionGeneration,
+            utteranceID: utteranceID,
             sessionTypingMode: typingContext ? sessionTypingMode : false,
             streamedTextSnapshot: typingContext ? lastStreamedText : "",
             screenTypedCount: typingContext ? screenTypedCount : 0,
             targetPID: typingContext ? sessionTargetPID : nil,
-            targetBundleID: typingContext ? sessionTargetBundleID : nil
+            targetBundleID: typingContext ? sessionTargetBundleID : nil,
+            targetElementFingerprint: typingContext ? sessionTargetElementFingerprint : nil
         )
 
         Task { [weak self] in
@@ -2184,11 +2366,14 @@ final class SpeechManager: ObservableObject {
                 intent: job.intent,
                 localeIdentifier: job.localeIdentifier,
                 llmEnhancementEnabled: job.llmEnhancementEnabled,
+                originSessionGeneration: job.originSessionGeneration,
+                utteranceID: job.utteranceID,
                 sessionTypingMode: job.sessionTypingMode,
                 streamedTextSnapshot: job.streamedTextSnapshot,
                 screenTypedCount: job.screenTypedCount,
                 targetPID: job.targetPID,
-                targetBundleID: job.targetBundleID
+                targetBundleID: job.targetBundleID,
+                targetElementFingerprint: job.targetElementFingerprint
             )
 
             Task.detached(priority: .userInitiated) { [weak self] in
@@ -2214,11 +2399,14 @@ final class SpeechManager: ObservableObject {
                     seq: job.seq,
                     intent: .dictation(finalText),
                     localeIdentifier: job.localeIdentifier,
+                    originSessionGeneration: job.originSessionGeneration,
+                    utteranceID: job.utteranceID,
                     sessionTypingMode: job.sessionTypingMode,
                     streamedTextSnapshot: job.streamedTextSnapshot,
                     screenTypedCount: job.screenTypedCount,
                     targetPID: job.targetPID,
                     targetBundleID: job.targetBundleID,
+                    targetElementFingerprint: job.targetElementFingerprint,
                     diagnostics: "llm=ok"
                 )
             } catch {
@@ -2226,11 +2414,14 @@ final class SpeechManager: ObservableObject {
                     seq: job.seq,
                     intent: job.intent,
                     localeIdentifier: job.localeIdentifier,
+                    originSessionGeneration: job.originSessionGeneration,
+                    utteranceID: job.utteranceID,
                     sessionTypingMode: job.sessionTypingMode,
                     streamedTextSnapshot: job.streamedTextSnapshot,
                     screenTypedCount: job.screenTypedCount,
                     targetPID: job.targetPID,
                     targetBundleID: job.targetBundleID,
+                    targetElementFingerprint: job.targetElementFingerprint,
                     diagnostics: "llm=failed(\(error.localizedDescription))"
                 )
             }
@@ -2240,16 +2431,31 @@ final class SpeechManager: ObservableObject {
             seq: job.seq,
             intent: job.intent,
             localeIdentifier: job.localeIdentifier,
+            originSessionGeneration: job.originSessionGeneration,
+            utteranceID: job.utteranceID,
             sessionTypingMode: job.sessionTypingMode,
             streamedTextSnapshot: job.streamedTextSnapshot,
             screenTypedCount: job.screenTypedCount,
             targetPID: job.targetPID,
             targetBundleID: job.targetBundleID,
+            targetElementFingerprint: job.targetElementFingerprint,
             diagnostics: nil
         )
     }
 
     private func isJobInputTargetValidForInjection(_ job: ProcessedJob) -> Bool {
+        func emitFocusMismatchToast() {
+            let now = Date()
+            if now.timeIntervalSince(lastFocusToastAt) > 1.2 {
+                lastFocusToastAt = now
+                let msg = job.localeIdentifier.starts(with: "zh")
+                    ? "输入焦点已变化，已跳过本次听写"
+                    : "Focus changed. Dictation skipped."
+                setHUDOverride(mode: .command, message: msg, icon: "exclamationmark.triangle", duration: 1.2)
+                refreshContinuousHUD()
+            }
+        }
+
         if job.sessionTypingMode && (job.targetPID == nil || job.targetPID == 0) {
             os_log("Skip dictation injection: missing typing target PID", log: log, type: .info)
             return false
@@ -2258,67 +2464,76 @@ final class SpeechManager: ObservableObject {
         guard let targetPID = job.targetPID, targetPID > 0 else { return true }
 
         guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+            emitFocusMismatchToast()
             return false
         }
 
-        if frontmost.processIdentifier == targetPID {
-            return true
+        let matchesApp: Bool = {
+            if frontmost.processIdentifier == targetPID { return true }
+            if let targetBundleID = job.targetBundleID,
+               !targetBundleID.isEmpty,
+               frontmost.bundleIdentifier == targetBundleID {
+                return true
+            }
+            return false
+        }()
+
+        guard matchesApp else {
+            emitFocusMismatchToast()
+            os_log(
+                "Skip dictation injection due to target mismatch. targetPID=%d currentPID=%d targetBundle=%{public}@ currentBundle=%{public}@",
+                log: log,
+                type: .info,
+                targetPID,
+                frontmost.processIdentifier,
+                job.targetBundleID ?? "nil",
+                frontmost.bundleIdentifier ?? "nil"
+            )
+            return false
         }
 
-        if let targetBundleID = job.targetBundleID,
-           !targetBundleID.isEmpty,
-           frontmost.bundleIdentifier == targetBundleID {
-            return true
+        if job.sessionTypingMode,
+           let expectedFingerprint = job.targetElementFingerprint,
+           !expectedFingerprint.isEmpty {
+            guard let currentSnapshot = currentFocusedInputSnapshot(),
+                  currentSnapshot.pid == targetPID else {
+                emitFocusMismatchToast()
+                os_log("Skip dictation injection: focused element unavailable/mismatched PID for typing target", log: log, type: .info)
+                return false
+            }
+
+            if currentSnapshot.elementFingerprint != expectedFingerprint {
+                emitFocusMismatchToast()
+                os_log(
+                    "Skip dictation injection due to focused element mismatch. expected=%{public}@ current=%{public}@",
+                    log: log,
+                    type: .info,
+                    expectedFingerprint,
+                    currentSnapshot.elementFingerprint ?? "nil"
+                )
+                return false
+            }
         }
 
-        let now = Date()
-        if now.timeIntervalSince(lastFocusToastAt) > 1.2 {
-            lastFocusToastAt = now
-            let msg = job.localeIdentifier.starts(with: "zh")
-                ? "输入焦点已变化，已跳过本次听写"
-                : "Focus changed. Dictation skipped."
-            setHUDOverride(mode: .command, message: msg, icon: "exclamationmark.triangle", duration: 1.2)
-            refreshContinuousHUD()
-        }
-
-        os_log(
-            "Skip dictation injection due to target mismatch. targetPID=%d currentPID=%d targetBundle=%{public}@ currentBundle=%{public}@",
-            log: log,
-            type: .info,
-            targetPID,
-            frontmost.processIdentifier,
-            job.targetBundleID ?? "nil",
-            frontmost.bundleIdentifier ?? "nil"
-        )
-
-        return false
-    }
-
-    private enum TypingFinalizationPlan {
-        case noChange(String)
-        case append(String)
-    }
-
-    private func makeTypingFinalizationPlan(streamedText: String, finalText: String) -> TypingFinalizationPlan {
-        if finalText.isEmpty {
-            return .noChange("final-empty")
-        }
-        if streamedText.isEmpty {
-            return .append(finalText)
-        }
-        if finalText == streamedText {
-            return .noChange("already-streamed")
-        }
-        if finalText.hasPrefix(streamedText) {
-            let suffix = String(finalText.dropFirst(streamedText.count))
-            return suffix.isEmpty ? .noChange("already-streamed") : .append(suffix)
-        }
-
-        // Safety-first: avoid destructive corrections (backspace/replace) in typing mode.
-        return .noChange("non-append-diff")
+        return true
     }
 
     private func applyProcessedJob(_ job: ProcessedJob) {
+        guard utteranceExecutionGuard.shouldExecute(
+            sessionGeneration: job.originSessionGeneration,
+            utteranceID: job.utteranceID
+        ) else {
+            os_log(
+                "Skip duplicate processed job seq=%d session=%d utterance=%d",
+                log: log,
+                type: .info,
+                job.seq,
+                job.originSessionGeneration,
+                job.utteranceID
+            )
+            return
+        }
+
         // Note: execution is serialized by IntentPipeline drain order.
         switch job.intent {
         case .undo:
@@ -2334,7 +2549,7 @@ final class SpeechManager: ObservableObject {
             }
 
             if job.sessionTypingMode {
-                switch makeTypingFinalizationPlan(streamedText: job.streamedTextSnapshot, finalText: text) {
+                switch TypingFinalizationPlanner.makePlan(streamedText: job.streamedTextSnapshot, finalText: text) {
                 case .append(let suffix):
                     os_log("Dictation Sync: Appending final suffix (len: %d, targetPID: %d)", log: log, type: .info, suffix.count, job.targetPID ?? 0)
                     injector.type(suffix, targetPID: job.targetPID)
