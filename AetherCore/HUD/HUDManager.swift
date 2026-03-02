@@ -17,6 +17,8 @@ final class HUDManager {
     private var lastAXEstimatedCaretCheckAt: Date = .distantPast
     private var cachedAXEstimatedCaretPoint: CGPoint?
     private var cachedAXEstimatedCaretBounds: CGRect?
+    private var lastAXFocusDebugCheckAt: Date = .distantPast
+    private var cachedAXFocusDebugSignature: String = "focus=nil"
     private var lastAnchorTraceAt: Date = .distantPast
     private var lastAnchorTraceSignature: String = ""
     private var lastGoodTypingRect: CGRect?
@@ -147,15 +149,22 @@ final class HUDManager {
             return true
         }
 
-        // Geometry-first fallback (works better for browser/webview inputs where AX role is often AXWebArea).
+        let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+
+        // Geometry-first fallback (works better for browser/webview inputs where AX role is often AXWebArea/AXGroup).
         if axCaretRectThrottled() != nil { return true }
         if let r = detector.currentUpdate.inputRect, isTypingBoxSizedRect(r), !isProbablyWholeWindowRect(r) {
             return true
         }
         if let r = axFocusedElementRectThrottled(),
-           isTypingBoxSizedRect(r),
-           !isProbablyWholeWindowRect(r),
-           isAXFocusedElementInsertionContextAvailable() {
+           !isProbablyWholeWindowRect(r) {
+            if isTypingBoxSizedRect(r) { return true }
+            if isWeirdWebTypingApp(bundleID: frontBundle), isWebInputSizedRect(r) { return true }
+            if isAXFocusedElementInsertionContextAvailable() { return true }
+        }
+
+        if isWeirdWebTypingApp(bundleID: frontBundle),
+           isAXFocusedElementLooselyEditableForWeb() {
             return true
         }
 
@@ -264,7 +273,14 @@ final class HUDManager {
         // WebArea is extremely common as a focused element in web UIs even when not in a text box.
         // Old stable behavior preferred OR to reduce false negatives when switching focus in web apps.
         if role == "AXWebArea" {
-            return editable || hasInsertionContextOnFocus
+            if editable || hasInsertionContextOnFocus { return true }
+            if isWeirdWebTypingApp(bundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier),
+               let r = axFocusedElementRectThrottled(),
+               isWebInputSizedRect(r),
+               !isProbablyWholeWindowRect(r) {
+                return true
+            }
+            return false
         }
 
         if role == kAXTextAreaRole as String {
@@ -276,6 +292,50 @@ final class HUDManager {
             return true
         }
 
+        return false
+    }
+
+    private func isAXFocusedElementLooselyEditableForWeb() -> Bool {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
+              let focusedElement else {
+            return false
+        }
+        let element = focusedElement as! AXUIElement
+
+        func boolAttr(_ name: CFString) -> Bool {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, name, &value) == .success else { return false }
+            if let b = value as? Bool { return b }
+            if let n = value as? NSNumber { return n.boolValue }
+            return false
+        }
+
+        var roleRef: CFTypeRef?
+        let role = (AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success)
+            ? (roleRef as? String ?? "")
+            : ""
+
+        if ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea"].contains(role) {
+            return true
+        }
+        if role == "AXWebArea" || role == "AXGroup" || role == "AXScrollArea" || role == "AXSplitGroup" || role == "AXStaticText" {
+            if boolAttr("AXEditable" as CFString) { return true }
+            if isAXFocusedElementInsertionContextAvailable() { return true }
+            if let r = axFocusedElementRectThrottled(),
+               isWebInputSizedRect(r),
+               !isProbablyWholeWindowRect(r) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func isWeirdWebTypingApp(bundleID: String?) -> Bool {
+        let b = (bundleID ?? "").lowercased()
+        if b.contains("codex") { return true }
+        if b.contains("antigravity") { return true }
         return false
     }
 
@@ -337,6 +397,14 @@ final class HUDManager {
         if r.height < 18 { return false }
         if r.height > 220 { return false }
         if r.width < 140 { return false }
+        return true
+    }
+
+    private func isWebInputSizedRect(_ r: CGRect) -> Bool {
+        if r.width <= 0 || r.height <= 0 { return false }
+        if r.height < 18 { return false }
+        if r.height > 220 { return false }
+        if r.width < 56 { return false }
         return true
     }
 
@@ -604,6 +672,48 @@ final class HUDManager {
         return (point: pt, bounds: bounds)
     }
 
+    private func axFocusedElementDebugSignatureThrottled() -> String {
+        let now = Date()
+        if now.timeIntervalSince(lastAXFocusDebugCheckAt) < 0.18 {
+            return cachedAXFocusDebugSignature
+        }
+        lastAXFocusDebugCheckAt = now
+
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
+              let focusedElement else {
+            cachedAXFocusDebugSignature = "focus=nil"
+            return cachedAXFocusDebugSignature
+        }
+        let element = focusedElement as! AXUIElement
+
+        func boolAttr(_ name: CFString) -> Bool {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, name, &value) == .success else { return false }
+            if let b = value as? Bool { return b }
+            if let n = value as? NSNumber { return n.boolValue }
+            return false
+        }
+
+        var roleRef: CFTypeRef?
+        let role = (AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success)
+            ? (roleRef as? String ?? "-")
+            : "-"
+
+        var selectedRangeRef: CFTypeRef?
+        let hasSelectedRange = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeRef) == .success
+        var markerRangeRef: CFTypeRef?
+        let hasMarkerRange = AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRangeRef) == .success
+
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? "-"
+
+        cachedAXFocusDebugSignature = "role=\(role),editable=\(boolAttr("AXEditable" as CFString) ? 1 : 0),sel=\(hasSelectedRange ? 1 : 0),marker=\(hasMarkerRange ? 1 : 0),pid=\(pid),bundle=\(bundleID)"
+        return cachedAXFocusDebugSignature
+    }
+
     private func isTopBarInputRect(_ r: CGRect) -> Bool {
         // Browser address bars / top search fields live near the top of the visible frame.
         // In that case, placing the HUD above the input will often get clamped into awkward corners.
@@ -714,6 +824,7 @@ final class HUDManager {
         let axFocusRect = axFocusedElementRectThrottled()
         let axCaret = axCaretRectThrottled()
         let axEstimated = axEstimatedCaretContextThrottled()
+        let axFocusInfo = axFocusedElementDebugSignatureThrottled()
         
         // 1. Determine Anchor & Mode
         var anchor = mouseLoc
@@ -984,7 +1095,7 @@ final class HUDManager {
                     let ageMs = Int(now.timeIntervalSince(lastInputInteractionAt) * 1000)
                     return "\(Int(p.x)),\(Int(p.y))@\(ageMs)ms"
                 }()
-                let sig = "mode=\(state.mode.rawValue) uiTyping=\(uiTypingMode) layoutTyping=\(layoutTypingMode) sticky=\(update.isSticky) anchor=\(Int(anchor.x)),\(Int(anchor.y)) lastPt=\(lastPtSig) inputRect=\(fmt(update.inputRect)) typingRect=\(fmt(typingRect)) axCaret=\(fmt(axCaret)) axFocus=\(fmt(axFocusRect)) lastGood=\(fmt(lastGoodTypingRect)) caret=\(fmt(update.caretRect)) final=\(Int(pos.x)),\(Int(pos.y)) size=\(Int(size.width))x\(Int(size.height))"
+                let sig = "mode=\(state.mode.rawValue) uiTyping=\(uiTypingMode) layoutTyping=\(layoutTypingMode) sticky=\(update.isSticky) anchor=\(Int(anchor.x)),\(Int(anchor.y)) lastPt=\(lastPtSig) inputRect=\(fmt(update.inputRect)) typingRect=\(fmt(typingRect)) axCaret=\(fmt(axCaret)) axFocus=\(fmt(axFocusRect)) axInfo=\(axFocusInfo) lastGood=\(fmt(lastGoodTypingRect)) caret=\(fmt(update.caretRect)) final=\(Int(pos.x)),\(Int(pos.y)) size=\(Int(size.width))x\(Int(size.height))"
                 if sig != lastAnchorTraceSignature {
                     lastAnchorTraceSignature = sig
                     let line = "\(now): \(sig)\n"
