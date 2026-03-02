@@ -61,12 +61,17 @@ Aether/
 项目包含完整的自动化构建脚本：
 
 ```bash
-# 1. 编译 App 与 Driver (自动处理代码签名)
+# 1. 编译 App 与 Driver（默认要求签名成功；失败不会再自动回退未签名）
 ./Scripts/BuildRelease.sh Release
 
 # 2. 生成发布级安装包 (DMG)
 ./Scripts/CreateDMG.sh
+
+# 3. 安装到固定路径（推荐，避免 TCC 权限反复重置）
+./Scripts/InstallToApplications.sh .build/release/Aether.app
 ```
+
+> 注意：请不要从 DMG 挂载盘直接运行应用。辅助功能权限会绑定到应用签名与安装路径，推荐始终从 `/Applications/Aether.app` 启动。
 
 ## 🗓️ 最新动态 (Latest Updates - v0.1.0 RC)
 *   **Coordinate Normalization**: 修复了多显示器与屏幕旋转下的坐标系转换问题。

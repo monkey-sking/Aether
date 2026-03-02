@@ -6,6 +6,7 @@ APP_NAME="Aether"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/.build/release"
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-/tmp/aether_xcodebuild_deriveddata}"
+ALLOW_UNSIGNED_FALLBACK="${AETHER_ALLOW_UNSIGNED_FALLBACK:-0}"
 
 CONFIGURATION="${1:-Release}"
 
@@ -93,14 +94,21 @@ build_status=$?
 set -e
 
 if [[ $build_status -ne 0 && "${AETHER_UNSIGNED:-0}" != "1" ]]; then
-  echo "Signed build failed. Retrying unsigned build..."
-  set +e
-  run_xcodebuild \
-    CODE_SIGNING_ALLOWED=NO \
-    CODE_SIGNING_REQUIRED=NO \
-    AD_HOC_CODE_SIGNING_ALLOWED=YES
-  build_status=$?
-  set -e
+  if [[ "$ALLOW_UNSIGNED_FALLBACK" == "1" ]]; then
+    echo "Signed build failed. Retrying unsigned build because AETHER_ALLOW_UNSIGNED_FALLBACK=1..."
+    set +e
+    run_xcodebuild \
+      CODE_SIGNING_ALLOWED=NO \
+      CODE_SIGNING_REQUIRED=NO \
+      AD_HOC_CODE_SIGNING_ALLOWED=YES
+    build_status=$?
+    set -e
+  else
+    echo "Signed build failed. Refusing unsigned fallback by default." >&2
+    echo "If you explicitly want unsigned output, set AETHER_UNSIGNED=1" >&2
+    echo "or allow fallback by setting AETHER_ALLOW_UNSIGNED_FALLBACK=1." >&2
+    exit $build_status
+  fi
 fi
 
 if [[ $build_status -ne 0 ]]; then
@@ -110,6 +118,13 @@ fi
 if [[ ! -d "${BUILD_DIR}/${APP_NAME}.app" ]]; then
   echo "Build finished but ${APP_NAME}.app not found at ${BUILD_DIR}/${APP_NAME}.app" >&2
   exit 1
+fi
+
+if [[ "${AETHER_UNSIGNED:-0}" != "1" ]]; then
+  if ! /usr/bin/codesign --verify --deep --strict "${BUILD_DIR}/${APP_NAME}.app" >/dev/null 2>&1; then
+    echo "Build produced an app that is not validly signed: ${BUILD_DIR}/${APP_NAME}.app" >&2
+    exit 1
+  fi
 fi
 
 echo "OK: ${BUILD_DIR}/${APP_NAME}.app"

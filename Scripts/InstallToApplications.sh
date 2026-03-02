@@ -4,6 +4,7 @@ set -euo pipefail
 
 APP_NAME="Aether"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ALLOW_UNSIGNED_INSTALL="${AETHER_ALLOW_UNSIGNED_INSTALL:-0}"
 
 SRC_APP="${1:-}"
 DEST_APP="/Applications/${APP_NAME}.app"
@@ -77,6 +78,13 @@ if [[ -z "$SRC_APP" || ! -d "$SRC_APP" ]]; then
   exit 1
 fi
 
+if ! codesign_ok "$SRC_APP" && [[ "$ALLOW_UNSIGNED_INSTALL" != "1" ]]; then
+  echo "Source app is not validly signed: ${SRC_APP}" >&2
+  echo "Refusing install by default to avoid TCC permission churn." >&2
+  echo "If you explicitly want unsigned install, set AETHER_ALLOW_UNSIGNED_INSTALL=1." >&2
+  exit 3
+fi
+
 echo "Installing:"
 echo "  from: ${SRC_APP}"
 echo "  to:   ${DEST_APP}"
@@ -96,7 +104,15 @@ fi
 
 echo ""
 echo "codesign verify:"
-/usr/bin/codesign --verify --deep --strict "$DEST_APP" >/dev/null 2>&1 && echo "  OK" || echo "  FAIL"
+if /usr/bin/codesign --verify --deep --strict "$DEST_APP" >/dev/null 2>&1; then
+  echo "  OK"
+else
+  echo "  FAIL"
+  if [[ "$ALLOW_UNSIGNED_INSTALL" != "1" ]]; then
+    echo "Installed app is not validly signed; aborting." >&2
+    exit 4
+  fi
+fi
 
 echo ""
 echo "Entitlements check (must include system-extension.install=true):"

@@ -939,6 +939,40 @@ class AppState: ObservableObject {
 }
 
 class AetherAppDelegate: NSObject, NSApplicationDelegate {
+    private func isRunningFromReadOnlyDiskImage() -> Bool {
+        let bundleURL = Bundle.main.bundleURL
+        let keys: Set<URLResourceKey> = [
+            .volumeIsReadOnlyKey,
+            .volumeLocalizedFormatDescriptionKey
+        ]
+        guard let values = try? bundleURL.resourceValues(forKeys: keys) else { return false }
+        guard values.volumeIsReadOnly == true else { return false }
+
+        // Disk image volumes are read-only by default and report "Disk Image" format.
+        let format = (values.volumeLocalizedFormatDescription ?? "").lowercased()
+        if format.contains("disk image") || format.contains("dmg") || format.contains("磁盘映像") {
+            return true
+        }
+        // Conservative fallback for localized format strings we don't recognize.
+        return bundleURL.path.hasPrefix("/Volumes/")
+    }
+
+    private func enforceApplicationsInstallPathIfNeeded() {
+        guard isRunningFromReadOnlyDiskImage() else { return }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "请先安装到 Applications 再运行"
+        alert.informativeText = "你正在从磁盘镜像运行 Aether。为避免辅助功能权限每次重置，请先拖到 Applications 后再打开。"
+        alert.addButton(withTitle: "打开 Applications")
+        alert.addButton(withTitle: "退出")
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications", isDirectory: true))
+        }
+        NSApp.terminate(nil)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Respect user's Dock visibility preference.
         let showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
@@ -946,6 +980,7 @@ class AetherAppDelegate: NSObject, NSApplicationDelegate {
         if showDockIcon {
             NSApp.activate(ignoringOtherApps: true)
         }
+        enforceApplicationsInstallPathIfNeeded()
     }
 }
 
