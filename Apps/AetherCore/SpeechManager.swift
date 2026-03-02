@@ -25,6 +25,7 @@ final class SpeechManager: ObservableObject {
         let localeIdentifier: String
         let llmEnhancementEnabled: Bool
         let sessionTypingMode: Bool
+        let streamedTextSnapshot: String
         let screenTypedCount: Int
         let targetPID: pid_t?
         let targetBundleID: String?
@@ -35,6 +36,7 @@ final class SpeechManager: ObservableObject {
         let intent: VoiceIntent
         let localeIdentifier: String
         let sessionTypingMode: Bool
+        let streamedTextSnapshot: String
         let screenTypedCount: Int
         let targetPID: pid_t?
         let targetBundleID: String?
@@ -1266,8 +1268,8 @@ final class SpeechManager: ObservableObject {
         // APPEND-ONLY strategy: NEVER backspace during streaming.
         // - Text on screen only grows, never shrinks or changes
         // - screenTypedCount tracks exactly how many chars are on screen
-        // - Final sync will clean-replace everything at once
-        // This eliminates ALL backspace-related corruption during streaming.
+        // - Final sync only appends safe suffixes (never deletes/replaces)
+        // This eliminates backspace-based corruption.
         
         let currentChars = Array(currentText)
         
@@ -2168,6 +2170,7 @@ final class SpeechManager: ObservableObject {
             localeIdentifier: localeID,
             llmEnhancementEnabled: isLLMEnhancementEnabled,
             sessionTypingMode: typingContext ? sessionTypingMode : false,
+            streamedTextSnapshot: typingContext ? lastStreamedText : "",
             screenTypedCount: typingContext ? screenTypedCount : 0,
             targetPID: typingContext ? sessionTargetPID : nil,
             targetBundleID: typingContext ? sessionTargetBundleID : nil
@@ -2182,6 +2185,7 @@ final class SpeechManager: ObservableObject {
                 localeIdentifier: job.localeIdentifier,
                 llmEnhancementEnabled: job.llmEnhancementEnabled,
                 sessionTypingMode: job.sessionTypingMode,
+                streamedTextSnapshot: job.streamedTextSnapshot,
                 screenTypedCount: job.screenTypedCount,
                 targetPID: job.targetPID,
                 targetBundleID: job.targetBundleID
@@ -2202,7 +2206,7 @@ final class SpeechManager: ObservableObject {
 
     private func processIntentJob(_ job: IntentJob) async -> ProcessedJob {
         // Heavy work off the capture loop. Keep execution deterministic by not touching mutable UI state.
-        if case .dictation(let text) = job.intent, job.llmEnhancementEnabled, let llmProvider {
+        if case .dictation(let text) = job.intent, job.llmEnhancementEnabled, !job.sessionTypingMode, let llmProvider {
             do {
                 let enhanced = try await llmProvider.enhanceDictation(text)
                 let finalText = enhanced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : enhanced
@@ -2211,6 +2215,7 @@ final class SpeechManager: ObservableObject {
                     intent: .dictation(finalText),
                     localeIdentifier: job.localeIdentifier,
                     sessionTypingMode: job.sessionTypingMode,
+                    streamedTextSnapshot: job.streamedTextSnapshot,
                     screenTypedCount: job.screenTypedCount,
                     targetPID: job.targetPID,
                     targetBundleID: job.targetBundleID,
@@ -2222,6 +2227,7 @@ final class SpeechManager: ObservableObject {
                     intent: job.intent,
                     localeIdentifier: job.localeIdentifier,
                     sessionTypingMode: job.sessionTypingMode,
+                    streamedTextSnapshot: job.streamedTextSnapshot,
                     screenTypedCount: job.screenTypedCount,
                     targetPID: job.targetPID,
                     targetBundleID: job.targetBundleID,
@@ -2235,6 +2241,7 @@ final class SpeechManager: ObservableObject {
             intent: job.intent,
             localeIdentifier: job.localeIdentifier,
             sessionTypingMode: job.sessionTypingMode,
+            streamedTextSnapshot: job.streamedTextSnapshot,
             screenTypedCount: job.screenTypedCount,
             targetPID: job.targetPID,
             targetBundleID: job.targetBundleID,
@@ -2243,6 +2250,11 @@ final class SpeechManager: ObservableObject {
     }
 
     private func isJobInputTargetValidForInjection(_ job: ProcessedJob) -> Bool {
+        if job.sessionTypingMode && (job.targetPID == nil || job.targetPID == 0) {
+            os_log("Skip dictation injection: missing typing target PID", log: log, type: .info)
+            return false
+        }
+
         guard let targetPID = job.targetPID, targetPID > 0 else { return true }
 
         guard let frontmost = NSWorkspace.shared.frontmostApplication else {
@@ -2282,6 +2294,30 @@ final class SpeechManager: ObservableObject {
         return false
     }
 
+    private enum TypingFinalizationPlan {
+        case noChange(String)
+        case append(String)
+    }
+
+    private func makeTypingFinalizationPlan(streamedText: String, finalText: String) -> TypingFinalizationPlan {
+        if finalText.isEmpty {
+            return .noChange("final-empty")
+        }
+        if streamedText.isEmpty {
+            return .append(finalText)
+        }
+        if finalText == streamedText {
+            return .noChange("already-streamed")
+        }
+        if finalText.hasPrefix(streamedText) {
+            let suffix = String(finalText.dropFirst(streamedText.count))
+            return suffix.isEmpty ? .noChange("already-streamed") : .append(suffix)
+        }
+
+        // Safety-first: avoid destructive corrections (backspace/replace) in typing mode.
+        return .noChange("non-append-diff")
+    }
+
     private func applyProcessedJob(_ job: ProcessedJob) {
         // Note: execution is serialized by IntentPipeline drain order.
         switch job.intent {
@@ -2298,14 +2334,12 @@ final class SpeechManager: ObservableObject {
             }
 
             if job.sessionTypingMode {
-                if job.screenTypedCount > 0 {
-                    let backspaceCount = min(job.screenTypedCount, 500) // Safety cap
-                    os_log("Dictation Sync: Deleting %d characters (targetPID: %d)", log: log, type: .info, backspaceCount, job.targetPID ?? 0)
-                    AutomationOutputs.shared.backspace(count: backspaceCount, targetPID: job.targetPID)
-                }
-                if !text.isEmpty {
-                    os_log("Dictation Sync: Typing final text (len: %d)", log: log, type: .info, text.count)
-                    injector.type(text, targetPID: job.targetPID)
+                switch makeTypingFinalizationPlan(streamedText: job.streamedTextSnapshot, finalText: text) {
+                case .append(let suffix):
+                    os_log("Dictation Sync: Appending final suffix (len: %d, targetPID: %d)", log: log, type: .info, suffix.count, job.targetPID ?? 0)
+                    injector.type(suffix, targetPID: job.targetPID)
+                case .noChange(let reason):
+                    os_log("Dictation Sync: Skip destructive correction (%{public}@)", log: log, type: .info, reason)
                 }
                 status = NSLocalizedString("speech.typed", comment: "")
             } else {
