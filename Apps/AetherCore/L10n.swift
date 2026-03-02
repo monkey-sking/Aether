@@ -53,8 +53,6 @@ enum L10n {
     static let strategySingleSession: LocalizedStringKey = "control.strategy_single_session"
     static let strategyContinuous: LocalizedStringKey = "control.strategy_continuous"
     static let llmEnhanceDictation: LocalizedStringKey = "control.llm_enhance_dictation"
-    static let preferInputMethodCaret: LocalizedStringKey = "control.prefer_inputmethod_caret"
-    static let caretEngineCompare: LocalizedStringKey = "control.caret_engine_compare"
     static let hudAutoHide: LocalizedStringKey = "control.hud_auto_hide"
     static let hudAutoHideHint: LocalizedStringKey = "control.hud_auto_hide_hint"
     static let pushToTalkHint: LocalizedStringKey = "control.push_to_talk_hint"

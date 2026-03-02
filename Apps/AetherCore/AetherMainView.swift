@@ -74,6 +74,19 @@ struct AetherMainView: View {
 struct CommandCenterView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject var headManager = HeadMotionManager.shared
+
+    private var trackingBinding: Binding<Bool> {
+        Binding(
+            get: { headManager.isTracking },
+            set: { isOn in
+                if isOn {
+                    headManager.startTracking()
+                } else {
+                    headManager.stopTracking()
+                }
+            }
+        )
+    }
     
     var body: some View {
         VStack(spacing: 24) { // Increased spacing
@@ -100,7 +113,9 @@ struct CommandCenterView: View {
                      }
                      .controlSize(.large)
                      
-                     Button(action: { appState.isAlwaysListeningEnabled.toggle() }) {
+                     Button(action: {
+                         appState.voiceActivationMode = appState.voiceActivationMode == .handsFree ? .pushToTalk : .handsFree
+                     }) {
                          Image(systemName: appState.isAlwaysListeningEnabled ? "power.circle.fill" : "power.circle")
                              .font(.system(size: 24))
                              .foregroundColor(appState.isAlwaysListeningEnabled ? .green : .secondary)
@@ -162,7 +177,7 @@ struct CommandCenterView: View {
                             Text(L10n.commandCenterMotionMatrix)
                                 .font(.headline)
                             Spacer()
-                            Toggle("", isOn: $headManager.isTracking)
+                            Toggle("", isOn: trackingBinding)
                                 .toggleStyle(.switch)
                                 .labelsHidden()
                         }

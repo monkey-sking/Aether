@@ -44,6 +44,15 @@ final class OutputRouting: ObservableObject {
 }
 
 final class CoreGraphicsAutomationOutput: AutomationOutput {
+    private func postKeyboardEvent(_ event: CGEvent?, targetPID: pid_t?) {
+        guard let event else { return }
+        if let targetPID, targetPID > 0 {
+            event.postToPid(targetPID)
+        } else {
+            event.post(tap: .cghidEventTap)
+        }
+    }
+
     func moveCursor(to point: CGPoint, desktopMaxY: CGFloat) {
         let cgPoint = CGPoint(x: point.x, y: desktopMaxY - point.y)
         CGWarpMouseCursorPosition(cgPoint)
@@ -207,77 +216,32 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
 
         for _ in 0..<count {
             let down = CGEvent(keyboardEventSource: source, virtualKey: deleteKey, keyDown: true)
-            down?.post(tap: .cghidEventTap)
+            postKeyboardEvent(down, targetPID: targetPID)
             let up = CGEvent(keyboardEventSource: source, virtualKey: deleteKey, keyDown: false)
-            up?.post(tap: .cghidEventTap)
+            postKeyboardEvent(up, targetPID: targetPID)
         }
     }
 
     func typeText(_ text: String, targetPID: pid_t?) {
         let source = CGEventSource(stateID: .combinedSessionState)
         
-        // [Concurrency Update] Attempt Background AX Injection if targetPID is provided and != current
-        if let targetPID = targetPID {
-            if injectTextViaAX(text: text, pid: targetPID) {
-                // Successfully injected via Accessibility API into background app
-                return
-            }
-        }
-        
-        // Fallback to active window injection via CGEvent
+        // Split text into lines if needed, or handle as a single block
+        // CGEvent(keyboardEventSource:...) with unicode string is the most reliable "zero-clipboard" method
         for char in text.utf16 {
             let key: CGKeyCode = 0 
             
             if let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true) {
                 var unit = char
                 down.keyboardSetUnicodeString(stringLength: 1, unicodeString: &unit)
-                down.post(tap: .cghidEventTap)
+                postKeyboardEvent(down, targetPID: targetPID)
             }
             
             if let up = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false) {
                 var unit = char
                 up.keyboardSetUnicodeString(stringLength: 1, unicodeString: &unit)
-                up.post(tap: .cghidEventTap)
+                postKeyboardEvent(up, targetPID: targetPID)
             }
         }
-    }
-    
-    // Recursive search for the focused element in a specific app
-    private func findFocusedElement(in element: AXUIElement) -> AXUIElement? {
-        var focusedElement: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success {
-            return (focusedElement as! AXUIElement)
-        }
-        return nil
-    }
-
-    private func injectTextViaAX(text: String, pid: pid_t) -> Bool {
-        let appRef = AXUIElementCreateApplication(pid)
-        guard let focusedElement = findFocusedElement(in: appRef) else {
-            os_log("Background Injection failed: Could not find focused element in PID %d", type: .info, pid)
-            return false
-        }
-        
-        var role: CFTypeRef?
-        AXUIElementCopyAttributeValue(focusedElement, kAXRoleAttribute as CFString, &role)
-        let roleStr = (role as? String) ?? ""
-        
-        let textCF = text as CFTypeRef
-        
-        // First try AXValue (Text fields)
-        if AXUIElementSetAttributeValue(focusedElement, kAXValueAttribute as CFString, textCF) == .success {
-            os_log("Background Injection success via AXValue into PID %d (Role: %{public}@)", type: .info, pid, roleStr)
-            return true
-        }
-        
-        // Then try AXSelectedText (Documents / Text Areas)
-        if AXUIElementSetAttributeValue(focusedElement, kAXSelectedTextAttribute as CFString, textCF) == .success {
-            os_log("Background Injection success via AXSelectedText into PID %d (Role: %{public}@)", type: .info, pid, roleStr)
-            return true
-        }
-
-        os_log("Background Injection failed: Element did not accept text in PID %d (Role: %{public}@)", type: .info, pid, roleStr)
-        return false
     }
 }
 

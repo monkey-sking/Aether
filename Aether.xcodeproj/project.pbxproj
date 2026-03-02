@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		020D63FE98D947C096B56AC2 /* HUDManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA7BC5466FA47C190921F7C /* HUDManager.swift */; };
-		149353CCAFDB47F8A23E27F9 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02DEA17C64834B71BB5DD9A5 /* ContentView.swift */; };
 		296C7A8991A64B1CBECDFBF5 /* HeadMotionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FAA72967637433DB33B061E /* HeadMotionManager.swift */; };
 		2C4EA293C03545F8952A233C /* CaretDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B04B778B904E9EBE08B8F1 /* CaretDetector.swift */; };
 		31A804FB9F879E0F7F149B12 /* MenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 053CF960D5E89CB16A8AD09A /* MenuBar.swift */; };
@@ -67,7 +66,6 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		02DEA17C64834B71BB5DD9A5 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/ContentView.swift; sourceTree = "<group>"; };
 		053CF960D5E89CB16A8AD09A /* MenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/MenuBar.swift; sourceTree = "<group>"; };
 		0A2FFF0B546D7CEAD686E5CE /* LLMProviders.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LLMProviders.swift; path = ../Apps/AetherCore/Speech/LLMProviders.swift; sourceTree = "<group>"; };
 		0A9A84BC1346415DA5476B8F /* SystemExtensionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/SystemExtensionManager.swift; sourceTree = "<group>"; };
@@ -189,7 +187,6 @@
 				AE74E51F2F2C901000000011 /* AetherMainView.swift */,
 				AE74E51F2F2C901000000012 /* VizComponents.swift */,
 				AE74E51F2F2C901000000013 /* SettingsModules.swift */,
-				02DEA17C64834B71BB5DD9A5 /* ContentView.swift */,
 				C0DEF00D0BADC0FFEE111112 /* L10n.swift */,
 				C0DEF00D0BADC0FFEE123456 /* AutomationOutput.swift */,
 				C0DEF00D0BADC0FFEE888888 /* DriverClient.swift */,
@@ -259,14 +256,13 @@
 		B9C56A042F2BA1FE00EEEB9E /* Aether */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = BBFE5FAFC2A94E2283F6A23D /* Build configuration list for PBXNativeTarget "Aether" */;
-			buildPhases = (
-				808118FAD979468AB88E6DFB /* Sources */,
-				C0DEF00D0BADC0FFEE0000D4 /* Audit i18n */,
-				89F3A59993EE4011B3D19E00 /* Frameworks */,
-				C0DEF00D0BADC0FFEE0000D3 /* Embed AetherDriver */,
-				6092F97D2ED54E5F903E0FF5 /* Resources */,
-				9A1B2C3D4E5F60718293A4B5 /* Update Version */,
-			);
+				buildPhases = (
+					808118FAD979468AB88E6DFB /* Sources */,
+					C0DEF00D0BADC0FFEE0000D4 /* Audit i18n */,
+					89F3A59993EE4011B3D19E00 /* Frameworks */,
+					C0DEF00D0BADC0FFEE0000D3 /* Embed AetherDriver */,
+					6092F97D2ED54E5F903E0FF5 /* Resources */,
+				);
 			buildRules = (
 			);
 			dependencies = (
@@ -370,24 +366,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		9A1B2C3D4E5F60718293A4B5 /* Update Version */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Update Version";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${SRCROOT}/Scripts/UpdateVersion.sh\"\n";
-		};
 		C0DEF00D0BADC0FFEE0000D3 /* Embed AetherDriver */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -429,7 +407,6 @@
 				AE74E51F2F2C901000000001 /* AetherMainView.swift in Sources */,
 				AE74E51F2F2C901000000002 /* VizComponents.swift in Sources */,
 				AE74E51F2F2C901000000003 /* SettingsModules.swift in Sources */,
-				149353CCAFDB47F8A23E27F9 /* ContentView.swift in Sources */,
 				C0DEF00D0BADC0FFEE111111 /* L10n.swift in Sources */,
 				C0DEF00D0BADC0FFEE654321 /* AutomationOutput.swift in Sources */,
 				C0DEF00D0BADC0FFEE777777 /* DriverClient.swift in Sources */,
@@ -491,18 +468,16 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		219E9EA2109E4728BE3C3F76 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				GENERATE_PROFILING_CODE = NO;
-				CLANG_COVERAGE_MAPPING = NO;
-				CLANG_PROFILE_INSTR_GENERATE = NO;
-				ENABLE_CODE_COVERAGE = NO;
-				LLVM_LTO = NO;
-				AD_HOC_CODE_SIGNING_ALLOWED = YES;
+			219E9EA2109E4728BE3C3F76 /* Debug */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					AD_HOC_CODE_SIGNING_ALLOWED = YES;
+					ALWAYS_SEARCH_USER_PATHS = NO;
+					ARCHS = "$(ARCHS_STANDARD)";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_COVERAGE_MAPPING = NO;
 				CLANG_ENABLE_CODE_COVERAGE = NO;
+				CLANG_PROFILE_INSTR_GENERATE = NO;
 				CODE_SIGN_ENTITLEMENTS = Apps/AetherCore/AetherCore.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -512,6 +487,7 @@
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_PROFILING_CODE = NO;
 				INFOPLIST_FILE = Apps/AetherCore/Info.plist;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAppSleepDisabled = YES;
@@ -519,8 +495,13 @@
 				INFOPLIST_KEY_NSMotionUsageDescription = "Aether needs access to your AirPods head motion data to control the mouse cursor.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Aether uses speech recognition for voice control.";
 				INFOPLIST_KEY_NSSupportsAutomaticTermination = NO;
+				LLVM_LTO = NO;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 0.1.0;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CFLAGS = " -fno-profile-instr-generate";
+				OTHER_CPLUSPLUSFLAGS = " -fno-profile-instr-generate";
+				OTHER_LDFLAGS = " -fno-profile-instr-generate";
 				PRODUCT_BUNDLE_IDENTIFIER = com.7fei.Aether;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -529,39 +510,41 @@
 			};
 			name = Debug;
 		};
-		4C711BAC5513C089B2AA0EB9 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				GENERATE_PROFILING_CODE = NO;
-				CLANG_COVERAGE_MAPPING = NO;
-				CLANG_PROFILE_INSTR_GENERATE = NO;
-				ENABLE_CODE_COVERAGE = NO;
-				LLVM_LTO = NO;
-				BUNDLE_LOADER = "$(TEST_HOST)";
+			4C711BAC5513C089B2AA0EB9 /* Debug */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					ALWAYS_SEARCH_USER_PATHS = NO;
+					ARCHS = "$(ARCHS_STANDARD)";
+					BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_COVERAGE_MAPPING = NO;
 				CLANG_ENABLE_CODE_COVERAGE = NO;
+				CLANG_PROFILE_INSTR_GENERATE = NO;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_IDENTITY = "";
 				ENABLE_CODE_COVERAGE = NO;
 				ENABLE_TESTABILITY = NO;
+				GENERATE_PROFILING_CODE = NO;
 				INFOPLIST_FILE = AetherTests/Info.plist;
+				LLVM_LTO = NO;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CFLAGS = " -fno-profile-instr-generate";
+				OTHER_CPLUSPLUSFLAGS = " -fno-profile-instr-generate";
+				OTHER_LDFLAGS = " -fno-profile-instr-generate";
 				PRODUCT_BUNDLE_IDENTIFIER = com.7fei.AetherTests;
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Aether.app/Contents/MacOS/Aether";
 			};
 			name = Debug;
 		};
-		6476ACA70787434B8D3AE1BD /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				GENERATE_PROFILING_CODE = NO;
-				CLANG_COVERAGE_MAPPING = NO;
-				CLANG_PROFILE_INSTR_GENERATE = NO;
-				ENABLE_CODE_COVERAGE = NO;
-				LLVM_LTO = NO;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+			6476ACA70787434B8D3AE1BD /* Release */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					ALWAYS_SEARCH_USER_PATHS = NO;
+					ARCHS = "$(ARCHS_STANDARD)";
+					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_COVERAGE_MAPPING = NO;
 				CLANG_ENABLE_CODE_COVERAGE = NO;
+				CLANG_PROFILE_INSTR_GENERATE = NO;
 				CODE_SIGN_ENTITLEMENTS = Apps/AetherCore/AetherCore.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -570,6 +553,7 @@
 				ENABLE_CODE_COVERAGE = NO;
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_PROFILING_CODE = NO;
 				INFOPLIST_FILE = Apps/AetherCore/Info.plist;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAppSleepDisabled = YES;
@@ -577,8 +561,13 @@
 				INFOPLIST_KEY_NSMotionUsageDescription = "Aether needs access to your AirPods head motion data to control the mouse cursor.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Aether uses speech recognition for voice control.";
 				INFOPLIST_KEY_NSSupportsAutomaticTermination = NO;
+				LLVM_LTO = NO;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 0.1.0;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CFLAGS = " -fno-profile-instr-generate";
+				OTHER_CPLUSPLUSFLAGS = " -fno-profile-instr-generate";
+				OTHER_LDFLAGS = " -fno-profile-instr-generate";
 				PRODUCT_BUNDLE_IDENTIFIER = com.7fei.Aether;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -586,28 +575,35 @@
 			};
 			name = Release;
 		};
-		C0DEF00D0BADC0FFEE0000E1 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				GENERATE_PROFILING_CODE = NO;
-				CLANG_COVERAGE_MAPPING = NO;
-				CLANG_PROFILE_INSTR_GENERATE = NO;
-				ENABLE_CODE_COVERAGE = NO;
-				LLVM_LTO = NO;
-				AD_HOC_CODE_SIGNING_ALLOWED = YES;
+			C0DEF00D0BADC0FFEE0000E1 /* Debug */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					AD_HOC_CODE_SIGNING_ALLOWED = YES;
+					ALWAYS_SEARCH_USER_PATHS = NO;
+					ARCHS = arm64;
 				CLANG_COVERAGE_MAPPING = NO;
 				CLANG_ENABLE_CODE_COVERAGE = NO;
+				CLANG_PROFILE_INSTR_GENERATE = NO;
 				CODE_SIGN_ENTITLEMENTS = Drivers/AetherDriver/AetherDriver.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4Z7654KAZZ;
 				ENABLE_CODE_COVERAGE = NO;
 				ENABLE_TESTABILITY = NO;
+				GENERATE_PROFILING_CODE = NO;
 				INFOPLIST_FILE = Drivers/AetherDriver/Info.plist;
+				LLVM_LTO = NO;
 				MARKETING_VERSION = 1.0;
-				OTHER_CFLAGS = "";
-				OTHER_CPLUSPLUSFLAGS = "-fno-profile-instr-generate";
-				OTHER_LDFLAGS = "-fno-profile-instr-generate";
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CFLAGS = " -fno-profile-instr-generate";
+				OTHER_CPLUSPLUSFLAGS = (
+					"-fno-profile-instr-generate",
+					"-fno-profile-instr-generate",
+				);
+				OTHER_LDFLAGS = (
+					"-fno-profile-instr-generate",
+					"-fno-profile-instr-generate",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.7fei.Aether.AetherDriver;
 				PRODUCT_NAME = com.7fei.Aether.AetherDriver;
 				SDKROOT = driverkit;
@@ -615,28 +611,35 @@
 			};
 			name = Debug;
 		};
-		C0DEF00D0BADC0FFEE0000E2 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				GENERATE_PROFILING_CODE = NO;
-				CLANG_COVERAGE_MAPPING = NO;
-				CLANG_PROFILE_INSTR_GENERATE = NO;
-				ENABLE_CODE_COVERAGE = NO;
-				LLVM_LTO = NO;
-				AD_HOC_CODE_SIGNING_ALLOWED = YES;
+			C0DEF00D0BADC0FFEE0000E2 /* Release */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					AD_HOC_CODE_SIGNING_ALLOWED = YES;
+					ALWAYS_SEARCH_USER_PATHS = NO;
+					ARCHS = arm64;
 				CLANG_COVERAGE_MAPPING = NO;
 				CLANG_ENABLE_CODE_COVERAGE = NO;
+				CLANG_PROFILE_INSTR_GENERATE = NO;
 				CODE_SIGN_ENTITLEMENTS = Drivers/AetherDriver/AetherDriver.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4Z7654KAZZ;
 				ENABLE_CODE_COVERAGE = NO;
 				ENABLE_TESTABILITY = NO;
+				GENERATE_PROFILING_CODE = NO;
 				INFOPLIST_FILE = Drivers/AetherDriver/Info.plist;
+				LLVM_LTO = NO;
 				MARKETING_VERSION = 1.0;
-				OTHER_CFLAGS = "";
-				OTHER_CPLUSPLUSFLAGS = "-fno-profile-instr-generate";
-				OTHER_LDFLAGS = "-fno-profile-instr-generate";
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CFLAGS = " -fno-profile-instr-generate";
+				OTHER_CPLUSPLUSFLAGS = (
+					"-fno-profile-instr-generate",
+					"-fno-profile-instr-generate",
+				);
+				OTHER_LDFLAGS = (
+					"-fno-profile-instr-generate",
+					"-fno-profile-instr-generate",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.7fei.Aether.AetherDriver;
 				PRODUCT_NAME = com.7fei.Aether.AetherDriver;
 				SDKROOT = driverkit;
@@ -644,22 +647,26 @@
 			};
 			name = Release;
 		};
-		C749A930A8853EDF8AD983B2 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				GENERATE_PROFILING_CODE = NO;
-				CLANG_COVERAGE_MAPPING = NO;
-				CLANG_PROFILE_INSTR_GENERATE = NO;
-				ENABLE_CODE_COVERAGE = NO;
-				LLVM_LTO = NO;
+			C749A930A8853EDF8AD983B2 /* Release */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					ALWAYS_SEARCH_USER_PATHS = NO;
+					ARCHS = "$(ARCHS_STANDARD)";
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_COVERAGE_MAPPING = NO;
 				CLANG_ENABLE_CODE_COVERAGE = NO;
+				CLANG_PROFILE_INSTR_GENERATE = NO;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_IDENTITY = "";
 				ENABLE_CODE_COVERAGE = NO;
 				ENABLE_TESTABILITY = NO;
+				GENERATE_PROFILING_CODE = NO;
 				INFOPLIST_FILE = AetherTests/Info.plist;
+				LLVM_LTO = NO;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CFLAGS = " -fno-profile-instr-generate";
+				OTHER_CPLUSPLUSFLAGS = " -fno-profile-instr-generate";
+				OTHER_LDFLAGS = " -fno-profile-instr-generate";
 				PRODUCT_BUNDLE_IDENTIFIER = com.7fei.AetherTests;
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Aether.app/Contents/MacOS/Aether";

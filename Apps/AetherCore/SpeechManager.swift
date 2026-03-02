@@ -2243,9 +2243,43 @@ final class SpeechManager: ObservableObject {
     }
 
     private func isJobInputTargetValidForInjection(_ job: ProcessedJob) -> Bool {
-        // [Concurrency Update] Always allow injection, even if focus changed.
-        // We will handle background injection inside AutomationOutputs.
-        return true
+        guard let targetPID = job.targetPID, targetPID > 0 else { return true }
+
+        guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+            return false
+        }
+
+        if frontmost.processIdentifier == targetPID {
+            return true
+        }
+
+        if let targetBundleID = job.targetBundleID,
+           !targetBundleID.isEmpty,
+           frontmost.bundleIdentifier == targetBundleID {
+            return true
+        }
+
+        let now = Date()
+        if now.timeIntervalSince(lastFocusToastAt) > 1.2 {
+            lastFocusToastAt = now
+            let msg = job.localeIdentifier.starts(with: "zh")
+                ? "输入焦点已变化，已跳过本次听写"
+                : "Focus changed. Dictation skipped."
+            setHUDOverride(mode: .command, message: msg, icon: "exclamationmark.triangle", duration: 1.2)
+            refreshContinuousHUD()
+        }
+
+        os_log(
+            "Skip dictation injection due to target mismatch. targetPID=%d currentPID=%d targetBundle=%{public}@ currentBundle=%{public}@",
+            log: log,
+            type: .info,
+            targetPID,
+            frontmost.processIdentifier,
+            job.targetBundleID ?? "nil",
+            frontmost.bundleIdentifier ?? "nil"
+        )
+
+        return false
     }
 
     private func applyProcessedJob(_ job: ProcessedJob) {
@@ -2265,9 +2299,12 @@ final class SpeechManager: ObservableObject {
 
             if job.sessionTypingMode {
                 if job.screenTypedCount > 0 {
-                    AutomationOutputs.shared.backspace(count: job.screenTypedCount, targetPID: job.targetPID)
+                    let backspaceCount = min(job.screenTypedCount, 500) // Safety cap
+                    os_log("Dictation Sync: Deleting %d characters (targetPID: %d)", log: log, type: .info, backspaceCount, job.targetPID ?? 0)
+                    AutomationOutputs.shared.backspace(count: backspaceCount, targetPID: job.targetPID)
                 }
                 if !text.isEmpty {
+                    os_log("Dictation Sync: Typing final text (len: %d)", log: log, type: .info, text.count)
                     injector.type(text, targetPID: job.targetPID)
                 }
                 status = NSLocalizedString("speech.typed", comment: "")
@@ -2281,14 +2318,14 @@ final class SpeechManager: ObservableObject {
         }
     }
 
+    func undoLastInjection() {
+        injector.undoPasteIfRecent()
+    }
+
     private func stripWakeWord(from text: String) -> String {
-        var remainder = text
+        var remainder = text.trimmingCharacters(in: .whitespacesAndNewlines)
         // Simple heuristic stripping
         let prefixes = ["Aether", "Ether", "Hey Aether", "Hey", "Hi", "艾瑟", "以太", "掉色", "艾色", "嘿", "喂"]
-        // Try longest prefix first? 
-        // Or just checking ranges.
-        // Simplified approach: find range of keywords.
-        // Since we already know it matched, let's try to remove the first occurrence.
         
         for key in prefixes {
             if let range = remainder.range(of: key, options: [.caseInsensitive, .diacriticInsensitive]) {
@@ -2302,60 +2339,6 @@ final class SpeechManager: ObservableObject {
         }
         return remainder
     }
-
-    private func handleIntent(_ intent: VoiceIntent) {
-        os_log("Routing Intent: %{public}@", log: log, type: .default, String(describing: intent))
-
-        switch intent {
-        case .undo:
-            injector.undoPasteIfRecent()
-            status = NSLocalizedString("speech.undo", comment: "")
-        case .paste:
-            AutomationOutputs.shared.pasteFromClipboard()
-            status = "Pasted (Cmd+V)"
-        case .dictation(let text):
-            // [Concurrency Update] allow injection without checking valid target.
-            // guard isSessionInputTargetValidForInjection() else {
-            //     status = NSLocalizedString("speech.done", comment: "")
-            //     return
-            // }
-            // If we were streaming, the text is already on screen.
-            // But if streaming lagged or was cut off, we must reconcile the difference.
-            
-            os_log("[DEBUG] handleIntent dictation: text='%{public}@', sessionTypingMode=%d, lastStreamedText='%{public}@'", 
-                   log: log, type: .info, text, sessionTypingMode, lastStreamedText)
-            
-            if sessionTypingMode {
-                // [CLEAN REPLACE] Delete everything we typed, then type the final text.
-                // This is the ONLY place backspaces happen - one clean operation at the end.
-                // screenTypedCount is always accurate because streaming is append-only.
-                
-                os_log("Final Sync: Clean replace - deleting %d screen chars, typing final '%{public}@' (len:%d)",
-                       log: log, type: .info, screenTypedCount, text, text.count)
-                
-                if screenTypedCount > 0 {
-                    AutomationOutputs.shared.backspace(count: screenTypedCount, targetPID: sessionTargetPID)
-                }
-                
-                if !text.isEmpty {
-                    injector.type(text, targetPID: sessionTargetPID)
-                }
-                
-                self.status = NSLocalizedString("speech.typed", comment: "")
-            } else {
-                os_log("[DEBUG] Not in typing mode, typing full text", log: log, type: .info)
-                injector.type(text, targetPID: sessionTargetPID)
-                self.status = NSLocalizedString("speech.typed", comment: "")
-            }
-        default:
-            onIntent?(intent)
-            self.status = NSLocalizedString("speech.done", comment: "")
-        }
-    }
-
-    func undoLastInjection() {
-        injector.undoPasteIfRecent()
-    }
 }
 
 // MARK: - Global Logger (Merged)
@@ -2368,6 +2351,7 @@ enum GlobalLogger {
     static let input = OSLog(subsystem: subsystem, category: "Input")
     static let motion = OSLog(subsystem: subsystem, category: "Motion")
     static let router = OSLog(subsystem: subsystem, category: "Router")
+
 
     static func log(_ message: String, log: OSLog, type: OSLogType = .default) {
         // Always print to stderr for immediate terminal feedback.
@@ -2399,4 +2383,3 @@ extension OSLog {
         GlobalLogger.log(message, log: self, type: .debug)
     }
 }
-

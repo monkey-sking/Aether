@@ -58,15 +58,35 @@ final class VoiceCommandRouterTests: XCTestCase {
         
         // Force dictation keyword "输入"
         XCTAssertEqual(router.route(transcript: "输入你好"), .dictation("你好"))
-        XCTAssertEqual(router.route(transcript: "写一段代码"), .dictation("段代码"))
+        XCTAssertEqual(router.route(transcript: "写一段代码"), .dictation("一段代码"))
     }
     
     func testTypingModeBehavior() {
-        // In typing mode, normal words should go to dictation unless forced command
-        XCTAssertEqual(router.route(transcript: "点击", isTypingMode: true), .dictation("点击"))
-        
-        // "指令 点击" in typing mode should bypass dictation and trigger the command
-        XCTAssertEqual(router.route(transcript: "指令点击", isTypingMode: true), .clickLeft)
-        XCTAssertEqual(router.route(transcript: "command right click", isTypingMode: true), .clickRight)
+        // In typing mode, normal words should go to dictation unless explicitly forcing command
+        XCTAssertEqual(
+            router.route(transcript: "点击", bias: .dictationPreferred),
+            .dictation("点击")
+        )
+
+        // "指令点击" in typing mode should bypass dictation and trigger command
+        XCTAssertEqual(
+            router.route(transcript: "指令点击", bias: .dictationPreferred),
+            .clickLeft
+        )
+        XCTAssertEqual(
+            router.route(transcript: "command right click", bias: .dictationPreferred),
+            .clickRight
+        )
+    }
+
+    func testBiasOverrides() {
+        XCTAssertEqual(
+            router.route(transcript: "随便说什么", bias: .forceDictation),
+            .dictation("随便说什么")
+        )
+        XCTAssertEqual(
+            router.route(transcript: "你好", bias: .forceCommand),
+            .dictation("你好")
+        )
     }
 }
