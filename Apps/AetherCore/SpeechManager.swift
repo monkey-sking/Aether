@@ -2463,16 +2463,8 @@ final class SpeechManager: ObservableObject {
     }
 
     private func isJobInputTargetValidForInjection(_ job: ProcessedJob) -> Bool {
-        func emitFocusMismatchToast() {
-            let now = Date()
-            if now.timeIntervalSince(lastFocusToastAt) > 1.2 {
-                lastFocusToastAt = now
-                let msg = job.localeIdentifier.starts(with: "zh")
-                    ? "输入焦点已变化，已跳过本次听写"
-                    : "Focus changed. Dictation skipped."
-                setHUDOverride(mode: .command, message: msg, icon: "exclamationmark.triangle", duration: 1.2)
-                refreshContinuousHUD()
-            }
+        func logFocusMismatch(_ message: StaticString) {
+            os_log(message, log: log, type: .info)
         }
 
         if job.sessionTypingMode && (job.targetPID == nil || job.targetPID == 0) {
@@ -2485,7 +2477,7 @@ final class SpeechManager: ObservableObject {
         guard let targetPID = job.targetPID, targetPID > 0 else { return true }
 
         guard let frontmost = NSWorkspace.shared.frontmostApplication else {
-            emitFocusMismatchToast()
+            logFocusMismatch("Skip dictation injection: frontmost app unavailable")
             return false
         }
 
@@ -2500,7 +2492,6 @@ final class SpeechManager: ObservableObject {
         }()
 
         guard matchesApp else {
-            emitFocusMismatchToast()
             os_log(
                 "Skip dictation injection due to target mismatch. targetPID=%d currentPID=%d targetBundle=%{public}@ currentBundle=%{public}@",
                 log: log,
@@ -2518,21 +2509,21 @@ final class SpeechManager: ObservableObject {
            !expectedFingerprint.isEmpty {
             guard let currentSnapshot = currentFocusedInputSnapshot(),
                   currentSnapshot.pid == targetPID else {
-                emitFocusMismatchToast()
-                os_log("Skip dictation injection: focused element unavailable/mismatched PID for typing target", log: log, type: .info)
-                return false
+                // Focus snapshots can be transiently unavailable; fall back to current focused injection.
+                os_log("Focused element snapshot unavailable; fallback to focused typing injection", log: log, type: .info)
+                return true
             }
 
             if currentSnapshot.elementFingerprint != expectedFingerprint {
-                emitFocusMismatchToast()
+                // Same app but element changed (or fingerprint jitter). Do not skip dictation.
                 os_log(
-                    "Skip dictation injection due to focused element mismatch. expected=%{public}@ current=%{public}@",
+                    "Focused element changed; fallback to current focused typing injection. expected=%{public}@ current=%{public}@",
                     log: log,
                     type: .info,
                     expectedFingerprint,
                     currentSnapshot.elementFingerprint ?? "nil"
                 )
-                return false
+                return true
             }
         }
 
