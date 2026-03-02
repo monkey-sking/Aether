@@ -648,6 +648,19 @@ private struct FixedWidthPopUpMenu: NSViewRepresentable {
 struct OutputSettingsView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject var headManager = HeadMotionManager.shared
+
+    private var trackingBinding: Binding<Bool> {
+        Binding(
+            get: { headManager.isTracking },
+            set: { isOn in
+                if isOn {
+                    headManager.startTracking()
+                } else {
+                    headManager.stopTracking()
+                }
+            }
+        )
+    }
     
     var body: some View {
         ScrollView {
@@ -659,7 +672,7 @@ struct OutputSettingsView: View {
                         subtitle: headManager.isTracking ? L10n.statusActive : L10n.statusPaused,
                         icon: "viewfinder",
                         color: .green,
-                        isOn: $headManager.isTracking
+                        isOn: trackingBinding
                     )
                 }
                 

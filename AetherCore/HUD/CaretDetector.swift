@@ -119,8 +119,8 @@ final class CaretDetector: ObservableObject {
         }
         eventMonitors.append(wsObserver)
         
-        // Fallback Timer (High frequency for smooth mouse following)
-        followTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
+        // Fallback Timer (20Hz) to balance responsiveness and idle CPU.
+        followTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             DispatchQueue.main.async { self?.recalcCaret() }
         }
     }

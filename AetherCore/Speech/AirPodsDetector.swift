@@ -23,7 +23,7 @@ final class AirPodsDetector {
     
     private func startPolling() {
         // Polling in background to keep UI icon responsive.
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
             _ = self?.currentSide()
         }
         // Ensure it runs even if UI is busy
@@ -42,7 +42,7 @@ final class AirPodsDetector {
     private let evidenceWindowShort: TimeInterval = 2.0
     private let evidenceWindowLong: TimeInterval = 2.0
     private let registryUnionWindow: TimeInterval = 0.85
-    private let plcmPollInterval: TimeInterval = 0.6
+    private let plcmPollInterval: TimeInterval = 1.2
     private let startupGuardWindow: TimeInterval = 4.0
     private let upToBothDelay: TimeInterval = 0.3
     private let bothToSingleDelay: TimeInterval = 0.6
@@ -123,7 +123,7 @@ final class AirPodsDetector {
 
     private var isRefreshingFast = false
     private var isRefreshingSlow = false
-    private let fastInterval: TimeInterval = 0.4
+    private let fastInterval: TimeInterval = 0.8
     private let slowInterval: TimeInterval = 30.0
     private var lastFastTime: Date = .distantPast
     private var lastSlowTime: Date = .distantPast

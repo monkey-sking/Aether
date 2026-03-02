@@ -52,6 +52,11 @@ final class VoiceCommandRouter {
         let isForceCommand = s.hasPrefix("指令") || s.hasPrefix("command") || bias == .forceCommand
         let isForceDictation = s.hasPrefix("输入") || s.hasPrefix("input") || s.hasPrefix("type") || s.hasPrefix("写")
 
+        if isForceDictation {
+            let payload = stripDictationPrefix(from: trimmed)
+            return .dictation(payload.isEmpty ? trimmed : payload)
+        }
+
         // --- 3. Smart Routing Logic ---
         // If we are in an input field (dictationPreferred) and NOT explicitly forcing a command,
         // we should be very conservative about executing commands.
@@ -101,6 +106,22 @@ final class VoiceCommandRouter {
 
         // --- 5. Default Fallback ---
         return .dictation(trimmed)
+    }
+
+    private func stripDictationPrefix(from raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercase = trimmed.lowercased()
+        let prefixes = ["输入", "写", "input", "type"]
+
+        for prefix in prefixes {
+            if lowercase.hasPrefix(prefix) {
+                let dropCount = prefix.count
+                let suffix = trimmed.dropFirst(dropCount).trimmingCharacters(in: .whitespacesAndNewlines)
+                return String(suffix)
+            }
+        }
+
+        return trimmed
     }
 }
 

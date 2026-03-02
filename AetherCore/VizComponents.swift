@@ -80,39 +80,6 @@ struct PermissionRow: View {
     }
 }
 
-struct StatusIndicator: View {
-    let icon: String
-    let label: LocalizedStringKey
-    let status: LocalizedStringKey
-    let isOkay: Bool
-    
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 16))
-                .foregroundColor(isOkay ? .primary : .secondary)
-            
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label)
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundColor(.secondary)
-                Text(status)
-                    .font(.caption2)
-                    .foregroundColor(isOkay ? .green : .secondary)
-            }
-            Spacer()
-        }
-        .padding(10)
-        .background(Color(NSColor.controlBackgroundColor))
-        .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
-        )
-    }
-}
-
 // MARK: - Generic Glass Card
 struct GlassCard<Content: View>: View {
     var content: Content

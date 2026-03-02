@@ -28,7 +28,6 @@ class HeadMotionManager: ObservableObject {
 
     private init() {
         // Hotkeys require Accessibility trust. Install the event tap only after permissions are granted.
-        setupAirPodsCommands()
         startStabilityTimer()
     }
     
@@ -737,21 +736,8 @@ class HeadMotionManager: ObservableObject {
                         return nil
 
                     case .pushToTalk:
-                        // [Fix] STRICT CHECK: If PTT is disabled, do NOT consume the key, do NOT track source.
-                        guard manager.isPTTEnabled else { return nil } // Return nil here? No, return nil swallows!
-                        // We must return Unmanaged.passUnretained(event) to let it pass through.
-                        // Ideally we break or return specific logic. 
-                        // But we are inside a switch.
-                        // We need to return nil from the CLOSURE if we matched but want to pass through?
-                        // Wait. The loop returns `action`. If we return `action`, the caller handles it?
-                        // No, this is the callback.
-                        
-                        // Let's look at structure.
-                        // if let action = ... { switch action { ... } }
-                        // If we fall out of switch, we return Unmanaged... at end of function.
-                        // So 'break' works?
-                        
-                        guard manager.isPTTEnabled else { break }
+                        // If PTT is disabled, do not consume the event.
+                        guard manager.isPTTEnabled else { return Unmanaged.passUnretained(event) }
 
                         let source = PTTSource.keyboard(Int(keyCode))
                         guard !manager.activePTTSources.contains(source) else { return nil }
@@ -905,12 +891,6 @@ class HeadMotionManager: ObservableObject {
         activePTTSources.removeAll()
 
         GlobalLogger.lifecycle.info("HeadMotionManager: Hotkeys uninstalled.")
-    }
-
-    private func setupAirPodsCommands() {
-        // Initial setup if needed, but enableAirPodsCommands does the heavy lifting
-        // We might just allow the command center to know we exist?
-        // For now, it's a placeholder to satisfy init
     }
 
     private func startStabilityTimer() {

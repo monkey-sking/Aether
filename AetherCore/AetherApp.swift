@@ -161,8 +161,6 @@ final class VoiceService: ObservableObject {
             
         manager.$lastWakeTime
             .receive(on: DispatchQueue.main)
-            .receive(on: DispatchQueue.main)
-            .receive(on: DispatchQueue.main)
             .assign(to: &$lastWakeTime)
             
         manager.$isAlwaysListeningEnabled
@@ -178,7 +176,6 @@ final class VoiceService: ObservableObject {
             .assign(to: &$isGazeWakeEnabled)
             
         manager.$availableInputDevices
-            .receive(on: DispatchQueue.main)
             .receive(on: DispatchQueue.main)
             .assign(to: &$availableInputDevices)
             
@@ -586,16 +583,6 @@ class AppState: ObservableObject {
             voiceService.setLLMEnhancementEnabled(isLLMEnhancementEnabled)
         }
     }
-    @Published var preferInputMethodCaret: Bool = UserDefaults.standard.object(forKey: "preferInputMethodCaret") as? Bool ?? false {
-        didSet {
-            UserDefaults.standard.set(preferInputMethodCaret, forKey: "preferInputMethodCaret")
-        }
-    }
-    @Published var caretEngineCompareEnabled: Bool = UserDefaults.standard.object(forKey: "caretEngineCompareEnabled") as? Bool ?? false {
-        didSet {
-            UserDefaults.standard.set(caretEngineCompareEnabled, forKey: "caretEngineCompareEnabled")
-        }
-    }
 
     @Published var onboardingStep: OnboardingStep = .done
     
@@ -944,28 +931,7 @@ struct AetherApp: App {
     }
 }
 
-// MARK: - Visual Backend
-struct EffectView: NSViewRepresentable {
-    var material: NSVisualEffectView.Material
-    var blendingMode: NSVisualEffectView.BlendingMode
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = blendingMode
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-        nsView.blendingMode = blendingMode
-    }
-}
-
 // MARK: - Notification Names
-
-
 extension Notification.Name {
     static let toggleConnectionLock = Notification.Name("AetherToggleConnectionLock")
 }
