@@ -2275,6 +2275,14 @@ final class SpeechManager: ObservableObject {
             os_log("PTT Mode: Processing transcript directly", log: log, type: .info)
         }
         
+        // Use live focus as a final guard. Older stable logic used `sessionTypingMode || isTypingMode`.
+        // This prevents stale session snapshots from forcing command mode while the caret is in an input.
+        let typingContext = sessionTypingMode || isTypingMode
+        if typingContext != sessionTypingMode {
+            sessionTypingMode = typingContext
+            isDictating = typingContext
+        }
+
         // Calculate Routing Bias based on Manual Override, Posture and Context
         let motion = HeadMotionManager.shared
         let posture = motion.currentPostureBias
@@ -2292,7 +2300,7 @@ final class SpeechManager: ObservableObject {
                 routingBias = .forceDictation
             case .neutral:
                 // 3. Context-Based Auto Bias
-                routingBias = sessionTypingMode ? .dictationPreferred : .commandPreferred
+                routingBias = typingContext ? .dictationPreferred : .commandPreferred
             }
         }
 
@@ -2301,7 +2309,7 @@ final class SpeechManager: ObservableObject {
                String(describing: routingBias), 
                posture.rawValue, 
                motion.manualSqueezeFocus == nil ? "auto" : String(describing: motion.manualSqueezeFocus!),
-               sessionTypingMode)
+               typingContext)
 
         let intent = router.route(transcript: textToRoute, bias: routingBias)
         
@@ -2329,7 +2337,7 @@ final class SpeechManager: ObservableObject {
         }
         enqueueIntentForParallelExecution(
             intent,
-            typingContext: sessionTypingMode,
+            typingContext: typingContext,
             utteranceID: resolvedUtteranceID,
             originSessionGeneration: sessionGeneration
         )
@@ -2343,6 +2351,16 @@ final class SpeechManager: ObservableObject {
     ) {
         // Capture all state that will be wiped/reset by the next session.
         let localeID = activeLocale.identifier
+        let fallbackSnapshot: FocusedInputSnapshot? = {
+            guard typingContext else { return nil }
+            if sessionTargetPID == nil || sessionTargetPID == 0 { return currentFocusedInputSnapshot() }
+            return nil
+        }()
+
+        let capturedTargetPID = typingContext ? (sessionTargetPID ?? fallbackSnapshot?.pid) : nil
+        let capturedTargetBundleID = typingContext ? (sessionTargetBundleID ?? fallbackSnapshot?.bundleID) : nil
+        let capturedTargetFingerprint = typingContext ? (sessionTargetElementFingerprint ?? fallbackSnapshot?.elementFingerprint) : nil
+
         let job = IntentJob(
             seq: -1, // filled below
             intent: intent,
@@ -2350,12 +2368,12 @@ final class SpeechManager: ObservableObject {
             llmEnhancementEnabled: isLLMEnhancementEnabled,
             originSessionGeneration: originSessionGeneration,
             utteranceID: utteranceID,
-            sessionTypingMode: typingContext ? sessionTypingMode : false,
+            sessionTypingMode: typingContext,
             streamedTextSnapshot: typingContext ? lastStreamedText : "",
             screenTypedCount: typingContext ? screenTypedCount : 0,
-            targetPID: typingContext ? sessionTargetPID : nil,
-            targetBundleID: typingContext ? sessionTargetBundleID : nil,
-            targetElementFingerprint: typingContext ? sessionTargetElementFingerprint : nil
+            targetPID: capturedTargetPID,
+            targetBundleID: capturedTargetBundleID,
+            targetElementFingerprint: capturedTargetFingerprint
         )
 
         Task { [weak self] in
@@ -2458,8 +2476,10 @@ final class SpeechManager: ObservableObject {
         }
 
         if job.sessionTypingMode && (job.targetPID == nil || job.targetPID == 0) {
-            os_log("Skip dictation injection: missing typing target PID", log: log, type: .info)
-            return false
+            // Fallback: allow frontmost focused injection when target lock was unavailable.
+            // This avoids false negatives where we correctly routed to dictation but skipped output.
+            os_log("Typing target PID missing; using focused fallback injection", log: log, type: .info)
+            return true
         }
 
         guard let targetPID = job.targetPID, targetPID > 0 else { return true }
