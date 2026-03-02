@@ -2463,6 +2463,20 @@ final class SpeechManager: ObservableObject {
     }
 
     private func isJobInputTargetValidForInjection(_ job: ProcessedJob) -> Bool {
+        if !AXIsProcessTrusted() {
+            let now = Date()
+            if now.timeIntervalSince(lastFocusToastAt) > 1.5 {
+                lastFocusToastAt = now
+                let msg = job.localeIdentifier.starts(with: "zh")
+                    ? "请先授予辅助功能权限"
+                    : "Grant Accessibility permission first."
+                setHUDOverride(mode: .command, message: msg, icon: "hand.raised.fill", duration: 1.4)
+                refreshContinuousHUD()
+            }
+            os_log("Skip dictation injection: Accessibility not trusted", log: log, type: .info)
+            return false
+        }
+
         func logFocusMismatch(_ message: StaticString) {
             os_log(message, log: log, type: .info)
         }
