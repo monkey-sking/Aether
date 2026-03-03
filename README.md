@@ -69,6 +69,11 @@ Aether/
 
 # 3. 安装到固定路径（推荐，避免 TCC 权限反复重置）
 ./Scripts/InstallToApplications.sh .build/release/Aether.app
+
+# 4. 面向普通用户发布（Developer ID 重签 + DMG + ZIP，可选公证）
+# 需要本机存在 Team 对应的 Developer ID Application 证书。
+# 公证可用 NOTARY_PROFILE，或先 SKIP_NOTARIZE=1 本地验证。
+NOTARY_PROFILE=YourNotaryProfile ./Scripts/ReleaseForUsers.sh
 ```
 
 > 注意：请不要从 DMG 挂载盘直接运行应用。辅助功能权限会绑定到应用签名与安装路径，推荐始终从 `/Applications/Aether.app` 启动。

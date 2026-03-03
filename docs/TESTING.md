@@ -24,6 +24,22 @@ cd /Volumes/SSD/Projects/Aether
 open ./.build/release/Aether.app
 ```
 
+## Build for end users (Developer ID distribution)
+
+Use this path when you want a package for non-development users:
+
+```bash
+cd /Volumes/SSD/Projects/Aether
+SKIP_NOTARIZE=1 ./Scripts/ReleaseForUsers.sh
+```
+
+If notarization is configured in keychain:
+
+```bash
+cd /Volumes/SSD/Projects/Aether
+NOTARY_PROFILE=YourNotaryProfile ./Scripts/ReleaseForUsers.sh
+```
+
 ## First run: permissions and system extension
 
 Important: macOS requires the host app to live in `/Applications` to activate a System Extension.
