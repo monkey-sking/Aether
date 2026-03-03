@@ -1,6 +1,7 @@
 # Aether Testing / Acceptance Checklist
 
 This doc is for local testing on a development machine. System Extension + DriverKit requires correct code signing and explicit user approval in System Settings.
+For public release packaging and notarization, see `docs/RELEASE_DISTRIBUTION.md`.
 
 ## Where the build artifacts are
 

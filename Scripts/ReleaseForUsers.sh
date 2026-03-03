@@ -101,6 +101,14 @@ package_outputs() {
   ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 }
 
+sign_dmg() {
+  local identity="$1"
+  [[ -f "$DMG_PATH" ]] || err "DMG not found: ${DMG_PATH}"
+  log "Signing DMG with identity: ${identity}"
+  codesign --force --timestamp --sign "$identity" "$DMG_PATH"
+  codesign --verify --verbose=2 "$DMG_PATH"
+}
+
 notarize() {
   if [[ "$SKIP_NOTARIZE" == "1" ]]; then
     log "Skipping notarization (SKIP_NOTARIZE=1)."
@@ -129,6 +137,7 @@ main() {
   embed_profiles_if_provided
   sign_app_bundle "$identity"
   package_outputs
+  sign_dmg "$identity"
   notarize
   log "Done. Outputs:"
   log "App: ${APP_PATH}"

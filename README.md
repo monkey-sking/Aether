@@ -49,6 +49,7 @@ Aether/
 *   [**实施路线图 (Roadmap)**](docs/Roadmap.md): 分阶段开发计划 (P1 - P4)。
 *   [**Phase 1 实施清单 (TODO)**](docs/Phase1_TODO.md): 当前阶段的具体开发任务。
 *   [**开发规范 (Standards)**](docs/Standards.md): 文档与代码贡献指南。
+*   [**发布与公证指南 (Release Distribution)**](docs/RELEASE_DISTRIBUTION.md): 面向普通用户的签名、公证、验签流程。
 
 ## 🚀 快速开始 (Getting Started)
 
@@ -75,6 +76,8 @@ Aether/
 # 公证可用 NOTARY_PROFILE，或先 SKIP_NOTARIZE=1 本地验证。
 NOTARY_PROFILE=YourNotaryProfile ./Scripts/ReleaseForUsers.sh
 ```
+
+> 推荐：正式发布前按 [发布与公证指南](docs/RELEASE_DISTRIBUTION.md) 执行完整验签（`codesign` / `spctl` / `stapler`）。
 
 > 注意：请不要从 DMG 挂载盘直接运行应用。辅助功能权限会绑定到应用签名与安装路径，推荐始终从 `/Applications/Aether.app` 启动。
 
