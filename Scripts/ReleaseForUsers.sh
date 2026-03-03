@@ -111,11 +111,13 @@ notarize() {
     err "NOTARY_PROFILE is required unless SKIP_NOTARIZE=1."
   fi
 
-  log "Submitting ZIP to notary service..."
-  xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
+  log "Submitting DMG to notary service..."
+  xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
 
   log "Stapling tickets..."
-  xcrun stapler staple "$APP_PATH"
+  # Ticket is guaranteed for the submitted artifact (DMG).
+  # App stapling is best-effort when users also distribute the raw .app.
+  xcrun stapler staple "$APP_PATH" || true
   xcrun stapler staple "$DMG_PATH"
 }
 
