@@ -19,6 +19,7 @@ mkdir -p "$BUILD_DIR"
 mkdir -p "$DERIVED_DATA_PATH"
 
 BUILD_NUMBER=$(date +%Y%m%d%H%M)
+UNIVERSAL_BUILD="${AETHER_UNIVERSAL:-0}"
 
 echo "Building ${APP_NAME} (${CONFIGURATION}) -> ${BUILD_DIR}"
 echo "Tip: set signing in Xcode (Signing & Capabilities)."
@@ -73,6 +74,13 @@ resolve_destination() {
 }
 
 DESTINATION="${AETHER_DESTINATION:-$(resolve_destination)}"
+if [[ "$UNIVERSAL_BUILD" == "1" ]]; then
+  DESTINATION="platform=macOS"
+  EXTRA_BUILD_FLAGS+=(
+    "ARCHS=arm64 x86_64"
+    "ONLY_ACTIVE_ARCH=NO"
+  )
+fi
 echo "Using destination: ${DESTINATION}"
 
 run_xcodebuild() {
