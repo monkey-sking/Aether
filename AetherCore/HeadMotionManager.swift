@@ -18,6 +18,7 @@ class HeadMotionManager: ObservableObject {
 
     static let pttDownNotification = Notification.Name("AetherPTTDown")
     static let pttUpNotification = Notification.Name("AetherPTTUp")
+    private static let recognitionModeOverrideKey = "AetherRecognitionModeOverride"
     
     enum PostureBias: String, Sendable {
         case neutral
@@ -87,7 +88,17 @@ class HeadMotionManager: ObservableObject {
     private var isCalibratingRange: Bool = false
     
     @Published var currentPostureBias: PostureBias = .neutral
-    @Published var manualSqueezeFocus: Bool? = nil // nil = auto, true = force command, false = force dictation
+    // nil = auto, true = force command, false = force dictation
+    // Temporary override, usually from AirPods squeeze during a PTT session.
+    @Published var manualSqueezeFocus: Bool? = nil
+    // Persistent override, usually from explicit hotkey mode switching.
+    @Published var persistentRecognitionModeOverride: Bool? = HeadMotionManager.loadRecognitionModeOverrideFromDefaults() {
+        didSet { HeadMotionManager.saveRecognitionModeOverride(persistentRecognitionModeOverride) }
+    }
+    // Effective override priority: session override > persistent override.
+    var effectiveRecognitionModeOverride: Bool? {
+        manualSqueezeFocus ?? persistentRecognitionModeOverride
+    }
     private let postureThresholdRoll: Double = 0.25 // ~14 degrees
     private let postureThresholdPitch: Double = 0.35 // ~20 degrees for "Low"
     
@@ -139,6 +150,25 @@ class HeadMotionManager: ObservableObject {
     private var toggleTarget: Any?
     private var nextTrackTarget: Any?
     private var prevTrackTarget: Any?
+
+    // MARK: - Recognition Mode Override Persistence
+    private static func loadRecognitionModeOverrideFromDefaults() -> Bool? {
+        guard UserDefaults.standard.object(forKey: recognitionModeOverrideKey) != nil else { return nil }
+        let raw = UserDefaults.standard.integer(forKey: recognitionModeOverrideKey)
+        switch raw {
+        case 1: return true
+        case 0: return false
+        default: return nil
+        }
+    }
+
+    private static func saveRecognitionModeOverride(_ value: Bool?) {
+        if let value {
+            UserDefaults.standard.set(value ? 1 : 0, forKey: recognitionModeOverrideKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: recognitionModeOverrideKey)
+        }
+    }
     
     
     // Public API for checking AirPods availability
@@ -589,27 +619,48 @@ class HeadMotionManager: ObservableObject {
         // But to be safe and explicit:
         // commandCenter.playCommand.isEnabled = false // Let system handle it
     }
+
+    @MainActor
+    func toggleRecognitionInputControlMode(source: String = "hotkey", persist: Bool = true) {
+        // If we were auto-detected as typing, toggle to command; otherwise toggle to dictation.
+        let currentlyTyping = HUDManager.shared.lastKnownTypingState()
+        let currentBias = effectiveRecognitionModeOverride ?? currentlyTyping // false = dictation, true = command
+        let nextBias = !currentBias
+        if persist {
+            manualSqueezeFocus = nil
+            persistentRecognitionModeOverride = nextBias
+        } else {
+            manualSqueezeFocus = nextBias
+        }
+
+        let isCommandMode = nextBias
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let message = isCommandMode
+            ? (isChinese ? "已切换到控制模式" : "Switched to Control Mode")
+            : (isChinese ? "已切换到输入模式" : "Switched to Dictation Mode")
+        let icon = isCommandMode ? "command" : "keyboard"
+        HUDManager.shared.showTemporary(message: message, icon: icon)
+        os_log("Recognition Mode Override Toggled (%{public}@, persist=%{public}@): %{public}@",
+               log: log, type: .info, source, persist ? "yes" : "no", isCommandMode ? "command" : "dictation")
+    }
     
     private func handleClickCommand() {
-        guard isTracking, isLookingAtScreen else { return }
-        
         // If PTT is active, Squeeze acts as a mode toggle/inverter
         if isPTTPressed {
             os_log("AirPods: Squeeze during PTT -> Toggle Recognition Mode", log: log)
             DispatchQueue.main.async {
-                // If we were auto-detected as typing, force command. Otherwise force dictation.
-                let currentlyTyping = HUDManager.shared.lastKnownTypingState()
-                let currentBias = self.manualSqueezeFocus ?? currentlyTyping // false = dictation, true = command
-                self.manualSqueezeFocus = !currentBias
-                
+                self.toggleRecognitionInputControlMode(source: "airpods-ptt-squeeze", persist: false)
                 // Audio feedback for mode switch
                 NSSound.beep()
             }
-        } else {
-            // Normal operation: Single Press -> Left Click
-            os_log("AirPods: Single Press -> Left Click", log: log)
-            DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY)) }
+            return
         }
+
+        guard isTracking, isLookingAtScreen else { return }
+
+        // Normal operation: Single Press -> Left Click
+        os_log("AirPods: Single Press -> Left Click", log: log)
+        DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY)) }
     }
     
     // ... triggerMouseClick (unchanged) ...
@@ -735,6 +786,13 @@ class HeadMotionManager: ObservableObject {
                         NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
                         return nil
 
+                    case .toggleInputControlMode:
+                        GlobalLogger.input.info("Hotkey: Toggle Input/Control Mode")
+                        DispatchQueue.main.async {
+                            manager.toggleRecognitionInputControlMode(source: "keyboard-hotkey", persist: true)
+                        }
+                        return nil
+
                     case .pushToTalk:
                         // If PTT is disabled, do not consume the event.
                         guard manager.isPTTEnabled else { return Unmanaged.passUnretained(event) }
@@ -747,7 +805,7 @@ class HeadMotionManager: ObservableObject {
                         
                         if !wasPressed {
                             GlobalLogger.input.info("Hotkey: PTT DOWN Detected (Keyboard)")
-                            manager.manualSqueezeFocus = nil // Reset override on new PTT session
+                            manager.manualSqueezeFocus = nil // Reset temporary override on new PTT session
                             NotificationCenter.default.post(
                                 name: HeadMotionManager.pttDownNotification,
                                 object: nil
@@ -808,6 +866,13 @@ class HeadMotionManager: ObservableObject {
                         NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
                         return nil
 
+                    case .toggleInputControlMode:
+                        GlobalLogger.input.info("Mouse Hotkey: Toggle Input/Control Mode")
+                        DispatchQueue.main.async {
+                            manager.toggleRecognitionInputControlMode(source: "mouse-hotkey", persist: true)
+                        }
+                        return nil
+
                     case .pushToTalk:
                         // [Fix] STRICT CHECK: If PTT is disabled, bypass.
                         guard manager.isPTTEnabled else { break }
@@ -819,7 +884,7 @@ class HeadMotionManager: ObservableObject {
                             
                             if !wasPressed {
                                 GlobalLogger.input.info("Mouse PTT DOWN Detected (Button \(btn))")
-                                manager.manualSqueezeFocus = nil // Reset override
+                                manager.manualSqueezeFocus = nil // Reset temporary override
                                 NotificationCenter.default.post(
                                     name: HeadMotionManager.pttDownNotification,
                                     object: nil
