@@ -39,6 +39,21 @@ NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh
 - 提交 DMG 到 Apple Notary
 - 对 App 和 DMG 执行 stapler
 
+默认行为（无分发 profile）：
+
+- 若未提供 `APP_PROVISION_PROFILE`，脚本会使用“兼容签名”模式：
+- 不注入受限 entitlement（避免 launchd `spawn failed` / Code 162）
+- 移除 `Contents/Library/SystemExtensions`（确保应用可直接启动）
+
+如需保留系统扩展能力，请显式提供 profile：
+
+```bash
+APP_PROVISION_PROFILE=/path/to/Aether.provisionprofile \
+DRIVER_PROVISION_PROFILE=/path/to/AetherDriver.provisionprofile \
+NOTARY_PROFILE=AetherNotary \
+./Scripts/ReleaseForUsers.sh
+```
+
 产物路径：
 
 - `.build/release/Aether.app`
@@ -68,6 +83,20 @@ spctl -a -t install -vv "$DMG"
 xcrun stapler validate "$DMG"
 ```
 
+关键检查（麦克风/语音识别权限）：
+
+```bash
+# 1) 必须包含以下 entitlement，否则系统可能不出现 Aether 麦克风授权项
+codesign -d --entitlements :- "$APP" 2>/dev/null | \
+  rg "com.apple.security.device.audio-input|com.apple.security.personal-information.speech-recognition"
+
+# 2) 必须包含用途说明
+/usr/libexec/PlistBuddy -c "Print :NSMicrophoneUsageDescription" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Print :NSSpeechRecognitionUsageDescription" "$APP/Contents/Info.plist"
+```
+
+若缺少以上任一项，优先修复签名与 entitlements，再做权限排障。
+
 说明：
 
 - `spctl -t open` 在部分环境会出现 `Insufficient Context`，不等于包无效。
@@ -81,3 +110,6 @@ xcrun stapler validate "$DMG"
   - 通常是“提交公证的对象”和“staple 的对象”不一致。当前脚本提交的是 DMG，并对 DMG 执行 staple。
 - `No profile for team ...` / 开发签名报错
   - 走发布链路不依赖 Apple Development 证书，可直接使用 `ReleaseForUsers.sh`。
+- App 内显示麦克风 `denied`，但系统麦克风列表没有 `Aether`
+  - 先确认上面的 entitlement 与 usage description 检查都通过。
+  - 然后执行：`tccutil reset Microphone com.7fei.Aether`，重启 App 再触发一次授权。

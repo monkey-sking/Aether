@@ -54,6 +54,7 @@ iOSInjectionProject/
 
 # Local Config
 .DS_Store
+**/.DS_Store
 UserInterfaceState.xcuserstate
 Breakpoints_v2.xcbkptlist
 
@@ -65,3 +66,8 @@ References/
 
 # Build logs
 build*.log
+
+# Local release artifacts and signing material
+dist/
+signing/
+*.provisionprofile
