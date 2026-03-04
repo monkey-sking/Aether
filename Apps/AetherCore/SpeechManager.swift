@@ -131,6 +131,7 @@ final class SpeechManager: ObservableObject {
     @Published var status: String = "Idle"
     @Published var lastTranscript: String = ""
     @Published var lastError: String = ""
+    @Published private(set) var accessibilityTrustedSnapshot: Bool = false
     
     // Microphone Management
     @Published var availableInputDevices: [AudioInputDevice] = []
@@ -2463,7 +2464,7 @@ final class SpeechManager: ObservableObject {
     }
 
     private func isJobInputTargetValidForInjection(_ job: ProcessedJob) -> Bool {
-        if !AXIsProcessTrusted() {
+        if !accessibilityTrustedSnapshot {
             let now = Date()
             if now.timeIntervalSince(lastFocusToastAt) > 1.5 {
                 lastFocusToastAt = now
@@ -2542,6 +2543,10 @@ final class SpeechManager: ObservableObject {
         }
 
         return true
+    }
+
+    func updateAccessibilityTrusted(_ trusted: Bool) {
+        accessibilityTrustedSnapshot = trusted
     }
 
     private func applyProcessedJob(_ job: ProcessedJob) {

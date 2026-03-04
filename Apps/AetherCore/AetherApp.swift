@@ -229,6 +229,10 @@ final class VoiceService: ObservableObject {
         manager.isLLMEnhancementEnabled = enabled
     }
 
+    func setAccessibilityTrusted(_ trusted: Bool) {
+        manager.updateAccessibilityTrusted(trusted)
+    }
+
     func undoLastInjection() {
         manager.undoLastInjection()
     }
@@ -654,6 +658,14 @@ class AppState: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+
+        // Permissions Sync
+        // Keep Settings permission rows in lockstep with runtime permission checks.
+        // Without this bridge, AppState computed permission properties can appear stale in UI.
+        permissions.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
         
         voiceService.$availableInputDevices
             .receive(on: DispatchQueue.main)
@@ -716,6 +728,7 @@ class AppState: ObservableObject {
         .receive(on: DispatchQueue.main)
         .sink { [weak self] accessibilityTrusted, microphoneAuthorized, speechAuthorized in
             guard let self = self else { return }
+            self.voiceService.setAccessibilityTrusted(accessibilityTrusted)
             self.onboardingStep = Self.deriveOnboardingStep(
                 accessibilityTrusted: accessibilityTrusted,
                 microphoneAuthorized: microphoneAuthorized,
