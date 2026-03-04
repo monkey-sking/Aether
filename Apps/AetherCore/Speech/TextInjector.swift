@@ -14,6 +14,10 @@ final class TextInjector {
         lastInjectedAt = Date()
     }
 
+    func deleteBackward(count: Int, targetPID: pid_t? = nil) {
+        AutomationOutputs.shared.backspace(count: count, targetPID: targetPID)
+    }
+
     func undoPasteIfRecent(maxAgeSeconds: TimeInterval = 20) {
         guard let at = lastInjectedAt, Date().timeIntervalSince(at) <= maxAgeSeconds else { return }
         AutomationOutputs.shared.undo()
