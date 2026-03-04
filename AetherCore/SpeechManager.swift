@@ -409,6 +409,10 @@ final class SpeechManager: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let intentPipeline = IntentPipeline()
     private var utteranceExecutionGuard = UtteranceExecutionGuard(maxHistory: 128)
+    private var lastHandledSessionGeneration: Int = -1
+    private var lastHandledUtteranceID: Int = -1
+    private var lastHandledTranscript: String = ""
+    private var lastHandledAt: Date = .distantPast
 
     private var isAwake: Bool {
         // Gaze Wake: if looking at screen AND tracking is active -> Awake
@@ -2261,6 +2265,26 @@ final class SpeechManager: ObservableObject {
             return 
         }
 
+        // De-duplicate finalization races:
+        // same session + same utterance + same transcript arriving within a short window.
+        let candidateUtteranceID = utteranceID ?? activeUtteranceID
+        let now = Date()
+        if candidateUtteranceID > 0,
+           sessionGeneration == lastHandledSessionGeneration,
+           candidateUtteranceID == lastHandledUtteranceID,
+           trimmed == lastHandledTranscript,
+           now.timeIntervalSince(lastHandledAt) < 2.0 {
+            os_log(
+                "Skip duplicate transcript finalize (session=%d utterance=%d): %{public}@",
+                log: log,
+                type: .info,
+                sessionGeneration,
+                candidateUtteranceID,
+                trimmed
+            )
+            return
+        }
+
         var textToRoute = trimmed
         var wakeWordDetected = false
 
@@ -2404,6 +2428,12 @@ final class SpeechManager: ObservableObject {
             nextUtteranceID += 1
             activeUtteranceID = resolvedUtteranceID
         }
+
+        lastHandledSessionGeneration = sessionGeneration
+        lastHandledUtteranceID = resolvedUtteranceID
+        lastHandledTranscript = trimmed
+        lastHandledAt = now
+
         enqueueIntentForParallelExecution(
             intent,
             typingContext: typingContext,
@@ -2438,8 +2468,10 @@ final class SpeechManager: ObservableObject {
             originSessionGeneration: originSessionGeneration,
             utteranceID: utteranceID,
             sessionTypingMode: typingContext,
-            streamedTextSnapshot: typingContext ? lastStreamedText : "",
-            screenTypedCount: typingContext ? screenTypedCount : 0,
+            // Keep streamed context regardless of final typing snapshot.
+            // Focus/mode can jitter at utterance end; this prevents full-text duplicate injection.
+            streamedTextSnapshot: lastStreamedText,
+            screenTypedCount: screenTypedCount,
             targetPID: capturedTargetPID,
             targetBundleID: capturedTargetBundleID,
             targetElementFingerprint: capturedTargetFingerprint
@@ -2652,7 +2684,8 @@ final class SpeechManager: ObservableObject {
                 return
             }
 
-            if job.sessionTypingMode {
+            let hasStreamedContext = job.screenTypedCount > 0 || !job.streamedTextSnapshot.isEmpty
+            if job.sessionTypingMode || hasStreamedContext {
                 switch TypingFinalizationPlanner.makePlan(streamedText: job.streamedTextSnapshot, finalText: text) {
                 case .append(let suffix):
                     os_log("Dictation Sync: Appending final suffix (len: %d, targetPID: %d)", log: log, type: .info, suffix.count, job.targetPID ?? 0)
