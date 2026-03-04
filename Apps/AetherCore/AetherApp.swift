@@ -488,12 +488,20 @@ class AppState: ObservableObject {
         let speechAuthorizedNow = SFSpeechRecognizer.authorizationStatus() == .authorized
         if requiresContinuousSession {
             if !micAuthorizedNow {
+                HUDManager.shared.showTemporary(
+                    message: Locale.current.identifier.starts(with: "zh") ? "请先授予麦克风权限" : "Grant Microphone permission first.",
+                    icon: "mic.slash.fill"
+                )
                 permissions.requestMicrophone()
                 refreshPermissions()
                 voiceActivationMode = .pushToTalk
                 return
             }
             if !speechAuthorizedNow {
+                HUDManager.shared.showTemporary(
+                    message: Locale.current.identifier.starts(with: "zh") ? "请先授予语音识别权限" : "Grant Speech Recognition permission first.",
+                    icon: "waveform.badge.exclamationmark"
+                )
                 permissions.requestSpeech()
                 refreshPermissions()
                 voiceActivationMode = .pushToTalk
@@ -728,15 +736,24 @@ class AppState: ObservableObject {
         .receive(on: DispatchQueue.main)
         .sink { [weak self] accessibilityTrusted, microphoneAuthorized, speechAuthorized in
             guard let self = self else { return }
-            self.voiceService.setAccessibilityTrusted(accessibilityTrusted)
+            // Guard against startup transient false values from @Published defaults.
+            // Use live system checks to avoid false "need accessibility" HUD toasts.
+            let liveAX = AXIsProcessTrusted()
+            let liveMic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+            let liveSpeech = SFSpeechRecognizer.authorizationStatus() == .authorized
+            let effectiveAX = accessibilityTrusted || liveAX
+            let effectiveMic = microphoneAuthorized || liveMic
+            let effectiveSpeech = speechAuthorized || liveSpeech
+
+            self.voiceService.setAccessibilityTrusted(effectiveAX)
             self.onboardingStep = Self.deriveOnboardingStep(
-                accessibilityTrusted: accessibilityTrusted,
-                microphoneAuthorized: microphoneAuthorized,
-                speechAuthorized: speechAuthorized
+                accessibilityTrusted: effectiveAX,
+                microphoneAuthorized: effectiveMic,
+                speechAuthorized: effectiveSpeech
             )
 
             // Missing Accessibility breaks AX focus/caret detection, so input mode won't switch.
-            if !accessibilityTrusted {
+            if !effectiveAX {
                 if !self.hasShownAccessibilityHint {
                     self.hasShownAccessibilityHint = true
                     HUDManager.shared.showTemporary(
@@ -755,7 +772,7 @@ class AppState: ObservableObject {
             // Safety: if Always Listening is enabled but permissions got revoked, shut it off.
             // BUGFIX: Only reset if the app has actually initialized permissions. 
             // On startup, these values might be false temporarily before refresh() is called.
-            if self.isAlwaysListeningEnabled && (!microphoneAuthorized || !speechAuthorized) {
+            if self.isAlwaysListeningEnabled && (!effectiveMic || !effectiveSpeech) {
                 // If we are authorized but the published value is still false (race condition), don't reset.
                 // Re-check synchronously to be absolutely sure.
                 let micAuth = AVCaptureDevice.authorizationStatus(for: AVMediaType.audio) == .authorized
