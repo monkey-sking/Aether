@@ -626,6 +626,24 @@ class HeadMotionManager: ObservableObject {
         let currentlyTyping = HUDManager.shared.lastKnownTypingState()
         let currentBias = effectiveRecognitionModeOverride ?? currentlyTyping // false = dictation, true = command
         let nextBias = !currentBias
+
+        // Guard: dictation mode requires an actual text-input focus.
+        // Control mode can always work without text field focus.
+        if !nextBias && !currentlyTyping {
+            if persist {
+                manualSqueezeFocus = nil
+                persistentRecognitionModeOverride = true
+            } else {
+                manualSqueezeFocus = true
+            }
+            let isChinese = Locale.current.identifier.hasPrefix("zh")
+            let message = isChinese ? "未检测到输入框，保持控制模式" : "No input field. Staying in Control Mode"
+            HUDManager.shared.showTemporary(message: message, icon: "command")
+            os_log("Recognition Mode Toggle blocked (%{public}@, persist=%{public}@): no input focus",
+                   log: log, type: .info, source, persist ? "yes" : "no")
+            return
+        }
+
         if persist {
             manualSqueezeFocus = nil
             persistentRecognitionModeOverride = nextBias
