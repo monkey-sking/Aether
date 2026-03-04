@@ -1072,34 +1072,28 @@ class AppState: ObservableObject {
     }
 
     func requestMicrophoneGuided() {
-        switch microphoneAuthorizationStatus {
-        case .authorized:
-            refreshPermissions()
-        case .notDetermined:
-            permissions.requestMicrophone()
-            refreshPermissions()
-        case .denied, .restricted:
-            permissions.openMicrophonePrivacyPane()
-            refreshPermissions()
-        @unknown default:
-            permissions.openMicrophonePrivacyPane()
-            refreshPermissions()
+        // Always attempt a live request first.
+        // If status is .notDetermined this triggers the system prompt.
+        // If status is .denied/.restricted it returns quickly and we then jump to System Settings.
+        permissions.requestMicrophone()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { return }
+            self.refreshPermissions()
+            if !self.microphoneAuthorized {
+                self.permissions.openMicrophonePrivacyPane()
+            }
         }
     }
 
     func requestSpeechGuided() {
-        switch speechAuthorizationStatus {
-        case .authorized:
-            refreshPermissions()
-        case .notDetermined:
-            permissions.requestSpeech()
-            refreshPermissions()
-        case .denied, .restricted:
-            permissions.openSpeechPrivacyPane()
-            refreshPermissions()
-        @unknown default:
-            permissions.openSpeechPrivacyPane()
-            refreshPermissions()
+        // Mirror microphone flow: request first, then open Settings only if still unauthorized.
+        permissions.requestSpeech()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { return }
+            self.refreshPermissions()
+            if !self.speechAuthorized {
+                self.permissions.openSpeechPrivacyPane()
+            }
         }
     }
 
