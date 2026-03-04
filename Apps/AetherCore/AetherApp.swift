@@ -1072,28 +1072,42 @@ class AppState: ObservableObject {
     }
 
     func requestMicrophoneGuided() {
-        // Always attempt a live request first.
-        // If status is .notDetermined this triggers the system prompt.
-        // If status is .denied/.restricted it returns quickly and we then jump to System Settings.
-        permissions.requestMicrophone()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            guard let self else { return }
-            self.refreshPermissions()
-            if !self.microphoneAuthorized {
-                self.permissions.openMicrophonePrivacyPane()
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch status {
+        case .authorized:
+            refreshPermissions()
+        case .notDetermined:
+            // Important: do not jump to System Settings immediately.
+            // Let the native TCC prompt appear first, otherwise it can be interrupted.
+            permissions.requestMicrophone()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.refreshPermissions()
             }
+        case .denied, .restricted:
+            permissions.openMicrophonePrivacyPane()
+            refreshPermissions()
+        @unknown default:
+            permissions.openMicrophonePrivacyPane()
+            refreshPermissions()
         }
     }
 
     func requestSpeechGuided() {
-        // Mirror microphone flow: request first, then open Settings only if still unauthorized.
-        permissions.requestSpeech()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            guard let self else { return }
-            self.refreshPermissions()
-            if !self.speechAuthorized {
-                self.permissions.openSpeechPrivacyPane()
+        let status = SFSpeechRecognizer.authorizationStatus()
+        switch status {
+        case .authorized:
+            refreshPermissions()
+        case .notDetermined:
+            permissions.requestSpeech()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.refreshPermissions()
             }
+        case .denied, .restricted:
+            permissions.openSpeechPrivacyPane()
+            refreshPermissions()
+        @unknown default:
+            permissions.openSpeechPrivacyPane()
+            refreshPermissions()
         }
     }
 
