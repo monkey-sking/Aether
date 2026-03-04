@@ -3,9 +3,12 @@ import AppKit
 import ApplicationServices
 import AVFoundation
 import Speech
+import os.log
 
 @MainActor
 final class PermissionsManager: ObservableObject {
+    private let log = OSLog(subsystem: "com.7fei.Aether", category: "Permissions")
+
     @Published var accessibilityTrusted: Bool = false
     @Published var microphoneAuthorized: Bool = false
     @Published var speechAuthorized: Bool = false
@@ -19,12 +22,23 @@ final class PermissionsManager: ObservableObject {
         accessibilityTrusted = AXIsProcessTrusted()
 
         // Microphone
-        microphoneAuthorized = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        // microphoneAuthorized = false
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        microphoneAuthorized = micStatus == .authorized
 
         // Speech Recognition
-        speechAuthorized = SFSpeechRecognizer.authorizationStatus() == .authorized
-        // speechAuthorized = false
+        let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        speechAuthorized = speechStatus == .authorized
+
+        os_log(
+            "refresh: AX=%{bool}d, Mic=%{public}@(%d), Speech=%{public}@(%d)",
+            log: log,
+            type: .info,
+            accessibilityTrusted,
+            String(describing: micStatus),
+            micStatus.rawValue,
+            String(describing: speechStatus),
+            speechStatus.rawValue
+        )
     }
 
     func requestAccessibility() {
@@ -63,4 +77,3 @@ final class PermissionsManager: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 }
-

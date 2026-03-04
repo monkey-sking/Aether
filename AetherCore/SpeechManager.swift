@@ -326,7 +326,13 @@ final class SpeechManager: ObservableObject {
             // At least one trigger is active.
             // If Continuous or Wake Word is enabled, we should be in startContinuous mode.
             if isAlwaysListeningEnabled || isWakeWordEnabled {
-                startContinuous()
+                if missingVoicePermissionHint() != nil {
+                    stopAndFinalize()
+                    teardownEngine()
+                    refreshContinuousHUD()
+                } else {
+                    startContinuous()
+                }
             } else {
                 resetHUDTransientState()
                 // [Fix] Ensure HUD refreshes (and potential hides) if switching to PTT-only mode
@@ -821,6 +827,26 @@ final class SpeechManager: ObservableObject {
         }
     }
 
+    private func missingVoicePermissionHint() -> (message: String, icon: String)? {
+        let micAuthorized = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        if !micAuthorized {
+            return (
+                activeLocale.identifier.starts(with: "zh") ? "请先授予麦克风权限" : "Grant Microphone permission first.",
+                "mic.slash.fill"
+            )
+        }
+
+        let speechAuthorized = SFSpeechRecognizer.authorizationStatus() == .authorized
+        if !speechAuthorized {
+            return (
+                activeLocale.identifier.starts(with: "zh") ? "请先授予语音识别权限" : "Grant Speech Recognition permission first.",
+                "waveform.badge.exclamationmark"
+            )
+        }
+
+        return nil
+    }
+
     private func clearHUDOverride() {
         hudOverrideUntil = .distantPast
         hudOverrideMessage = ""
@@ -832,6 +858,18 @@ final class SpeechManager: ObservableObject {
         // Do not override the explicit `.processing` UX.
         if !isStopping && Date() < hudOverrideUntil {
             HUDManager.shared.update(mode: hudOverrideMode, message: hudOverrideMessage, language: activeLocale.identifier, inputDeviceIcon: hudOverrideIcon)
+            return
+        }
+
+        // Keep selected mode UI visible. If permissions are missing, show explicit guidance instead of hiding HUD.
+        if (isAlwaysListeningEnabled || isWakeWordEnabled),
+           let hint = missingVoicePermissionHint() {
+            HUDManager.shared.update(
+                mode: .command,
+                message: hint.message,
+                language: activeLocale.identifier,
+                inputDeviceIcon: hint.icon
+            )
             return
         }
 
@@ -1171,6 +1209,28 @@ final class SpeechManager: ObservableObject {
         if recognitionTask != nil {
             recognitionTask?.cancel()
             recognitionTask = nil
+        }
+
+        let micAuthorized = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        let speechAuthorized = SFSpeechRecognizer.authorizationStatus() == .authorized
+        if !micAuthorized || !speechAuthorized {
+            if !micAuthorized {
+                setHUDOverride(
+                    mode: .command,
+                    message: activeLocale.identifier.starts(with: "zh") ? "请先授予麦克风权限" : "Grant Microphone permission first.",
+                    icon: "mic.slash.fill",
+                    duration: 1.4
+                )
+            } else {
+                setHUDOverride(
+                    mode: .command,
+                    message: activeLocale.identifier.starts(with: "zh") ? "请先授予语音识别权限" : "Grant Speech Recognition permission first.",
+                    icon: "waveform.badge.exclamationmark",
+                    duration: 1.4
+                )
+            }
+            refreshContinuousHUD()
+            return
         }
 
         guard let recognizer, recognizer.isAvailable else {
@@ -2312,7 +2372,15 @@ final class SpeechManager: ObservableObject {
                motion.manualSqueezeFocus == nil ? "auto" : String(describing: motion.manualSqueezeFocus!),
                typingContext)
 
-        let intent = router.route(transcript: textToRoute, bias: routingBias)
+        var intent = router.route(transcript: textToRoute, bias: routingBias)
+
+        // PTT fallback: when user explicitly按住说话且路由为 unknown，优先落到听写，避免“HUD有反应但没有出字”。
+        if !isAlwaysListeningEnabled,
+           case .unknown = intent,
+           !textToRoute.isEmpty {
+            intent = .dictation(textToRoute)
+            os_log("PTT fallback: unknown intent -> dictation", log: log, type: .info)
+        }
         
         os_log("Speech: Intent decided [%{public}@] for transcript [%{public}@]. Bias was [%{public}@].", 
                log: log, type: .info, String(describing: intent), textToRoute, String(describing: routingBias))
@@ -2464,7 +2532,12 @@ final class SpeechManager: ObservableObject {
     }
 
     private func isJobInputTargetValidForInjection(_ job: ProcessedJob) -> Bool {
-        if !accessibilityTrustedSnapshot {
+        let effectiveAXTrusted = accessibilityTrustedSnapshot || AXIsProcessTrusted()
+        if accessibilityTrustedSnapshot != effectiveAXTrusted {
+            accessibilityTrustedSnapshot = effectiveAXTrusted
+        }
+
+        if !effectiveAXTrusted {
             let now = Date()
             if now.timeIntervalSince(lastFocusToastAt) > 1.5 {
                 lastFocusToastAt = now
