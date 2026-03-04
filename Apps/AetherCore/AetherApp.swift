@@ -1081,11 +1081,28 @@ class AppState: ObservableObject {
             // Let the native TCC prompt appear first, otherwise it can be interrupted.
             permissions.requestMicrophone()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                self?.refreshPermissions()
+                guard let self else { return }
+                self.refreshPermissions()
+                if !self.microphoneAuthorized {
+                    self.permissions.openMicrophonePrivacyPane()
+                }
             }
         case .denied, .restricted:
-            permissions.openMicrophonePrivacyPane()
-            refreshPermissions()
+            // Recovery path for stale/broken TCC rows:
+            // reset app microphone decision, then re-request to force macOS prompt and re-create list entry.
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else { return }
+                _ = Self.resetTCC(service: "Microphone")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    self.permissions.requestMicrophone()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                        self.refreshPermissions()
+                        if !self.microphoneAuthorized {
+                            self.permissions.openMicrophonePrivacyPane()
+                        }
+                    }
+                }
+            }
         @unknown default:
             permissions.openMicrophonePrivacyPane()
             refreshPermissions()
@@ -1100,14 +1117,42 @@ class AppState: ObservableObject {
         case .notDetermined:
             permissions.requestSpeech()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                self?.refreshPermissions()
+                guard let self else { return }
+                self.refreshPermissions()
+                if !self.speechAuthorized {
+                    self.permissions.openSpeechPrivacyPane()
+                }
             }
         case .denied, .restricted:
-            permissions.openSpeechPrivacyPane()
-            refreshPermissions()
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else { return }
+                _ = Self.resetTCC(service: "SpeechRecognition")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    self.permissions.requestSpeech()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                        self.refreshPermissions()
+                        if !self.speechAuthorized {
+                            self.permissions.openSpeechPrivacyPane()
+                        }
+                    }
+                }
+            }
         @unknown default:
             permissions.openSpeechPrivacyPane()
             refreshPermissions()
+        }
+    }
+
+    private static func resetTCC(service: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        process.arguments = ["reset", service, "com.7fei.Aether"]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
         }
     }
 
