@@ -2373,9 +2373,9 @@ final class SpeechManager: ObservableObject {
         let posture = motion.currentPostureBias
         var routingBias: VoiceCommandRouter.RoutingBias = .neutral
         
-        // 1. Manual User Squeeze Override (Highest Priority)
-        if let squeezeOverride = motion.manualSqueezeFocus {
-            routingBias = squeezeOverride ? .forceCommand : .forceDictation
+        // 1. Manual/Persistent User Override (Highest Priority)
+        if let forcedOverride = motion.effectiveRecognitionModeOverride {
+            routingBias = forcedOverride ? .forceCommand : .forceDictation
         } else {
             // 2. Posture-Based Bias
             switch posture {
@@ -2389,11 +2389,21 @@ final class SpeechManager: ObservableObject {
             }
         }
 
+        let overrideState: String = {
+            if let temporary = motion.manualSqueezeFocus {
+                return "temp:\(temporary)"
+            }
+            if let persistent = motion.persistentRecognitionModeOverride {
+                return "locked:\(persistent)"
+            }
+            return "auto"
+        }()
+
         os_log("Speech Routing Bias: %{public}@ (Posture: %{public}@, Squeeze: %{public}@, Typing: %d)", 
                log: log, type: .info, 
                String(describing: routingBias), 
                posture.rawValue, 
-               motion.manualSqueezeFocus == nil ? "auto" : String(describing: motion.manualSqueezeFocus!),
+               overrideState,
                typingContext)
 
         var intent = router.route(transcript: textToRoute, bias: routingBias)

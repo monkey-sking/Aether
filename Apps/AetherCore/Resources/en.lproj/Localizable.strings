@@ -89,6 +89,7 @@
 "hotkey.section_title" = "Hotkeys";
 "hotkey.toggle_tracking" = "Toggle Tracking";
 "hotkey.connection_lock" = "Connection Lock";
+"hotkey.toggle_input_control_mode" = "Toggle Input/Control Mode";
 "hotkey.push_to_talk" = "Push-to-Talk";
 "hotkey.press_key" = "Press key…";
 "hotkey.reset_all" = "Reset All";
