@@ -1,0 +1,132 @@
+import Foundation
+import os
+
+/// Manages streaming dictation input. Tracks what is actually on screen vs what the STT engine reports.
+///
+/// **Core Bug Fix**: The old `handleStreamingTyping` used an append-only strategy based on character count.
+/// When Apple STT mid-stream corrected a word (e.g. "好吧" → "好啊"), the append-only approach
+/// printed the correction as *new* characters, producing garbage like "好吧好啊".
+///
+/// New approach:
+///   - `screenTypedText` tracks the characters actually injected into the target app.
+///   - `onPartial` only appends when the new text is a strict extension of `screenTypedText`.
+///   - If STT revised earlier words (text no longer starts with `screenTypedText`), we skip until `onFinal`.
+///   - `onFinal` uses diff-based correction: find common prefix, delete excess, type remainder.
+@MainActor
+final class DictationHandler {
+
+    // MARK: - State
+
+    /// What we have actually typed on screen (ground truth).
+    private(set) var screenTypedText: String = ""
+    private var targetPID: pid_t?
+    private let injector: TextInjector
+    private let log = GlobalLogger.speech
+
+    // MARK: - LLM Enhancement
+
+    var llmProvider: LLMProvider?
+    var isLLMEnhancementEnabled: Bool = false
+    var onStatusUpdate: ((String) -> Void)?
+
+    // MARK: - Init
+
+    init(injector: TextInjector) {
+        self.injector = injector
+    }
+
+    // MARK: - Public API
+
+    /// Call at the start of each utterance to reset tracking state.
+    func reset(targetPID: pid_t?) {
+        self.screenTypedText = ""
+        self.targetPID = targetPID
+    }
+
+    /// Called for every partial (non-final) STT result.
+    ///
+    /// Only types new characters when the engine output is a strict extension of what's on screen.
+    /// If STT revised earlier words, we do nothing—corrections happen in `onFinal`.
+    func onPartial(_ text: String) {
+        guard !text.isEmpty else { return }
+
+        if text.hasPrefix(screenTypedText) {
+            // Safe extension: engine output starts with everything we've already typed.
+            let suffix = String(text.dropFirst(screenTypedText.count))
+            if !suffix.isEmpty {
+                injector.type(suffix, targetPID: targetPID)
+                screenTypedText = text
+                os_log("DictationHandler stream append: +'%{public}@' (screen: %d chars)",
+                       log: log, type: .info, suffix, screenTypedText.count)
+            }
+        }
+        // else: STT revised earlier content → do nothing, wait for onFinal to correct.
+    }
+
+    /// Called when isFinal fires or EOS is detected.
+    /// Performs diff-based correction to sync screen with final text.
+    func onFinal(_ text: String) async {
+        let corrected: String
+        if isLLMEnhancementEnabled, let provider = llmProvider, !text.isEmpty {
+            do {
+                let enhanced = try await provider.enhanceDictation(text)
+                corrected = enhanced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : enhanced
+            } catch {
+                os_log("LLM enhancement failed: %{public}@", log: log, type: .error, error.localizedDescription)
+                corrected = text
+            }
+        } else {
+            corrected = text
+        }
+        applyCorrection(corrected)
+    }
+
+    /// Synchronous finalization (no LLM). Used when LLM is disabled.
+    func onFinalSync(_ text: String) {
+        applyCorrection(text)
+    }
+
+    // MARK: - Private
+
+    private func applyCorrection(_ finalText: String) {
+        guard !finalText.isEmpty else { return }
+        guard finalText != screenTypedText else { return }
+
+        if finalText.hasPrefix(screenTypedText) {
+            // Pure append (most common case).
+            let suffix = String(finalText.dropFirst(screenTypedText.count))
+            if !suffix.isEmpty {
+                injector.type(suffix, targetPID: targetPID)
+            }
+        } else {
+            // Diff correction: find common prefix, delete excess, type new content.
+            let commonLen = commonPrefixLength(screenTypedText, finalText)
+            let toDelete = screenTypedText.count - commonLen
+            let toType = String(finalText.dropFirst(commonLen))
+
+            if toDelete > 0 {
+                injector.deleteBackward(count: toDelete, targetPID: targetPID)
+                os_log("DictationHandler correction: delete %d chars", log: log, type: .info, toDelete)
+            }
+            if !toType.isEmpty {
+                injector.type(toType, targetPID: targetPID)
+                os_log("DictationHandler correction: type '%{public}@'", log: log, type: .info, toType)
+            }
+        }
+        screenTypedText = finalText
+    }
+
+    /// Find the length of the common prefix between two strings (by Character, not byte).
+    private func commonPrefixLength(_ a: String, _ b: String) -> Int {
+        var count = 0
+        var ai = a.startIndex
+        var bi = b.startIndex
+        while ai < a.endIndex && bi < b.endIndex {
+            if a[ai] != b[bi] { break }
+            count += 1
+            ai = a.index(after: ai)
+            bi = b.index(after: bi)
+        }
+        return count
+    }
+}
