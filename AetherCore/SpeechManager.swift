@@ -2372,10 +2372,30 @@ final class SpeechManager: ObservableObject {
         let motion = HeadMotionManager.shared
         let posture = motion.currentPostureBias
         var routingBias: VoiceCommandRouter.RoutingBias = .neutral
+        var blockDictationWithoutInput = false
         
         // 1. Manual/Persistent User Override (Highest Priority)
         if let forcedOverride = motion.effectiveRecognitionModeOverride {
-            routingBias = forcedOverride ? .forceCommand : .forceDictation
+            if forcedOverride {
+                routingBias = .forceCommand
+            } else if typingContext {
+                routingBias = .forceDictation
+            } else {
+                // Safety: input mode without active text field is invalid.
+                // Fall back to command path and block dictation output.
+                routingBias = .forceCommand
+                blockDictationWithoutInput = true
+
+                let now = Date()
+                if now.timeIntervalSince(lastFocusToastAt) > 1.2 {
+                    lastFocusToastAt = now
+                    let msg = activeLocale.identifier.starts(with: "zh")
+                        ? "当前无输入框，已按控制模式执行"
+                        : "No input field. Running in Control Mode."
+                    setHUDOverride(mode: .command, message: msg, icon: "command", duration: 1.0)
+                    refreshContinuousHUD()
+                }
+            }
         } else {
             // 2. Posture-Based Bias
             switch posture {
@@ -2408,8 +2428,14 @@ final class SpeechManager: ObservableObject {
 
         var intent = router.route(transcript: textToRoute, bias: routingBias)
 
+        if blockDictationWithoutInput, case .dictation(let payload) = intent {
+            os_log("Dictation blocked: no input field focus. payload=%{public}@", log: log, type: .info, payload)
+            intent = .unknown(payload)
+        }
+
         // PTT fallback: when user explicitly按住说话且路由为 unknown，优先落到听写，避免“HUD有反应但没有出字”。
         if !isAlwaysListeningEnabled,
+           !blockDictationWithoutInput,
            case .unknown = intent,
            !textToRoute.isEmpty {
             intent = .dictation(textToRoute)
