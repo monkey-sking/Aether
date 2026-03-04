@@ -373,6 +373,27 @@ class AppState: ObservableObject {
         if wake { return .wakeWord }
         return .pushToTalk
     }
+
+    private static let hotkeyModifierMask: UInt64 =
+        CGEventFlags.maskControl.rawValue |
+        CGEventFlags.maskAlternate.rawValue |
+        CGEventFlags.maskShift.rawValue |
+        CGEventFlags.maskCommand.rawValue |
+        CGEventFlags.maskAlphaShift.rawValue
+
+    private static let defaultPTTModifiers: UInt64 = CGEventFlags.maskAlternate.rawValue
+
+    private static func sanitizeHotkeyModifiers(_ raw: UInt64) -> UInt64 {
+        raw & hotkeyModifierMask
+    }
+
+    private static func loadPTTBinding() -> HotkeyBinding {
+        let defaults = UserDefaults.standard
+        let keyCode = (defaults.object(forKey: "voicePTTKeyCode") as? NSNumber)?.intValue ?? Int(kVK_Space)
+        let rawModifiers = (defaults.object(forKey: "voicePTTModifiers") as? NSNumber)?.uint64Value ?? defaultPTTModifiers
+        let modifiers = sanitizeHotkeyModifiers(rawModifiers)
+        return HotkeyBinding(keyCode: keyCode, modifiers: modifiers)
+    }
     
     @Published var driverStatus: String = "Idle"
     @Published var driverState: SystemExtensionActivationState = .idle
@@ -416,10 +437,7 @@ class AppState: ObservableObject {
             }
         }
     }
-    @Published var voicePTTBinding: HotkeyBinding = HotkeyBinding(
-        keyCode: UserDefaults.standard.integer(forKey: "voicePTTKeyCode") == 0 ? Int(kVK_Space) : UserDefaults.standard.integer(forKey: "voicePTTKeyCode"),
-        modifiers: UserDefaults.standard.integer(forKey: "voicePTTModifiers") == 0 ? 524576 : UInt64(UserDefaults.standard.integer(forKey: "voicePTTModifiers")) // Option+Space default
-    )
+    @Published var voicePTTBinding: HotkeyBinding = AppState.loadPTTBinding()
     
     @Published var isWakeWordEnabled: Bool = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? true {
         didSet { 
@@ -466,6 +484,11 @@ class AppState: ObservableObject {
     }
     private var isMutatingAlwaysListening = false
     private var isApplyingActivationMode = false
+    private var lastVoiceReady: Bool = {
+        let mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        let speech = SFSpeechRecognizer.authorizationStatus() == .authorized
+        return mic && speech
+    }()
     
     private func updateContinuousListeningState() {
         // 1. Microphone State: Should be ON if EITHER "Wake Word" OR "Always Listening" is enabled.
@@ -494,7 +517,17 @@ class AppState: ObservableObject {
                 )
                 permissions.requestMicrophone()
                 refreshPermissions()
-                voiceActivationMode = .pushToTalk
+                // Keep user's selected mode visible in UI.
+                // Runtime engine state is gated by SpeechManager permission checks.
+                isPTTEnabled = true
+                isWakeWordEnabled = (voiceActivationMode == .wakeWord)
+                setAlwaysListeningEnabledInternal(requiresContinuousSession)
+                HeadMotionManager.shared.isPTTEnabled = true
+                HotkeyManager.shared.registerPTT(voicePTTBinding)
+                voiceService.setPTTEnabled(true)
+                voiceService.setAlwaysListeningEnabled(requiresContinuousSession)
+                voiceService.setDirectCommandEnabled(voiceActivationMode == .handsFree)
+                voiceService.setWakeWordEnabled(voiceActivationMode == .wakeWord)
                 return
             }
             if !speechAuthorizedNow {
@@ -504,7 +537,17 @@ class AppState: ObservableObject {
                 )
                 permissions.requestSpeech()
                 refreshPermissions()
-                voiceActivationMode = .pushToTalk
+                // Keep user's selected mode visible in UI.
+                // Runtime engine state is gated by SpeechManager permission checks.
+                isPTTEnabled = true
+                isWakeWordEnabled = (voiceActivationMode == .wakeWord)
+                setAlwaysListeningEnabledInternal(requiresContinuousSession)
+                HeadMotionManager.shared.isPTTEnabled = true
+                HotkeyManager.shared.registerPTT(voicePTTBinding)
+                voiceService.setPTTEnabled(true)
+                voiceService.setAlwaysListeningEnabled(requiresContinuousSession)
+                voiceService.setDirectCommandEnabled(voiceActivationMode == .handsFree)
+                voiceService.setWakeWordEnabled(voiceActivationMode == .wakeWord)
                 return
             }
         }
@@ -569,13 +612,19 @@ class AppState: ObservableObject {
     }
     
     func updatePTTBinding(_ binding: HotkeyBinding) {
-        self.voicePTTBinding = binding
-        UserDefaults.standard.set(binding.keyCode, forKey: "voicePTTKeyCode")
-        UserDefaults.standard.set(binding.modifiers, forKey: "voicePTTModifiers")
+        let normalized = HotkeyBinding(
+            keyCode: binding.keyCode,
+            modifiers: Self.sanitizeHotkeyModifiers(binding.modifiers),
+            mouseButton: binding.mouseButton
+        )
+
+        self.voicePTTBinding = normalized
+        UserDefaults.standard.set(normalized.keyCode, forKey: "voicePTTKeyCode")
+        UserDefaults.standard.set(normalized.modifiers, forKey: "voicePTTModifiers")
         
         // Update Hotkey Manager ONLY if enabled
         if isPTTEnabled {
-            HotkeyManager.shared.registerPTT(binding)
+            HotkeyManager.shared.registerPTT(normalized)
         }
     }
     
@@ -723,8 +772,8 @@ class AppState: ObservableObject {
 
         permissions.$accessibilityTrusted
             .receive(on: DispatchQueue.main)
-            .sink { trusted in
-                self.motionService.setGlobalHotkeysEnabled(trusted)
+            .sink { _ in
+                self.motionService.setGlobalHotkeysEnabled(AXIsProcessTrusted())
             }
             .store(in: &cancellables)
 
@@ -734,26 +783,23 @@ class AppState: ObservableObject {
             permissions.$speechAuthorized
         )
         .receive(on: DispatchQueue.main)
-        .sink { [weak self] accessibilityTrusted, microphoneAuthorized, speechAuthorized in
+        .sink { [weak self] _, _, _ in
             guard let self = self else { return }
-            // Guard against startup transient false values from @Published defaults.
-            // Use live system checks to avoid false "need accessibility" HUD toasts.
+            // Single source of truth: use live system permission APIs for all runtime/UI decisions.
             let liveAX = AXIsProcessTrusted()
             let liveMic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
             let liveSpeech = SFSpeechRecognizer.authorizationStatus() == .authorized
-            let effectiveAX = accessibilityTrusted || liveAX
-            let effectiveMic = microphoneAuthorized || liveMic
-            let effectiveSpeech = speechAuthorized || liveSpeech
+            let voiceReadyNow = liveMic && liveSpeech
 
-            self.voiceService.setAccessibilityTrusted(effectiveAX)
+            self.voiceService.setAccessibilityTrusted(liveAX)
             self.onboardingStep = Self.deriveOnboardingStep(
-                accessibilityTrusted: effectiveAX,
-                microphoneAuthorized: effectiveMic,
-                speechAuthorized: effectiveSpeech
+                accessibilityTrusted: liveAX,
+                microphoneAuthorized: liveMic,
+                speechAuthorized: liveSpeech
             )
 
             // Missing Accessibility breaks AX focus/caret detection, so input mode won't switch.
-            if !effectiveAX {
+            if !liveAX {
                 if !self.hasShownAccessibilityHint {
                     self.hasShownAccessibilityHint = true
                     HUDManager.shared.showTemporary(
@@ -772,7 +818,7 @@ class AppState: ObservableObject {
             // Safety: if Always Listening is enabled but permissions got revoked, shut it off.
             // BUGFIX: Only reset if the app has actually initialized permissions. 
             // On startup, these values might be false temporarily before refresh() is called.
-            if self.isAlwaysListeningEnabled && (!effectiveMic || !effectiveSpeech) {
+            if self.isAlwaysListeningEnabled && (!liveMic || !liveSpeech) {
                 // If we are authorized but the published value is still false (race condition), don't reset.
                 // Re-check synchronously to be absolutely sure.
                 let micAuth = AVCaptureDevice.authorizationStatus(for: AVMediaType.audio) == .authorized
@@ -780,10 +826,23 @@ class AppState: ObservableObject {
                 
                 if !micAuth || !speechAuth {
                     GlobalLogger.lifecycle.info("Permissons revoked, disabling Always Listening")
-                    self.setAlwaysListeningEnabledInternal(false)
-                    self.voiceActivationMode = .pushToTalk
+                    // Keep selected mode in UI and runtime mode flags aligned.
+                    // SpeechManager will surface permission guidance and avoid capture start.
+                    let requiresContinuous = self.voiceActivationMode != .pushToTalk
+                    self.voiceService.setAlwaysListeningEnabled(requiresContinuous)
+                    self.voiceService.setDirectCommandEnabled(self.voiceActivationMode == .handsFree)
+                    self.voiceService.setWakeWordEnabled(self.voiceActivationMode == .wakeWord)
                 }
             }
+
+            // If user selected a non-PTT mode earlier but voice permissions were missing,
+            // auto-apply that mode once permissions transition to ready.
+            if self.voiceActivationMode != .pushToTalk,
+               !self.lastVoiceReady,
+               voiceReadyNow {
+                self.applyVoiceActivationMode()
+            }
+            self.lastVoiceReady = voiceReadyNow
         }
         .store(in: &cancellables)
 
@@ -808,7 +867,10 @@ class AppState: ObservableObject {
             .autoconnect()
             .sink { [weak self] _ in
                 guard let self else { return }
-                if !self.accessibilityTrusted || self.onboardingStep == .accessibility {
+                let liveAX = AXIsProcessTrusted()
+                let liveMic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+                let liveSpeech = SFSpeechRecognizer.authorizationStatus() == .authorized
+                if !liveAX || !liveMic || !liveSpeech {
                     self.refreshPermissions()
                 }
             }
@@ -934,9 +996,54 @@ class AppState: ObservableObject {
     func openMicrophonePane() { permissions.openMicrophonePrivacyPane() }
     func openSpeechPane() { permissions.openSpeechPrivacyPane() }
 
-    var accessibilityTrusted: Bool { permissions.accessibilityTrusted }
-    var microphoneAuthorized: Bool { permissions.microphoneAuthorized }
-    var speechAuthorized: Bool { permissions.speechAuthorized }
+    var accessibilityTrusted: Bool { AXIsProcessTrusted() }
+    var microphoneAuthorized: Bool { AVCaptureDevice.authorizationStatus(for: .audio) == .authorized }
+    var speechAuthorized: Bool { SFSpeechRecognizer.authorizationStatus() == .authorized }
+
+    var microphoneAuthorizationStatus: AVAuthorizationStatus {
+        AVCaptureDevice.authorizationStatus(for: .audio)
+    }
+
+    var speechAuthorizationStatus: SFSpeechRecognizerAuthorizationStatus {
+        SFSpeechRecognizer.authorizationStatus()
+    }
+
+    var accessibilityStatusDetail: String {
+        let live = AXIsProcessTrusted()
+        return live
+            ? "系统状态：已授权"
+            : "系统状态：未授权"
+    }
+
+    var microphoneStatusDetail: String {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            return "系统状态：已授权 (authorized)"
+        case .denied:
+            return "系统状态：已拒绝 (denied)"
+        case .restricted:
+            return "系统状态：受限 (restricted)"
+        case .notDetermined:
+            return "系统状态：未决定 (notDetermined)"
+        @unknown default:
+            return "系统状态：未知"
+        }
+    }
+
+    var speechStatusDetail: String {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            return "系统状态：已授权 (authorized)"
+        case .denied:
+            return "系统状态：已拒绝 (denied)"
+        case .restricted:
+            return "系统状态：受限 (restricted)"
+        case .notDetermined:
+            return "系统状态：未决定 (notDetermined)"
+        @unknown default:
+            return "系统状态：未知"
+        }
+    }
 
     func setAlwaysListeningEnabled(_ enabled: Bool) {
         if enabled {
@@ -952,6 +1059,48 @@ class AppState: ObservableObject {
             }
         }
         voiceActivationMode = enabled ? .handsFree : .pushToTalk
+    }
+
+    func requestAccessibilityGuided() {
+        if AXIsProcessTrusted() {
+            refreshPermissions()
+            return
+        }
+        permissions.requestAccessibility()
+        permissions.openAccessibilityPrivacyPane()
+        refreshPermissions()
+    }
+
+    func requestMicrophoneGuided() {
+        switch microphoneAuthorizationStatus {
+        case .authorized:
+            refreshPermissions()
+        case .notDetermined:
+            permissions.requestMicrophone()
+            refreshPermissions()
+        case .denied, .restricted:
+            permissions.openMicrophonePrivacyPane()
+            refreshPermissions()
+        @unknown default:
+            permissions.openMicrophonePrivacyPane()
+            refreshPermissions()
+        }
+    }
+
+    func requestSpeechGuided() {
+        switch speechAuthorizationStatus {
+        case .authorized:
+            refreshPermissions()
+        case .notDetermined:
+            permissions.requestSpeech()
+            refreshPermissions()
+        case .denied, .restricted:
+            permissions.openSpeechPrivacyPane()
+            refreshPermissions()
+        @unknown default:
+            permissions.openSpeechPrivacyPane()
+            refreshPermissions()
+        }
     }
 
     private func setAlwaysListeningEnabledInternal(_ enabled: Bool) {

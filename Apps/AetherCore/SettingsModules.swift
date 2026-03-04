@@ -114,6 +114,34 @@ struct InputSettingsView: View {
                                 .foregroundColor(.orange)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+
+                        if appState.voiceActivationMode != .pushToTalk &&
+                            (!appState.microphoneAuthorized || !appState.speechAuthorized) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("当前模式需要语音权限", systemImage: "exclamationmark.triangle.fill")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundColor(.orange)
+
+                                if !appState.microphoneAuthorized {
+                                    Button("去开启麦克风权限") {
+                                        appState.requestMicrophoneGuided()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+
+                                if !appState.speechAuthorized {
+                                    Button("去开启语音识别权限") {
+                                        appState.requestSpeechGuided()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+                            }
+                            .padding(10)
+                            .background(Color.orange.opacity(0.12))
+                            .cornerRadius(8)
+                        }
                         
                         Divider()
                         
@@ -777,14 +805,29 @@ struct SystemSettingsView: View {
                         Label(L10n.permissionsTitle, systemImage: "lock.shield")
                             .font(.headline)
                         
-                       PermissionRow(icon: "hand.raised.fill", title: L10n.permissionAccessibility, isGranted: appState.accessibilityTrusted) {
-                           appState.requestAccessibility()
+                       PermissionRow(
+                           icon: "hand.raised.fill",
+                           title: L10n.permissionAccessibility,
+                           isGranted: appState.accessibilityTrusted,
+                           detail: appState.accessibilityStatusDetail
+                       ) {
+                           appState.requestAccessibilityGuided()
                        }
-                       PermissionRow(icon: "mic.fill", title: L10n.permissionMicrophone, isGranted: appState.microphoneAuthorized) {
-                           appState.requestMicrophone()
+                       PermissionRow(
+                           icon: "mic.fill",
+                           title: L10n.permissionMicrophone,
+                           isGranted: appState.microphoneAuthorized,
+                           detail: appState.microphoneStatusDetail
+                       ) {
+                           appState.requestMicrophoneGuided()
                        }
-                       PermissionRow(icon: "waveform", title: L10n.permissionSpeech, isGranted: appState.speechAuthorized) {
-                           appState.requestSpeech()
+                       PermissionRow(
+                           icon: "waveform",
+                           title: L10n.permissionSpeech,
+                           isGranted: appState.speechAuthorized,
+                           detail: appState.speechStatusDetail
+                       ) {
+                           appState.requestSpeechGuided()
                        }
                     }
                 }

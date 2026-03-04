@@ -58,15 +58,37 @@ struct PermissionRow: View {
     let icon: String
     let title: LocalizedStringKey
     let isGranted: Bool
+    let detail: String?
     let action: () -> Void
+
+    init(
+        icon: String,
+        title: LocalizedStringKey,
+        isGranted: Bool,
+        detail: String? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.icon = icon
+        self.title = title
+        self.isGranted = isGranted
+        self.detail = detail
+        self.action = action
+    }
     
     var body: some View {
         HStack {
             Image(systemName: icon)
                 .frame(width: 20)
                 .foregroundColor(.secondary)
-            Text(title)
-                .font(.subheadline)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline)
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
             Spacer()
             if isGranted {
                 Image(systemName: "checkmark.circle.fill")
