@@ -878,14 +878,22 @@ class HeadMotionManager: ObservableObject {
             
             // Log every few events just to prove we are alive (throttled)
             // GlobalLogger.input.debug("Event Tap Callback: \(type.rawValue)")
-            
-            if type == .flagsChanged {
-                // ... logic kept for reference ...
-            }
-            
             let flags = event.flags
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
             
+            if type == .flagsChanged {
+                if let action = HotkeyManager.shared.matchFlagsChanged(keyCode: keyCode, flags: flags) {
+                    switch action {
+                    case .toggleLanguage:
+                        GlobalLogger.input.info("Hotkey: Toggle Language (flagsChanged)")
+                        NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
+                        return nil
+                    case .toggleTracking, .connectionLock, .toggleInputControlMode, .pushToTalk:
+                        break
+                    }
+                }
+            }
+
             // Trace modifiers for debugging
             // if flags.contains(.maskControl) { GlobalLogger.input.debug("Modifier: Ctrl") }
 
@@ -934,6 +942,11 @@ class HeadMotionManager: ObservableObject {
                         DispatchQueue.main.async {
                             manager.toggleRecognitionInputControlMode(source: "keyboard-hotkey", persist: true)
                         }
+                        return nil
+
+                    case .toggleLanguage:
+                        GlobalLogger.input.info("Hotkey: Toggle Language")
+                        NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
                         return nil
 
                     case .pushToTalk:
@@ -1023,6 +1036,11 @@ class HeadMotionManager: ObservableObject {
                         DispatchQueue.main.async {
                             manager.toggleRecognitionInputControlMode(source: "mouse-hotkey", persist: true)
                         }
+                        return nil
+
+                    case .toggleLanguage:
+                        GlobalLogger.input.info("Mouse Hotkey: Toggle Language")
+                        NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
                         return nil
 
                     case .pushToTalk:
