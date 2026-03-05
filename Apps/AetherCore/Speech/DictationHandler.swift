@@ -20,6 +20,7 @@ final class DictationHandler {
     /// What we have actually typed on screen (ground truth).
     private(set) var screenTypedText: String = ""
     private var targetPID: pid_t?
+    private var currentUtteranceID: UUID = UUID()
     private let injector: TextInjector
     private let log = GlobalLogger.speech
 
@@ -41,6 +42,7 @@ final class DictationHandler {
     func reset(targetPID: pid_t?) {
         self.screenTypedText = ""
         self.targetPID = targetPID
+        self.currentUtteranceID = UUID()
     }
 
     /// Called for every partial (non-final) STT result.
@@ -66,6 +68,7 @@ final class DictationHandler {
     /// Called when isFinal fires or EOS is detected.
     /// Performs diff-based correction to sync screen with final text.
     func onFinal(_ text: String) async {
+        let utteranceID = self.currentUtteranceID
         let corrected: String
         if isLLMEnhancementEnabled, let provider = llmProvider, !text.isEmpty {
             do {
@@ -77,6 +80,11 @@ final class DictationHandler {
             }
         } else {
             corrected = text
+        }
+        
+        guard self.currentUtteranceID == utteranceID else {
+            os_log("DictationHandler onFinal: utterance expired, dropping correction.", log: log, type: .info)
+            return
         }
         applyCorrection(corrected)
     }

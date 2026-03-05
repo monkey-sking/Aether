@@ -1,7 +1,6 @@
 import SwiftUI
 import AppKit
 import Combine
-import OSLog
 
 final class HUDManager {
     static let shared = HUDManager()
@@ -47,47 +46,56 @@ final class HUDManager {
     }
 
     private func handlePostureChange(_ bias: HeadMotionManager.PostureBias) {
-        // Only update HUD if we are in an active state (not hidden or standby)
+        // Posture changes should not directly overwrite HUD mode.
+        // SpeechManager is the single source of truth for command/dictation state.
         guard state.mode != .hidden && state.mode != .standby else { return }
-        
-        switch bias {
-        case .tiltRight:
-            updatePostureFeedback(mode: .command, icon: "bolt.fill")
-        case .tiltLeft, .lookLow:
-            updatePostureFeedback(mode: .dictation, icon: "keyboard")
-        case .neutral:
-            // Revert to automatic based on context
-            let autoMode: HUDMode = lastKnownTypingState() ? .dictation : .command
-            let autoIcon = lastKnownTypingState() ? "keyboard" : "mic.fill"
-            updatePostureFeedback(mode: autoMode, icon: autoIcon)
-        }
-    }
-    
-    private func updatePostureFeedback(mode: HUDMode, icon: String) {
-        if state.mode != mode || state.inputDeviceIcon != icon {
-            state.mode = mode
-            state.inputDeviceIcon = icon
-            if isDebugModeEnabled {
-                os_log("HUD Posture Override: %{public}@ (Icon: %{public}@)", log: OSLog.default, type: .debug, mode.rawValue, icon)
-            }
-        }
+        _ = bias
+        requestReposition()
     }
 
-    private var isDebugModeEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "isDebugModeEnabled")
-    }
-    
     // MARK: - Public API
     
-    func update(mode: HUDMode, message: String = "", language: String, inputDeviceIcon: String = "mic.fill") {
+    func update(
+        mode: HUDMode,
+        message: String = "",
+        language: String,
+        recognitionControlMode: HUDRecognitionControlMode = .auto,
+        inputDeviceIcon: String = "mic.fill"
+    ) {
         
         // Main thread safety
         if !Thread.isMainThread {
-            DispatchQueue.main.async { self.update(mode: mode, message: message, language: language, inputDeviceIcon: inputDeviceIcon) }
+            DispatchQueue.main.async {
+                self.update(
+                    mode: mode,
+                    message: message,
+                    language: language,
+                    recognitionControlMode: recognitionControlMode,
+                    inputDeviceIcon: inputDeviceIcon
+                )
+            }
             return
         }
         
-        state.update(mode: mode, message: message, language: language, isTypingContext: lastKnownTypingState(), inputDeviceIcon: inputDeviceIcon)
+        let typingSnapshot = lastKnownTypingState()
+        let effectiveTypingContext: Bool
+        switch recognitionControlMode {
+        case .command:
+            effectiveTypingContext = false
+        case .dictation:
+            effectiveTypingContext = true
+        case .auto:
+            effectiveTypingContext = typingSnapshot
+        }
+
+        state.update(
+            mode: mode,
+            message: message,
+            language: language,
+            isTypingContext: effectiveTypingContext,
+            recognitionControlMode: recognitionControlMode,
+            inputDeviceIcon: inputDeviceIcon
+        )
         if mode == .hidden {
             // Ensure transient indicators don't linger when the HUD is dismissed.
             state.isMicProgressVisible = false
@@ -127,9 +135,21 @@ final class HUDManager {
         }
     }
     
-    func showTemporary(message: String, language: String? = nil, icon: String = "info.circle") {
-        update(mode: .command, message: message, language: language ?? state.language, inputDeviceIcon: icon)
-        scheduleHide(delay: 2.0)
+    func showTemporary(
+        message: String,
+        language: String? = nil,
+        recognitionControlMode: HUDRecognitionControlMode = .auto,
+        icon: String? = nil,
+        duration: TimeInterval = 2.0
+    ) {
+        update(
+            mode: .command,
+            message: message,
+            language: language ?? state.language,
+            recognitionControlMode: recognitionControlMode,
+            inputDeviceIcon: icon ?? state.inputDeviceIcon
+        )
+        scheduleHide(delay: max(0.4, duration))
     }
     
     func hide() {
@@ -321,13 +341,16 @@ final class HUDManager {
             return true
         }
         if role == "AXWebArea" || role == "AXGroup" || role == "AXScrollArea" || role == "AXSplitGroup" || role == "AXStaticText" {
+            guard let r = axFocusedElementRectThrottled(),
+                  isWebInputSizedRect(r),
+                  !isProbablyWholeWindowRect(r) else {
+                // Prevent "always typing" false positives on large AXWebArea containers,
+                // which can pin control mode away from the mouse.
+                return false
+            }
             if boolAttr("AXEditable" as CFString) { return true }
             if isAXFocusedElementInsertionContextAvailable() { return true }
-            if let r = axFocusedElementRectThrottled(),
-               isWebInputSizedRect(r),
-               !isProbablyWholeWindowRect(r) {
-                return true
-            }
+            return true
         }
         return false
     }
@@ -753,6 +776,7 @@ final class HUDManager {
             .autoconnect()
             .sink { [weak self] _ in
                 guard let self else { return }
+                HeadMotionManager.shared.refreshTransientRecognitionControlModeIfNeeded()
                 guard let panel = self.hudWindow, panel.isVisible else { return }
                 if self.state.mode == .hidden { return }
                 self.requestReposition()
@@ -829,7 +853,16 @@ final class HUDManager {
         
         // 1. Determine Anchor & Mode
         var anchor = mouseLoc
-        let uiTypingMode = lastKnownTypingState()
+        let typingSnapshot = lastKnownTypingState()
+        let uiTypingMode: Bool
+        switch state.recognitionControlMode {
+        case .command:
+            uiTypingMode = false
+        case .dictation:
+            uiTypingMode = true
+        case .auto:
+            uiTypingMode = typingSnapshot
+        }
         let wasTypingMode = state.isTypingContext
         var layoutTypingMode = false
         var preferAboveInput = false
@@ -883,56 +916,58 @@ final class HUDManager {
             lastInputInteractionAt = now
         }
         
-        if let caret = update.caretRect {
-            anchor = CGPoint(x: caret.midX, y: caret.midY)
-            layoutTypingMode = true
-        } else if update.isSticky, let last = detector.recentCaretRect() {
-            anchor = CGPoint(x: last.midX, y: last.midY)
-            layoutTypingMode = true
-        } else if uiTypingMode, let axCaret {
-            // Web-based UIs (Codex/Antigravity) often fail caret detection but expose bounds-for-range.
-            anchor = CGPoint(x: axCaret.midX, y: axCaret.midY)
-            layoutTypingMode = true
-        } else if uiTypingMode, let axEstimated {
-            // If bounds-for-range is unavailable, fall back to an estimated caret X within focused bounds.
-            anchor = axEstimated.point
-            layoutTypingMode = true
-            preferAboveInput = true
-            // Critical: treat focused bounds as typingRect so the HUD avoids covering the input text.
-            if typingRect == nil {
-                typingRect = axEstimated.bounds
-                typingRect = stableTypingRect(now: now, candidate: typingRect)
-            }
-        } else if uiTypingMode, let r = typingRect {
-            // Typing context, but no caret geometry: estimate caret X from recent input interaction,
-            // and anchor ABOVE the input box to avoid colliding with the input rect.
-            let recentInteraction = now.timeIntervalSince(lastInputInteractionAt) < 1.8
-            let estimatedX: CGFloat = {
-                if recentInteraction, let p = lastInputInteractionPoint {
-                    return min(max(p.x, r.minX + 8), r.maxX - 8)
-                }
-                if isTopBarInputRect(r) {
-                    // If we have no interaction signal, assume address-bar caret near the end.
-                    return r.maxX - 16
-                }
-                // No interaction signal.
-                // For wide "prompt" inputs, bias closer to the left so we don't end up far from caret.
-                if r.width > 420 {
-                    let bias = min(140, r.width * 0.2)
-                    return min(max(r.minX + bias, r.minX + 8), r.maxX - 8)
-                }
-                let bias = min(220, r.width * 0.33)
-                return min(max(r.minX + bias, r.minX + 8), r.maxX - 8)
-            }()
-            if preferBelowInput || isTopBarInputRect(r) {
-                preferBelowInput = true
-                preferAboveInput = false
-                anchor = CGPoint(x: estimatedX, y: r.minY)
-            } else {
-                anchor = CGPoint(x: estimatedX, y: r.maxY)
+        if uiTypingMode {
+            if let caret = update.caretRect {
+                anchor = CGPoint(x: caret.midX, y: caret.midY)
+                layoutTypingMode = true
+            } else if update.isSticky, let last = detector.recentCaretRect() {
+                anchor = CGPoint(x: last.midX, y: last.midY)
+                layoutTypingMode = true
+            } else if let axCaret {
+                // Web-based UIs (Codex/Antigravity) often fail caret detection but expose bounds-for-range.
+                anchor = CGPoint(x: axCaret.midX, y: axCaret.midY)
+                layoutTypingMode = true
+            } else if let axEstimated {
+                // If bounds-for-range is unavailable, fall back to an estimated caret X within focused bounds.
+                anchor = axEstimated.point
+                layoutTypingMode = true
                 preferAboveInput = true
+                // Critical: treat focused bounds as typingRect so the HUD avoids covering the input text.
+                if typingRect == nil {
+                    typingRect = axEstimated.bounds
+                    typingRect = stableTypingRect(now: now, candidate: typingRect)
+                }
+            } else if let r = typingRect {
+                // Typing context, but no caret geometry: estimate caret X from recent input interaction,
+                // and anchor ABOVE the input box to avoid colliding with the input rect.
+                let recentInteraction = now.timeIntervalSince(lastInputInteractionAt) < 1.8
+                let estimatedX: CGFloat = {
+                    if recentInteraction, let p = lastInputInteractionPoint {
+                        return min(max(p.x, r.minX + 8), r.maxX - 8)
+                    }
+                    if isTopBarInputRect(r) {
+                        // If we have no interaction signal, assume address-bar caret near the end.
+                        return r.maxX - 16
+                    }
+                    // No interaction signal.
+                    // For wide "prompt" inputs, bias closer to the left so we don't end up far from caret.
+                    if r.width > 420 {
+                        let bias = min(140, r.width * 0.2)
+                        return min(max(r.minX + bias, r.minX + 8), r.maxX - 8)
+                    }
+                    let bias = min(220, r.width * 0.33)
+                    return min(max(r.minX + bias, r.minX + 8), r.maxX - 8)
+                }()
+                if preferBelowInput || isTopBarInputRect(r) {
+                    preferBelowInput = true
+                    preferAboveInput = false
+                    anchor = CGPoint(x: estimatedX, y: r.minY)
+                } else {
+                    anchor = CGPoint(x: estimatedX, y: r.maxY)
+                    preferAboveInput = true
+                }
+                layoutTypingMode = true
             }
-            layoutTypingMode = true
         }
         
         // Sync to State for UI icons
@@ -944,7 +979,11 @@ final class HUDManager {
         // do NOT fall back to mouse-follow. Keeping the HUD stable is preferable to jitter.
         // This also matches Codex/Antigravity-style UIs where caret geometry is often missing or misleading.
         if uiTypingMode && !layoutTypingMode && panel.isVisible {
-            return
+            // In explicit dictation mode, freezing at stale coordinates is worse than mouse-follow fallback.
+            // Keep the strict "hold position" behavior only for auto mode.
+            if state.recognitionControlMode == .auto {
+                return
+            }
         }
         
         // Click-through: only allow mouse interaction when language toggle is visible

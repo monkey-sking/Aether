@@ -90,7 +90,17 @@ struct HUDView: View {
     }
 
     private var contextIcon: some View {
-        Image(systemName: state.isTypingContext ? "keyboard" : "command")
+        let symbol: String
+        switch state.recognitionControlMode {
+        case .command:
+            symbol = "command"
+        case .dictation:
+            symbol = "keyboard"
+        case .auto:
+            symbol = state.isTypingContext ? "keyboard" : "command"
+        }
+
+        return Image(systemName: symbol)
             .font(.system(size: 12))
             .foregroundColor(.white.opacity(0.8))
             .shadow(radius: 1)

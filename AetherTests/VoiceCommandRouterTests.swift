@@ -86,7 +86,7 @@ final class VoiceCommandRouterTests: XCTestCase {
         )
         XCTAssertEqual(
             router.route(transcript: "你好", bias: .forceCommand),
-            .dictation("你好")
+            .unknown("你好")
         )
     }
 }

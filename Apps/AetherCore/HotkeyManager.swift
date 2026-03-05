@@ -198,9 +198,6 @@ final class HotkeyManager: ObservableObject {
         // true if physically held down, false otherwise.
         let isCapsLockPhysicallyDown = CGEventSource.keyState(.hidSystemState, key: 57) // kVK_CapsLock
         
-        // Debug Log
-        log.debug("EventTap KeyDown: code=\(keyCode), flags=\(flags.rawValue, format: .hex), capsPhys=\(isCapsLockPhysicallyDown)")
-
         for (action, binding) in snapshot {
             // Must be keyboard binding (mouseButton == nil)
             guard binding.mouseButton == nil else { continue }
@@ -222,12 +219,10 @@ final class HotkeyManager: ObservableObject {
             // Check standard modifiers (Ctrl, Opt, Cmd, Shift)
             guard bindingWithoutCaps == eventWithoutCaps else { continue }
             
-            // Check Caps Lock:
-            // If binding needs it -> Physical key must be DOWN
-            // If binding doesn't need it -> Physical key must be UP (strict matching)
-            // Note: Use '!=' so false != true (pass) only if states match
-            if bindingHasCapsLock != isCapsLockPhysicallyDown {
-                 log.debug("Mismatch Caps: binding needs \(bindingHasCapsLock), physical is \(isCapsLockPhysicallyDown)")
+            // Caps Lock policy:
+            // Only require physical Caps Lock to be down when the binding explicitly includes Caps.
+            // If binding does not include Caps, ignore physical Caps state so hotkeys still work.
+            if bindingHasCapsLock && !isCapsLockPhysicallyDown {
                 continue
             }
             
@@ -240,14 +235,17 @@ final class HotkeyManager: ObservableObject {
     /// Match a mouse button down event
     func matchMouseDown(button: Int, flags: CGEventFlags) -> HotkeyAction? {
         let snapshot = snapshotBindings()
-        let maskedFlags = flags.rawValue & Self.modifierMask
+        let eventFlags = flags.rawValue & Self.modifierMask
+        let eventWithoutCaps = eventFlags & ~CGEventFlags.maskAlphaShift.rawValue
+        let eventHasCaps = (eventFlags & CGEventFlags.maskAlphaShift.rawValue) != 0
         
         for (action, binding) in snapshot {
             if let b = binding.mouseButton, b == button {
-                // Check Modifiers
-                if binding.modifiers == maskedFlags {
-                    return action
-                }
+                let bindingHasCaps = (binding.modifiers & CGEventFlags.maskAlphaShift.rawValue) != 0
+                let bindingWithoutCaps = binding.modifiers & ~CGEventFlags.maskAlphaShift.rawValue
+                guard bindingWithoutCaps == eventWithoutCaps else { continue }
+                if bindingHasCaps && !eventHasCaps { continue }
+                return action
             }
         }
         return nil

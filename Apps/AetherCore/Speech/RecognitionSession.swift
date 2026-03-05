@@ -28,7 +28,9 @@ final class RecognitionSession {
         locale: Locale,
         autoPunctuation: Bool,
         contextualStrings: [String],
-        prebuffered: [AVAudioPCMBuffer]
+        prebuffered: [AVAudioPCMBuffer],
+        taskHint: SFSpeechRecognitionTaskHint = .unspecified,
+        preferOnDevice: Bool = false
     ) throws {
         cancel()
 
@@ -39,8 +41,12 @@ final class RecognitionSession {
 
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
+        req.taskHint = taskHint
         if #available(macOS 13, *) {
             req.addsPunctuation = autoPunctuation
+        }
+        if preferOnDevice, rec.supportsOnDeviceRecognition {
+            req.requiresOnDeviceRecognition = true
         }
         req.contextualStrings = contextualStrings
         prebuffered.forEach { req.append($0) }
