@@ -99,6 +99,7 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
     case toggleTracking
     case connectionLock
     case toggleInputControlMode
+    case toggleLanguage
     case pushToTalk
 
     var id: String { rawValue }
@@ -108,6 +109,7 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
         case .toggleTracking: return String(localized: "hotkey.toggle_tracking")
         case .connectionLock: return String(localized: "hotkey.connection_lock")
         case .toggleInputControlMode: return String(localized: "hotkey.toggle_input_control_mode")
+        case .toggleLanguage: return String(localized: "hotkey.toggle_language")
         case .pushToTalk:     return String(localized: "hotkey.push_to_talk")
         }
     }
@@ -120,6 +122,8 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
             return HotkeyBinding(keyCode: kVK_ANSI_L, modifiers: Self.optCmd)
         case .toggleInputControlMode:
             return HotkeyBinding(keyCode: kVK_ANSI_M, modifiers: Self.optCmd)
+        case .toggleLanguage:
+            return HotkeyBinding(keyCode: kVK_Shift, modifiers: Self.shift)
         case .pushToTalk:
             return HotkeyBinding(keyCode: kVK_Space, modifiers: Self.opt)
         }
@@ -127,6 +131,7 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
 
     private static let opt: UInt64 = CGEventFlags.maskAlternate.rawValue
     private static let optCmd: UInt64 = CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskCommand.rawValue
+    private static let shift: UInt64 = CGEventFlags.maskShift.rawValue
 }
 
 // MARK: - Manager
@@ -154,11 +159,31 @@ final class HotkeyManager: ObservableObject {
         CGEventFlags.maskShift.rawValue |
         CGEventFlags.maskCommand.rawValue |
         CGEventFlags.maskAlphaShift.rawValue
+    private static let leftShiftKey = Int(kVK_Shift)
+    private static let rightShiftKey = Int(kVK_RightShift)
+    private static let leftControlKey = Int(kVK_Control)
+    private static let rightControlKey = Int(kVK_RightControl)
+    private static let leftOptionKey = Int(kVK_Option)
+    private static let rightOptionKey = Int(kVK_RightOption)
+    private static let leftCommandKey = Int(kVK_Command)
+    private static let rightCommandKey = Int(kVK_RightCommand)
 
     private init() {
+        var needsResave = false
         if let data = UserDefaults.standard.data(forKey: Self.storageKey),
            let saved = try? JSONDecoder().decode([HotkeyAction: HotkeyBinding].self, from: data) {
-            self.bindings = saved
+            var normalized: [HotkeyAction: HotkeyBinding] = [:]
+            for action in HotkeyAction.allCases {
+                let raw = saved[action] ?? action.defaultBinding
+                let mods = raw.modifiers & Self.modifierMask
+                if let button = raw.mouseButton {
+                    normalized[action] = HotkeyBinding(keyCode: -1, modifiers: mods, mouseButton: button)
+                } else {
+                    normalized[action] = HotkeyBinding(keyCode: raw.keyCode, modifiers: mods, mouseButton: nil)
+                }
+            }
+            self.bindings = normalized
+            needsResave = normalized != saved
         } else {
             var defaults: [HotkeyAction: HotkeyBinding] = [:]
             for action in HotkeyAction.allCases {
@@ -167,6 +192,9 @@ final class HotkeyManager: ObservableObject {
             self.bindings = defaults
         }
         refreshSnapshot()
+        if needsResave {
+            save()
+        }
     }
 
     private func refreshSnapshot() {
@@ -203,7 +231,7 @@ final class HotkeyManager: ObservableObject {
             guard binding.mouseButton == nil else { continue }
             
             // 1. Check KeyCode
-            guard binding.keyCode == Int(keyCode) else { continue }
+            guard Self.keyCodeMatches(bindingKeyCode: binding.keyCode, eventKeyCode: Int(keyCode)) else { continue }
             
             // 2. Check Modifiers
             // We need to compare the binding's modifiers with the event's flags,
@@ -227,6 +255,29 @@ final class HotkeyManager: ObservableObject {
             }
             
             log.info("Matched Action: \(action.rawValue)")
+            return action
+        }
+        return nil
+    }
+
+    /// Match modifier-only shortcuts that emit flagsChanged (e.g. bare Shift).
+    func matchFlagsChanged(keyCode: Int64, flags: CGEventFlags) -> HotkeyAction? {
+        let snapshot = snapshotBindings()
+        let maskedFlags = flags.rawValue & Self.modifierMask
+        let eventKeyCode = Int(keyCode)
+        let isCapsLockPhysicallyDown = CGEventSource.keyState(.hidSystemState, key: 57) // kVK_CapsLock
+
+        for (action, binding) in snapshot {
+            guard binding.mouseButton == nil else { continue }
+            guard Self.keyCodeMatches(bindingKeyCode: binding.keyCode, eventKeyCode: eventKeyCode) else { continue }
+            guard Self.isModifierKeyDown(eventKeyCode: eventKeyCode, flags: flags) else { continue }
+
+            let bindingFlags = CGEventFlags(rawValue: binding.modifiers)
+            let bindingHasCapsLock = bindingFlags.contains(.maskAlphaShift)
+            let bindingWithoutCaps = binding.modifiers & ~CGEventFlags.maskAlphaShift.rawValue
+            let eventWithoutCaps = maskedFlags & ~CGEventFlags.maskAlphaShift.rawValue
+            guard bindingWithoutCaps == eventWithoutCaps else { continue }
+            if bindingHasCapsLock && !isCapsLockPhysicallyDown { continue }
             return action
         }
         return nil
@@ -330,6 +381,39 @@ final class HotkeyManager: ObservableObject {
     private func save() {
         if let data = try? JSONEncoder().encode(bindings) {
             UserDefaults.standard.set(data, forKey: Self.storageKey)
+        }
+    }
+
+    private static func keyCodeMatches(bindingKeyCode: Int, eventKeyCode: Int) -> Bool {
+        if bindingKeyCode == leftShiftKey || bindingKeyCode == rightShiftKey {
+            return eventKeyCode == leftShiftKey || eventKeyCode == rightShiftKey
+        }
+        if bindingKeyCode == leftControlKey || bindingKeyCode == rightControlKey {
+            return eventKeyCode == leftControlKey || eventKeyCode == rightControlKey
+        }
+        if bindingKeyCode == leftOptionKey || bindingKeyCode == rightOptionKey {
+            return eventKeyCode == leftOptionKey || eventKeyCode == rightOptionKey
+        }
+        if bindingKeyCode == leftCommandKey || bindingKeyCode == rightCommandKey {
+            return eventKeyCode == leftCommandKey || eventKeyCode == rightCommandKey
+        }
+        return bindingKeyCode == eventKeyCode
+    }
+
+    private static func isModifierKeyDown(eventKeyCode: Int, flags: CGEventFlags) -> Bool {
+        switch eventKeyCode {
+        case leftShiftKey, rightShiftKey:
+            return flags.contains(.maskShift)
+        case leftControlKey, rightControlKey:
+            return flags.contains(.maskControl)
+        case leftOptionKey, rightOptionKey:
+            return flags.contains(.maskAlternate)
+        case leftCommandKey, rightCommandKey:
+            return flags.contains(.maskCommand)
+        case Int(kVK_CapsLock):
+            return flags.contains(.maskAlphaShift)
+        default:
+            return true
         }
     }
 }
