@@ -21,7 +21,7 @@ final class DictationHandler {
     private(set) var screenTypedText: String = ""
     private var targetPID: pid_t?
     private var currentUtteranceID: UUID = UUID()
-    private let injector: TextInjector
+    private let injector: any TextInjecting
     private let log = GlobalLogger.speech
 
     // MARK: - LLM Enhancement
@@ -32,7 +32,7 @@ final class DictationHandler {
 
     // MARK: - Init
 
-    init(injector: TextInjector) {
+    init(injector: any TextInjecting) {
         self.injector = injector
     }
 

@@ -1,6 +1,11 @@
 import Foundation
 
-final class TextInjector {
+protocol TextInjecting: AnyObject {
+    func type(_ text: String, targetPID: pid_t?)
+    func deleteBackward(count: Int, targetPID: pid_t?)
+}
+
+final class TextInjector: TextInjecting {
     private(set) var lastInjectedAt: Date?
 
     func paste(_ text: String) {
