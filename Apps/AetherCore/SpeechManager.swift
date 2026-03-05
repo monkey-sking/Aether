@@ -511,7 +511,7 @@ final class SpeechManager: ObservableObject {
             }
         }
 
-        text = applyContextualSpeechCorrections(text)
+        text = normalizeRecognizedText(text)
         let prev = lastTranscript
         let now = Date()
         if text != prev {
@@ -763,7 +763,7 @@ final class SpeechManager: ObservableObject {
 
     // MARK: - handleTranscript (unified finalization)
     private func handleTranscript(_ transcript: String, utteranceID: Int? = nil) {
-        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = normalizeRecognizedText(transcript).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         let candidateUtteranceID = utteranceID ?? activeUtteranceID
@@ -1160,13 +1160,13 @@ final class SpeechManager: ObservableObject {
             Task { @MainActor in
                 guard self.sessionGeneration == gen, !self.isMicProgressPausedForTarget else { return }
                 let baseThreshold = Float(UserDefaults.standard.object(forKey: "micProgressVADThreshold") as? Double ?? 0.07)
-                let ringThreshold = min(max(baseThreshold + 0.03, 0.10), 0.30)
+                let ringThreshold = min(max(baseThreshold + 0.08, 0.14), 0.35)
                 let isVoiceActive = self.latestVoiceActivity && self.latestVoiceRMS >= ringThreshold
 
                 if isVoiceActive {
                     self.micProgressSilentTicks = 0
                     self.micProgressActiveTicks += 1
-                    guard self.micProgressActiveTicks >= 2 else { return }
+                    guard self.micProgressActiveTicks >= 3 else { return }
                     if self.segmentStartedAt == .distantPast {
                         self.segmentStartedAt = Date()
                         HUDManager.shared.updateMicProgress(progress: 0.0, visible: true)
@@ -1179,7 +1179,7 @@ final class SpeechManager: ObservableObject {
                 }
 
                 self.micProgressSilentTicks += 1
-                if self.micProgressSilentTicks >= 2 {
+                if self.micProgressSilentTicks >= 3 {
                     self.micProgressActiveTicks = 0
                     self.segmentStartedAt = .distantPast
                     HUDManager.shared.updateMicProgress(progress: 0.0, visible: false)
@@ -1299,7 +1299,21 @@ final class SpeechManager: ObservableObject {
         }
         func hasInsertionCtx(_ el: AXUIElement) -> Bool {
             var v: CFTypeRef?
-            if AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute as CFString, &v) == .success { return true }
+            if AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute as CFString, &v) == .success,
+               let raw = v,
+               CFGetTypeID(raw) == AXValueGetTypeID() {
+                let ax = raw as! AXValue
+                if AXValueGetType(ax) == .cfRange {
+                    var range = CFRange()
+                    if AXValueGetValue(ax, .cfRange, &range) {
+                        if range.length == 0 { return true }
+                    } else {
+                        return true
+                    }
+                } else {
+                    return true
+                }
+            }
             if AXUIElementCopyAttributeValue(el, "AXSelectedTextMarkerRange" as CFString, &v) == .success { return true }
             return false
         }
@@ -1455,6 +1469,45 @@ final class SpeechManager: ObservableObject {
                 return SpeechReplacementRule(from: p[0], to: p[1], requiresCommandLike: p.count >= 3 && p[2].lowercased().contains("cmd")) }
     }
     private func replacementRules(for g: SpeechTermGroup) -> [SpeechReplacementRule] { replacementRules(from: g.rulesText) }
+    private func normalizeRecognizedText(_ raw: String) -> String {
+        let corrected = applyContextualSpeechCorrections(raw)
+        return deduplicateRepeatedTailPhrase(corrected)
+    }
+    private func deduplicateRepeatedTailPhrase(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 8 else { return trimmed }
+
+        var chars = Array(trimmed)
+        var changed = false
+
+        repeat {
+            changed = false
+            let maxUnit = min(16, chars.count / 2)
+            guard maxUnit >= 3 else { break }
+
+            for unitLen in stride(from: maxUnit, through: 3, by: -1) {
+                let start = chars.count - unitLen
+                let prevStart = start - unitLen
+                guard prevStart >= 0 else { continue }
+
+                let prev = chars[prevStart..<start]
+                let tail = chars[start..<chars.count]
+                guard prev.elementsEqual(tail) else { continue }
+
+                let segment = String(prev)
+                let hasWhitespace = segment.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) }
+                let hasLetterOrDigit = segment.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
+                let hasCJK = segment.unicodeScalars.contains { (0x4E00...0x9FFF).contains(Int($0.value)) }
+                guard !hasWhitespace, hasLetterOrDigit || hasCJK else { continue }
+
+                chars.removeSubrange(start..<chars.count)
+                changed = true
+                break
+            }
+        } while changed
+
+        return String(chars)
+    }
     private func applyContextualSpeechCorrections(_ raw: String) -> String {
         guard shouldEnableSpeechTermCorrection(), raw.count <= 120 else { return raw }
         let gs = activeGroupsForCurrentContext()

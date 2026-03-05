@@ -339,12 +339,16 @@ final class CaretDetector: ObservableObject {
                 }
             }
             
-            // Keep web/container roles in the editable candidate list.
-            // Older stable behavior treated AXWebArea/AXGroup as valid entry points,
-            // then relied on range/bounds validation to reject bad geometry.
-            var isEditable = ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea", "AXWebArea", "AXGroup"].contains(role)
+            let collapsedInsertionContext = hasCollapsedInsertionContext(element)
+            var isEditable = ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea"].contains(role)
             let axEditable = readAXBool(element, attribute: "AXEditable")
-            if axEditable == true { isEditable = true }
+            if role == "AXWebArea" || role == "AXGroup" {
+                // Browser/web containers are frequently focused even when not typing.
+                // Require stronger evidence before treating them as editable.
+                isEditable = (axEditable == true) || collapsedInsertionContext
+            } else if axEditable == true {
+                isEditable = true
+            }
              
              // --- Fetch Parent Window ---
              var windowFrame: CGRect? = nil
@@ -441,8 +445,8 @@ final class CaretDetector: ObservableObject {
                                   // 1. Synthetic Candidates (WebArea, TextArea users)
                                   if (role == "AXTextArea" || role == "AXWebArea") && (r_appkit.width > 220 || r_appkit.height > 70) {
                                       // [Legacy Restore] Codex/HighFreq Rule: Never use synthetic caret for code editors.
-                                      // But DO use it for Browsers (WebArea).
-                                      if !self.isHighFrequencyApp(appName: self.currentAppName, bundleID: self.currentAppBundleID) {
+                                      // For web containers, only synthesize when AX explicitly reports editable.
+                                      if (axEditable == true) && !self.isHighFrequencyApp(appName: self.currentAppName, bundleID: self.currentAppBundleID) {
                                           self.logger.debug("⚠️ [WEAK CARET] Large bounds -> Synthetic Caret")
                                           let h = min(max(14.0, r_appkit.height), 24.0)
                                           let y = r_appkit.minY + max(0.0, (r_appkit.height - h) * 0.5)
@@ -450,7 +454,7 @@ final class CaretDetector: ObservableObject {
                                           newInputContextRect = r_appkit
                                           shouldTemporarilyKeepLastCaret = true
                                       } else {
-                                          self.logger.debug("🛡 [CODEX] Rejection: Preventing synthetic caret for editor pane.")
+                                          self.logger.debug("🛡 [WEB] Rejection: Preventing synthetic caret without editable evidence.")
                                       }
                                   } else {
                                       // 2. Standard Candidates
@@ -709,6 +713,32 @@ final class CaretDetector: ObservableObject {
         return nil
     }
 
+    private func hasCollapsedInsertionContext(_ element: AXUIElement) -> Bool {
+        var selectedRangeValue: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success,
+           let selectedRangeValue,
+           CFGetTypeID(selectedRangeValue) == AXValueGetTypeID() {
+            let ax = selectedRangeValue as! AXValue
+            if AXValueGetType(ax) == .cfRange {
+                var range = CFRange()
+                if AXValueGetValue(ax, .cfRange, &range) {
+                    if range.length == 0 { return true }
+                } else {
+                    return true
+                }
+            } else {
+                return true
+            }
+        }
+
+        var markerRangeValue: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRangeValue) == .success {
+            return true
+        }
+
+        return false
+    }
+
     // For single-line web/native fields (address/search bars), AX often exposes bounds for the control
     // but not the caret. Use a crude proportional model that treats CJK/emoji as wider than ASCII.
     private func weightedAdvanceUnits(_ s: String, upToCharacters n: Int) -> CGFloat {
@@ -770,7 +800,7 @@ final class CaretDetector: ObservableObject {
         guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
               let children = childrenRef as? [AXUIElement] else { return nil }
         
-        let targetRoles = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXWebArea"]
+        let targetRoles = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
         for child in children {
             var roleRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleRef) == .success,

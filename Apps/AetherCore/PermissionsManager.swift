@@ -9,6 +9,7 @@ import os.log
 final class PermissionsManager: ObservableObject {
     private let log = OSLog(subsystem: "com.7fei.Aether", category: "Permissions")
     private var lastAccessibilityPromptAt: Date = .distantPast
+    private var didRequestAccessibilityPromptThisRun: Bool = false
     private var lastMicrophonePromptAt: Date = .distantPast
     private var lastSpeechPromptAt: Date = .distantPast
     private var isMicrophoneRequestInFlight: Bool = false
@@ -46,21 +47,29 @@ final class PermissionsManager: ObservableObject {
         )
     }
 
-    func requestAccessibility() {
+    @discardableResult
+    func requestAccessibility() -> Bool {
         if AXIsProcessTrusted() {
+            didRequestAccessibilityPromptThisRun = false
             refresh()
-            return
+            return false
+        }
+        if didRequestAccessibilityPromptThisRun {
+            refresh()
+            return false
         }
         let now = Date()
         if now.timeIntervalSince(lastAccessibilityPromptAt) < 1.5 {
             refresh()
-            return
+            return false
         }
+        didRequestAccessibilityPromptThisRun = true
         lastAccessibilityPromptAt = now
         // Triggers the system prompt (opens Accessibility list). User still must toggle manually.
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(opts)
         refresh()
+        return true
     }
 
     func requestMicrophone() {
