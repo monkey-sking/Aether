@@ -24,6 +24,10 @@ final class AudioCaptureSession {
     private var audioEngine: AVAudioEngine?
     private var ringBuffer: [AVAudioPCMBuffer] = []
     private let ringBufferCapacity = 10
+    private var adaptiveNoiseFloor: Float = 0.0
+    private var adaptiveVADThreshold: Float = 0.07
+    private var lastVoiceActivity: Bool = false
+    private var lastLoggedAdaptiveThreshold: Float = -1
     private let log = GlobalLogger.speech
 
     // MARK: - Public API
@@ -59,8 +63,7 @@ final class AudioCaptureSession {
             HUDManager.shared.updateAudioLevel(rms)
             self.onBuffer?(mono)
 
-            let vadThreshold = UserDefaults.standard.object(forKey: "micProgressVADThreshold") as? Double ?? 0.07
-            let isActive = Double(rms) >= vadThreshold
+            let isActive = self.classifyVoiceActivity(rms: rms)
 
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -84,6 +87,10 @@ final class AudioCaptureSession {
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
         ringBuffer.removeAll()
+        adaptiveNoiseFloor = 0
+        adaptiveVADThreshold = Float(UserDefaults.standard.object(forKey: "micProgressVADThreshold") as? Double ?? 0.07)
+        lastVoiceActivity = false
+        lastLoggedAdaptiveThreshold = -1
         isRunning = false
         os_log("AudioCaptureSession stopped.", log: log, type: .info)
     }
@@ -121,6 +128,39 @@ final class AudioCaptureSession {
         for i in 0..<count { let s = ptr[i]; sum += s * s }
         // Non-linear scaling boosts responsiveness for quieter mics.
         return sqrt(sqrt(sum / Float(count)))
+    }
+
+    private func classifyVoiceActivity(rms: Float) -> Bool {
+        let base = Float(UserDefaults.standard.object(forKey: "micProgressVADThreshold") as? Double ?? 0.07)
+        let adaptiveEnabled = UserDefaults.standard.object(forKey: "adaptiveVADEnabled") as? Bool ?? true
+        guard adaptiveEnabled else { return rms >= base }
+
+        if adaptiveNoiseFloor <= 0 {
+            adaptiveNoiseFloor = max(0.001, min(rms, base))
+            adaptiveVADThreshold = base
+        }
+
+        // Update noise floor only when we are close to quiet baseline.
+        let nearQuiet = rms <= max(adaptiveVADThreshold * 0.78, adaptiveNoiseFloor * 1.35)
+        if nearQuiet {
+            let alpha: Float = 0.08
+            adaptiveNoiseFloor = max(0.001, adaptiveNoiseFloor * (1 - alpha) + rms * alpha)
+        }
+
+        let dynamic = adaptiveNoiseFloor * 2.2 + 0.01
+        adaptiveVADThreshold = min(max(max(base, dynamic), 0.03), 0.35)
+
+        // Hysteresis: once active, require slightly less energy to keep active.
+        let threshold = lastVoiceActivity ? adaptiveVADThreshold * 0.86 : adaptiveVADThreshold
+        let isActive = rms >= threshold
+        lastVoiceActivity = isActive
+
+        if abs(adaptiveVADThreshold - lastLoggedAdaptiveThreshold) > 0.015 {
+            lastLoggedAdaptiveThreshold = adaptiveVADThreshold
+            os_log("Adaptive VAD threshold=%.3f noiseFloor=%.3f rms=%.3f", log: log, type: .debug, adaptiveVADThreshold, adaptiveNoiseFloor, rms)
+        }
+
+        return isActive
     }
 
     private func setInputDevice(for engine: AVAudioEngine) {

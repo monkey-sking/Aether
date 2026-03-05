@@ -170,8 +170,67 @@ final class SpeechManager: ObservableObject {
     private var segmentDurationSec: TimeInterval = 0
     private var isMicProgressPausedForTarget: Bool = false
     private var micProgressLockedPID: pid_t?
+    private var micProgressSilentTicks: Int = 0
+    private var latestVoiceActivity: Bool = false
+    private var latestVoiceRMS: Float = 0
+    private var micProgressActiveTicks: Int = 0
+    private var sessionStartedAt: Date = .distantPast
+    private var didRecordFirstPartialForSession: Bool = false
+    private var lastAdaptiveTextCount: Int = 0
+    private var lastAdaptiveSampleAt: Date = .distantPast
+
+    private struct RuntimeSpeechMetrics {
+        var sessions: Int = 0
+        var utterances: Int = 0
+        var commands: Int = 0
+        var dictations: Int = 0
+        var unknowns: Int = 0
+        var engineRestarts: Int = 0
+        var lowConfidenceCommandDowngrades: Int = 0
+        var recoverableErrors: Int = 0
+        var fatalErrors: Int = 0
+        var firstPartialSamples: Int = 0
+        var firstPartialLatencyTotalMs: Double = 0
+
+        var firstPartialLatencyAvgMs: Double {
+            guard firstPartialSamples > 0 else { return 0 }
+            return firstPartialLatencyTotalMs / Double(firstPartialSamples)
+        }
+    }
+
+    private var metrics = RuntimeSpeechMetrics()
 
     // MARK: - Computed Properties (preserved)
+    private typealias RecognitionControlMode = HeadMotionManager.RecognitionControlMode
+
+    private var recognitionControlMode: RecognitionControlMode {
+        HeadMotionManager.shared.effectiveRecognitionControlMode
+    }
+
+    private var hudRecognitionControlMode: HUDRecognitionControlMode {
+        recognitionControlMode.hudMode
+    }
+
+    private func recognitionTaskHint() -> SFSpeechRecognitionTaskHint {
+        switch recognitionControlMode {
+        case .command:
+            return .confirmation
+        case .dictation:
+            return .dictation
+        case .auto:
+            return sessionTypingMode ? .dictation : .unspecified
+        }
+    }
+
+    private func shouldPreferOnDeviceRecognition() -> Bool {
+        let preferOnDevice = UserDefaults.standard.object(forKey: "preferOnDeviceRecognition") as? Bool ?? true
+        if !preferOnDevice { return false }
+        // Command mode benefits from lowest latency and deterministic behavior.
+        if recognitionControlMode == .command { return true }
+        let preferForDictation = UserDefaults.standard.object(forKey: "preferOnDeviceForDictation") as? Bool ?? false
+        return preferForDictation
+    }
+
     private var isAwake: Bool {
         if isGazeWakeEnabled && HeadMotionManager.shared.isTracking && HeadMotionManager.shared.isLookingAtScreen { return true }
         guard let last = lastWakeTime else { return false }
@@ -243,14 +302,17 @@ final class SpeechManager: ObservableObject {
         NotificationCenter.default.addObserver(self, selector: #selector(pttUp), name: HeadMotionManager.pttUpNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(toggleLanguage), name: Notification.Name("AetherToggleLanguage"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAirPodsChange), name: .AirPodsStateChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleRecognitionControlModeChanged), name: HeadMotionManager.recognitionControlModeChangedNotification, object: nil)
         refreshLocale()
         DispatchQueue.main.async { [weak self] in self?.syncRecognitionState() }
         setupAudioDeviceListeners()
 
         // Wire sub-module callbacks
         audioCapture.onBuffer = { [weak self] buffer in self?.recognitionSession.append(buffer) }
-        audioCapture.onVoiceActivityChanged = { [weak self] active, _ in
+        audioCapture.onVoiceActivityChanged = { [weak self] active, rms in
             guard let self else { return }
+            self.latestVoiceActivity = active
+            self.latestVoiceRMS = rms
             self.eosDetector.noteVoiceActivity(active)
         }
         eosDetector.onEndOfSpeech = { [weak self] in self?.handleEOS() }
@@ -266,6 +328,26 @@ final class SpeechManager: ObservableObject {
     }
 
     @objc private func handleAirPodsChange() { refreshContinuousHUD() }
+    @objc private func handleRecognitionControlModeChanged() {
+        switch recognitionControlMode {
+        case .command:
+            sessionTypingMode = false
+        case .dictation:
+            sessionTypingMode = true
+        case .auto:
+            sessionTypingMode = isTypingMode
+        }
+
+        // Dictation UI mode should track active capture state, not just a persisted mode preference.
+        let isCaptureActive = recognitionSession.isRunning || isStopping
+        isDictating = isCaptureActive && sessionTypingMode
+
+        // Avoid overriding manual mode-switch toasts when there is no active voice HUD lifecycle.
+        let shouldRefreshHUD = isAlwaysListeningEnabled || isWakeWordEnabled || isCaptureActive
+        if shouldRefreshHUD {
+            refreshContinuousHUD(isDictating: isDictating)
+        }
+    }
 
     // MARK: - Locale
     private func refreshLocale() {
@@ -289,7 +371,13 @@ final class SpeechManager: ObservableObject {
         }
         status = "Language: \(activeLocale.identifier)"
         let hud = HUDManager.shared
-        hud.update(mode: hud.state.mode, message: hud.state.message, language: activeLocale.identifier, inputDeviceIcon: hudInputIcon())
+        hud.update(
+            mode: hud.state.mode,
+            message: hud.state.message,
+            language: activeLocale.identifier,
+            recognitionControlMode: hudRecognitionControlMode,
+            inputDeviceIcon: hudInputIcon()
+        )
         if recognitionSession.isRunning {
             stopAndFinalize()
             startOnce()
@@ -363,6 +451,11 @@ final class SpeechManager: ObservableObject {
 
         sessionGeneration += 1
         let gen = sessionGeneration
+        sessionStartedAt = Date()
+        didRecordFirstPartialForSession = false
+        lastAdaptiveTextCount = 0
+        lastAdaptiveSampleAt = .distantPast
+        metrics.sessions += 1
         lockSessionInputTarget()
         dictationHandler.reset(targetPID: sessionTargetPID)
         dictationHandler.llmProvider = llmProvider
@@ -374,13 +467,14 @@ final class SpeechManager: ObservableObject {
 
         // Start recognition
         do {
+            let contextual = buildDynamicContextualStrings()
             try recognitionSession.start(
                 locale: activeLocale,
                 autoPunctuation: isAutoPunctuationEnabled,
-                contextualStrings: ["点击", "双击", "向下", "向上", "右键", "Click", "Double Click", "Scroll Down", "Scroll Up", "Right Click",
-                                    "GitHub", "github", "git", "repo", "repository", "issue", "pull request", "PR",
-                                    "commit", "branch", "merge", "rebase", "checkout", "clone", "push", "pull", "origin", "main", "develop", "release"],
-                prebuffered: audioCapture.drainRingBuffer()
+                contextualStrings: contextual,
+                prebuffered: audioCapture.drainRingBuffer(),
+                taskHint: recognitionTaskHint(),
+                preferOnDevice: shouldPreferOnDeviceRecognition()
             )
         } catch {
             status = NSLocalizedString("speech.unavailable", comment: ""); lastError = "Speech recognizer unavailable"; return
@@ -426,6 +520,8 @@ final class SpeechManager: ObservableObject {
                 if activeUtteranceID == 0 { activeUtteranceID = nextUtteranceID; nextUtteranceID += 1 }
                 eosDetector.noteUtteranceStarted()
                 eosDetector.noteTranscriptChanged()
+                noteFirstPartialIfNeeded(at: now)
+                applyAdaptiveEOS(with: text, at: now)
             }
         }
 
@@ -439,7 +535,14 @@ final class SpeechManager: ObservableObject {
 
         let liveTyping = throttledTypingMode()
         let canType = isAwake || isDirectCommandEnabled || !isAlwaysListeningEnabled
-        sessionTypingMode = (sessionTypingMode || liveTyping) && canType
+        switch recognitionControlMode {
+        case .command:
+            sessionTypingMode = false
+        case .dictation:
+            sessionTypingMode = canType
+        case .auto:
+            sessionTypingMode = (sessionTypingMode || liveTyping) && canType
+        }
         isDictating = sessionTypingMode
 
         if text.count > 2 && isAwake { lastWakeTime = Date() }
@@ -466,14 +569,17 @@ final class SpeechManager: ObservableObject {
 
     private func handleRecognitionError(_ error: Error, isRecoverable: Bool) {
         if isRecoverable {
+            metrics.recoverableErrors += 1
             os_log("Recognition recoverable error: %{public}@", log: log, type: .info, error.localizedDescription)
             if isAlwaysListeningEnabled {
                 cleanup(); refreshContinuousHUD(); scheduleContinuousRecovery(delay: 0.12)
             } else { stopAndFinalize() }
         } else {
+            metrics.fatalErrors += 1
             status = NSLocalizedString("speech.error", comment: ""); lastError = error.localizedDescription
             stopAndFinalize(); scheduleContinuousRecovery(delay: 0.4)
         }
+        maybeLogRuntimeMetrics(force: false)
     }
 
     // MARK: - EOS Callbacks
@@ -685,7 +791,15 @@ final class SpeechManager: ObservableObject {
             }
         }
 
-        let typingContext = sessionTypingMode || isTypingMode
+        let typingContext: Bool
+        switch recognitionControlMode {
+        case .command:
+            typingContext = false
+        case .dictation:
+            typingContext = true
+        case .auto:
+            typingContext = sessionTypingMode || isTypingMode
+        }
         if typingContext != sessionTypingMode { sessionTypingMode = typingContext; isDictating = typingContext }
 
         let motion = HeadMotionManager.shared
@@ -693,11 +807,17 @@ final class SpeechManager: ObservableObject {
         var routingBias: VoiceCommandRouter.RoutingBias = .neutral
         var blockDictationWithoutInput = false
 
-        if let forcedOverride = motion.effectiveRecognitionModeOverride {
-            if forcedOverride { routingBias = .forceCommand }
-            else if typingContext { routingBias = .forceDictation }
-            else { routingBias = .forceCommand; blockDictationWithoutInput = true }
-        } else {
+        switch motion.effectiveRecognitionControlMode {
+        case .command:
+            routingBias = .forceCommand
+        case .dictation:
+            if typingContext {
+                routingBias = .forceDictation
+            } else {
+                routingBias = .forceCommand
+                blockDictationWithoutInput = true
+            }
+        case .auto:
             switch posture {
             case .tiltRight: routingBias = .forceCommand
             case .tiltLeft, .lookLow: routingBias = .forceDictation
@@ -706,11 +826,31 @@ final class SpeechManager: ObservableObject {
         }
 
         let router = VoiceCommandRouter()
-        var intent = router.route(transcript: textToRoute, bias: routingBias)
+        let decision = router.routeDetailed(transcript: textToRoute, bias: routingBias)
+        var intent = decision.intent
+
+        if recognitionControlMode == .command, case .dictation(let payload) = intent {
+            intent = .unknown(payload)
+        }
+
+        if decision.confidence == .low,
+           !typingContext,
+           isCommandIntent(intent) {
+            metrics.lowConfidenceCommandDowngrades += 1
+            intent = .unknown(textToRoute)
+        }
+
         if blockDictationWithoutInput, case .dictation(let p) = intent { intent = .unknown(p) }
-        if !isAlwaysListeningEnabled, !blockDictationWithoutInput, case .unknown = intent, !textToRoute.isEmpty {
+        if !isAlwaysListeningEnabled,
+           recognitionControlMode != .command,
+           !blockDictationWithoutInput,
+           case .unknown = intent,
+           !textToRoute.isEmpty,
+           typingContext {
             intent = .dictation(textToRoute)
         }
+
+        noteIntentMetrics(intent)
 
         if wakeWordDetected { lastWakeTime = Date() }
         else if case .unknown = intent { /* don't extend */ }
@@ -808,6 +948,164 @@ final class SpeechManager: ObservableObject {
         return count
     }
 
+    private func noteFirstPartialIfNeeded(at now: Date) {
+        guard !didRecordFirstPartialForSession else { return }
+        guard sessionStartedAt != .distantPast else { return }
+        didRecordFirstPartialForSession = true
+        let latency = max(0, now.timeIntervalSince(sessionStartedAt) * 1000.0)
+        metrics.firstPartialSamples += 1
+        metrics.firstPartialLatencyTotalMs += latency
+        maybeLogRuntimeMetrics(force: false)
+    }
+
+    private func applyAdaptiveEOS(with text: String, at now: Date) {
+        guard UserDefaults.standard.object(forKey: "adaptiveEOSTuningEnabled") as? Bool ?? true else { return }
+        guard !text.isEmpty else { return }
+
+        if lastAdaptiveSampleAt == .distantPast {
+            lastAdaptiveSampleAt = now
+            lastAdaptiveTextCount = text.count
+            return
+        }
+
+        let dt = now.timeIntervalSince(lastAdaptiveSampleAt)
+        guard dt >= 0.08 else { return }
+        let deltaChars = max(0, text.count - lastAdaptiveTextCount)
+        lastAdaptiveSampleAt = now
+        lastAdaptiveTextCount = text.count
+        guard deltaChars > 0 else { return }
+
+        let cps = Double(deltaChars) / dt
+        var targetTrailingMs: Double
+        switch cps {
+        case 0..<3:
+            targetTrailingMs = 1050
+        case 3..<7:
+            targetTrailingMs = 900
+        case 7..<12:
+            targetTrailingMs = 760
+        case 12..<18:
+            targetTrailingMs = 650
+        default:
+            targetTrailingMs = 560
+        }
+
+        switch recognitionControlMode {
+        case .command:
+            targetTrailingMs = min(targetTrailingMs, 700)
+        case .dictation:
+            targetTrailingMs = max(targetTrailingMs, 760)
+        case .auto:
+            break
+        }
+
+        targetTrailingMs = min(max(targetTrailingMs, 450), 1400)
+        eosDetector.trailingSilenceMs = eosDetector.trailingSilenceMs * 0.65 + targetTrailingMs * 0.35
+    }
+
+    private func isCommandIntent(_ intent: VoiceIntent) -> Bool {
+        switch intent {
+        case .dictation, .unknown:
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func noteIntentMetrics(_ intent: VoiceIntent) {
+        metrics.utterances += 1
+        switch intent {
+        case .dictation:
+            metrics.dictations += 1
+        case .unknown:
+            metrics.unknowns += 1
+        default:
+            metrics.commands += 1
+        }
+        maybeLogRuntimeMetrics(force: false)
+    }
+
+    private func maybeLogRuntimeMetrics(force: Bool) {
+        if !force, metrics.utterances == 0 { return }
+        if !force, metrics.utterances % 10 != 0 { return }
+        let avgFirstPartial = Int(metrics.firstPartialLatencyAvgMs.rounded())
+        GlobalLogger.speech.info(
+            "[Metrics] sessions=\(metrics.sessions) utterances=\(metrics.utterances) commands=\(metrics.commands) dictation=\(metrics.dictations) unknown=\(metrics.unknowns) firstPartialAvgMs=\(avgFirstPartial) engineRestarts=\(metrics.engineRestarts) lowConfDrops=\(metrics.lowConfidenceCommandDowngrades) recoverableErr=\(metrics.recoverableErrors) fatalErr=\(metrics.fatalErrors)"
+        )
+    }
+
+    private func buildDynamicContextualStrings() -> [String] {
+        var ordered: [String] = []
+        var seen = Set<String>()
+
+        func add(_ token: String) {
+            guard let normalized = normalizeContextualToken(token) else { return }
+            let key = normalized.lowercased()
+            guard !seen.contains(key) else { return }
+            seen.insert(key)
+            ordered.append(normalized)
+        }
+
+        let staticSeeds = [
+            "点击", "双击", "向下", "向上", "右键",
+            "Click", "Double Click", "Scroll Down", "Scroll Up", "Right Click",
+            "GitHub", "git", "repo", "repository", "issue", "pull request", "PR",
+            "commit", "branch", "merge", "rebase", "checkout", "clone", "push", "pull",
+            "origin", "main", "develop", "release"
+        ]
+        staticSeeds.forEach(add)
+
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        if let appName = frontApp?.localizedName {
+            tokenizeContextualString(appName).forEach(add)
+        }
+        if let bundleID = frontApp?.bundleIdentifier {
+            tokenizeContextualString(bundleID).forEach(add)
+        }
+
+        for group in activeGroupsForCurrentContext() {
+            tokenizeContextualString(group.name).forEach(add)
+            for rule in replacementRules(for: group) {
+                tokenizeContextualString(rule.from).forEach(add)
+                tokenizeContextualString(rule.to).forEach(add)
+            }
+        }
+
+        if !lastTranscript.isEmpty {
+            tokenizeContextualString(lastTranscript).forEach(add)
+        }
+
+        if ordered.count > 160 {
+            ordered = Array(ordered.prefix(160))
+        }
+        return ordered
+    }
+
+    private func tokenizeContextualString(_ raw: String) -> [String] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var out: [String] = [trimmed]
+        let splitSet = CharacterSet(charactersIn: " ,./_:-+@()[]{}<>|\\\t\n")
+        let parts = trimmed
+            .components(separatedBy: splitSet)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        out.append(contentsOf: parts)
+        return out
+    }
+
+    private func normalizeContextualToken(_ token: String) -> String? {
+        let t = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return nil }
+        guard t.count <= 32 else { return nil }
+        if t.count == 1 {
+            let isAscii = t.unicodeScalars.allSatisfy { $0.isASCII }
+            if isAscii { return nil }
+        }
+        return t
+    }
+
     // MARK: - HUD Management
     private func setHUDOverride(mode: HUDMode, message: String, icon: String, duration: TimeInterval) {
         hudOverrideMode = mode; hudOverrideMessage = message; hudOverrideIcon = icon
@@ -816,11 +1114,12 @@ final class SpeechManager: ObservableObject {
     private func clearHUDOverride() { hudOverrideUntil = .distantPast; hudOverrideMessage = ""; hudOverrideIcon = "info.circle" }
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
+        let controlMode = hudRecognitionControlMode
         if !isStopping && Date() < hudOverrideUntil {
-            HUDManager.shared.update(mode: hudOverrideMode, message: hudOverrideMessage, language: activeLocale.identifier, inputDeviceIcon: hudOverrideIcon); return
+            HUDManager.shared.update(mode: hudOverrideMode, message: hudOverrideMessage, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudOverrideIcon); return
         }
         if (isAlwaysListeningEnabled || isWakeWordEnabled), let hint = missingVoicePermissionHint() {
-            HUDManager.shared.update(mode: .command, message: hint.message, language: activeLocale.identifier, inputDeviceIcon: hint.icon); return
+            HUDManager.shared.update(mode: .command, message: hint.message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hint.icon); return
         }
         let isContinuousActive = isAlwaysListeningEnabled
         let isSessionActive = recognitionSession.isRunning || isStopping || isDictating
@@ -828,7 +1127,7 @@ final class SpeechManager: ObservableObject {
 
         let realHardware = availableInputDevices.filter { $0.id != 0 }
         if realHardware.isEmpty {
-            HUDManager.shared.update(mode: .listening, message: activeLocale.identifier.starts(with: "zh") ? "未检测到麦克风" : "No Microphone Detected", language: activeLocale.identifier, inputDeviceIcon: hudInputIcon()); return
+            HUDManager.shared.update(mode: .listening, message: activeLocale.identifier.starts(with: "zh") ? "未检测到麦克风" : "No Microphone Detected", language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon()); return
         }
 
         let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
@@ -838,29 +1137,63 @@ final class SpeechManager: ObservableObject {
         else if isStopping { mode = .processing }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
         else { mode = .listening }
-        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, inputDeviceIcon: hudInputIcon())
+        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon())
     }
 
     private func showPTTUnavailableHUD() {
-        HUDManager.shared.update(mode: .listening, message: activeLocale.identifier.starts(with: "zh") ? "未检测到麦克风" : "No Microphone Detected", language: activeLocale.identifier, inputDeviceIcon: hudInputIcon())
+        HUDManager.shared.update(mode: .listening, message: activeLocale.identifier.starts(with: "zh") ? "未检测到麦克风" : "No Microphone Detected", language: activeLocale.identifier, recognitionControlMode: hudRecognitionControlMode, inputDeviceIcon: hudInputIcon())
     }
 
     // MARK: - Mic Progress Ring
     private func startMicProgressUI(durationSec: TimeInterval, generation gen: Int) {
-        micProgressTimer?.invalidate(); segmentStartedAt = Date(); segmentDurationSec = max(durationSec, 0.1)
+        micProgressTimer?.invalidate()
+        segmentStartedAt = .distantPast
+        segmentDurationSec = max(durationSec, 0.1)
         micProgressLockedPID = sessionTargetPID; isMicProgressPausedForTarget = false
-        HUDManager.shared.updateMicProgress(progress: 0.0, visible: true)
+        micProgressSilentTicks = 0
+        micProgressActiveTicks = 0
+        latestVoiceActivity = false
+        latestVoiceRMS = 0
+        HUDManager.shared.updateMicProgress(progress: 0.0, visible: false)
         micProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-            guard let self, self.sessionGeneration == gen, !self.isMicProgressPausedForTarget else { return }
-            let vadThreshold = UserDefaults.standard.object(forKey: "micProgressVADThreshold") as? Double ?? 0.07
-            guard Double(HUDManager.shared.state.audioLevel) >= vadThreshold else { return }
-            let elapsed = Date().timeIntervalSince(self.segmentStartedAt)
-            HUDManager.shared.updateMicProgress(progress: CGFloat(min(max(elapsed / self.segmentDurationSec, 0.0), 1.0)), visible: true)
+            guard let self else { return }
+            Task { @MainActor in
+                guard self.sessionGeneration == gen, !self.isMicProgressPausedForTarget else { return }
+                let baseThreshold = Float(UserDefaults.standard.object(forKey: "micProgressVADThreshold") as? Double ?? 0.07)
+                let ringThreshold = min(max(baseThreshold + 0.03, 0.10), 0.30)
+                let isVoiceActive = self.latestVoiceActivity && self.latestVoiceRMS >= ringThreshold
+
+                if isVoiceActive {
+                    self.micProgressSilentTicks = 0
+                    self.micProgressActiveTicks += 1
+                    guard self.micProgressActiveTicks >= 2 else { return }
+                    if self.segmentStartedAt == .distantPast {
+                        self.segmentStartedAt = Date()
+                        HUDManager.shared.updateMicProgress(progress: 0.0, visible: true)
+                        return
+                    }
+                    let elapsed = Date().timeIntervalSince(self.segmentStartedAt)
+                    let progress = CGFloat(min(max(elapsed / self.segmentDurationSec, 0.0), 1.0))
+                    HUDManager.shared.updateMicProgress(progress: progress, visible: true)
+                    return
+                }
+
+                self.micProgressSilentTicks += 1
+                if self.micProgressSilentTicks >= 2 {
+                    self.micProgressActiveTicks = 0
+                    self.segmentStartedAt = .distantPast
+                    HUDManager.shared.updateMicProgress(progress: 0.0, visible: false)
+                }
+            }
         }
     }
 
     private func stopMicProgressUI(keepVisible: Bool) {
         micProgressTimer?.invalidate(); micProgressTimer = nil
+        micProgressSilentTicks = 0
+        micProgressActiveTicks = 0
+        latestVoiceActivity = false
+        latestVoiceRMS = 0
         let wasPaused = isMicProgressPausedForTarget; isMicProgressPausedForTarget = false; micProgressLockedPID = nil
         HUDManager.shared.updateMicProgress(progress: keepVisible ? (wasPaused ? 0.0 : 1.0) : 0.0, visible: keepVisible)
     }
@@ -879,11 +1212,13 @@ final class SpeechManager: ObservableObject {
     private func performEngineRestart(reason: String) {
         let elapsed = Date().timeIntervalSince(lastEngineRestartAt)
         if elapsed < engineRestartMinInterval { scheduleEngineRestart(reason: "\(reason)-throttled", debounce: engineRestartMinInterval - elapsed); return }
+        metrics.engineRestarts += 1
         stopAndFinalize()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self else { return }
             if self.isAlwaysListeningEnabled { self.startOnce() }
             self.lastEngineRestartAt = Date()
+            self.maybeLogRuntimeMetrics(force: false)
         }
     }
 
@@ -929,7 +1264,16 @@ final class SpeechManager: ObservableObject {
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             DispatchQueue.main.async { guard let self else { return }
                 self.refreshInputDevices()
-                if self.selectedInputDeviceID == 0 { let hud = HUDManager.shared; hud.update(mode: hud.state.mode, message: hud.state.message, language: hud.state.language, inputDeviceIcon: self.hudInputIcon()) }
+                if self.selectedInputDeviceID == 0 {
+                    let hud = HUDManager.shared
+                    hud.update(
+                        mode: hud.state.mode,
+                        message: hud.state.message,
+                        language: hud.state.language,
+                        recognitionControlMode: self.hudRecognitionControlMode,
+                        inputDeviceIcon: self.hudInputIcon()
+                    )
+                }
                 let active = self.audioCapture.isRunning || self.recognitionSession.isRunning || self.isAlwaysListeningEnabled
                 if active { self.scheduleEngineRestart(reason: "default-input-device-changed") }
             }
@@ -939,6 +1283,15 @@ final class SpeechManager: ObservableObject {
 
     // MARK: - Focus / Typing Detection (preserved from original)
     private var isTypingMode: Bool {
+        switch recognitionControlMode {
+        case .command:
+            return false
+        case .dictation:
+            return true
+        case .auto:
+            break
+        }
+
         if HUDManager.shared.lastKnownTypingState() { return true }
         func isAXEditable(_ el: AXUIElement) -> Bool {
             var v: CFTypeRef?; guard AXUIElementCopyAttributeValue(el, "AXEditable" as CFString, &v) == .success else { return false }
@@ -1046,7 +1399,12 @@ final class SpeechManager: ObservableObject {
     }
     private func rearmInputTarget(reason: String) {
         lockSessionInputTarget(); micProgressLockedPID = sessionTargetPID; isMicProgressPausedForTarget = false
-        segmentStartedAt = Date(); HUDManager.shared.updateMicProgress(progress: 0.0, visible: true)
+        segmentStartedAt = .distantPast
+        micProgressSilentTicks = 0
+        micProgressActiveTicks = 0
+        latestVoiceActivity = false
+        latestVoiceRMS = 0
+        HUDManager.shared.updateMicProgress(progress: 0.0, visible: false)
         dictationHandler.reset(targetPID: sessionTargetPID)
     }
 

@@ -18,7 +18,25 @@ class HeadMotionManager: ObservableObject {
 
     static let pttDownNotification = Notification.Name("AetherPTTDown")
     static let pttUpNotification = Notification.Name("AetherPTTUp")
+    static let recognitionControlModeChangedNotification = Notification.Name("AetherRecognitionControlModeChanged")
     private static let recognitionModeOverrideKey = "AetherRecognitionModeOverride"
+
+    enum RecognitionControlMode: String, Sendable {
+        case auto
+        case command
+        case dictation
+
+        var hudMode: HUDRecognitionControlMode {
+            switch self {
+            case .auto:
+                return .auto
+            case .command:
+                return .command
+            case .dictation:
+                return .dictation
+            }
+        }
+    }
     
     enum PostureBias: String, Sendable {
         case neutral
@@ -29,6 +47,10 @@ class HeadMotionManager: ObservableObject {
 
     private init() {
         // Hotkeys require Accessibility trust. Install the event tap only after permissions are granted.
+        // Reset legacy persisted override. Manual mode switch is now focus-follow aware and temporary.
+        if persistentRecognitionControlMode != .auto {
+            persistentRecognitionControlMode = .auto
+        }
         startStabilityTimer()
     }
     
@@ -88,16 +110,31 @@ class HeadMotionManager: ObservableObject {
     private var isCalibratingRange: Bool = false
     
     @Published var currentPostureBias: PostureBias = .neutral
-    // nil = auto, true = force command, false = force dictation
     // Temporary override, usually from AirPods squeeze during a PTT session.
-    @Published var manualSqueezeFocus: Bool? = nil
-    // Persistent override, usually from explicit hotkey mode switching.
-    @Published var persistentRecognitionModeOverride: Bool? = HeadMotionManager.loadRecognitionModeOverrideFromDefaults() {
-        didSet { HeadMotionManager.saveRecognitionModeOverride(persistentRecognitionModeOverride) }
+    @Published var transientRecognitionControlMode: RecognitionControlMode? = nil
+    private var transientModeAnchorTypingState: Bool?
+    private var lastTransientModeSyncAt: Date = .distantPast
+    private var transientModeObservedTypingState: Bool?
+    private var transientModeObservedAt: Date = .distantPast
+    // Persistent control mode selection. Defaults to auto (follow focus).
+    @Published var persistentRecognitionControlMode: RecognitionControlMode = HeadMotionManager.loadRecognitionControlModeFromDefaults() {
+        didSet { HeadMotionManager.saveRecognitionControlMode(persistentRecognitionControlMode) }
     }
-    // Effective override priority: session override > persistent override.
+    // Effective priority: session override > persistent selection.
+    var effectiveRecognitionControlMode: RecognitionControlMode {
+        transientRecognitionControlMode ?? persistentRecognitionControlMode
+    }
+    // Compatibility accessor for existing bool-based call sites.
+    // nil = auto, true = force command, false = force dictation.
     var effectiveRecognitionModeOverride: Bool? {
-        manualSqueezeFocus ?? persistentRecognitionModeOverride
+        switch effectiveRecognitionControlMode {
+        case .auto:
+            return nil
+        case .command:
+            return true
+        case .dictation:
+            return false
+        }
     }
     private let postureThresholdRoll: Double = 0.25 // ~14 degrees
     private let postureThresholdPitch: Double = 0.35 // ~20 degrees for "Low"
@@ -152,20 +189,26 @@ class HeadMotionManager: ObservableObject {
     private var prevTrackTarget: Any?
 
     // MARK: - Recognition Mode Override Persistence
-    private static func loadRecognitionModeOverrideFromDefaults() -> Bool? {
-        guard UserDefaults.standard.object(forKey: recognitionModeOverrideKey) != nil else { return nil }
+    private static func loadRecognitionControlModeFromDefaults() -> RecognitionControlMode {
+        guard UserDefaults.standard.object(forKey: recognitionModeOverrideKey) != nil else { return .auto }
         let raw = UserDefaults.standard.integer(forKey: recognitionModeOverrideKey)
         switch raw {
-        case 1: return true
-        case 0: return false
-        default: return nil
+        case 1:
+            return .command
+        case 0:
+            return .dictation
+        default:
+            return .auto
         }
     }
 
-    private static func saveRecognitionModeOverride(_ value: Bool?) {
-        if let value {
-            UserDefaults.standard.set(value ? 1 : 0, forKey: recognitionModeOverrideKey)
-        } else {
+    private static func saveRecognitionControlMode(_ value: RecognitionControlMode) {
+        switch value {
+        case .command:
+            UserDefaults.standard.set(1, forKey: recognitionModeOverrideKey)
+        case .dictation:
+            UserDefaults.standard.set(0, forKey: recognitionModeOverrideKey)
+        case .auto:
             UserDefaults.standard.removeObject(forKey: recognitionModeOverrideKey)
         }
     }
@@ -622,44 +665,84 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     func toggleRecognitionInputControlMode(source: String = "hotkey", persist: Bool = true) {
-        // If we were auto-detected as typing, toggle to command; otherwise toggle to dictation.
         let currentlyTyping = HUDManager.shared.lastKnownTypingState()
-        let currentBias = effectiveRecognitionModeOverride ?? currentlyTyping // false = dictation, true = command
-        let nextBias = !currentBias
+        let currentResolvedMode = resolvedRecognitionControlMode(currentlyTyping: currentlyTyping)
+        let nextMode: RecognitionControlMode = (currentResolvedMode == .command) ? .dictation : .command
 
         // Guard: dictation mode requires an actual text-input focus.
         // Control mode can always work without text field focus.
-        if !nextBias && !currentlyTyping {
-            if persist {
-                manualSqueezeFocus = nil
-                persistentRecognitionModeOverride = true
-            } else {
-                manualSqueezeFocus = true
-            }
+        if nextMode == .dictation && !currentlyTyping {
             let isChinese = Locale.current.identifier.hasPrefix("zh")
-            let message = isChinese ? "未检测到输入框，保持控制模式" : "No input field. Staying in Control Mode"
-            HUDManager.shared.showTemporary(message: message, icon: "command")
+            let message = isChinese ? "未检测到输入框，已切换到控制模式" : "No input field. Switched to Control Mode"
+            transientRecognitionControlMode = nil
+            transientModeAnchorTypingState = nil
+            transientModeObservedTypingState = nil
+            transientModeObservedAt = .distantPast
+            persistentRecognitionControlMode = .auto
+            postRecognitionControlModeChanged(source: source)
+            HUDManager.shared.showTemporary(
+                message: message,
+                recognitionControlMode: .command,
+                duration: 1.1
+            )
             os_log("Recognition Mode Toggle blocked (%{public}@, persist=%{public}@): no input focus",
                    log: log, type: .info, source, persist ? "yes" : "no")
             return
         }
 
-        if persist {
-            manualSqueezeFocus = nil
-            persistentRecognitionModeOverride = nextBias
-        } else {
-            manualSqueezeFocus = nextBias
-        }
+        // Manual switch is temporary: keep auto as the persistent policy and apply a transient override.
+        persistentRecognitionControlMode = .auto
+        transientRecognitionControlMode = nextMode
+        transientModeAnchorTypingState = currentlyTyping
+        transientModeObservedTypingState = currentlyTyping
+        transientModeObservedAt = Date()
 
-        let isCommandMode = nextBias
         let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let isCommandMode = nextMode == .command
         let message = isCommandMode
             ? (isChinese ? "已切换到控制模式" : "Switched to Control Mode")
             : (isChinese ? "已切换到输入模式" : "Switched to Dictation Mode")
-        let icon = isCommandMode ? "command" : "keyboard"
-        HUDManager.shared.showTemporary(message: message, icon: icon)
+        postRecognitionControlModeChanged(source: source)
+        HUDManager.shared.showTemporary(
+            message: message,
+            recognitionControlMode: nextMode.hudMode,
+            duration: 1.2
+        )
         os_log("Recognition Mode Override Toggled (%{public}@, persist=%{public}@): %{public}@",
                log: log, type: .info, source, persist ? "yes" : "no", isCommandMode ? "command" : "dictation")
+    }
+
+    private func postRecognitionControlModeChanged(source: String) {
+        NotificationCenter.default.post(
+            name: Self.recognitionControlModeChangedNotification,
+            object: nil,
+            userInfo: ["source": source]
+        )
+    }
+
+    @MainActor
+    private func exitDictationModeOnEscape(source: String = "escape-key") {
+        let currentlyTyping = HUDManager.shared.lastKnownTypingState()
+        let resolvedMode = resolvedRecognitionControlMode(currentlyTyping: currentlyTyping)
+        guard resolvedMode == .dictation else { return }
+
+        // Legacy expectation: pressing Esc should force control mode immediately.
+        persistentRecognitionControlMode = .auto
+        transientRecognitionControlMode = .command
+        transientModeAnchorTypingState = currentlyTyping
+        transientModeObservedTypingState = currentlyTyping
+        transientModeObservedAt = Date()
+
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let message = isChinese ? "已退出输入模式" : "Exited Dictation Mode"
+        postRecognitionControlModeChanged(source: source)
+        HUDManager.shared.showTemporary(
+            message: message,
+            recognitionControlMode: .command,
+            duration: 1.2
+        )
+        os_log("Recognition Mode escape exit (%{public}@): mode=%{public}@",
+               log: log, type: .info, source, effectiveRecognitionControlMode.rawValue)
     }
     
     private func handleClickCommand() {
@@ -740,6 +823,13 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     func setGlobalHotkeysEnabled(_ enabled: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.setGlobalHotkeysEnabled(enabled)
+            }
+            return
+        }
+
         if enabled {
             installHotkeysIfPossible()
         } else {
@@ -748,6 +838,11 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func installHotkeysIfPossible() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.installHotkeysIfPossible() }
+            return
+        }
+
         guard !isHotkeyRegistered else { return }
 
         guard AXIsProcessTrusted() else {
@@ -758,11 +853,28 @@ class HeadMotionManager: ObservableObject {
         // Monitor global events for hotkeys (Shift+Ctrl+S for Emergency Stop, Ctrl+Opt+V for PTT)
         GlobalLogger.lifecycle.info("HeadMotionManager: Setting up hotkeys (Event Tap)...")
         
-        let mask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.otherMouseDown.rawValue) | (1 << CGEventType.otherMouseUp.rawValue)
+        let mask: CGEventMask =
+            (1 << CGEventType.keyDown.rawValue) |
+            (1 << CGEventType.keyUp.rawValue) |
+            (1 << CGEventType.flagsChanged.rawValue) |
+            (1 << CGEventType.leftMouseDown.rawValue) |
+            (1 << CGEventType.rightMouseDown.rawValue) |
+            (1 << CGEventType.otherMouseDown.rawValue) |
+            (1 << CGEventType.otherMouseUp.rawValue)
         
         func callback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
             guard let refcon else { return Unmanaged.passUnretained(event) }
             let manager = Unmanaged<HeadMotionManager>.fromOpaque(refcon).takeUnretainedValue()
+
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if let tap = manager.eventTap {
+                    CGEvent.tapEnable(tap: tap, enable: true)
+                    GlobalLogger.lifecycle.error("HeadMotionManager: Event tap disabled (\(type.rawValue)); re-enabled.")
+                } else {
+                    GlobalLogger.lifecycle.error("HeadMotionManager: Event tap disabled (\(type.rawValue)); tap ref missing.")
+                }
+                return Unmanaged.passUnretained(event)
+            }
             
             // Log every few events just to prove we are alive (throttled)
             // GlobalLogger.input.debug("Event Tap Callback: \(type.rawValue)")
@@ -781,6 +893,19 @@ class HeadMotionManager: ObservableObject {
                 if !manager.didLogEventTapKeyDebugHint {
                     manager.didLogEventTapKeyDebugHint = true
                     GlobalLogger.input.debug("Event Tap active (debug key logging disabled by default).")
+                }
+
+                // Bare Esc should exit explicit dictation mode (legacy behavior).
+                let modifierMask: UInt64 =
+                    CGEventFlags.maskControl.rawValue |
+                    CGEventFlags.maskAlternate.rawValue |
+                    CGEventFlags.maskShift.rawValue |
+                    CGEventFlags.maskCommand.rawValue
+                let masked = flags.rawValue & modifierMask
+                if keyCode == Int64(kVK_Escape), masked == 0 {
+                    DispatchQueue.main.async {
+                        manager.exitDictationModeOnEscape()
+                    }
                 }
 
                 // Dynamic hotkey matching via HotkeyManager
@@ -823,7 +948,10 @@ class HeadMotionManager: ObservableObject {
                         
                         if !wasPressed {
                             GlobalLogger.input.info("Hotkey: PTT DOWN Detected (Keyboard)")
-                            manager.manualSqueezeFocus = nil // Reset temporary override on new PTT session
+                            manager.transientRecognitionControlMode = nil // Reset temporary override on new PTT session
+                            manager.transientModeAnchorTypingState = nil
+                            manager.transientModeObservedTypingState = nil
+                            manager.transientModeObservedAt = .distantPast
                             NotificationCenter.default.post(
                                 name: HeadMotionManager.pttDownNotification,
                                 object: nil
@@ -860,6 +988,12 @@ class HeadMotionManager: ObservableObject {
                 }
             }
             
+            if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
+                DispatchQueue.main.async {
+                    manager.clearTransientRecognitionControlModeForInputRefocus(source: "mouse-input-refocus")
+                }
+            }
+
             // Mouse Button Hotkeys (Dynamic)
             if type == .otherMouseDown {
                 let btn = Int(event.getIntegerValueField(.mouseEventButtonNumber))
@@ -902,7 +1036,10 @@ class HeadMotionManager: ObservableObject {
                             
                             if !wasPressed {
                                 GlobalLogger.input.info("Mouse PTT DOWN Detected (Button \(btn))")
-                                manager.manualSqueezeFocus = nil // Reset temporary override
+                                manager.transientRecognitionControlMode = nil // Reset temporary override
+                                manager.transientModeAnchorTypingState = nil
+                                manager.transientModeObservedTypingState = nil
+                                manager.transientModeObservedAt = .distantPast
                                 NotificationCenter.default.post(
                                     name: HeadMotionManager.pttDownNotification,
                                     object: nil
@@ -958,6 +1095,11 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func uninstallHotkeys() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.uninstallHotkeys() }
+            return
+        }
+
         guard isHotkeyRegistered else { return }
 
         if let tap = eventTap {
@@ -979,7 +1121,21 @@ class HeadMotionManager: ObservableObject {
     private func startStabilityTimer() {
         // Monitor connection health every 1.0s
         stabilityTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self, self.isTracking else { return }
+            guard let self = self else { return }
+
+            // Retry hotkey installation if initial setup was missed during startup race.
+            if AXIsProcessTrusted(), !self.isHotkeyRegistered {
+                self.installHotkeysIfPossible()
+            }
+
+            // Event taps can be disabled by the system after callback timeout or user input transitions.
+            // Keep hotkeys resilient by auto-recovering a disabled tap.
+            if self.isHotkeyRegistered, let tap = self.eventTap, !CGEvent.tapIsEnabled(tap: tap) {
+                GlobalLogger.lifecycle.error("HeadMotionManager: Event tap unexpectedly disabled; attempting auto-reenable.")
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+
+            guard self.isTracking else { return }
             
             // 1. Immediate Availability Check (e.g. Switched to iPhone)
             if !self.motionManager.isDeviceMotionAvailable {
@@ -1003,6 +1159,72 @@ class HeadMotionManager: ObservableObject {
                 return
             }
         }
+    }
+
+    private func resolvedRecognitionControlMode(currentlyTyping: Bool? = nil) -> RecognitionControlMode {
+        switch effectiveRecognitionControlMode {
+        case .command, .dictation:
+            return effectiveRecognitionControlMode
+        case .auto:
+            return (currentlyTyping ?? HUDManager.shared.lastKnownTypingState()) ? .dictation : .command
+        }
+    }
+
+    func refreshTransientRecognitionControlModeIfNeeded(source: String = "focus-sync") {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshTransientRecognitionControlModeIfNeeded(source: source)
+            }
+            return
+        }
+
+        guard transientRecognitionControlMode != nil else {
+            transientModeAnchorTypingState = nil
+            transientModeObservedTypingState = nil
+            transientModeObservedAt = .distantPast
+            return
+        }
+        // Respect future explicit persistent preferences if introduced.
+        guard persistentRecognitionControlMode == .auto else { return }
+
+        let now = Date()
+        if now.timeIntervalSince(lastTransientModeSyncAt) < 0.12 {
+            return
+        }
+        lastTransientModeSyncAt = now
+
+        guard let anchor = transientModeAnchorTypingState else { return }
+        let currentlyTyping = HUDManager.shared.lastKnownTypingState()
+        if transientModeObservedTypingState != currentlyTyping {
+            transientModeObservedTypingState = currentlyTyping
+            transientModeObservedAt = now
+            return
+        }
+        guard now.timeIntervalSince(transientModeObservedAt) >= 0.45 else { return }
+        guard currentlyTyping != anchor else { return }
+
+        transientRecognitionControlMode = nil
+        transientModeAnchorTypingState = nil
+        transientModeObservedTypingState = nil
+        transientModeObservedAt = .distantPast
+        postRecognitionControlModeChanged(source: source)
+        os_log("Recognition Mode transient override cleared (%{public}@): focus context changed",
+               log: log, type: .info, source)
+    }
+
+    @MainActor
+    private func clearTransientRecognitionControlModeForInputRefocus(source: String) {
+        guard transientRecognitionControlMode == .command else { return }
+        guard persistentRecognitionControlMode == .auto else { return }
+        guard HUDManager.shared.lastKnownTypingState() else { return }
+
+        transientRecognitionControlMode = nil
+        transientModeAnchorTypingState = nil
+        transientModeObservedTypingState = nil
+        transientModeObservedAt = .distantPast
+        postRecognitionControlModeChanged(source: source)
+        os_log("Recognition Mode transient override cleared (%{public}@): refocused typing input",
+               log: log, type: .info, source)
     }
 
 }
