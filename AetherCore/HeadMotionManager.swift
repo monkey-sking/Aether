@@ -683,7 +683,7 @@ class HeadMotionManager: ObservableObject {
             HUDManager.shared.showTemporary(
                 message: message,
                 recognitionControlMode: .command,
-                duration: 1.1
+                duration: 0.75
             )
             os_log("Recognition Mode Toggle blocked (%{public}@, persist=%{public}@): no input focus",
                    log: log, type: .info, source, persist ? "yes" : "no")
@@ -706,7 +706,7 @@ class HeadMotionManager: ObservableObject {
         HUDManager.shared.showTemporary(
             message: message,
             recognitionControlMode: nextMode.hudMode,
-            duration: 1.2
+            duration: 0.8
         )
         os_log("Recognition Mode Override Toggled (%{public}@, persist=%{public}@): %{public}@",
                log: log, type: .info, source, persist ? "yes" : "no", isCommandMode ? "command" : "dictation")
@@ -739,7 +739,7 @@ class HeadMotionManager: ObservableObject {
         HUDManager.shared.showTemporary(
             message: message,
             recognitionControlMode: .command,
-            duration: 1.2
+            duration: 0.8
         )
         os_log("Recognition Mode escape exit (%{public}@): mode=%{public}@",
                log: log, type: .info, source, effectiveRecognitionControlMode.rawValue)
@@ -834,6 +834,30 @@ class HeadMotionManager: ObservableObject {
             installHotkeysIfPossible()
         } else {
             uninstallHotkeys()
+        }
+    }
+
+    @MainActor
+    func recoverFromAccessibilityTrustChange(trusted: Bool, source: String = "ax-trust-change") {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.recoverFromAccessibilityTrustChange(trusted: trusted, source: source)
+            }
+            return
+        }
+
+        if trusted {
+            // Force rebuild to avoid stale/half-dead taps after TCC revoke/restore cycles.
+            uninstallHotkeys()
+            installHotkeysIfPossible()
+            clearTransientRecognitionControlMode(source: "\(source)-trusted")
+            os_log("HeadMotionManager recovery: AX trusted, hotkeys rebuilt",
+                   log: log, type: .info)
+        } else {
+            uninstallHotkeys()
+            clearTransientRecognitionControlMode(source: "\(source)-untrusted")
+            os_log("HeadMotionManager recovery: AX untrusted, hotkeys removed",
+                   log: log, type: .info)
         }
     }
 
@@ -1003,7 +1027,7 @@ class HeadMotionManager: ObservableObject {
             
             if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
                 DispatchQueue.main.async {
-                    manager.clearTransientRecognitionControlModeForInputRefocus(source: "mouse-input-refocus")
+                    manager.clearTransientRecognitionControlMode(source: "mouse-input-refocus")
                 }
             }
 
@@ -1231,17 +1255,15 @@ class HeadMotionManager: ObservableObject {
     }
 
     @MainActor
-    private func clearTransientRecognitionControlModeForInputRefocus(source: String) {
-        guard transientRecognitionControlMode == .command else { return }
+    private func clearTransientRecognitionControlMode(source: String) {
+        guard transientRecognitionControlMode != nil else { return }
         guard persistentRecognitionControlMode == .auto else { return }
-        guard HUDManager.shared.lastKnownTypingState() else { return }
-
         transientRecognitionControlMode = nil
         transientModeAnchorTypingState = nil
         transientModeObservedTypingState = nil
         transientModeObservedAt = .distantPast
         postRecognitionControlModeChanged(source: source)
-        os_log("Recognition Mode transient override cleared (%{public}@): refocused typing input",
+        os_log("Recognition Mode transient override cleared (%{public}@)",
                log: log, type: .info, source)
     }
 

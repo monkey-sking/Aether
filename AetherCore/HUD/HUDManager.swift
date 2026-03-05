@@ -169,33 +169,41 @@ final class HUDManager {
             return true
         }
 
+        let now = Date()
+        let axEditableLikely: Bool
+        if now.timeIntervalSince(lastAXTypingCheckAt) < 0.12 {
+            axEditableLikely = cachedAXTypingState
+        } else {
+            lastAXTypingCheckAt = now
+            let v = isAXFocusedElementEditable()
+            cachedAXTypingState = v
+            axEditableLikely = v
+        }
+
         let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
 
         // Geometry-first fallback (works better for browser/webview inputs where AX role is often AXWebArea/AXGroup).
-        if axCaretRectThrottled() != nil { return true }
+        if axCaretRectThrottled() != nil, axEditableLikely || isAXFocusedElementInsertionContextAvailable() {
+            return true
+        }
         if let r = detector.currentUpdate.inputRect, isTypingBoxSizedRect(r), !isProbablyWholeWindowRect(r) {
             return true
         }
         if let r = axFocusedElementRectThrottled(),
            !isProbablyWholeWindowRect(r) {
-            if isTypingBoxSizedRect(r) { return true }
-            if isWeirdWebTypingApp(bundleID: frontBundle), isWebInputSizedRect(r) { return true }
-            if isAXFocusedElementInsertionContextAvailable() { return true }
+            let insertionAvailable = isAXFocusedElementInsertionContextAvailable()
+            if insertionAvailable, (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) { return true }
+            if axEditableLikely {
+                if isTypingBoxSizedRect(r) { return true }
+                if isWeirdWebTypingApp(bundleID: frontBundle), isWebInputSizedRect(r) { return true }
+            }
         }
 
         if isWeirdWebTypingApp(bundleID: frontBundle),
            isAXFocusedElementLooselyEditableForWeb() {
             return true
         }
-
-        let now = Date()
-        if now.timeIntervalSince(lastAXTypingCheckAt) < 0.12 {
-            return cachedAXTypingState
-        }
-        lastAXTypingCheckAt = now
-        let v = isAXFocusedElementEditable()
-        cachedAXTypingState = v
-        return v
+        return axEditableLikely
     }
 
     private func isAXFocusedElementEditable() -> Bool {
@@ -236,20 +244,39 @@ final class HUDManager {
         let editable = boolAttr("AXEditable" as CFString) == true
         if editable { return true }
 
-        let hasSelectedRange: Bool = {
+        let hasCollapsedSelectedRange: Bool = {
             var v: CFTypeRef?
-            return AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &v) == .success
+            guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &v) == .success,
+                  let raw = v,
+                  CFGetTypeID(raw) == AXValueGetTypeID() else { return false }
+            let ax = raw as! AXValue
+            guard AXValueGetType(ax) == .cfRange else { return true }
+            var range = CFRange()
+            guard AXValueGetValue(ax, .cfRange, &range) else { return true }
+            return range.length == 0
         }()
         let hasMarkerRange: Bool = {
             var v: CFTypeRef?
             return AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &v) == .success
         }()
-        let hasInsertionContextOnFocus = hasSelectedRange || hasMarkerRange
+        let hasInsertionContextOnFocus = hasCollapsedSelectedRange || hasMarkerRange
 
         func hasInsertionContext(_ e: AXUIElement) -> Bool {
             var selectedRangeValue: CFTypeRef?
-            if AXUIElementCopyAttributeValue(e, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success {
-                return true
+            if AXUIElementCopyAttributeValue(e, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success,
+               let selectedRangeValue,
+               CFGetTypeID(selectedRangeValue) == AXValueGetTypeID() {
+                let ax = selectedRangeValue as! AXValue
+                if AXValueGetType(ax) == .cfRange {
+                    var range = CFRange()
+                    if AXValueGetValue(ax, .cfRange, &range) {
+                        if range.length == 0 { return true }
+                    } else {
+                        return true
+                    }
+                } else {
+                    return true
+                }
             }
             var markerRangeValue: CFTypeRef?
             if AXUIElementCopyAttributeValue(e, "AXSelectedTextMarkerRange" as CFString, &markerRangeValue) == .success {
@@ -350,7 +377,7 @@ final class HUDManager {
             }
             if boolAttr("AXEditable" as CFString) { return true }
             if isAXFocusedElementInsertionContextAvailable() { return true }
-            return true
+            return false
         }
         return false
     }
@@ -372,8 +399,20 @@ final class HUDManager {
         let element = focusedElement as! AXUIElement
 
         var selectedRangeRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeRef) == .success {
-            return true
+        if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeRef) == .success,
+           let selectedRangeRef,
+           CFGetTypeID(selectedRangeRef) == AXValueGetTypeID() {
+            let ax = selectedRangeRef as! AXValue
+            if AXValueGetType(ax) == .cfRange {
+                var range = CFRange()
+                if AXValueGetValue(ax, .cfRange, &range) {
+                    if range.length == 0 { return true }
+                } else {
+                    return true
+                }
+            } else {
+                return true
+            }
         }
         var markerRangeRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRangeRef) == .success {

@@ -88,6 +88,10 @@ final class MotionService: ObservableObject {
         manager.setGlobalHotkeysEnabled(enabled)
     }
 
+    func recoverFromAccessibilityTrustChange(_ trusted: Bool, source: String = "permissions-refresh") {
+        manager.recoverFromAccessibilityTrustChange(trusted: trusted, source: source)
+    }
+
     func startTracking() { manager.startTracking() }
     func stopTracking() { manager.stopTracking() }
     func finishCalibration() { manager.finishCalibration() }
@@ -268,7 +272,8 @@ final class PermissionsService: ObservableObject {
     }
 
     func refresh() { manager.refresh() }
-    func requestAccessibility() { manager.requestAccessibility() }
+    @discardableResult
+    func requestAccessibility() -> Bool { manager.requestAccessibility() }
     func requestMicrophone() { manager.requestMicrophone() }
     func requestSpeech() { manager.requestSpeech() }
     func openAccessibilityPrivacyPane() { manager.openAccessibilityPrivacyPane() }
@@ -686,6 +691,7 @@ class AppState: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var hasShownAccessibilityHint: Bool = false
     private var hasRequestedAccessibilityPromptThisRun: Bool = false
+    private var lastObservedAccessibilityTrusted: Bool?
 
     
     init() {
@@ -772,8 +778,11 @@ class AppState: ObservableObject {
 
         permissions.$accessibilityTrusted
             .receive(on: DispatchQueue.main)
-            .sink { _ in
-                self.motionService.setGlobalHotkeysEnabled(AXIsProcessTrusted())
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let live = AXIsProcessTrusted()
+                self.motionService.setGlobalHotkeysEnabled(live)
+                self.handleAccessibilityTrustTransitionIfNeeded(trusted: live, source: "permissions-publisher")
             }
             .store(in: &cancellables)
 
@@ -791,6 +800,7 @@ class AppState: ObservableObject {
             let liveSpeech = SFSpeechRecognizer.authorizationStatus() == .authorized
             let voiceReadyNow = liveMic && liveSpeech
 
+            self.handleAccessibilityTrustTransitionIfNeeded(trusted: liveAX, source: "permissions-combine")
             self.voiceService.setAccessibilityTrusted(liveAX)
             self.onboardingStep = Self.deriveOnboardingStep(
                 accessibilityTrusted: liveAX,
@@ -877,6 +887,16 @@ class AppState: ObservableObject {
             .store(in: &cancellables)
 
         refreshPermissions()
+    }
+
+    private func handleAccessibilityTrustTransitionIfNeeded(trusted: Bool, source: String) {
+        guard lastObservedAccessibilityTrusted != trusted else { return }
+        lastObservedAccessibilityTrusted = trusted
+        motionService.recoverFromAccessibilityTrustChange(trusted, source: source)
+        if trusted {
+            hasRequestedAccessibilityPromptThisRun = false
+            hasShownAccessibilityHint = false
+        }
     }
 
     private static func deriveOnboardingStep(
@@ -1066,9 +1086,15 @@ class AppState: ObservableObject {
             refreshPermissions()
             return
         }
-        permissions.requestAccessibility()
-        permissions.openAccessibilityPrivacyPane()
-        refreshPermissions()
+        // Accessibility already has a native prompt with "Open System Settings".
+        // Do not open the pane immediately, otherwise users see two windows at once.
+        let didShowSystemPrompt = permissions.requestAccessibility()
+        if !didShowSystemPrompt {
+            permissions.openAccessibilityPrivacyPane()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.refreshPermissions()
+        }
     }
 
     func requestMicrophoneGuided() {
