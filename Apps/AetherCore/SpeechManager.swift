@@ -1475,34 +1475,36 @@ final class SpeechManager: ObservableObject {
     }
     private func deduplicateRepeatedTailPhrase(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 8 else { return trimmed }
+        guard trimmed.count >= 2 else { return trimmed }
 
         var chars = Array(trimmed)
         var changed = false
 
         repeat {
             changed = false
-            let maxUnit = min(16, chars.count / 2)
-            guard maxUnit >= 3 else { break }
-
-            for unitLen in stride(from: maxUnit, through: 3, by: -1) {
-                let start = chars.count - unitLen
-                let prevStart = start - unitLen
-                guard prevStart >= 0 else { continue }
-
-                let prev = chars[prevStart..<start]
-                let tail = chars[start..<chars.count]
-                guard prev.elementsEqual(tail) else { continue }
-
-                let segment = String(prev)
-                let hasWhitespace = segment.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) }
-                let hasLetterOrDigit = segment.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
-                let hasCJK = segment.unicodeScalars.contains { (0x4E00...0x9FFF).contains(Int($0.value)) }
-                guard !hasWhitespace, hasLetterOrDigit || hasCJK else { continue }
-
-                chars.removeSubrange(start..<chars.count)
-                changed = true
-                break
+            let minUnitLen = 2
+            let maxUnitLen = min(16, chars.count / 2)
+            
+            if maxUnitLen >= minUnitLen {
+                outerBlock: for unitLen in stride(from: maxUnitLen, through: minUnitLen, by: -1) {
+                    for i in 0...(chars.count - unitLen * 2) {
+                        let seq1 = chars[i..<i+unitLen]
+                        let seq2 = chars[i+unitLen..<i+unitLen*2]
+                        
+                        if seq1.elementsEqual(seq2) {
+                            let segment = String(seq1)
+                            let hasWhitespace = segment.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) }
+                            let hasLetterOrDigit = segment.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
+                            let hasCJK = segment.unicodeScalars.contains { (0x4E00...0x9FFF).contains(Int($0.value)) }
+                            
+                            if !hasWhitespace && (hasLetterOrDigit || hasCJK) {
+                                chars.removeSubrange(i+unitLen..<i+unitLen*2)
+                                changed = true
+                                break outerBlock
+                            }
+                        }
+                    }
+                }
             }
         } while changed
 

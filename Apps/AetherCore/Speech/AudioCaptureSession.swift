@@ -41,11 +41,17 @@ final class AudioCaptureSession {
 
         if #available(macOS 10.15, *) {
             let enable = useVoiceProcessing || shouldAutoEnableVoiceProcessingIO()
-            do {
-                try inputNode.setVoiceProcessingEnabled(enable)
-                os_log("VoiceProcessingIO: %{public}@", log: log, type: .info, enable ? "on" : "off")
-            } catch {
-                os_log("VoiceProcessingIO set failed: %{public}@", log: log, type: .error, error.localizedDescription)
+            if enable {
+                do {
+                    try inputNode.setVoiceProcessingEnabled(true)
+                    os_log("VoiceProcessingIO: on", log: log, type: .info)
+                } catch {
+                    os_log("VoiceProcessingIO set failed: %{public}@", log: log, type: .error, error.localizedDescription)
+                }
+            } else {
+                // Avoid explicitly forcing "off" on every engine start, which can
+                // reset the user's current Mic Mode back to Standard in Control Center.
+                os_log("VoiceProcessingIO: preserve system/default", log: log, type: .info)
             }
         }
 

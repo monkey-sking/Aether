@@ -17,6 +17,8 @@
 - [ ] 中文短句识别不会出现尾部重复（例如“通过并完成通过并完成”）
 - [ ] 中英混读（含英文术语）场景下不会出现尾短语回环重复
     已加识别后处理：`normalizeRecognizedText` + `deduplicateRepeatedTailPhrase`，待你实测验收
+- [ ] LLM 语音识别结束润色与纠错 (Pending Feature)
+    利用大模型能力对 Final 文本进行上下文纠错和近音词修复（例如“交脱入”->“将拖入”），以解决 SFSpeechRecognizer 原生识别的幻觉和断句问题。
 
 ### Dictation And Injection
 - [ ] 输入模式下 partial 增量输入正常
