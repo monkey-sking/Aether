@@ -8,12 +8,31 @@
     有问题，现在我没有说话还是在转，是受环境声音导致的一直转吗
 - [x] 手动切换模式时：左侧仍是麦克风/设备图标，右侧才是模式图标（command/keyboard）
 
+## 本轮新增功能验收（2026-03-05）
+- [x] 语言切换快捷键可用（默认 `Shift`）
+- [x] 左/右 `Shift` 都可触发语言切换
+- [x] 连续按住 `Shift` 不会误触发多次切换（仅按下触发）
+- [x] 与现有输入/控制模式快捷键无冲突
+
 ## Build
 - [x] 安装包使用最新构建产物：`.build/release/Aether_Installer.dmg` 或 `.build/release/Aether.zip`
 - [x] 应用可正常启动，无崩溃
 - [x] 首次启动权限提示流程正常（辅助功能/麦克风/语音识别）
     会弹出多个权限请求，应该要依次弹出吧
     还有辅助权限要了好多次，现在我们签名没有变，打包后会重复要权限
+
+## 本次正式包验签结果（2026-03-05）
+- [x] 使用发布链路生成正式包（`Scripts/ReleaseForUsers.sh`，非 `AETHER_UNSIGNED=1`）
+- [x] App 验签通过：`codesign --verify --deep --strict` + `spctl -a -t exec -vv`
+- [x] DMG 验签通过：`codesign --verify` + `spctl -a -t open -vv --context context:primary-signature`
+- [x] Notary 公证通过（Submission ID: `d4ff6e81-0ff5-4c52-ba1a-bef8908a24fb`，状态 `Accepted`）
+- [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
+
+## 权限复用专项（安装包）
+- [ ] 从 `/Applications` 运行已签名版本，覆盖升级后不会重复请求辅助功能权限
+- [ ] 从 DMG 内直接运行时会提示安装到 `/Applications`（避免权限反复）
+- [x] 未签名/临时签名包（开发构建）可能触发系统重新授权（记录为预期行为）
+    上次重复授权的直接原因：使用了 `AETHER_UNSIGNED=1` 产物，且可能未固定在 `/Applications/Aether.app` 路径运行
 
 ## Hotkey And Mode Switching
 - [x] 快捷键切换输入/控制模式可触发（连续按 5 次）
