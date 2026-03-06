@@ -20,7 +20,7 @@ struct HotkeyBinding: Codable, Equatable {
         if flags.contains(.maskAlphaShift) { parts.append("⇪") }
         
         if let btn = mouseButton {
-            parts.append("Mouse \(btn)")
+            parts.append(Self.mouseButtonName(for: btn))
         } else {
             parts.append(Self.keyName(for: keyCode))
         }
@@ -80,15 +80,48 @@ struct HotkeyBinding: Codable, Equatable {
         case kVK_F11: return "F11"
         case kVK_F12: return "F12"
         case kVK_Space:  return "Space"
-        case kVK_Return: return "Return"
-        case kVK_Tab:    return "Tab"
-        case kVK_Delete: return "Delete"
-        case kVK_Escape: return "Esc"
+        case kVK_Return: return "⏎"
+        case kVK_Tab:    return "⇥"
+        case kVK_Delete: return "⌫"
+        case kVK_ForwardDelete: return "⌦"
+        case kVK_Escape: return "⎋"
+        case kVK_Home:   return "↖"
+        case kVK_End:    return "↘"
+        case kVK_PageUp:   return "⇞"
+        case kVK_PageDown: return "⇟"
         case kVK_LeftArrow:  return "←"
         case kVK_RightArrow: return "→"
         case kVK_UpArrow:    return "↑"
         case kVK_DownArrow:  return "↓"
+        // ANSI symbols
+        case kVK_ANSI_Equal:        return "="
+        case kVK_ANSI_Minus:        return "-"
+        case kVK_ANSI_LeftBracket:  return "["
+        case kVK_ANSI_RightBracket: return "]"
+        case kVK_ANSI_Backslash:    return "\\"
+        case kVK_ANSI_Semicolon:    return ";"
+        case kVK_ANSI_Quote:        return "'"
+        case kVK_ANSI_Comma:        return ","
+        case kVK_ANSI_Period:       return "."
+        case kVK_ANSI_Slash:        return "/"
+        case kVK_ANSI_Grave:        return "`"
+        // Modifier keys (when used standalone)
+        case kVK_Shift, kVK_RightShift:     return "⇧"
+        case kVK_Control, kVK_RightControl: return "⌃"
+        case kVK_Option, kVK_RightOption:   return "⌥"
+        case kVK_Command, kVK_RightCommand: return "⌘"
+        case kVK_CapsLock:                  return "⇪"
         default: return "Key(\(code))"
+        }
+    }
+
+    /// Human-readable mouse button name
+    static func mouseButtonName(for button: Int) -> String {
+        switch button {
+        case 2:  return "Middle Click"
+        case 3:  return "Mouse Back"
+        case 4:  return "Mouse Forward"
+        default: return "Mouse \(button)"
         }
     }
 }

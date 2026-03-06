@@ -187,7 +187,9 @@ final class AudioCaptureSession {
     }
 
     private func shouldAutoEnableVoiceProcessingIO() -> Bool {
-        guard UserDefaults.standard.object(forKey: "autoVoiceProcessingForSpeakers") as? Bool ?? true else { return false }
+        // Default OFF: avoid unexpectedly forcing system Mic Mode back to "Standard"
+        // when a new capture engine starts. Teams can opt-in via UserDefaults.
+        guard UserDefaults.standard.object(forKey: "autoVoiceProcessingForSpeakers") as? Bool ?? false else { return false }
 
         func defaultDeviceID(_ selector: AudioObjectPropertySelector) -> AudioDeviceID? {
             var addr = AudioObjectPropertyAddress(
