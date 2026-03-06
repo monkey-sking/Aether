@@ -20,6 +20,9 @@ final class HUDManager {
     private var cachedAXFocusDebugSignature: String = "focus=nil"
     private var lastAnchorTraceAt: Date = .distantPast
     private var lastAnchorTraceSignature: String = ""
+    private var lastFullscreenSuppressionCheckAt: Date = .distantPast
+    private var cachedFullscreenSuppressionResult: Bool = false
+    private var cachedFullscreenSuppressionBundleID: String = ""
     private var lastGoodTypingRect: CGRect?
     private var lastGoodTypingRectAt: Date = .distantPast
     private var lastInputInteractionPoint: CGPoint?
@@ -28,6 +31,7 @@ final class HUDManager {
     private var hudWindow: NSPanel?
     private var hideTask: DispatchWorkItem?
     private var pendingRepositionWorkItem: DispatchWorkItem?
+    private var lastSmoothedWindowOrigin: CGPoint?
     private var cancellables = Set<AnyCancellable>()
     
     private init() {
@@ -77,7 +81,6 @@ final class HUDManager {
             return
         }
         
-        let typingSnapshot = lastKnownTypingState()
         let effectiveTypingContext: Bool
         switch recognitionControlMode {
         case .command:
@@ -85,8 +88,16 @@ final class HUDManager {
         case .dictation:
             effectiveTypingContext = true
         case .auto:
-            effectiveTypingContext = typingSnapshot
+            effectiveTypingContext = lastKnownTypingState()
         }
+
+        let isNoopVisibleRefresh =
+            state.mode == mode &&
+            state.message == message &&
+            state.language == language &&
+            state.isTypingContext == effectiveTypingContext &&
+            state.recognitionControlMode == recognitionControlMode &&
+            state.inputDeviceIcon == inputDeviceIcon
 
         state.update(
             mode: mode,
@@ -111,7 +122,11 @@ final class HUDManager {
             requestReposition(immediate: true)
             ensureWindowVisible()
         case .listening, .command, .dictation, .processing:
-            cancelHide()
+            // Keep temporary HUD hide timer alive when refreshes are semantic no-ops.
+            // Otherwise short toasts can become "always visible" under periodic updates.
+            if !isNoopVisibleRefresh {
+                cancelHide()
+            }
             requestReposition(immediate: true)
             ensureWindowVisible()
         }
@@ -884,15 +899,9 @@ final class HUDManager {
         
         let update = detector.currentUpdate
         let mouseLoc = NSEvent.mouseLocation
-        let axFocusRect = axFocusedElementRectThrottled()
-        let axCaret = axCaretRectThrottled()
-        let axEstimated = axEstimatedCaretContextThrottled()
-        let axFocusInfo = axFocusedElementDebugSignatureThrottled()
-        let axTrusted = AXIsProcessTrusted()
         
         // 1. Determine Anchor & Mode
         var anchor = mouseLoc
-        let typingSnapshot = lastKnownTypingState()
         let uiTypingMode: Bool
         switch state.recognitionControlMode {
         case .command:
@@ -900,7 +909,7 @@ final class HUDManager {
         case .dictation:
             uiTypingMode = true
         case .auto:
-            uiTypingMode = typingSnapshot
+            uiTypingMode = lastKnownTypingState()
         }
         let wasTypingMode = state.isTypingContext
         var layoutTypingMode = false
@@ -908,6 +917,21 @@ final class HUDManager {
         var preferBelowInput = false
         var typingRect: CGRect? = nil
         let now = Date()
+        let hudAnchorTraceEnabled = UserDefaults.standard.object(forKey: "hudAnchorTraceEnabled") as? Bool ?? false
+        var axFocusRect: CGRect?
+        var axCaret: CGRect?
+        var axEstimated: (point: CGPoint, bounds: CGRect)?
+        var axFocusInfo: String = ""
+        var axTrusted = false
+        if uiTypingMode || hudAnchorTraceEnabled {
+            axFocusRect = axFocusedElementRectThrottled()
+            axCaret = axCaretRectThrottled()
+            axEstimated = axEstimatedCaretContextThrottled()
+            if hudAnchorTraceEnabled {
+                axFocusInfo = axFocusedElementDebugSignatureThrottled()
+                axTrusted = AXIsProcessTrusted()
+            }
+        }
 
         if !uiTypingMode {
             // Prevent stale anchors from "sticking" after focus leaves an input box.
@@ -1153,7 +1177,29 @@ final class HUDManager {
         }
         
         if let pos = bestPos {
-            panel.setFrameOrigin(pos)
+            let finalOrigin: CGPoint
+            if panel.isVisible, panel.alphaValue > 0.01, let prev = lastSmoothedWindowOrigin {
+                let dx = pos.x - prev.x
+                let dy = pos.y - prev.y
+                let dist = hypot(dx, dy)
+                if dist < 1 {
+                    finalOrigin = pos
+                } else {
+                    // Responsive follow:
+                    // - large jumps snap to target to avoid trailing lag
+                    // - small movements keep a light smoothing to reduce jitter
+                    if dist > 36 {
+                        finalOrigin = pos
+                    } else {
+                        let alpha: CGFloat = 0.72
+                        finalOrigin = CGPoint(x: prev.x + dx * alpha, y: prev.y + dy * alpha)
+                    }
+                }
+            } else {
+                finalOrigin = pos
+            }
+            panel.setFrameOrigin(finalOrigin)
+            lastSmoothedWindowOrigin = finalOrigin
             if panel.frame.size != size {
                  panel.setContentSize(size)
             }
@@ -1163,7 +1209,7 @@ final class HUDManager {
 
             // Lightweight file trace for weird UIs (Codex/Antigravity).
             // Only logs when the computed anchor/typing rect or final position changes meaningfully.
-            if now.timeIntervalSince(lastAnchorTraceAt) > 0.12 {
+            if hudAnchorTraceEnabled, now.timeIntervalSince(lastAnchorTraceAt) > 0.12 {
                 lastAnchorTraceAt = now
                 func fmt(_ r: CGRect?) -> String {
                     guard let r else { return "nil" }
@@ -1197,11 +1243,107 @@ final class HUDManager {
     // --- Fullscreen Video Logic ---
     
     private func shouldSuppressHUDForFullscreenVideo() -> Bool {
+        // Keep this feature enabled by default, but with strict checks to avoid browser false positives.
+        guard UserDefaults.standard.object(forKey: "suppressHUDInFullscreenVideo") as? Bool ?? true else {
+            return false
+        }
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              let front = app.bundleIdentifier?.lowercased() else {
+            return false
+        }
+        let isMediaCapableApp =
+            front.contains("quicktime") ||
+            front.contains("tv") ||
+            front.contains("vlc") ||
+            front.contains("iina") ||
+            front.contains("movist") ||
+            front.contains("safari") ||
+            front.contains("chrome") ||
+            front.contains("chromium") ||
+            front.contains("brave") ||
+            front.contains("arc") ||
+            front.contains("firefox") ||
+            front.contains("edge")
+        guard isMediaCapableApp else { return false }
+
+        // Never suppress while user is in typing context.
+        if state.isTypingContext { return false }
+
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else {
             return false
         }
+
         let isImmersive = screen.frame.size == screen.visibleFrame.size
-        return isImmersive
+        guard isImmersive else { return false }
+
+        let now = Date()
+        if front == cachedFullscreenSuppressionBundleID,
+           now.timeIntervalSince(lastFullscreenSuppressionCheckAt) < 0.22 {
+            return cachedFullscreenSuppressionResult
+        }
+        lastFullscreenSuppressionCheckAt = now
+        cachedFullscreenSuppressionBundleID = front
+
+        let result = isFrontmostFocusedWindowLikelyFullscreen(app: app, on: screen)
+        cachedFullscreenSuppressionResult = result
+        return result
+    }
+
+    private func isFrontmostFocusedWindowLikelyFullscreen(app: NSRunningApplication, on screen: NSScreen) -> Bool {
+        let appAX = AXUIElementCreateApplication(app.processIdentifier)
+
+        var focusedWindowRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appAX, kAXFocusedWindowAttribute as CFString, &focusedWindowRef) == .success,
+              let focusedWindowRef else {
+            return false
+        }
+
+        let windowAX = focusedWindowRef as! AXUIElement
+
+        var fullscreenRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(windowAX, "AXFullScreen" as CFString, &fullscreenRef) == .success {
+            if let b = fullscreenRef as? Bool, b { return true }
+            if let n = fullscreenRef as? NSNumber, n.boolValue { return true }
+        }
+
+        func cgPoint(_ e: AXUIElement, _ key: CFString) -> CGPoint? {
+            var v: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(e, key, &v) == .success,
+                  let axv = v,
+                  CFGetTypeID(axv) == AXValueGetTypeID() else { return nil }
+            let value = axv as! AXValue
+            guard AXValueGetType(value) == .cgPoint else { return nil }
+            var point = CGPoint.zero
+            return AXValueGetValue(value, .cgPoint, &point) ? point : nil
+        }
+
+        func cgSize(_ e: AXUIElement, _ key: CFString) -> CGSize? {
+            var v: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(e, key, &v) == .success,
+                  let axv = v,
+                  CFGetTypeID(axv) == AXValueGetTypeID() else { return nil }
+            let value = axv as! AXValue
+            guard AXValueGetType(value) == .cgSize else { return nil }
+            var size = CGSize.zero
+            return AXValueGetValue(value, .cgSize, &size) ? size : nil
+        }
+
+        guard let pos = cgPoint(windowAX, kAXPositionAttribute as CFString),
+              let size = cgSize(windowAX, kAXSizeAttribute as CFString) else {
+            return false
+        }
+
+        let windowRect = CGRect(origin: pos, size: size)
+        let screenRect = screen.frame
+        let tolerance: CGFloat = 10
+
+        let coversScreen =
+            abs(windowRect.minX - screenRect.minX) <= tolerance &&
+            abs(windowRect.minY - screenRect.minY) <= tolerance &&
+            abs(windowRect.maxX - screenRect.maxX) <= tolerance &&
+            abs(windowRect.maxY - screenRect.maxY) <= tolerance
+
+        return coversScreen
     }
     
     private func hideForHiddenCursor() {
@@ -1260,6 +1402,7 @@ final class HUDManager {
             ctx.duration = 0.2
             self.hudWindow?.animator().alphaValue = 0
         }, completionHandler: {
+            self.lastSmoothedWindowOrigin = nil
             self.hudWindow?.orderOut(nil)
         })
     }

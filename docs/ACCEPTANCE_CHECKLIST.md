@@ -6,6 +6,17 @@
 - [ ] 浏览器普通页面（非输入框）中，控制模式 HUD 跟随鼠标移动
     有问题，有时候不跟着鼠标走,在一个离鼠标很远的地方,显示的是输入框，这块输入控制判定需要优化下
 
+
+### Browser HUD Performance（未验收项）
+- [ ] 浏览器普通页面中 HUD 跟随鼠标应流畅，无明显拖尾/卡顿
+- [ ] 浏览器输入框中 HUD 跟随光标应流畅，无明显掉帧
+- [ ] 浏览器场景中 HUD 不应无故消失（非显式隐藏/非视频全屏抑制）
+- [ ] 浏览器全屏播放视频时，HUD 应自动隐藏（功能保留）
+- [ ] 退出浏览器全屏视频后，HUD 应自动恢复显示
+    本轮代码已调整：
+    1) HUD 重定位仅在输入态或显式诊断时执行 AX 重查询；
+    2) HUD 锚点追踪写文件默认关闭（`hudAnchorTraceEnabled=false`）；
+    3) 全屏视频抑制恢复默认开启（`suppressHUDInFullscreenVideo=true`），并增加前台进程 + 聚焦窗口全屏校验，避免普通页面误隐藏
 ### Voice Progress Ring
 - [ ] 无语音输入时，进度环不持续转圈
 - [ ] 仅在检测到语音活动时，进度环显示并推进
@@ -38,6 +49,21 @@
 - [x] 首次启动权限提示应按预期串行展示，且不会重复弹出
     会弹出多个权限请求，应该要依次弹出吧
 
+### Mic Mode（未验收项）
+- [ ] 在控制中心手动切到“语音突出/宽谱”后，APP 会话重启（切输入设备、重启识别）不再自动回到“标准”
+- [ ] PTT 模式连续触发 5 次后，麦克风模式不被强制重置为“标准”
+- [ ] 常驻监听模式（Hands-Free）运行 5 分钟内，麦克风模式保持用户手动选择
+    本轮代码已调整：
+    1) `AudioCaptureSession.start()` 不再显式 `setVoiceProcessingEnabled(false)`；
+    2) `autoVoiceProcessingForSpeakers` 默认关闭（需显式开启才会自动启用 VoiceProcessingIO）
+
+### HUD 提示与动画（未验收项）
+- [ ] “已退出输入模式”提示应为短暂提示，显示后自动消失（不应常驻）
+- [ ] 出现该提示时，HUD 位置移动应为平滑过渡，不应瞬移
+    本轮代码已调整：
+    1) 同态 HUD 刷新不再取消临时提示隐藏计时；
+    2) HUD 重定位改为短时动画（0.12s）
+
 ### Stability
 - [x] 从系统设置撤销再恢复辅助功能权限后，热键可恢复
 - [x] 从系统设置撤销再恢复辅助功能权限后，模式可随焦点恢复（不会卡在输入模式）
@@ -61,9 +87,28 @@
 - [x] 连续按住 `Shift` 不会误触发多次切换（仅按下触发）
 - [x] 与现有输入/控制模式快捷键无冲突
 
+### 本轮麦克风模式修复（2026-03-05）
+- [x] 已完成代码修复：避免每次启动采集显式关闭 VoiceProcessingIO（不再强制回“标准”）
+- [x] 变更点：`Apps/AetherCore/Speech/AudioCaptureSession.swift`
+
 ### Build
 - [x] 安装包使用最新构建产物：`.build/release/Aether_Installer.dmg` 或 `.build/release/Aether.zip`
 - [x] 应用可正常启动，无崩溃
+
+### 本次打包结果（2026-03-05，脚本复跑）
+- [x] `Scripts/BuildRelease.sh Release` 成功
+- [x] `Scripts/ReleaseForUsers.sh` 成功（使用 `APP_PROVISION_PROFILE` + `DRIVER_PROVISION_PROFILE`，`SKIP_NOTARIZE=1`）
+- [x] App 验签通过：`codesign --verify --deep --strict`
+- [x] DMG 验签通过：`codesign --verify --verbose=4`
+- [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
+- [ ] 本轮未执行公证（Notary）与 Staple，待提供 `NOTARY_PROFILE` 后补验
+
+### 本次打包结果（2026-03-05，问题修复后复跑）
+- [x] 使用完整发布链路：`Scripts/ReleaseForUsers.sh`（非仅 `BuildRelease.sh`）
+- [x] 使用分发配置：`APP_PROVISION_PROFILE=signing/Aether_Distribution.provisionprofile`
+- [x] 使用分发配置：`DRIVER_PROVISION_PROFILE=signing/AetherDriver_Distribution.provisionprofile`
+- [x] 产物刷新成功：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
+- [ ] 本轮仍为 `SKIP_NOTARIZE=1`，待开启公证后补验 `spctl` 与 Staple
 
 ### 本次正式包验签结果（2026-03-05）
 - [x] 使用发布链路生成正式包（`Scripts/ReleaseForUsers.sh`，非 `AETHER_UNSIGNED=1`）
