@@ -43,12 +43,30 @@ final class CaretDetector: ObservableObject {
     
     // Fallback
     private var followTimer: Timer?
-    
+    private var lastFollowPollAt: Date = .distantPast
+
     // Diagnostics
     private var currentAppName: String?
     private var currentAppBundleID: String?
     private var lastFocusedAppName: String?
     private var lastFocusedBundleID: String?
+
+    private static let browserBundleIDs: Set<String> = [
+        "com.apple.safari",
+        "com.google.chrome",
+        "com.google.Chrome.beta",
+        "com.google.Chrome.canary",
+        "com.google.chrome.beta",
+        "com.google.chrome.canary",
+        "com.brave.browser",
+        "company.thebrowser.browser",
+        "com.kagi.kagimacos",
+        "com.microsoft.edgemac",
+        "com.microsoft.edgemac.beta",
+        "com.microsoft.edgemac.dev",
+        "com.microsoft.edgemac.canary",
+        "org.mozilla.firefox"
+    ]
     
     private lazy var inputMethodBridge: InputMethodCaretBridge = {
         let bridge = InputMethodCaretBridge()
@@ -131,6 +149,7 @@ final class CaretDetector: ObservableObject {
     private func startFollowTimer() {
         setupAXObserver()
         inputMethodBridge.start()
+        lastFollowPollAt = .distantPast
         
         // Mouse Click
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in
@@ -162,13 +181,22 @@ final class CaretDetector: ObservableObject {
         
         // Legacy behavior: high-frequency fallback for smoother focus/caret catch-up.
         followTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async { self?.recalcCaret() }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let now = Date()
+                guard now.timeIntervalSince(self.lastFollowPollAt) >= self.passiveFollowInterval(for: now) else {
+                    return
+                }
+                self.lastFollowPollAt = now
+                self.recalcCaret()
+            }
         }
     }
     
     private func stopFollowTimer() {
         followTimer?.invalidate()
         followTimer = nil
+        lastFollowPollAt = .distantPast
         teardownAXObserver()
         inputMethodBridge.stop()
         for monitor in eventMonitors {
@@ -183,6 +211,7 @@ final class CaretDetector: ObservableObject {
     
     private func handleAppSwitch() {
         self.isFetchingCaret = false
+        self.lastFollowPollAt = .distantPast
         self.caretRect = nil
         self.lastCaretRect = nil
         self.lastCaretRectAt = nil
@@ -193,6 +222,26 @@ final class CaretDetector: ObservableObject {
         
         setupAXObserver()
         recalcCaret()
+    }
+
+    private func passiveFollowInterval(for now: Date) -> TimeInterval {
+        let bundleID = (currentAppBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "").lowercased()
+        let recentlyKeyDriven = now.timeIntervalSince(lastKeyDrivenUpdateAt) < 0.2
+        let recentlyBridged = bridgedCaretAt.map { now.timeIntervalSince($0) < 0.18 } ?? false
+        let hasLiveTypingSignal =
+            currentUpdate.caretRect != nil ||
+            currentUpdate.inputRect != nil ||
+            currentUpdate.isSticky ||
+            recentlyKeyDriven ||
+            recentlyBridged
+
+        if hasLiveTypingSignal {
+            return 1.0 / 60.0
+        }
+        if Self.browserBundleIDs.contains(bundleID) {
+            return 1.0 / 8.0
+        }
+        return 1.0 / 20.0
     }
     
     // MARK: - AX Observer

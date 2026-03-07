@@ -164,6 +164,13 @@ struct InputSettingsView: View {
                 presets: [.clickLeft, .clickRight, .doubleClick, .undo, .paste]
             ),
             VoiceLexiconSection(
+                title: isChinese ? "媒体控制" : "Media Control",
+                subtitle: isChinese
+                    ? "通过系统 Now Playing 控制播放、暂停和切歌。"
+                    : "Control playback and track navigation through system Now Playing.",
+                presets: [.mediaPlayPause, .mediaPrevious, .mediaNext]
+            ),
+            VoiceLexiconSection(
                 title: isChinese ? "头控指针" : "Pointer Control",
                 subtitle: isChinese
                     ? "控制头控模式、拖拽和回中。"
@@ -731,6 +738,7 @@ struct InputSettingsView: View {
 }
 
 private struct HeadsetShortcutMappingCard: View {
+    @EnvironmentObject private var appState: AppState
     @ObservedObject private var motionManager = HeadMotionManager.shared
 
     private var isChinese: Bool {
@@ -763,8 +771,8 @@ private struct HeadsetShortcutMappingCard: View {
                             .font(.headline)
                         Text(
                             isChinese
-                                ? "耳机按钮本质上也是触发器，应该和键盘快捷键放在一起看。Aether 目前只保留双按切换输入 / 控制模式，三按开始 / 停止头控。"
-                                : "Headset buttons are also triggers and belong with shortcuts. Aether currently keeps double press for Dictation / Control switching and triple press for tracking."
+                                ? "耳机按钮本质上也是触发器，应该和键盘快捷键放在一起看。Aether 现在会在按住说话模式下接管单按，双按切换输入 / 控制模式，三按开始 / 停止头控。"
+                                : "Headset buttons are also triggers and belong with shortcuts. Aether now uses single press for PTT in push-to-talk mode, double press for Dictation / Control switching, and triple press for tracking."
                         )
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -791,10 +799,10 @@ private struct HeadsetShortcutMappingCard: View {
                 VStack(alignment: .leading, spacing: 8) {
                     row(
                         title: isChinese ? "单按 / 单捏" : "Single Press",
-                        action: isChinese ? "系统保留" : "System Reserved",
+                        action: isChinese ? "按住说话" : "Push To Talk",
                         detail: isChinese
-                            ? "通常会被系统拿去做媒体或麦克风控制，所以 Aether 不再绑定，避免反复弹出系统提示。"
-                            : "Usually claimed by macOS for media or microphone control, so Aether no longer binds it."
+                            ? "仅在“按住说话”模式下生效；Aether 会尝试接管播放 / 暂停语义来开始或结束录音。"
+                            : "Enabled only in push-to-talk mode. Aether uses the play/pause semantic to begin or end recording."
                     )
                     row(
                         title: isChinese ? "双按 / 双捏" : "Double Press",
@@ -856,6 +864,124 @@ private struct HeadsetShortcutMappingCard: View {
     }
 }
 
+private struct NowPlayingControlCard: View {
+    @EnvironmentObject private var appState: AppState
+
+    private var isChinese: Bool {
+        Locale.current.identifier.hasPrefix("zh")
+    }
+
+    private var statusText: String {
+        guard !appState.nowPlayingAppName.isEmpty || !appState.nowPlayingTitle.isEmpty else {
+            return isChinese ? "当前没有系统级 Now Playing 来源" : "No active system Now Playing source"
+        }
+        return appState.nowPlayingStatus == "Playing"
+            ? (isChinese ? "播放中" : "Playing")
+            : (isChinese ? "已暂停" : "Paused")
+    }
+
+    private var subtitleText: String {
+        if !appState.nowPlayingArtist.isEmpty {
+            return appState.nowPlayingArtist
+        }
+        if !appState.nowPlayingAlbum.isEmpty {
+            return appState.nowPlayingAlbum
+        }
+        return appState.nowPlayingBundleIdentifier
+    }
+
+    var body: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "play.rectangle.fill")
+                        .foregroundColor(.secondary)
+                        .frame(width: 18)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(isChinese ? "系统 Now Playing" : "System Now Playing")
+                            .font(.headline)
+                        Text(
+                            isChinese
+                                ? "读取系统当前播放来源，并通过 Aether 发送播放 / 暂停 / 上一首 / 下一首到当前媒体 App。"
+                                : "Reads the current system Now Playing source and sends play/pause, previous, and next controls through Aether."
+                        )
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    statusRow(
+                        title: isChinese ? "当前应用" : "Current App",
+                        value: appState.nowPlayingAppName.isEmpty
+                            ? (isChinese ? "未检测到" : "Not Detected")
+                            : appState.nowPlayingAppName
+                    )
+                    statusRow(
+                        title: isChinese ? "播放内容" : "Now Playing",
+                        value: appState.nowPlayingTitle.isEmpty
+                            ? (isChinese ? "没有可读取的标题" : "No title available")
+                            : appState.nowPlayingTitle
+                    )
+                    statusRow(
+                        title: isChinese ? "状态" : "Status",
+                        value: statusText + (subtitleText.isEmpty ? "" : " · \(subtitleText)")
+                    )
+                }
+                .padding(12)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                HStack(spacing: 10) {
+                    Button {
+                        appState.skipNowPlayingBackward()
+                    } label: {
+                        Label(isChinese ? "上一首" : "Previous", systemImage: "backward.fill")
+                    }
+
+                    Button {
+                        appState.toggleNowPlayingPlayback()
+                    } label: {
+                        Label(appState.nowPlayingStatus == "Playing"
+                              ? (isChinese ? "暂停" : "Pause")
+                              : (isChinese ? "播放" : "Play"),
+                              systemImage: appState.nowPlayingStatus == "Playing" ? "pause.fill" : "play.fill")
+                    }
+
+                    Button {
+                        appState.skipNowPlayingForward()
+                    } label: {
+                        Label(isChinese ? "下一首" : "Next", systemImage: "forward.fill")
+                    }
+
+                    Spacer()
+
+                    Button(isChinese ? "刷新" : "Refresh") {
+                        appState.refreshNowPlaying()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func statusRow(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.caption)
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 private struct VoiceLexiconSection: Identifiable {
     let title: String
     let subtitle: String
@@ -874,6 +1000,12 @@ private extension VoiceCommandPreset {
             return isChinese ? "右键点击" : "Right Click"
         case .doubleClick:
             return isChinese ? "双击" : "Double Click"
+        case .mediaPlayPause:
+            return isChinese ? "播放 / 暂停" : "Play / Pause"
+        case .mediaPrevious:
+            return isChinese ? "上一首" : "Previous Track"
+        case .mediaNext:
+            return isChinese ? "下一首" : "Next Track"
         case .showShortcutPanel:
             return isChinese ? "显示快捷键面板" : "Show Shortcuts Panel"
         case .hideShortcutPanel:
@@ -916,6 +1048,12 @@ private extension VoiceCommandPreset {
             return isChinese ? "在当前鼠标位置打开右键菜单。" : "Opens the context menu at the current pointer position."
         case .doubleClick:
             return isChinese ? "适合打开文件、确认或激活列表项。" : "Useful for opening files or activating items."
+        case .mediaPlayPause:
+            return isChinese ? "控制当前系统播放源的播放或暂停。" : "Plays or pauses the current system media source."
+        case .mediaPrevious:
+            return isChinese ? "切换到上一首或上一段媒体内容。" : "Skips to the previous track or chapter."
+        case .mediaNext:
+            return isChinese ? "切换到下一首或下一段媒体内容。" : "Skips to the next track or chapter."
         case .showShortcutPanel:
             return isChinese ? "展开当前 App 的快捷键总览浮层。" : "Shows the shortcut overlay for the frontmost app."
         case .hideShortcutPanel:
@@ -958,6 +1096,12 @@ private extension VoiceCommandPreset {
             return isChinese ? "例如：右键、打开菜单" : "Example: right click, open menu"
         case .doubleClick:
             return isChinese ? "例如：双击、打开它" : "Example: double click, open it"
+        case .mediaPlayPause:
+            return isChinese ? "例如：播放、暂停、继续播放" : "Example: play, pause, resume"
+        case .mediaPrevious:
+            return isChinese ? "例如：上一首、回到上一段" : "Example: previous track"
+        case .mediaNext:
+            return isChinese ? "例如：下一首、跳到下一段" : "Example: next track"
         case .showShortcutPanel:
             return isChinese ? "例如：显示快捷键、打开面板" : "Example: show shortcuts, open panel"
         case .hideShortcutPanel:
@@ -1804,21 +1948,6 @@ struct OutputSettingsView: View {
 
                 GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label(L10n.settingsGesturesClicks, systemImage: "hand.point.up.left.fill")
-                            .font(.headline)
-
-                        ControlCard(
-                            title: L10n.tiltScroll,
-                            subtitle: L10n.settingsTiltScrollSubtitle,
-                            icon: "arrow.up.arrow.down",
-                            color: .indigo,
-                            isOn: $headManager.isTiltScrollEnabled
-                        )
-                    }
-                }
-
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
                         Label(L10n.settingsCalibration, systemImage: "scope")
                             .font(.headline)
 
@@ -1858,6 +1987,7 @@ struct ShortcutsSettingsView: View {
                 HotkeySettingsSection()
             }
 
+            NowPlayingControlCard()
             HeadsetShortcutMappingCard()
         }
     }
