@@ -133,6 +133,8 @@ struct KeyRecorderRow: View {
             return Locale.current.identifier.hasPrefix("zh") ? "切换输入控制模式" : "Switch input control mode"
         case .toggleLanguage:
             return Locale.current.identifier.hasPrefix("zh") ? "切换语音语言" : "Switch dictation language"
+        case .toggleShortcutPanel:
+            return Locale.current.identifier.hasPrefix("zh") ? "显示或关闭当前应用快捷键面板" : "Show or hide the current app shortcuts panel"
         }
     }
 }

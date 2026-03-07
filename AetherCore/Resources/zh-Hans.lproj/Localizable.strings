@@ -5,6 +5,7 @@
 "generic.ready" = "就绪";
 "generic.tracking" = "追踪中";
 "generic.select_item" = "请选择一个项目";
+"generic.refresh" = "刷新";
 
 /* App */
 "app.project_title" = "Aether";
@@ -69,6 +70,21 @@
 "menu.pointer" = "指针";
 "menu.voice" = "语音";
 "menu.driver" = "驱动";
+"menu.status.setup_attention" = "需要处理设置";
+"menu.status.voice_pointer_ready" = "语音和指针已就绪";
+"menu.status.pointer_active" = "指针控制已开启";
+"menu.status.ready" = "Aether 已待命";
+"menu.status.accessibility_missing" = "辅助功能未授权";
+"menu.status.microphone_missing" = "麦克风未授权";
+"menu.status.speech_missing" = "语音识别未授权";
+"menu.status.driver_approval_needed" = "驱动还需要系统批准";
+"menu.approve_driver" = "批准驱动";
+"menu.enable_accessibility" = "开启辅助功能权限";
+"menu.enable_microphone" = "开启麦克风权限";
+"menu.enable_speech" = "开启语音识别权限";
+"menu.open_settings" = "打开设置";
+"menu.more_controls" = "更多控制";
+"menu.shortcut_panel_fmt" = "快捷键面板 (%@)";
 "menu.activate_driver" = "激活驱动";
 "menu.start_pointer" = "启动指针";
 "menu.stop_pointer" = "停止指针";
@@ -92,6 +108,7 @@
 "hotkey.connection_lock" = "连接锁定";
 "hotkey.toggle_input_control_mode" = "切换输入/控制模式";
 "hotkey.toggle_language" = "切换语言";
+"hotkey.toggle_shortcut_panel" = "切换快捷键面板";
 "hotkey.push_to_talk" = "按住说话";
 "hotkey.press_key" = "按下按键…";
 "hotkey.reset_all" = "全部重置";
@@ -200,6 +217,15 @@
 "status.disabled" = "已禁用";
 "status.paused" = "已暂停";
 "calibration.normal" = "正常";
+"settings.page.voice.title" = "语音";
+"settings.page.voice.subtitle" = "管理麦克风、唤起方式、听写增强和术语纠错。";
+"current_app_controls.open_panel" = "显示面板";
+"settings.page.pointer.title" = "指针";
+"settings.page.pointer.subtitle" = "集中调整头控启停、点击方式与校准状态。";
+"settings.page.advanced.title" = "高级";
+"settings.page.advanced.subtitle" = "查看驱动、权限和应用级行为设置。";
+"settings.page.shortcuts.title" = "快捷键";
+"settings.page.shortcuts.subtitle" = "统一管理按住说话、头控和连接锁等全局快捷键。";
 
 /* Language Selection */
 "settings.speech_language" = "语音语言";

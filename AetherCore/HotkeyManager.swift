@@ -126,6 +126,8 @@ struct HotkeyBinding: Codable, Equatable {
     }
 }
 
+extension HotkeyBinding: Sendable {}
+
 // MARK: - Actions
 
 enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
@@ -133,6 +135,7 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
     case connectionLock
     case toggleInputControlMode
     case toggleLanguage
+    case toggleShortcutPanel
     case pushToTalk
 
     var id: String { rawValue }
@@ -143,6 +146,7 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
         case .connectionLock: return String(localized: "hotkey.connection_lock")
         case .toggleInputControlMode: return String(localized: "hotkey.toggle_input_control_mode")
         case .toggleLanguage: return String(localized: "hotkey.toggle_language")
+        case .toggleShortcutPanel: return String(localized: "hotkey.toggle_shortcut_panel")
         case .pushToTalk:     return String(localized: "hotkey.push_to_talk")
         }
     }
@@ -157,6 +161,8 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
             return HotkeyBinding(keyCode: kVK_ANSI_M, modifiers: Self.optCmd)
         case .toggleLanguage:
             return HotkeyBinding(keyCode: kVK_Shift, modifiers: Self.shift)
+        case .toggleShortcutPanel:
+            return HotkeyBinding(keyCode: kVK_ANSI_K, modifiers: Self.optCmd)
         case .pushToTalk:
             return HotkeyBinding(keyCode: kVK_Space, modifiers: Self.opt)
         }

@@ -835,6 +835,7 @@ final class SpeechManager: ObservableObject {
             }
         }
 
+        _ = refreshFrontmostAppCommands()
         let decision = commandRouter.routeDetailed(
             transcript: textToRoute,
             bias: routingBias,
@@ -1047,6 +1048,13 @@ final class SpeechManager: ObservableObject {
         )
     }
 
+    @discardableResult
+    private func refreshFrontmostAppCommands(force: Bool = false) -> [FrontmostAppCommand] {
+        let commands = FrontmostAppCommandCatalog.refreshSnapshotFromAnyThread(force: force)?.commands ?? []
+        commandRouter.frontmostAppCommands = commands
+        return commands
+    }
+
     private func buildDynamicContextualStrings() -> [String] {
         var ordered: [String] = []
         var seen = Set<String>()
@@ -1068,6 +1076,7 @@ final class SpeechManager: ObservableObject {
         ]
         staticSeeds.forEach(add)
         wakeWordDetector.contextualStrings(for: activeLocale.identifier).forEach(add)
+        _ = refreshFrontmostAppCommands()
         commandRouter.contextualStrings(for: activeLocale.identifier).forEach(add)
 
         let frontApp = NSWorkspace.shared.frontmostApplication

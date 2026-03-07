@@ -5,6 +5,7 @@
 "generic.ready" = "Ready";
 "generic.tracking" = "Tracking";
 "generic.select_item" = "Select an item";
+"generic.refresh" = "Refresh";
 
 /* App */
 "app.project_title" = "Project Aether";
@@ -78,6 +79,21 @@
 "menu.pointer" = "Pointer";
 "menu.voice" = "Voice";
 "menu.driver" = "Driver";
+"menu.status.setup_attention" = "Setup Needs Attention";
+"menu.status.voice_pointer_ready" = "Voice and Pointer Ready";
+"menu.status.pointer_active" = "Pointer Control Active";
+"menu.status.ready" = "Aether Ready";
+"menu.status.accessibility_missing" = "Accessibility permission is missing";
+"menu.status.microphone_missing" = "Microphone permission is missing";
+"menu.status.speech_missing" = "Speech Recognition permission is missing";
+"menu.status.driver_approval_needed" = "The driver still needs system approval";
+"menu.approve_driver" = "Approve Driver";
+"menu.enable_accessibility" = "Enable Accessibility";
+"menu.enable_microphone" = "Enable Microphone";
+"menu.enable_speech" = "Enable Speech Recognition";
+"menu.open_settings" = "Open Settings";
+"menu.more_controls" = "More Controls";
+"menu.shortcut_panel_fmt" = "Shortcuts Panel (%@)";
 "menu.activate_driver" = "Activate Driver";
 "menu.start_pointer" = "Start Pointer";
 "menu.stop_pointer" = "Stop Pointer";
@@ -91,6 +107,7 @@
 "hotkey.connection_lock" = "Connection Lock";
 "hotkey.toggle_input_control_mode" = "Toggle Input/Control Mode";
 "hotkey.toggle_language" = "Toggle Language";
+"hotkey.toggle_shortcut_panel" = "Toggle Shortcuts Panel";
 "hotkey.push_to_talk" = "Push-to-Talk";
 "hotkey.press_key" = "Press key…";
 "hotkey.reset_all" = "Reset All";
@@ -199,6 +216,15 @@
 "status.disabled" = "Disabled";
 "status.paused" = "Paused";
 "calibration.normal" = "Normal";
+"settings.page.voice.title" = "Voice";
+"settings.page.voice.subtitle" = "Manage microphone input, activation mode, dictation enhancement, and terminology rules.";
+"current_app_controls.open_panel" = "Open Panel";
+"settings.page.pointer.title" = "Pointer";
+"settings.page.pointer.subtitle" = "Adjust tracking, click behavior, and calibration in one place.";
+"settings.page.advanced.title" = "Advanced";
+"settings.page.advanced.subtitle" = "Review driver state, permissions, and app-level behavior.";
+"settings.page.shortcuts.title" = "Shortcuts";
+"settings.page.shortcuts.subtitle" = "Manage Push to Talk, pointer control, connection lock, and other global shortcuts.";
 
 /* Language Selection */
 "settings.speech_language" = "Speech Language";
