@@ -10,47 +10,105 @@ struct ControlCard: View {
     @Binding var isOn: Bool
     
     var body: some View {
-        Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                isOn.toggle()
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(isOn ? color : Color.gray.opacity(0.16))
+                    .frame(width: 40, height: 40)
+
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(isOn ? .white : .secondary)
             }
-        } label: {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(isOn ? color : Color.gray.opacity(0.2))
-                        .frame(width: 40, height: 40)
-                    
-                    Image(systemName: icon)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(isOn ? .white : .secondary)
-                }
-                
-                VStack(alignment: .leading, spacing: 2) {
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isOn ? color.opacity(0.25) : Color.black.opacity(0.04), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.02), radius: 1, x: 0, y: 1)
+    }
+}
+
+struct SettingsPage<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let title: String
+    let subtitle: String
+    var content: Content
+
+    init(
+        title: String,
+        subtitle: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(title)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundColor(.primary)
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
                     Text(subtitle)
-                        .font(.caption2)
+                        .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-                
-                Spacer()
-                
-                Toggle("", isOn: $isOn)
-                    .labelsHidden()
+
+                content
             }
-            .padding(12)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isOn ? color.opacity(0.3) : Color.black.opacity(0.05), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.03), radius: 2, x: 0, y: 1)
+            .frame(maxWidth: 960, alignment: .leading)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 24)
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background {
+            ZStack {
+                Color(nsColor: .windowBackgroundColor)
+
+                LinearGradient(
+                    colors: [
+                        Color.accentColor.opacity(colorScheme == .dark ? 0.10 : 0.08),
+                        Color.green.opacity(colorScheme == .dark ? 0.06 : 0.05),
+                        Color.clear
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                RadialGradient(
+                    colors: [
+                        Color.white.opacity(colorScheme == .dark ? 0.08 : 0.85),
+                        Color.clear
+                    ],
+                    center: .topLeading,
+                    startRadius: 24,
+                    endRadius: 360
+                )
+                .offset(x: -120, y: -90)
+            }
+            .ignoresSafeArea()
+        }
     }
 }
 
@@ -94,16 +152,20 @@ struct PermissionRow: View {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(.green)
             } else {
-                Button("Allow", action: action)
+                Button(String(localized: "permissions.open_pane"), action: action)
                     .controlSize(.small)
             }
         }
         .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(12)
     }
 }
 
 // MARK: - Generic Glass Card
 struct GlassCard<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var content: Content
     
     init(@ViewBuilder content: () -> Content) {
@@ -111,17 +173,36 @@ struct GlassCard<Content: View>: View {
     }
     
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Material.ultraThin)
-                .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
-            
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-            
-            content
-                .padding()
-        }
+        content
+            .padding(20)
+            .background {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(colorScheme == .dark ? 0.08 : 0.96),
+                                Color(nsColor: .controlBackgroundColor).opacity(colorScheme == .dark ? 0.90 : 0.94)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.08)
+                            : Color.black.opacity(0.06),
+                        lineWidth: 1
+                    )
+            }
+            .shadow(
+                color: Color.black.opacity(colorScheme == .dark ? 0.18 : 0.05),
+                radius: colorScheme == .dark ? 10 : 18,
+                x: 0,
+                y: colorScheme == .dark ? 4 : 10
+            )
     }
 }
 

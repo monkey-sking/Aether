@@ -2,6 +2,119 @@ import Foundation
 import os.log
 import Cocoa
 
+enum VoiceCommandPreset: String, CaseIterable, Identifiable {
+    case clickLeft
+    case clickRight
+    case doubleClick
+    case startPointer
+    case stopPointer
+    case recenter
+    case scrollUp
+    case scrollDown
+    case scrollTop
+    case scrollBottom
+    case dragStart
+    case dragEnd
+    case undo
+    case paste
+    case lockConnection
+    case unlockConnection
+
+    var id: String { rawValue }
+
+    var intent: VoiceIntent {
+        switch self {
+        case .clickLeft:
+            return .clickLeft
+        case .clickRight:
+            return .clickRight
+        case .doubleClick:
+            return .doubleClick
+        case .startPointer:
+            return .startPointer
+        case .stopPointer:
+            return .stopPointer
+        case .recenter:
+            return .recenter
+        case .scrollUp:
+            return .scroll(0, -300)
+        case .scrollDown:
+            return .scroll(0, 300)
+        case .scrollTop:
+            return .scrollToWeb("top")
+        case .scrollBottom:
+            return .scrollToWeb("bottom")
+        case .dragStart:
+            return .dragStart
+        case .dragEnd:
+            return .dragEnd
+        case .undo:
+            return .undo
+        case .paste:
+            return .paste
+        case .lockConnection:
+            return .lockConnection
+        case .unlockConnection:
+            return .unlockConnection
+        }
+    }
+
+    var isTypingSafe: Bool {
+        switch self {
+        case .undo, .paste:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func title(locale: Locale = .current) -> String {
+        let isChinese = locale.identifier.hasPrefix("zh")
+        switch self {
+        case .clickLeft:
+            return isChinese ? "点击" : "Click"
+        case .clickRight:
+            return isChinese ? "右键" : "Right Click"
+        case .doubleClick:
+            return isChinese ? "双击" : "Double Click"
+        case .startPointer:
+            return isChinese ? "开始指针" : "Start Pointer"
+        case .stopPointer:
+            return isChinese ? "停止指针" : "Stop Pointer"
+        case .recenter:
+            return isChinese ? "回中 / 校准" : "Recenter"
+        case .scrollUp:
+            return isChinese ? "向上滚动" : "Scroll Up"
+        case .scrollDown:
+            return isChinese ? "向下滚动" : "Scroll Down"
+        case .scrollTop:
+            return isChinese ? "滚动到顶部" : "Scroll To Top"
+        case .scrollBottom:
+            return isChinese ? "滚动到底部" : "Scroll To Bottom"
+        case .dragStart:
+            return isChinese ? "开始拖拽" : "Start Drag"
+        case .dragEnd:
+            return isChinese ? "结束拖拽" : "End Drag"
+        case .undo:
+            return isChinese ? "撤销" : "Undo"
+        case .paste:
+            return isChinese ? "粘贴" : "Paste"
+        case .lockConnection:
+            return isChinese ? "锁定连接" : "Lock Connection"
+        case .unlockConnection:
+            return isChinese ? "解锁连接" : "Unlock Connection"
+        }
+    }
+}
+
+struct VoiceCommandOverrideConfig: Codable, Identifiable, Equatable {
+    var localeIdentifier: String
+    var commandID: String
+    var aliases: [String]
+
+    var id: String { "\(localeIdentifier)::\(commandID)" }
+}
+
 enum VoiceIntent: Equatable {
     case clickLeft
     case clickRight
@@ -9,7 +122,6 @@ enum VoiceIntent: Equatable {
     case startPointer
     case stopPointer
     case recenter
-    case setDwell(Bool)
     case scroll(Int, Int) // dx, dy
     case scrollToWeb(String) // "top", "bottom"
     case dragStart
@@ -41,6 +153,15 @@ struct VoiceCommandDecision {
 }
 
 final class VoiceCommandRouter {
+    private struct CommandMatch {
+        let preset: VoiceCommandPreset
+        let confidence: VoiceCommandConfidence
+        let reason: String
+    }
+
+    var overrides: [VoiceCommandOverrideConfig] = []
+    var languageTermsOverrides: [VoiceLanguageTermsOverrideConfig] = []
+
     enum RoutingBias {
         case neutral
         case dictationPreferred // Cursor in input field
@@ -49,11 +170,11 @@ final class VoiceCommandRouter {
         case forceCommand      // Explicit user gesture (Tilt Right)
     }
 
-    func route(transcript raw: String, bias: RoutingBias = .neutral) -> VoiceIntent {
-        routeDetailed(transcript: raw, bias: bias).intent
+    func route(transcript raw: String, bias: RoutingBias = .neutral, localeIdentifier: String = Locale.current.identifier) -> VoiceIntent {
+        routeDetailed(transcript: raw, bias: bias, localeIdentifier: localeIdentifier).intent
     }
 
-    func routeDetailed(transcript raw: String, bias: RoutingBias = .neutral) -> VoiceCommandDecision {
+    func routeDetailed(transcript raw: String, bias: RoutingBias = .neutral, localeIdentifier: String = Locale.current.identifier) -> VoiceCommandDecision {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return VoiceCommandDecision(intent: .unknown(raw), confidence: .low, reason: "empty")
@@ -71,11 +192,11 @@ final class VoiceCommandRouter {
         }
         
         // --- 2. Normalized Force Prefixes ---
-        let isForceCommand = s.hasPrefix("指令") || s.hasPrefix("command") || bias == .forceCommand
-        let isForceDictation = s.hasPrefix("输入") || s.hasPrefix("input") || s.hasPrefix("type") || s.hasPrefix("写")
+        let isForceCommand = hasCommandPrefix(s, localeIdentifier: localeIdentifier) || bias == .forceCommand
+        let isForceDictation = hasDictationPrefix(s, localeIdentifier: localeIdentifier)
 
         if isForceDictation {
-            let payload = stripDictationPrefix(from: trimmed)
+            let payload = stripDictationPrefix(from: trimmed, localeIdentifier: localeIdentifier)
             return VoiceCommandDecision(intent: .dictation(payload.isEmpty ? trimmed : payload), confidence: .high, reason: "forced-dictation-prefix")
         }
 
@@ -83,14 +204,19 @@ final class VoiceCommandRouter {
         // If we are in an input field (dictationPreferred) and NOT explicitly forcing a command,
         // we should be very conservative about executing commands.
         if bias == .dictationPreferred && !isForceCommand {
-            // Check for high-confidence/low-risk commands even in typing mode
-            if s == "undo" || s == "撤销" || s == "撤回" {
-                return VoiceCommandDecision(intent: .undo, confidence: .high, reason: "typing-safe-undo")
+            if let safeMatch = matchCommand(
+                normalized: s,
+                raw: trimmed,
+                localeIdentifier: localeIdentifier,
+                filter: { $0.isTypingSafe }
+            ) {
+                return VoiceCommandDecision(
+                    intent: safeMatch.preset.intent,
+                    confidence: safeMatch.confidence,
+                    reason: "typing-safe-\(safeMatch.reason)"
+                )
             }
-            if s == "paste" || s == "粘贴" {
-                return VoiceCommandDecision(intent: .paste, confidence: .high, reason: "typing-safe-paste")
-            }
-            
+
             // Otherwise, everything is treated as dictation in an input field
             if !isForceDictation {
                 return VoiceCommandDecision(intent: .dictation(trimmed), confidence: .high, reason: "typing-preferred")
@@ -98,136 +224,8 @@ final class VoiceCommandRouter {
         }
 
         // --- 4. Local Command Matching (Standard Workflow) ---
-        if s == "undo" || s == "撤销" || s == "撤回" {
-            return VoiceCommandDecision(intent: .undo, confidence: .high, reason: "exact-undo")
-        }
-        if s.contains("撤销") || s.contains("撤回") || s.contains("undo") {
-            return VoiceCommandDecision(intent: .undo, confidence: .medium, reason: "contains-undo")
-        }
-        if s == "paste" || s == "粘贴" {
-            return VoiceCommandDecision(intent: .paste, confidence: .high, reason: "exact-paste")
-        }
-        if s.contains("粘贴") || s.contains("paste") {
-            return VoiceCommandDecision(intent: .paste, confidence: .medium, reason: "contains-paste")
-        }
-        if s == "lock" || s == "lockairpods" || s == "锁定" {
-            return VoiceCommandDecision(intent: .lockConnection, confidence: .high, reason: "exact-lock")
-        }
-        if s.contains("锁定") || s.contains("lockairpods") || s.contains("lock") {
-            return VoiceCommandDecision(intent: .lockConnection, confidence: .medium, reason: "contains-lock")
-        }
-        if s == "unlock" || s == "unlockairpods" || s == "解锁" {
-            return VoiceCommandDecision(intent: .unlockConnection, confidence: .high, reason: "exact-unlock")
-        }
-        if s.contains("解锁") || s.contains("unlockairpods") || s.contains("unlock") {
-            return VoiceCommandDecision(intent: .unlockConnection, confidence: .medium, reason: "contains-unlock")
-        }
-        if s == "stop" || s == "停止" || s == "暂停控制" {
-            return VoiceCommandDecision(intent: .stopPointer, confidence: .high, reason: "exact-stop")
-        }
-        if s.contains("停止") || s.contains("暂停控制") || s.contains("stop") {
-            return VoiceCommandDecision(intent: .stopPointer, confidence: .medium, reason: "contains-stop")
-        }
-        if s == "start" || s == "开始" || s == "继续" {
-            return VoiceCommandDecision(intent: .startPointer, confidence: .high, reason: "exact-start")
-        }
-        if s.contains("开始") || s.contains("继续") || s.contains("start") {
-            return VoiceCommandDecision(intent: .startPointer, confidence: .medium, reason: "contains-start")
-        }
-        if s == "recenter" || s == "校准" || s == "居中" || s == "重置" {
-            return VoiceCommandDecision(intent: .recenter, confidence: .high, reason: "exact-recenter")
-        }
-        if s.contains("校准") || s.contains("居中") || s.contains("重置") || s.contains("recenter") {
-            return VoiceCommandDecision(intent: .recenter, confidence: .medium, reason: "contains-recenter")
-        }
-        if s == "dwellon" || s == "打开悬停" || s == "开启悬停" {
-            return VoiceCommandDecision(intent: .setDwell(true), confidence: .high, reason: "exact-dwell-on")
-        }
-        if s.contains("打开悬停") || s.contains("开启悬停") || s.contains("dwellon") {
-            return VoiceCommandDecision(intent: .setDwell(true), confidence: .medium, reason: "contains-dwell-on")
-        }
-        if s == "dwelloff" || s == "关闭悬停" || s == "关掉悬停" {
-            return VoiceCommandDecision(intent: .setDwell(false), confidence: .high, reason: "exact-dwell-off")
-        }
-        if s.contains("关闭悬停") || s.contains("关掉悬停") || s.contains("dwelloff") {
-            return VoiceCommandDecision(intent: .setDwell(false), confidence: .medium, reason: "contains-dwell-off")
-        }
-
-        if s == "右键" || s == "rightclick" || s == "context" {
-            return VoiceCommandDecision(intent: .clickRight, confidence: .high, reason: "exact-right-click")
-        }
-        if s.contains("右键") || s.contains("rightclick") || s.contains("context") {
-            return VoiceCommandDecision(intent: .clickRight, confidence: .medium, reason: "contains-right-click")
-        }
-        if s == "双击" || s == "doubleclick" {
-            return VoiceCommandDecision(intent: .doubleClick, confidence: .high, reason: "exact-double-click")
-        }
-        if s.contains("双击") || s.contains("doubleclick") {
-            return VoiceCommandDecision(intent: .doubleClick, confidence: .medium, reason: "contains-double-click")
-        }
-        if s == "点击" || s == "click" || s == "单击" {
-            return VoiceCommandDecision(intent: .clickLeft, confidence: .high, reason: "exact-click")
-        }
-        if s.contains("点击") || s.contains("click") || s.contains("单击") {
-            return VoiceCommandDecision(intent: .clickLeft, confidence: .medium, reason: "contains-click")
-        }
-
-        // Scroll
-        if s == "向上" || s == "up" || s == "上滚" {
-            return VoiceCommandDecision(intent: .scroll(0, -300), confidence: .high, reason: "exact-scroll-up")
-        }
-        if s.contains("向上") || s.contains("up") || s.contains("上滚") {
-            return VoiceCommandDecision(intent: .scroll(0, -300), confidence: .medium, reason: "contains-scroll-up")
-        }
-        if s == "向下" || s == "down" || s == "下滚" {
-            return VoiceCommandDecision(intent: .scroll(0, 300), confidence: .high, reason: "exact-scroll-down")
-        }
-        if s.contains("向下") || s.contains("down") || s.contains("下滚") {
-            return VoiceCommandDecision(intent: .scroll(0, 300), confidence: .medium, reason: "contains-scroll-down")
-        }
-        if s == "到顶" || s == "top" {
-            return VoiceCommandDecision(intent: .scrollToWeb("top"), confidence: .high, reason: "exact-scroll-top")
-        }
-        if s.contains("到顶") || s.contains("top") {
-            return VoiceCommandDecision(intent: .scrollToWeb("top"), confidence: .medium, reason: "contains-scroll-top")
-        }
-        if s == "到底" || s == "bottom" {
-            return VoiceCommandDecision(intent: .scrollToWeb("bottom"), confidence: .high, reason: "exact-scroll-bottom")
-        }
-        if s.contains("到底") || s.contains("bottom") {
-            return VoiceCommandDecision(intent: .scrollToWeb("bottom"), confidence: .medium, reason: "contains-scroll-bottom")
-        }
-        
-        // Drag
-        if s == "拖" || s == "drag" || s == "抓住" {
-            return VoiceCommandDecision(intent: .dragStart, confidence: .high, reason: "exact-drag-start")
-        }
-        if s.contains("拖") || s.contains("drag") || s.contains("抓住") {
-            return VoiceCommandDecision(intent: .dragStart, confidence: .medium, reason: "contains-drag-start")
-        }
-        if s == "放" || s == "drop" || s == "松开" {
-            return VoiceCommandDecision(intent: .dragEnd, confidence: .high, reason: "exact-drag-end")
-        }
-        if s.contains("放") || s.contains("drop") || s.contains("松开") {
-            return VoiceCommandDecision(intent: .dragEnd, confidence: .medium, reason: "contains-drag-end")
-        }
-
-        // Pinyin Fallback for Command Matching
-        let py = trimmed.pinyin
-        if py.contains("youjian") || py.contains("rightclick") {
-            return VoiceCommandDecision(intent: .clickRight, confidence: .low, reason: "pinyin-right-click")
-        }
-        if py.contains("dianji") || py.contains("danji") {
-            return VoiceCommandDecision(intent: .clickLeft, confidence: .low, reason: "pinyin-click")
-        }
-        if py.contains("shuangji") {
-            return VoiceCommandDecision(intent: .doubleClick, confidence: .low, reason: "pinyin-double-click")
-        }
-        if py.contains("xiangshang") || py.contains("shanggun") {
-            return VoiceCommandDecision(intent: .scroll(0, -300), confidence: .low, reason: "pinyin-scroll-up")
-        }
-        if py.contains("xiangxia") || py.contains("xiagun") {
-            return VoiceCommandDecision(intent: .scroll(0, 300), confidence: .low, reason: "pinyin-scroll-down")
+        if let match = matchCommand(normalized: s, raw: trimmed, localeIdentifier: localeIdentifier) {
+            return VoiceCommandDecision(intent: match.preset.intent, confidence: match.confidence, reason: match.reason)
         }
 
         // --- 5. Default Fallback ---
@@ -237,10 +235,167 @@ final class VoiceCommandRouter {
         return VoiceCommandDecision(intent: .dictation(trimmed), confidence: .low, reason: "fallback-dictation")
     }
 
-    private func stripDictationPrefix(from raw: String) -> String {
+    static func defaultAliases(for preset: VoiceCommandPreset, localeIdentifier: String) -> [String] {
+        let locale = canonicalLocaleIdentifier(localeIdentifier).lowercased()
+        let useChinese = locale.hasPrefix("zh")
+
+        let chinese: [String]
+        let english: [String]
+
+        switch preset {
+        case .clickLeft:
+            chinese = ["点击", "单击"]
+            english = ["click"]
+        case .clickRight:
+            chinese = ["右键"]
+            english = ["right click", "rightclick", "context"]
+        case .doubleClick:
+            chinese = ["双击"]
+            english = ["double click", "doubleclick"]
+        case .startPointer:
+            chinese = ["开始", "继续"]
+            english = ["start", "resume"]
+        case .stopPointer:
+            chinese = ["停止", "暂停控制"]
+            english = ["stop", "pause control"]
+        case .recenter:
+            chinese = ["校准", "居中", "重置"]
+            english = ["recenter", "reset"]
+        case .scrollUp:
+            chinese = ["向上", "上滚"]
+            english = ["scroll up", "up"]
+        case .scrollDown:
+            chinese = ["向下", "下滚"]
+            english = ["scroll down", "down"]
+        case .scrollTop:
+            chinese = ["到顶"]
+            english = ["top", "scroll top"]
+        case .scrollBottom:
+            chinese = ["到底"]
+            english = ["bottom", "scroll bottom"]
+        case .dragStart:
+            chinese = ["拖", "抓住"]
+            english = ["drag"]
+        case .dragEnd:
+            chinese = ["放", "松开"]
+            english = ["drop", "release"]
+        case .undo:
+            chinese = ["撤销", "撤回"]
+            english = ["undo"]
+        case .paste:
+            chinese = ["粘贴"]
+            english = ["paste"]
+        case .lockConnection:
+            chinese = ["锁定"]
+            english = ["lock", "lock airpods", "lockairpods"]
+        case .unlockConnection:
+            chinese = ["解锁"]
+            english = ["unlock", "unlock airpods", "unlockairpods"]
+        }
+
+        return uniqueAliases((useChinese ? chinese + english : english) + (useChinese ? [] : chinese))
+    }
+
+    static func effectiveAliases(
+        for preset: VoiceCommandPreset,
+        localeIdentifier: String,
+        overrides: [VoiceCommandOverrideConfig]
+    ) -> [String] {
+        if let override = overrideEntry(for: preset, localeIdentifier: localeIdentifier, overrides: overrides),
+           !override.aliases.isEmpty {
+            return uniqueAliases(override.aliases)
+        }
+        return defaultAliases(for: preset, localeIdentifier: localeIdentifier)
+    }
+
+    func contextualStrings(for localeIdentifier: String) -> [String] {
+        var ordered: [String] = []
+        var seen = Set<String>()
+
+        for prefix in commandPrefixes(localeIdentifier: localeIdentifier) + dictationPrefixes(localeIdentifier: localeIdentifier) {
+            let normalized = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else { continue }
+            let key = normalized.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            ordered.append(normalized)
+        }
+
+        for preset in VoiceCommandPreset.allCases {
+            for alias in Self.effectiveAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides) {
+                let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !normalized.isEmpty else { continue }
+                let key = normalized.lowercased()
+                guard !seen.contains(key) else { continue }
+                seen.insert(key)
+                ordered.append(normalized)
+            }
+        }
+
+        return ordered
+    }
+
+    private func matchCommand(
+        normalized: String,
+        raw: String,
+        localeIdentifier: String,
+        filter: (VoiceCommandPreset) -> Bool = { _ in true }
+    ) -> CommandMatch? {
+        let candidates = VoiceCommandPreset.allCases.filter(filter)
+
+        for preset in candidates {
+            for alias in normalizedAliases(for: preset, localeIdentifier: localeIdentifier) {
+                if normalized == alias {
+                    return CommandMatch(preset: preset, confidence: .high, reason: "exact-\(preset.rawValue)")
+                }
+            }
+        }
+
+        for preset in candidates {
+            for alias in normalizedAliases(for: preset, localeIdentifier: localeIdentifier) {
+                if normalized.contains(alias) {
+                    return CommandMatch(preset: preset, confidence: .medium, reason: "contains-\(preset.rawValue)")
+                }
+            }
+        }
+
+        let pinyin = raw.pinyin
+        for preset in candidates {
+            for alias in pinyinAliases(for: preset, localeIdentifier: localeIdentifier) {
+                if pinyin.contains(alias) {
+                    return CommandMatch(preset: preset, confidence: .low, reason: "pinyin-\(preset.rawValue)")
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func normalizedAliases(for preset: VoiceCommandPreset, localeIdentifier: String) -> [String] {
+        Self.effectiveAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides)
+            .map(normalizeMatchString)
+            .filter { !$0.isEmpty }
+    }
+
+    private func pinyinAliases(for preset: VoiceCommandPreset, localeIdentifier: String) -> [String] {
+        Self.effectiveAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides)
+            .map { $0.pinyin }
+            .map(normalizeMatchString)
+            .filter { !$0.isEmpty }
+    }
+
+    private func hasCommandPrefix(_ normalized: String, localeIdentifier: String) -> Bool {
+        commandPrefixes(localeIdentifier: localeIdentifier).contains { normalized.hasPrefix(normalizeMatchString($0)) }
+    }
+
+    private func hasDictationPrefix(_ normalized: String, localeIdentifier: String) -> Bool {
+        dictationPrefixes(localeIdentifier: localeIdentifier).contains { normalized.hasPrefix(normalizeMatchString($0)) }
+    }
+
+    private func stripDictationPrefix(from raw: String, localeIdentifier: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercase = trimmed.lowercased()
-        let prefixes = ["输入", "写", "input", "type"]
+        let prefixes = dictationPrefixes(localeIdentifier: localeIdentifier)
 
         for prefix in prefixes {
             if lowercase.hasPrefix(prefix) {
@@ -251,6 +406,103 @@ final class VoiceCommandRouter {
         }
 
         return trimmed
+    }
+
+    private func commandPrefixes(localeIdentifier: String) -> [String] {
+        if let override = languageTermsOverride(for: localeIdentifier),
+           !override.commandPrefixes.isEmpty {
+            return uniqueLanguageTerms(override.commandPrefixes)
+        }
+        return Self.defaultCommandPrefixes(for: localeIdentifier)
+    }
+
+    private func dictationPrefixes(localeIdentifier: String) -> [String] {
+        if let override = languageTermsOverride(for: localeIdentifier),
+           !override.dictationPrefixes.isEmpty {
+            return uniqueLanguageTerms(override.dictationPrefixes)
+        }
+        return Self.defaultDictationPrefixes(for: localeIdentifier)
+    }
+
+    private func normalizeMatchString(_ raw: String) -> String {
+        raw
+            .lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .joined()
+    }
+
+    private static func uniqueAliases(_ aliases: [String]) -> [String] {
+        var ordered: [String] = []
+        var seen = Set<String>()
+
+        for alias in aliases {
+            let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let key = trimmed.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            ordered.append(trimmed)
+        }
+
+        return ordered
+    }
+
+    private static func overrideEntry(
+        for preset: VoiceCommandPreset,
+        localeIdentifier: String,
+        overrides: [VoiceCommandOverrideConfig]
+    ) -> VoiceCommandOverrideConfig? {
+        let raw = localeIdentifier
+        let canonical = canonicalLocaleIdentifier(localeIdentifier)
+        return overrides.first(where: { $0.localeIdentifier == raw && $0.commandID == preset.rawValue }) ??
+            overrides.first(where: { $0.localeIdentifier == canonical && $0.commandID == preset.rawValue })
+    }
+
+    private static func canonicalLocaleIdentifier(_ raw: String) -> String {
+        let locale = raw.lowercased()
+        if locale.hasPrefix("zh") { return "zh-CN" }
+        if locale.hasPrefix("en") { return "en-US" }
+        if locale.hasPrefix("ja") { return "ja-JP" }
+        if locale.hasPrefix("ko") { return "ko-KR" }
+        if locale.hasPrefix("fr") { return "fr-FR" }
+        if locale.hasPrefix("de") { return "de-DE" }
+        if locale.hasPrefix("es") { return "es-ES" }
+        return raw
+    }
+
+    static func defaultCommandPrefixes(for localeIdentifier: String) -> [String] {
+        canonicalLocaleIdentifier(localeIdentifier).lowercased().hasPrefix("zh")
+            ? ["指令", "command"]
+            : ["command", "指令"]
+    }
+
+    static func defaultDictationPrefixes(for localeIdentifier: String) -> [String] {
+        canonicalLocaleIdentifier(localeIdentifier).lowercased().hasPrefix("zh")
+            ? ["输入", "写", "input", "type"]
+            : ["input", "type", "输入", "写"]
+    }
+
+    private func languageTermsOverride(for localeIdentifier: String) -> VoiceLanguageTermsOverrideConfig? {
+        let raw = localeIdentifier
+        let canonical = Self.canonicalLocaleIdentifier(localeIdentifier)
+        return languageTermsOverrides.first(where: { $0.localeIdentifier == raw }) ??
+            languageTermsOverrides.first(where: { $0.localeIdentifier == canonical })
+    }
+
+    private func uniqueLanguageTerms(_ items: [String]) -> [String] {
+        var ordered: [String] = []
+        var seen = Set<String>()
+
+        for item in items {
+            let trimmed = item.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let key = trimmed.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            ordered.append(trimmed)
+        }
+
+        return ordered
     }
 }
 

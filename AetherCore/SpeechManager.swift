@@ -111,6 +111,7 @@ final class SpeechManager: ObservableObject {
     private let eosDetector = EOSDetector()
     private let dictationHandler: DictationHandler
     private let commandHandler = CommandHandler()
+    private let commandRouter = VoiceCommandRouter()
     private let injector = TextInjector()
 
     // MARK: - Internal State
@@ -501,7 +502,7 @@ final class SpeechManager: ObservableObject {
 
         // Wake word detection & stripping
         if isWakeWordEnabled && !isDirectCommandEnabled {
-            let result = wakeWordDetector.process(text)
+            let result = wakeWordDetector.process(text, localeIdentifier: activeLocale.identifier)
             if result.wakeDetected {
                 if !isAwake {
                     lastWakeTime = Date(); playWakeSound()
@@ -674,6 +675,15 @@ final class SpeechManager: ObservableObject {
         audioCapture.stop()
     }
 
+    func setVoiceCommandOverrides(_ overrides: [VoiceCommandOverrideConfig]) {
+        commandRouter.overrides = overrides
+    }
+
+    func setVoiceLanguageTermsOverrides(_ overrides: [VoiceLanguageTermsOverrideConfig]) {
+        wakeWordDetector.overrides = overrides
+        commandRouter.languageTermsOverrides = overrides
+    }
+
     private func cleanup() {
         recognitionSession.cancel()
         eosDetector.stop()
@@ -776,12 +786,12 @@ final class SpeechManager: ObservableObject {
         var wakeWordDetected = false
 
         if isDirectCommandEnabled {
-            let wakeResult = wakeWordDetector.process(trimmed)
+            let wakeResult = wakeWordDetector.process(trimmed, localeIdentifier: activeLocale.identifier)
             if isWakeWordEnabled && wakeResult.wakeDetected {
                 textToRoute = wakeResult.payload; wakeWordDetected = true; playWakeSound()
             } else { textToRoute = trimmed }
         } else if isAlwaysListeningEnabled {
-            let wakeResult = wakeWordDetector.process(trimmed)
+            let wakeResult = wakeWordDetector.process(trimmed, localeIdentifier: activeLocale.identifier)
             if isAwake {
                 if wakeResult.wakeDetected { textToRoute = wakeResult.payload; wakeWordDetected = true; playWakeSound() }
                 else { textToRoute = trimmed }
@@ -825,8 +835,11 @@ final class SpeechManager: ObservableObject {
             }
         }
 
-        let router = VoiceCommandRouter()
-        let decision = router.routeDetailed(transcript: textToRoute, bias: routingBias)
+        let decision = commandRouter.routeDetailed(
+            transcript: textToRoute,
+            bias: routingBias,
+            localeIdentifier: activeLocale.identifier
+        )
         var intent = decision.intent
 
         if recognitionControlMode == .command, case .dictation(let payload) = intent {
@@ -1054,6 +1067,8 @@ final class SpeechManager: ObservableObject {
             "origin", "main", "develop", "release"
         ]
         staticSeeds.forEach(add)
+        wakeWordDetector.contextualStrings(for: activeLocale.identifier).forEach(add)
+        commandRouter.contextualStrings(for: activeLocale.identifier).forEach(add)
 
         let frontApp = NSWorkspace.shared.frontmostApplication
         if let appName = frontApp?.localizedName {
@@ -1232,21 +1247,40 @@ final class SpeechManager: ObservableObject {
         var ids = [AudioDeviceID](repeating: 0, count: count)
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &propAddr, 0, nil, &dataSize, &ids) == noErr else { return }
         for id in ids {
-            var name = "Unknown Device"; var nameSize = UInt32(MemoryLayout<CFString>.size)
+            var name = "Unknown Device"; var nameSize = UInt32(MemoryLayout<CFString?>.size)
             var nameAddr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceNameCFString, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-            var nameRef: CFString?
-            if AudioObjectGetPropertyData(id, &nameAddr, 0, nil, &nameSize, &nameRef) == noErr, let n = nameRef { name = n as String }
+            let nameRef = UnsafeMutablePointer<CFString?>.allocate(capacity: 1)
+            nameRef.initialize(to: nil)
+            defer {
+                nameRef.deinitialize(count: 1)
+                nameRef.deallocate()
+            }
+            if AudioObjectGetPropertyData(id, &nameAddr, 0, nil, &nameSize, nameRef) == noErr, let resolvedName = nameRef.pointee {
+                name = resolvedName as String
+            }
             var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreamConfiguration, mScope: kAudioDevicePropertyScopeInput, mElement: 0)
             var size: UInt32 = 0; AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size)
             if size > 0 {
-                let bufferList = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: Int(size)); defer { bufferList.deallocate() }
-                AudioObjectGetPropertyData(id, &addr, 0, nil, &size, bufferList)
+                let rawBuffer = UnsafeMutableRawPointer.allocate(
+                    byteCount: Int(size),
+                    alignment: MemoryLayout<AudioBufferList>.alignment
+                )
+                defer { rawBuffer.deallocate() }
+                let bufferList = rawBuffer.bindMemory(to: AudioBufferList.self, capacity: 1)
+                guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, bufferList) == noErr else { continue }
                 let channels = UnsafeMutableAudioBufferListPointer(bufferList).reduce(0) { $0 + Int($1.mNumberChannels) }
                 if channels > 0 {
-                    var uid = "\(id)"; var uidSize = UInt32(MemoryLayout<CFString>.size)
+                    var uid = "\(id)"; var uidSize = UInt32(MemoryLayout<CFString?>.size)
                     var uidAddr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceUID, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-                    var uidRef: CFString?
-                    if AudioObjectGetPropertyData(id, &uidAddr, 0, nil, &uidSize, &uidRef) == noErr, let u = uidRef { uid = u as String }
+                    let uidRef = UnsafeMutablePointer<CFString?>.allocate(capacity: 1)
+                    uidRef.initialize(to: nil)
+                    defer {
+                        uidRef.deinitialize(count: 1)
+                        uidRef.deallocate()
+                    }
+                    if AudioObjectGetPropertyData(id, &uidAddr, 0, nil, &uidSize, uidRef) == noErr, let resolvedUID = uidRef.pointee {
+                        uid = resolvedUID as String
+                    }
                     var icon = "mic.fill"; let ln = name.lowercased()
                     if ln.contains("airpods") { icon = "airpods"; if ln.contains("pro") { icon = "airpodspro" }; if ln.contains("max") { icon = "airpodsmax" } }
                     else if ln.contains("studio display") { icon = "monitor" }

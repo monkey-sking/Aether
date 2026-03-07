@@ -210,3 +210,23 @@
 "language.fr_FR" = "Français";
 "language.de_DE" = "Deutsch";
 "language.es_ES" = "Español";
+
+/* Voice Lexicon */
+"voice_lexicon.title" = "Voice Lexicon";
+"voice_lexicon.description" = "Configure wake words, force prefixes, and command aliases by language. Separate multiple phrases with commas or new lines; leave blank to use built-in defaults.";
+"voice_lexicon.editing_language" = "Editing Language";
+"voice_lexicon.current_target" = "Current Target";
+"voice_lexicon.reset_language" = "Reset This Language";
+"voice_lexicon.export" = "Export JSON";
+"voice_lexicon.import" = "Import JSON";
+"voice_lexicon.wake_words" = "Wake Words";
+"voice_lexicon.command_prefixes" = "Force Command Prefixes";
+"voice_lexicon.dictation_prefixes" = "Force Dictation Prefixes";
+"voice_lexicon.leave_empty" = "Leave empty to use defaults";
+"voice_lexicon.default" = "Default";
+"voice_lexicon.custom" = "Custom";
+"voice_lexicon.clear" = "Clear";
+"voice_lexicon.imported" = "Imported";
+"voice_lexicon.exported" = "Exported";
+"voice_lexicon.import_failed" = "Import failed";
+"voice_lexicon.export_failed" = "Export failed";
