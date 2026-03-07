@@ -864,7 +864,7 @@ class HeadMotionManager: ObservableObject {
                         GlobalLogger.input.info("Hotkey: Toggle Language (flagsChanged)")
                         NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
                         return nil
-                    case .toggleTracking, .connectionLock, .toggleInputControlMode, .pushToTalk:
+                    case .toggleTracking, .connectionLock, .toggleInputControlMode, .toggleShortcutPanel, .pushToTalk:
                         break
                     }
                 }
@@ -923,6 +923,11 @@ class HeadMotionManager: ObservableObject {
                     case .toggleLanguage:
                         GlobalLogger.input.info("Hotkey: Toggle Language")
                         NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
+                        return nil
+
+                    case .toggleShortcutPanel:
+                        GlobalLogger.input.info("Hotkey: Toggle Shortcut Panel")
+                        NotificationCenter.default.post(name: .toggleShortcutPanel, object: nil)
                         return nil
 
                     case .pushToTalk:
@@ -1017,6 +1022,11 @@ class HeadMotionManager: ObservableObject {
                     case .toggleLanguage:
                         GlobalLogger.input.info("Mouse Hotkey: Toggle Language")
                         NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
+                        return nil
+
+                    case .toggleShortcutPanel:
+                        GlobalLogger.input.info("Mouse Hotkey: Toggle Shortcut Panel")
+                        NotificationCenter.default.post(name: .toggleShortcutPanel, object: nil)
                         return nil
 
                     case .pushToTalk:

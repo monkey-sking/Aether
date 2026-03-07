@@ -4,6 +4,7 @@ import AppKit
 // MARK: - Input Settings (Voice)
 struct InputSettingsView: View {
     @EnvironmentObject var appState: AppState
+    @StateObject private var frontmostAppCommandCatalog = FrontmostAppCommandCatalog.shared
     @State private var editingGroupID: String?
     @State private var commandLocaleID: String = ""
     @State private var lexiconTransferStatus: String?
@@ -70,6 +71,56 @@ struct InputSettingsView: View {
         Locale.current.localizedString(forIdentifier: resolvedCommandLocaleID) ?? resolvedCommandLocaleID
     }
 
+    private var isChinese: Bool {
+        Locale.current.identifier.hasPrefix("zh")
+    }
+
+    private var visibleFrontmostCommands: [FrontmostAppCommand] {
+        let commands = frontmostAppCommandCatalog.snapshot?.commands ?? []
+        let recommended = commands.filter { $0.aliases.count > 2 }
+        return Array((recommended.isEmpty ? commands : recommended).prefix(12))
+    }
+
+    private var voiceLexiconSections: [VoiceLexiconSection] {
+        [
+            VoiceLexiconSection(
+                title: isChinese ? "点击与编辑" : "Clicks & Editing",
+                subtitle: isChinese
+                    ? "最常用的鼠标点击和基础编辑动作。"
+                    : "Basic pointer clicks and editing actions.",
+                presets: [.clickLeft, .clickRight, .doubleClick, .undo, .paste]
+            ),
+            VoiceLexiconSection(
+                title: isChinese ? "头控指针" : "Pointer Control",
+                subtitle: isChinese
+                    ? "控制头控模式、拖拽和回中。"
+                    : "Control pointer mode, dragging, and recentering.",
+                presets: [.startPointer, .stopPointer, .recenter, .dragStart, .dragEnd]
+            ),
+            VoiceLexiconSection(
+                title: isChinese ? "滚动与浏览" : "Scrolling",
+                subtitle: isChinese
+                    ? "页面浏览时最常用的上下滚动和跳转。"
+                    : "Scrolling and quick jumps for page navigation.",
+                presets: [.scrollUp, .scrollDown, .scrollTop, .scrollBottom]
+            ),
+            VoiceLexiconSection(
+                title: isChinese ? "快捷键面板" : "Shortcut Panel",
+                subtitle: isChinese
+                    ? "显示或关闭当前 App 快捷键总览面板。"
+                    : "Show or hide the current-app shortcuts panel.",
+                presets: [.showShortcutPanel, .hideShortcutPanel]
+            ),
+            VoiceLexiconSection(
+                title: isChinese ? "连接与设备" : "Connection",
+                subtitle: isChinese
+                    ? "适合放到高级场景里的设备连接控制。"
+                    : "Device connection actions used in advanced flows.",
+                presets: [.lockConnection, .unlockConnection]
+            )
+        ]
+    }
+
     private func normalizedCommandLocaleIdentifier(_ raw: String) -> String {
         let candidate = raw == "system" ? Locale.current.identifier : raw
         if supportedVoiceLocaleIDs.contains(candidate) {
@@ -103,10 +154,8 @@ struct InputSettingsView: View {
 
     var body: some View {
         SettingsPage(
-            title: Locale.current.identifier.hasPrefix("zh") ? "语音" : "Voice",
-            subtitle: Locale.current.identifier.hasPrefix("zh")
-                ? "管理麦克风、唤起方式、听写增强和术语纠错。"
-                : "Manage microphone input, activation mode, dictation enhancement, and terminology rules."
+            title: String(localized: "settings.page.voice.title"),
+            subtitle: String(localized: "settings.page.voice.subtitle")
         ) {
             VStack(spacing: 20) {
                 GlassCard {
@@ -299,7 +348,7 @@ struct InputSettingsView: View {
                         Label(L10n.voiceLexiconTitle, systemImage: "list.bullet.clipboard")
                         .font(.headline)
 
-                        Text(L10n.voiceLexiconDescription)
+                        Text(String(localized: "voice_lexicon.description"))
                         .font(.caption)
                         .foregroundColor(.secondary)
 
@@ -367,8 +416,14 @@ struct InputSettingsView: View {
                         }
 
                         VStack(spacing: 12) {
-                            VoiceTermsEditorRow(
+                            VoiceLexiconEditorRow(
                                 title: String(localized: "voice_lexicon.wake_words"),
+                                subtitle: isChinese
+                                    ? "先叫醒 Aether，再说后面的命令。适合免提常驻。"
+                                    : "Say these first to wake Aether before the command.",
+                                example: isChinese
+                                    ? "例如：Aether、阿瑟、嘿 Aether"
+                                    : "Example: Aether, Hey Aether",
                                 text: Binding(
                                     get: { appState.wakeWordOverrideText(for: resolvedCommandLocaleID) },
                                     set: { appState.updateWakeWordOverrideText($0, for: resolvedCommandLocaleID) }
@@ -379,8 +434,14 @@ struct InputSettingsView: View {
                                 }
                             )
 
-                            VoiceTermsEditorRow(
+                            VoiceLexiconEditorRow(
                                 title: String(localized: "voice_lexicon.command_prefixes"),
+                                subtitle: isChinese
+                                    ? "不走唤醒词，直接把后面的内容当成控制命令。"
+                                    : "Force the following phrase to be treated as a control command.",
+                                example: isChinese
+                                    ? "例如：命令，关闭标签页"
+                                    : "Example: command, close tab",
                                 text: Binding(
                                     get: { appState.commandPrefixOverrideText(for: resolvedCommandLocaleID) },
                                     set: { appState.updateCommandPrefixOverrideText($0, for: resolvedCommandLocaleID) }
@@ -391,8 +452,14 @@ struct InputSettingsView: View {
                                 }
                             )
 
-                            VoiceTermsEditorRow(
+                            VoiceLexiconEditorRow(
                                 title: String(localized: "voice_lexicon.dictation_prefixes"),
+                                subtitle: isChinese
+                                    ? "切到输入模式，把后面的内容当作普通文本插入。"
+                                    : "Force the following phrase to be inserted as plain dictation text.",
+                                example: isChinese
+                                    ? "例如：输入，帮我写一封邮件"
+                                    : "Example: type, write an email for me",
                                 text: Binding(
                                     get: { appState.dictationPrefixOverrideText(for: resolvedCommandLocaleID) },
                                     set: { appState.updateDictationPrefixOverrideText($0, for: resolvedCommandLocaleID) }
@@ -406,20 +473,96 @@ struct InputSettingsView: View {
 
                         Divider()
 
-                        VStack(spacing: 12) {
-                            ForEach(VoiceCommandPreset.allCases) { preset in
-                                VoiceCommandAliasRow(
-                                    preset: preset,
-                                    text: Binding(
-                                        get: { appState.commandOverrideText(for: preset, localeIdentifier: resolvedCommandLocaleID) },
-                                        set: { appState.updateCommandOverrideText($0, for: preset, localeIdentifier: resolvedCommandLocaleID) }
-                                    ),
-                                    defaultAliases: VoiceCommandRouter.defaultAliases(for: preset, localeIdentifier: resolvedCommandLocaleID),
-                                    onReset: {
-                                        appState.updateCommandOverrideText("", for: preset, localeIdentifier: resolvedCommandLocaleID)
+                        VStack(alignment: .leading, spacing: 16) {
+                            ForEach(voiceLexiconSections) { section in
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text(section.title)
+                                        .font(.headline)
+                                    Text(section.subtitle)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+
+                                    VStack(spacing: 12) {
+                                        ForEach(section.presets) { preset in
+                                            VoiceLexiconEditorRow(
+                                                title: preset.editorTitle(locale: .current),
+                                                subtitle: preset.editorDescription(locale: .current),
+                                                example: preset.editorExample(locale: .current),
+                                                text: Binding(
+                                                    get: { appState.commandOverrideText(for: preset, localeIdentifier: resolvedCommandLocaleID) },
+                                                    set: { appState.updateCommandOverrideText($0, for: preset, localeIdentifier: resolvedCommandLocaleID) }
+                                                ),
+                                                defaultValues: VoiceCommandRouter.defaultAliases(for: preset, localeIdentifier: resolvedCommandLocaleID),
+                                                onReset: {
+                                                    appState.updateCommandOverrideText("", for: preset, localeIdentifier: resolvedCommandLocaleID)
+                                                }
+                                            )
+                                        }
                                     }
-                                )
+                                }
                             }
+                        }
+                    }
+                }
+
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Label(
+                                    Locale.current.identifier.hasPrefix("zh") ? "当前应用控制" : "Current App Controls",
+                                    systemImage: "app.badge"
+                                )
+                                .font(.headline)
+
+                                Text(Locale.current.identifier.hasPrefix("zh")
+                                     ? "这里展示前台 App 从菜单暴露出的快捷键。语音命中后会直接触发对应组合键。"
+                                     : "These commands come from the frontmost app's menu shortcuts. A matched voice command triggers the corresponding key combo.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            if let snapshot = frontmostAppCommandCatalog.snapshot {
+                                LanguageStatusTag(title: snapshot.appName, tint: .green)
+                            }
+                            Button(String(localized: "current_app_controls.open_panel")) {
+                                appState.showShortcutPanel()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            Button(String(localized: "generic.refresh")) {
+                                _ = frontmostAppCommandCatalog.refresh(force: true)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+
+                        if !appState.accessibilityTrusted {
+                            Text(Locale.current.identifier.hasPrefix("zh")
+                                 ? "需要先开启辅助功能权限，才能读取当前应用菜单和快捷键。"
+                                 : "Accessibility permission is required to read the current app's menu shortcuts.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else if let snapshot = frontmostAppCommandCatalog.snapshot, !snapshot.commands.isEmpty {
+                            Text(
+                                Locale.current.identifier.hasPrefix("zh")
+                                    ? "已读取 \(snapshot.commands.count) 条快捷键。下面是推荐用于语音控制的高频项。"
+                                    : "Loaded \(snapshot.commands.count) shortcuts. The preview below highlights voice-friendly items."
+                            )
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
+                                ForEach(visibleFrontmostCommands) { command in
+                                    FrontmostAppCommandCard(command: command)
+                                }
+                            }
+                        } else {
+                            Text(Locale.current.identifier.hasPrefix("zh")
+                                 ? "当前前台 App 没有可读取的菜单快捷键，或者还没有切到目标应用。"
+                                 : "The frontmost app does not expose readable menu shortcuts yet, or there is no target app in focus.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                     }
                 }
@@ -430,6 +573,7 @@ struct InputSettingsView: View {
                 let preferred = appState.voiceService.explicitLocaleIdentifier ?? Locale.current.identifier
                 commandLocaleID = normalizedCommandLocaleIdentifier(preferred)
             }
+            _ = frontmostAppCommandCatalog.refresh(force: true)
         }
         .sheet(isPresented: Binding(
             get: { editingGroupID != nil },
@@ -539,7 +683,38 @@ private struct LanguageStatusTag: View {
     }
 }
 
-private struct VoiceTermsEditorRow: View {
+private struct FrontmostAppCommandCard: View {
+    let command: FrontmostAppCommand
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(command.title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.primary)
+                .lineLimit(2)
+
+            Text(command.menuPath.joined(separator: " > "))
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+
+            Text(command.shortcut.displayString)
+                .font(.caption.weight(.medium))
+                .foregroundColor(.accentColor)
+                .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct VoiceLexiconEditorRow: View {
     let title: String
     @Binding var text: String
     let defaultValues: [String]
@@ -571,54 +746,6 @@ private struct VoiceTermsEditorRow: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(2)
-
-                Spacer()
-
-                Button(L10n.voiceLexiconClear) {
-                    onReset()
-                }
-                .buttonStyle(.borderless)
-                .disabled(!hasOverride)
-            }
-        }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-        .cornerRadius(10)
-    }
-}
-
-private struct VoiceCommandAliasRow: View {
-    let preset: VoiceCommandPreset
-    @Binding var text: String
-    let defaultAliases: [String]
-    let onReset: () -> Void
-
-    private var hasOverride: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(preset.title())
-                    .font(.body.weight(.medium))
-                Spacer()
-                if hasOverride {
-                    Text(L10n.voiceLexiconCustom)
-                        .font(.caption)
-                        .foregroundColor(.accentColor)
-                }
-            }
-
-            TextField(
-                String(localized: "voice_lexicon.leave_empty"),
-                text: $text
-            )
-            .textFieldStyle(.roundedBorder)
-
-            HStack(alignment: .firstTextBaseline) {
-                Text("\(String(localized: "voice_lexicon.default")): \(defaultAliases.joined(separator: ", "))")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .lineLimit(2)
 
                 Spacer()
 
@@ -1039,10 +1166,8 @@ struct OutputSettingsView: View {
     
     var body: some View {
         SettingsPage(
-            title: Locale.current.identifier.hasPrefix("zh") ? "指针" : "Pointer",
-            subtitle: Locale.current.identifier.hasPrefix("zh")
-                ? "集中调整头控启停、点击方式与校准状态。"
-                : "Adjust tracking, click behavior, and calibration in one place."
+            title: String(localized: "settings.page.pointer.title"),
+            subtitle: String(localized: "settings.page.pointer.subtitle")
         ) {
             VStack(spacing: 20) {
                 GlassCard {
@@ -1113,10 +1238,8 @@ struct SystemSettingsView: View {
     
     var body: some View {
         SettingsPage(
-            title: Locale.current.identifier.hasPrefix("zh") ? "高级" : "Advanced",
-            subtitle: Locale.current.identifier.hasPrefix("zh")
-                ? "查看驱动、权限和应用级行为设置。"
-                : "Review driver state, permissions, and app-level behavior."
+            title: String(localized: "settings.page.advanced.title"),
+            subtitle: String(localized: "settings.page.advanced.subtitle")
         ) {
             VStack(spacing: 20) {
                 GlassCard {
@@ -1192,10 +1315,8 @@ struct SystemSettingsView: View {
 struct ShortcutsSettingsView: View {
     var body: some View {
         SettingsPage(
-            title: Locale.current.identifier.hasPrefix("zh") ? "快捷键" : "Shortcuts",
-            subtitle: Locale.current.identifier.hasPrefix("zh")
-                ? "统一管理按住说话、头控和连接锁等全局快捷键。"
-                : "Manage Push to Talk, pointer control, connection lock, and other global shortcuts."
+            title: String(localized: "settings.page.shortcuts.title"),
+            subtitle: String(localized: "settings.page.shortcuts.subtitle")
         ) {
             GlassCard {
                 HotkeySettingsSection()

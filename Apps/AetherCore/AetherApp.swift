@@ -1064,6 +1064,13 @@ class AppState: ObservableObject {
             }
             .store(in: &cancellables)
 
+        NotificationCenter.default.publisher(for: .toggleShortcutPanel)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.toggleShortcutPanel()
+            }
+            .store(in: &cancellables)
+
         // Refresh permissions when the app comes back to foreground (e.g. after changing System Settings).
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .receive(on: DispatchQueue.main)
@@ -1167,6 +1174,18 @@ class AppState: ObservableObject {
         }
     }
 
+    func showShortcutPanel() {
+        CurrentAppShortcutPanelManager.shared.show()
+    }
+
+    func hideShortcutPanel() {
+        CurrentAppShortcutPanelManager.shared.hide()
+    }
+
+    func toggleShortcutPanel() {
+        CurrentAppShortcutPanelManager.shared.toggle()
+    }
+
     private func applyVoiceIntent(_ intent: VoiceIntent) {
         switch intent {
         case .clickLeft:
@@ -1175,12 +1194,18 @@ class AppState: ObservableObject {
             motionService.clickRight()
         case .doubleClick:
             motionService.doubleClick()
+        case .showShortcutPanel:
+            showShortcutPanel()
+        case .hideShortcutPanel:
+            hideShortcutPanel()
         case .startPointer:
             motionService.startTracking()
         case .stopPointer:
             motionService.stopTracking()
         case .recenter:
             motionService.recenter()
+        case .frontmostAppCommand(let command):
+            AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: command.processIdentifier)
         case .scroll(let dx, let dy):
             motionService.scroll(dx: dx, dy: dy)
         case .scrollToWeb(let edge):
@@ -1396,6 +1421,350 @@ class AppState: ObservableObject {
     }
 }
 
+@MainActor
+final class CurrentAppShortcutPanelManager: ObservableObject {
+    static let shared = CurrentAppShortcutPanelManager()
+
+    @Published private(set) var isVisible: Bool = false
+
+    private var panel: NSPanel?
+
+    private init() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleFrontmostAppChanged),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+    }
+
+    func show() {
+        _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
+        ensurePanel()
+        updatePanelFrame()
+        panel?.alphaValue = 1.0
+        panel?.orderFrontRegardless()
+        isVisible = true
+    }
+
+    func hide() {
+        panel?.orderOut(nil)
+        isVisible = false
+    }
+
+    func toggle() {
+        isVisible ? hide() : show()
+    }
+
+    @objc private func handleFrontmostAppChanged() {
+        guard isVisible else { return }
+        _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
+        updatePanelFrame()
+    }
+
+    private func ensurePanel() {
+        guard panel == nil else { return }
+
+        let hostingController = NSHostingController(rootView: CurrentAppShortcutPanelView())
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 1160, height: 760),
+            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isFloatingPanel = true
+        panel.level = .statusBar
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
+        panel.hidesOnDeactivate = false
+        panel.isMovableByWindowBackground = true
+        panel.ignoresMouseEvents = false
+        panel.contentViewController = hostingController
+        self.panel = panel
+    }
+
+    private func updatePanelFrame() {
+        guard let panel else { return }
+        let screen = activeScreen()
+        let visibleFrame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let width = min(max(visibleFrame.width - 56, 900), 1500)
+        let height = min(max(visibleFrame.height - 96, 560), 900)
+        let origin = CGPoint(
+            x: visibleFrame.midX - width / 2,
+            y: visibleFrame.midY - height / 2
+        )
+        panel.setFrame(NSRect(origin: origin, size: CGSize(width: width, height: height)), display: true)
+    }
+
+    private func activeScreen() -> NSScreen? {
+        let mouseLocation = NSEvent.mouseLocation
+        return NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) })
+    }
+}
+
+private struct CurrentAppShortcutPanelSection: Identifiable {
+    let title: String
+    let commands: [FrontmostAppCommand]
+
+    var id: String { title }
+}
+
+private struct CurrentAppShortcutPanelView: View {
+    @StateObject private var catalog = FrontmostAppCommandCatalog.shared
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var snapshot: FrontmostAppCommandSnapshot? {
+        catalog.snapshot
+    }
+
+    private var sections: [CurrentAppShortcutPanelSection] {
+        guard let snapshot else { return [] }
+        var ordered: [String] = []
+        var grouped: [String: [FrontmostAppCommand]] = [:]
+
+        for command in snapshot.commands {
+            let title = command.menuPath.first ?? snapshot.appName
+            if grouped[title] == nil {
+                ordered.append(title)
+                grouped[title] = []
+            }
+            grouped[title, default: []].append(command)
+        }
+
+        return ordered.map { CurrentAppShortcutPanelSection(title: $0, commands: grouped[$0] ?? []) }
+    }
+
+    private var appIcon: NSImage? {
+        guard let snapshot else { return nil }
+        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: snapshot.bundleIdentifier) else { return nil }
+        return NSWorkspace.shared.icon(forFile: appURL.path)
+    }
+
+    private var isChinese: Bool {
+        Locale.current.identifier.hasPrefix("zh")
+    }
+
+    private let columns = [GridItem(.adaptive(minimum: 280, maximum: 420), spacing: 18, alignment: .top)]
+
+    private var panelGradient: LinearGradient {
+        let top = Color(nsColor: colorScheme == .dark ? .windowBackgroundColor : .controlBackgroundColor)
+        let bottom = Color(nsColor: .windowBackgroundColor)
+        return LinearGradient(colors: [top.opacity(0.98), bottom.opacity(0.96)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    private var panelStroke: Color {
+        Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.06)
+    }
+
+    private var chromeBackground: Color {
+        Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.04)
+    }
+
+    private var cardBackground: Color {
+        Color(nsColor: colorScheme == .dark ? .controlBackgroundColor : .textBackgroundColor).opacity(colorScheme == .dark ? 0.84 : 0.9)
+    }
+
+    private var cardStroke: Color {
+        Color.primary.opacity(colorScheme == .dark ? 0.1 : 0.05)
+    }
+
+    private var emptyStateBackground: Color {
+        Color(nsColor: colorScheme == .dark ? .underPageBackgroundColor : .controlBackgroundColor).opacity(colorScheme == .dark ? 0.75 : 0.78)
+    }
+
+    var body: some View {
+        ZStack {
+            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
+
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(panelGradient)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(panelStroke, lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.12), radius: 28, y: 18)
+
+            VStack(alignment: .leading, spacing: 20) {
+                header
+
+                if !AXIsProcessTrusted() {
+                    emptyState(
+                        title: isChinese ? "需要辅助功能权限" : "Accessibility Permission Required",
+                        detail: isChinese
+                            ? "开启辅助功能后，Aether 才能读取当前 App 的菜单和快捷键。"
+                            : "Aether needs Accessibility permission to read the current app's menus and shortcuts."
+                    )
+                } else if let snapshot, !snapshot.commands.isEmpty {
+                    ScrollView {
+                        LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
+                            ForEach(sections) { section in
+                                CurrentAppShortcutSectionCard(section: section)
+                            }
+                        }
+                        .padding(.bottom, 4)
+                    }
+                    .scrollIndicators(.hidden)
+                } else {
+                    emptyState(
+                        title: isChinese ? "当前 App 暂无可读快捷键" : "No Readable Shortcuts Yet",
+                        detail: isChinese
+                            ? "切到目标应用后再试一次，或者手动展开该应用的菜单栏。"
+                            : "Switch back to the target app and try again, or manually open that app's menu bar once."
+                    )
+                }
+            }
+            .padding(26)
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Group {
+                if let appIcon {
+                    Image(nsImage: appIcon)
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Image(systemName: "command.square.fill")
+                        .resizable()
+                        .scaledToFit()
+                        .padding(8)
+                        .foregroundColor(.accentColor)
+                }
+            }
+            .frame(width: 42, height: 42)
+            .background(chromeBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(snapshot?.appName ?? (isChinese ? "当前应用快捷键" : "Current App Shortcuts"))
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                Text(
+                    isChinese
+                        ? "按顶层菜单分组展示可触发快捷键。语音命中后会直接发送对应组合键。"
+                        : "Shortcut commands grouped by top-level menu. A voice match sends the corresponding key combo."
+                )
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            }
+
+            Spacer(minLength: 20)
+
+            if let snapshot {
+                Text("\(snapshot.commands.count) \(isChinese ? "条快捷键" : "shortcuts")")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.accentColor.opacity(0.12))
+                    .foregroundColor(.accentColor)
+                    .clipShape(Capsule())
+            }
+
+            Button(String(localized: "generic.refresh")) {
+                _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
+            }
+            .buttonStyle(.bordered)
+
+            Button {
+                CurrentAppShortcutPanelManager.shared.hide()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.headline.weight(.semibold))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.borderless)
+            .background(chromeBackground)
+            .clipShape(Circle())
+        }
+    }
+
+    private func emptyState(title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+            Text(detail)
+                .font(.body)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(24)
+        .background(emptyStateBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+private struct CurrentAppShortcutSectionCard: View {
+    let section: CurrentAppShortcutPanelSection
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var cardBackground: Color {
+        Color(nsColor: colorScheme == .dark ? .controlBackgroundColor : .textBackgroundColor).opacity(colorScheme == .dark ? 0.84 : 0.9)
+    }
+
+    private var cardStroke: Color {
+        Color.primary.opacity(colorScheme == .dark ? 0.1 : 0.05)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(section.title)
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(section.commands) { command in
+                    CurrentAppShortcutRow(command: command)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(18)
+        .background(cardBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(cardStroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+private struct CurrentAppShortcutRow: View {
+    let command: FrontmostAppCommand
+
+    private var submenuPath: String {
+        guard command.menuPath.count > 1 else { return "" }
+        return command.menuPath.dropFirst().joined(separator: " > ")
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(command.title)
+                    .font(.body.weight(.semibold))
+                    .foregroundColor(.primary)
+                if !submenuPath.isEmpty {
+                    Text(submenuPath)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            Text(command.shortcut.displayString)
+                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .foregroundColor(.accentColor)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.accentColor.opacity(0.1))
+                .clipShape(Capsule())
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 class AetherAppDelegate: NSObject, NSApplicationDelegate {
     private func isRunningFromReadOnlyDiskImage() -> Bool {
         let bundleURL = Bundle.main.bundleURL
@@ -1465,4 +1834,5 @@ struct AetherApp: App {
 // MARK: - Notification Names
 extension Notification.Name {
     static let toggleConnectionLock = Notification.Name("AetherToggleConnectionLock")
+    static let toggleShortcutPanel = Notification.Name("AetherToggleShortcutPanel")
 }

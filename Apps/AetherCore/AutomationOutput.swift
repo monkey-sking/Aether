@@ -9,6 +9,7 @@ protocol AutomationOutput {
     func pasteText(_ text: String)
     func undo()
     func pasteFromClipboard()
+    func pressShortcut(_ binding: HotkeyBinding, targetPID: pid_t?)
     func scroll(dx: Int, dy: Int)
     func drag(start: Bool, at point: CGPoint?)
     func backspace(count: Int, targetPID: pid_t?)
@@ -164,6 +165,20 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
         cmdUp?.post(tap: .cghidEventTap)
     }
 
+    func pressShortcut(_ binding: HotkeyBinding, targetPID: pid_t?) {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let flags = CGEventFlags(rawValue: binding.modifiers)
+        let keyCode = CGKeyCode(binding.keyCode)
+
+        let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
+        down?.flags = flags
+        postKeyboardEvent(down, targetPID: targetPID)
+
+        let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
+        up?.flags = flags
+        postKeyboardEvent(up, targetPID: targetPID)
+    }
+
     func scroll(dx: Int, dy: Int) {
         let source = CGEventSource(stateID: .combinedSessionState)
         // scrollWheel event: arg1=line height (y), arg2=line width (x), but unit is vague.
@@ -312,6 +327,11 @@ final class PreferredAutomationOutput: AutomationOutput {
 
     func pasteFromClipboard() {
         fallback.pasteFromClipboard()
+        OutputRouting.shared.setTextOutputPath("CoreGraphics")
+    }
+
+    func pressShortcut(_ binding: HotkeyBinding, targetPID: pid_t?) {
+        fallback.pressShortcut(binding, targetPID: targetPID)
         OutputRouting.shared.setTextOutputPath("CoreGraphics")
     }
 

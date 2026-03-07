@@ -20,6 +20,7 @@ mkdir -p "$DERIVED_DATA_PATH"
 
 BUILD_NUMBER=$(date +%Y%m%d%H%M)
 UNIVERSAL_BUILD="${AETHER_UNIVERSAL:-0}"
+ENABLE_APP_INTENTS_METADATA_EXTRACTION="${AETHER_ENABLE_APP_INTENTS_METADATA_EXTRACTION:-0}"
 
 echo "Building ${APP_NAME} (${CONFIGURATION}) -> ${BUILD_DIR}"
 echo "Tip: set signing in Xcode (Signing & Capabilities)."
@@ -40,7 +41,14 @@ EXTRA_BUILD_FLAGS=(
   "LLVM_LTO=NO"
   "ENABLE_PREVIEWS=NO"
   "CLANG_USE_OPTIMIZATION_PROFILE=NO"
+  "ENABLE_APP_INTENTS_METADATA_EXTRACTION=${ENABLE_APP_INTENTS_METADATA_EXTRACTION}"
 )
+
+if [[ "${ENABLE_APP_INTENTS_METADATA_EXTRACTION}" != "1" ]]; then
+  EXTRA_BUILD_FLAGS+=(
+    'OTHER_SWIFT_FLAGS=$(inherited) -DAETHER_DISABLE_APP_INTENTS'
+  )
+fi
 if [[ "${AETHER_UNSIGNED:-0}" == "1" ]]; then
   EXTRA_BUILD_FLAGS+=(
     "CODE_SIGNING_ALLOWED=NO"
@@ -82,6 +90,11 @@ if [[ "$UNIVERSAL_BUILD" == "1" ]]; then
   )
 fi
 echo "Using destination: ${DESTINATION}"
+if [[ "${ENABLE_APP_INTENTS_METADATA_EXTRACTION}" == "1" ]]; then
+  echo "App Intents metadata extraction: enabled"
+else
+  echo "App Intents metadata extraction: disabled"
+fi
 
 run_xcodebuild() {
   xcodebuild -project Aether.xcodeproj \

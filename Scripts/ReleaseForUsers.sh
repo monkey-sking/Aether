@@ -168,6 +168,7 @@ sign_app_bundle() {
 
   if [[ -d "${APP_PATH}/Contents/Library/SystemExtensions" ]]; then
     find "${APP_PATH}/Contents/Library/SystemExtensions" -type d -name "*.dext" | while read -r item; do
+      [[ -n "${DRIVER_SIGN_ENTITLEMENTS:-}" && -f "${DRIVER_SIGN_ENTITLEMENTS}" ]] || err "Driver signing entitlements are missing for system extension signing."
       codesign --force --options runtime --timestamp \
         --entitlements "${DRIVER_SIGN_ENTITLEMENTS}" \
         --sign "$identity" "$item"

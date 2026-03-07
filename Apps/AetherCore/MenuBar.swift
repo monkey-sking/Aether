@@ -4,10 +4,6 @@ struct AetherMenuBar: Scene {
     @EnvironmentObject private var appState: AppState
     @Environment(\.openWindow) private var openWindow
 
-    private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
-    }
-
     private var driverReady: Bool {
         appState.driverStatus.contains("Connected") || appState.driverStatus.contains("Ready")
     }
@@ -21,29 +17,29 @@ struct AetherMenuBar: Scene {
 
     private var statusTitle: String {
         if needsAttention {
-            return isChinese ? "需要处理设置" : "Setup Needs Attention"
+            return String(localized: "menu.status.setup_attention")
         }
         if appState.isMotionTracking && appState.voiceActivationMode == .handsFree {
-            return isChinese ? "语音和指针已就绪" : "Voice and Pointer Ready"
+            return String(localized: "menu.status.voice_pointer_ready")
         }
         if appState.isMotionTracking {
-            return isChinese ? "指针控制已开启" : "Pointer Control Active"
+            return String(localized: "menu.status.pointer_active")
         }
-        return isChinese ? "Aether 已待命" : "Aether Ready"
+        return String(localized: "menu.status.ready")
     }
 
     private var statusSubtitle: String {
         if !appState.accessibilityTrusted {
-            return isChinese ? "辅助功能未授权" : "Accessibility permission is missing"
+            return String(localized: "menu.status.accessibility_missing")
         }
         if !appState.microphoneAuthorized {
-            return isChinese ? "麦克风未授权" : "Microphone permission is missing"
+            return String(localized: "menu.status.microphone_missing")
         }
         if !appState.speechAuthorized {
-            return isChinese ? "语音识别未授权" : "Speech Recognition permission is missing"
+            return String(localized: "menu.status.speech_missing")
         }
         if appState.driverState == .needsUserApproval {
-            return isChinese ? "驱动还需要系统批准" : "The driver still needs system approval"
+            return String(localized: "menu.status.driver_approval_needed")
         }
         return appState.voiceStatus
     }
@@ -58,7 +54,7 @@ struct AetherMenuBar: Scene {
                 )
 
                 if appState.driverState == .needsUserApproval {
-                    Button(isChinese ? "批准驱动" : "Approve Driver") {
+                    Button(String(localized: "menu.approve_driver")) {
                         appState.openPrivacyAndSecurityPane()
                     }
                 } else if !driverReady && appState.isMotionTracking {
@@ -68,19 +64,19 @@ struct AetherMenuBar: Scene {
                 }
 
                 if !appState.accessibilityTrusted {
-                    Button(isChinese ? "开启辅助功能权限" : "Enable Accessibility") {
+                    Button(String(localized: "menu.enable_accessibility")) {
                         appState.requestAccessibilityGuided()
                     }
                 }
 
                 if !appState.microphoneAuthorized {
-                    Button(isChinese ? "开启麦克风权限" : "Enable Microphone") {
+                    Button(String(localized: "menu.enable_microphone")) {
                         appState.requestMicrophoneGuided()
                     }
                 }
 
                 if !appState.speechAuthorized {
-                    Button(isChinese ? "开启语音识别权限" : "Enable Speech Recognition") {
+                    Button(String(localized: "menu.enable_speech")) {
                         appState.requestSpeechGuided()
                     }
                 }
@@ -97,13 +93,22 @@ struct AetherMenuBar: Scene {
                     appState.finishCalibration()
                 }
 
-                Button(isChinese ? "打开设置" : "Open Settings") {
+                Button(
+                    String(
+                        format: NSLocalizedString("menu.shortcut_panel_fmt", comment: ""),
+                        HotkeyManager.shared.binding(for: .toggleShortcutPanel).displayString
+                    )
+                ) {
+                    appState.toggleShortcutPanel()
+                }
+
+                Button(String(localized: "menu.open_settings")) {
                     GlobalLogger.lifecycle.info("Menu action: show main window")
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 }
 
-                Menu(isChinese ? "更多控制" : "More Controls") {
+                Menu(String(localized: "menu.more_controls")) {
                     Toggle(
                         L10n.alwaysListening,
                         isOn: Binding(
