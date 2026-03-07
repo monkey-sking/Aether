@@ -37,9 +37,52 @@ final class FrontmostAppCommandCatalog: ObservableObject {
     static let shared = FrontmostAppCommandCatalog()
     private static let axMenuAttribute = "AXMenu" as CFString
     private static let maxTraversalDepth = 12
+    private static let browserBundleIdentifiers: Set<String> = [
+        "com.apple.Safari",
+        "com.google.Chrome",
+        "com.google.Chrome.beta",
+        "com.google.Chrome.canary",
+        "com.brave.Browser",
+        "company.thebrowser.Browser",
+        "com.kagi.kagimacOS",
+        "com.microsoft.edgemac",
+        "com.microsoft.edgemac.Beta",
+        "com.microsoft.edgemac.Dev",
+        "com.microsoft.edgemac.Canary",
+        "org.mozilla.firefox"
+    ]
+    private static let editorBundleIdentifiers: Set<String> = [
+        "com.microsoft.VSCode",
+        "com.microsoft.VSCodeInsiders",
+        "com.todesktop.230313mzl4w4u92",
+        "com.zed.Zed",
+        "com.apple.dt.Xcode"
+    ]
+    private static let terminalBundleIdentifiers: Set<String> = [
+        "com.apple.Terminal",
+        "com.googlecode.iterm2",
+        "com.github.wez.wezterm",
+        "dev.warp.Warp-Stable"
+    ]
+    private static let collaborationBundleIdentifiers: Set<String> = [
+        "com.tinyspeck.slackmacgap",
+        "notion.id",
+        "com.hnc.Discord"
+    ]
+    private static let jetBrainsBundlePrefixes = [
+        "com.jetbrains."
+    ]
 
     private struct AliasRule {
         let keywords: [String]
+        let aliases: [String]
+    }
+
+    private struct SupplementalCommandTemplate {
+        let sectionTitle: String
+        let subgroupTitle: String
+        let title: String
+        let shortcut: HotkeyBinding
         let aliases: [String]
     }
 
@@ -98,6 +141,15 @@ final class FrontmostAppCommandCatalog: ObservableObject {
             aliases: ["find", "search in page", "查找", "页面查找"]
         )
     ]
+
+    private static let commandModifier: UInt64 = CGEventFlags.maskCommand.rawValue
+    private static let commandShiftModifier: UInt64 = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue
+    private static let commandControlModifier: UInt64 = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskControl.rawValue
+    private static let commandOptionModifier: UInt64 = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskAlternate.rawValue
+    private static let commandOptionShiftModifier: UInt64 = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskShift.rawValue
+    private static let controlModifier: UInt64 = CGEventFlags.maskControl.rawValue
+    private static let controlShiftModifier: UInt64 = CGEventFlags.maskControl.rawValue | CGEventFlags.maskShift.rawValue
+    private static let shiftModifier: UInt64 = CGEventFlags.maskShift.rawValue
 
     @Published private(set) var snapshot: FrontmostAppCommandSnapshot?
 
@@ -170,43 +222,44 @@ final class FrontmostAppCommandCatalog: ObservableObject {
         let bundleIdentifier = app.bundleIdentifier ?? ""
         let appName = app.localizedName ?? bundleIdentifier
         let appAX = AXUIElementCreateApplication(app.processIdentifier)
-
-        var menuBarRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appAX, kAXMenuBarAttribute as CFString, &menuBarRef) == .success,
-              let menuBarRef,
-              CFGetTypeID(menuBarRef) == AXUIElementGetTypeID() else {
-            return FrontmostAppCommandSnapshot(
-                processIdentifier: app.processIdentifier,
-                bundleIdentifier: bundleIdentifier,
-                appName: appName,
-                commands: []
-            )
-        }
-
-        let menuBar = menuBarRef as! AXUIElement
         var commands: [FrontmostAppCommand] = []
         var seen = Set<String>()
-        var visited = Set<CFHashCode>()
 
-        for topLevelItem in childElements(of: menuBar) {
-            let sectionTitle = sanitizedTitle(stringAttribute(topLevelItem, kAXTitleAttribute as CFString))
-            let seedPath = sectionTitle.isEmpty ? [] : [sectionTitle]
+        var menuBarRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(appAX, kAXMenuBarAttribute as CFString, &menuBarRef) == .success,
+           let menuBarRef,
+           CFGetTypeID(menuBarRef) == AXUIElementGetTypeID() {
+            let menuBar = menuBarRef as! AXUIElement
+            var visited = Set<CFHashCode>()
 
-            let roots = menuRoots(for: topLevelItem)
-            for child in roots {
-                collectCommands(
-                    in: child,
-                    seedPath: seedPath,
-                    processIdentifier: app.processIdentifier,
-                    bundleIdentifier: bundleIdentifier,
-                    appName: appName,
-                    depth: 0,
-                    commands: &commands,
-                    seen: &seen,
-                    visited: &visited
-                )
+            for topLevelItem in childElements(of: menuBar) {
+                let sectionTitle = sanitizedTitle(stringAttribute(topLevelItem, kAXTitleAttribute as CFString))
+                let seedPath = sectionTitle.isEmpty ? [] : [sectionTitle]
+
+                let roots = menuRoots(for: topLevelItem)
+                for child in roots {
+                    collectCommands(
+                        in: child,
+                        seedPath: seedPath,
+                        processIdentifier: app.processIdentifier,
+                        bundleIdentifier: bundleIdentifier,
+                        appName: appName,
+                        depth: 0,
+                        commands: &commands,
+                        seen: &seen,
+                        visited: &visited
+                    )
+                }
             }
         }
+
+        mergeSupplementalCommands(
+            for: app,
+            bundleIdentifier: bundleIdentifier,
+            appName: appName,
+            commands: &commands,
+            seen: &seen
+        )
 
         return FrontmostAppCommandSnapshot(
             processIdentifier: app.processIdentifier,
@@ -273,6 +326,356 @@ final class FrontmostAppCommandCatalog: ObservableObject {
                 visited: &visited
             )
         }
+    }
+
+    private func mergeSupplementalCommands(
+        for app: NSRunningApplication,
+        bundleIdentifier: String,
+        appName: String,
+        commands: inout [FrontmostAppCommand],
+        seen: inout Set<String>
+    ) {
+        for template in supplementalCommands(for: app) {
+            let command = FrontmostAppCommand(
+                processIdentifier: app.processIdentifier,
+                bundleIdentifier: bundleIdentifier,
+                appName: appName,
+                menuPath: [template.sectionTitle, template.subgroupTitle],
+                title: template.title,
+                shortcut: template.shortcut,
+                aliases: VoiceCommandRouter.uniqueAliases([template.title] + template.aliases)
+            )
+            let dedupeKey = supplementalDedupeKey(for: command)
+            if seen.insert(dedupeKey).inserted {
+                commands.append(command)
+            }
+        }
+    }
+
+    private func supplementalCommands(for app: NSRunningApplication) -> [SupplementalCommandTemplate] {
+        guard let bundleIdentifier = app.bundleIdentifier else { return [] }
+        var templates: [SupplementalCommandTemplate] = []
+
+        if Self.browserBundleIdentifiers.contains(bundleIdentifier) {
+            templates += browserSupplementalCommands()
+        }
+        if Self.editorBundleIdentifiers.contains(bundleIdentifier) || Self.jetBrainsBundlePrefixes.contains(where: { bundleIdentifier.hasPrefix($0) }) {
+            templates += editorSupplementalCommands(for: bundleIdentifier)
+        }
+        if Self.terminalBundleIdentifiers.contains(bundleIdentifier) {
+            templates += terminalSupplementalCommands(for: bundleIdentifier)
+        }
+        if Self.collaborationBundleIdentifiers.contains(bundleIdentifier) {
+            templates += collaborationSupplementalCommands(for: bundleIdentifier)
+        }
+
+        return templates
+    }
+
+    private func supplementalDedupeKey(for command: FrontmostAppCommand) -> String {
+        [command.bundleIdentifier, command.title.lowercased(), command.shortcut.displayString]
+            .joined(separator: "::")
+    }
+
+    private func browserSupplementalCommands() -> [SupplementalCommandTemplate] {
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let browserSection = isChinese ? "浏览器常用" : "Browser"
+        let tabsGroup = isChinese ? "标签页" : "Tabs"
+        let pageGroup = isChinese ? "页面" : "Page"
+
+        return [
+            SupplementalCommandTemplate(
+                sectionTitle: browserSection,
+                subgroupTitle: tabsGroup,
+                title: isChinese ? "新建标签页" : "New Tab",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_T, modifiers: Self.commandModifier),
+                aliases: ["new tab", "open new tab", "新建标签", "新标签页", "打开新标签"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: browserSection,
+                subgroupTitle: tabsGroup,
+                title: isChinese ? "关闭标签页" : "Close Tab",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_W, modifiers: Self.commandModifier),
+                aliases: ["close tab", "close current tab", "关闭标签", "关闭当前标签", "关掉标签页"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: browserSection,
+                subgroupTitle: tabsGroup,
+                title: isChinese ? "恢复已关闭标签页" : "Reopen Closed Tab",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_T, modifiers: Self.commandShiftModifier),
+                aliases: ["reopen tab", "restore tab", "restore closed tab", "恢复标签", "重新打开标签"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: browserSection,
+                subgroupTitle: tabsGroup,
+                title: isChinese ? "下一个标签页" : "Next Tab",
+                shortcut: HotkeyBinding(keyCode: kVK_Tab, modifiers: Self.controlModifier),
+                aliases: ["next tab", "switch to next tab", "下一个标签", "切换到下一个标签", "切到下个标签"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: browserSection,
+                subgroupTitle: tabsGroup,
+                title: isChinese ? "上一个标签页" : "Previous Tab",
+                shortcut: HotkeyBinding(keyCode: kVK_Tab, modifiers: Self.controlShiftModifier),
+                aliases: ["previous tab", "last tab", "上一个标签", "切换到上一个标签", "切到上个标签"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: browserSection,
+                subgroupTitle: pageGroup,
+                title: isChinese ? "刷新页面" : "Refresh Page",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_R, modifiers: Self.commandModifier),
+                aliases: ["reload page", "refresh page", "刷新页面", "重新加载页面"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: browserSection,
+                subgroupTitle: pageGroup,
+                title: isChinese ? "在页面中查找" : "Find in Page",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_F, modifiers: Self.commandModifier),
+                aliases: ["find", "find in page", "search in page", "查找", "页面查找"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: browserSection,
+                subgroupTitle: pageGroup,
+                title: isChinese ? "聚焦地址栏" : "Focus Address Bar",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_L, modifiers: Self.commandModifier),
+                aliases: ["focus address bar", "address bar", "go to address bar", "聚焦地址栏", "切到地址栏"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: browserSection,
+                subgroupTitle: pageGroup,
+                title: isChinese ? "新建窗口" : "New Window",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_N, modifiers: Self.commandModifier),
+                aliases: ["new window", "open new window", "新建窗口", "打开新窗口"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: browserSection,
+                subgroupTitle: pageGroup,
+                title: isChinese ? "关闭窗口" : "Close Window",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_W, modifiers: Self.commandShiftModifier),
+                aliases: ["close window", "关闭窗口"]
+            )
+        ]
+    }
+
+    private func editorSupplementalCommands(for bundleIdentifier: String) -> [SupplementalCommandTemplate] {
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let editorSection = isChinese ? "编辑器常用" : "Editor"
+        let navigationGroup = isChinese ? "导航" : "Navigation"
+        let commandGroup = isChinese ? "命令" : "Commands"
+
+        if bundleIdentifier == "com.apple.dt.Xcode" {
+            return [
+                SupplementalCommandTemplate(
+                    sectionTitle: editorSection,
+                    subgroupTitle: navigationGroup,
+                    title: isChinese ? "快速打开" : "Open Quickly",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_O, modifiers: Self.commandShiftModifier),
+                    aliases: ["open quickly", "quick open", "快速打开", "打开文件", "切换文件"]
+                ),
+                SupplementalCommandTemplate(
+                    sectionTitle: editorSection,
+                    subgroupTitle: navigationGroup,
+                    title: isChinese ? "打开跳转栏" : "Open Jump Bar",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_J, modifiers: Self.commandControlModifier),
+                    aliases: ["jump bar", "open jump bar", "跳转栏", "打开跳转栏"]
+                ),
+                SupplementalCommandTemplate(
+                    sectionTitle: editorSection,
+                    subgroupTitle: commandGroup,
+                    title: isChinese ? "查找" : "Find",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_F, modifiers: Self.commandModifier),
+                    aliases: ["find", "search", "查找", "搜索"]
+                )
+            ]
+        }
+
+        if bundleIdentifier.hasPrefix("com.jetbrains.") {
+            return [
+                SupplementalCommandTemplate(
+                    sectionTitle: editorSection,
+                    subgroupTitle: commandGroup,
+                    title: isChinese ? "搜索所有地方" : "Search Everywhere",
+                    shortcut: HotkeyBinding(keyCode: kVK_Shift, modifiers: Self.shiftModifier),
+                    aliases: ["search everywhere", "find anywhere", "搜索所有地方", "全局搜索"]
+                ),
+                SupplementalCommandTemplate(
+                    sectionTitle: editorSection,
+                    subgroupTitle: navigationGroup,
+                    title: isChinese ? "跳转到定义" : "Go to Declaration",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_B, modifiers: Self.commandModifier),
+                    aliases: ["go to definition", "jump to definition", "跳转定义", "去定义"]
+                ),
+                SupplementalCommandTemplate(
+                    sectionTitle: editorSection,
+                    subgroupTitle: commandGroup,
+                    title: isChinese ? "执行动作" : "Find Action",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_A, modifiers: Self.commandShiftModifier),
+                    aliases: ["find action", "run action", "执行动作", "查找动作"]
+                )
+            ]
+        }
+
+        return [
+            SupplementalCommandTemplate(
+                sectionTitle: editorSection,
+                subgroupTitle: commandGroup,
+                title: isChinese ? "命令面板" : "Command Palette",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_P, modifiers: Self.commandShiftModifier),
+                aliases: ["command palette", "show commands", "命令面板", "显示命令面板"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: editorSection,
+                subgroupTitle: navigationGroup,
+                title: isChinese ? "快速打开" : "Quick Open",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_P, modifiers: Self.commandModifier),
+                aliases: ["quick open", "open file", "快速打开", "打开文件"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: editorSection,
+                subgroupTitle: commandGroup,
+                title: isChinese ? "搜索项目" : "Search Project",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_F, modifiers: Self.commandShiftModifier),
+                aliases: ["search project", "search files", "搜索项目", "全局搜索"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: editorSection,
+                subgroupTitle: commandGroup,
+                title: isChinese ? "替换项目" : "Replace in Project",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_H, modifiers: Self.commandShiftModifier),
+                aliases: ["replace in project", "replace across files", "全局替换", "项目替换"]
+            )
+        ]
+    }
+
+    private func terminalSupplementalCommands(for bundleIdentifier: String) -> [SupplementalCommandTemplate] {
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let terminalSection = isChinese ? "终端常用" : "Terminal"
+        let sessionGroup = isChinese ? "会话" : "Session"
+        let layoutGroup = isChinese ? "布局" : "Layout"
+
+        var templates: [SupplementalCommandTemplate] = [
+            SupplementalCommandTemplate(
+                sectionTitle: terminalSection,
+                subgroupTitle: sessionGroup,
+                title: isChinese ? "新建标签页" : "New Tab",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_T, modifiers: Self.commandModifier),
+                aliases: ["new tab", "open terminal tab", "新建标签", "打开新终端标签"]
+            ),
+            SupplementalCommandTemplate(
+                sectionTitle: terminalSection,
+                subgroupTitle: sessionGroup,
+                title: isChinese ? "新建窗口" : "New Window",
+                shortcut: HotkeyBinding(keyCode: kVK_ANSI_N, modifiers: Self.commandModifier),
+                aliases: ["new window", "open terminal window", "新建窗口", "打开终端窗口"]
+            )
+        ]
+
+        if bundleIdentifier != "com.apple.Terminal" {
+            templates += [
+                SupplementalCommandTemplate(
+                    sectionTitle: terminalSection,
+                    subgroupTitle: layoutGroup,
+                    title: isChinese ? "垂直分屏" : "Split Pane",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_D, modifiers: Self.commandModifier),
+                    aliases: ["split pane", "split terminal", "终端分屏", "分屏"]
+                )
+            ]
+        }
+
+        if bundleIdentifier == "dev.warp.Warp-Stable" {
+            templates += [
+                SupplementalCommandTemplate(
+                    sectionTitle: terminalSection,
+                    subgroupTitle: sessionGroup,
+                    title: isChinese ? "命令搜索" : "Command Search",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_P, modifiers: Self.commandModifier),
+                    aliases: ["command search", "warp command search", "命令搜索", "搜索命令"]
+                )
+            ]
+        }
+
+        return templates
+    }
+
+    private func collaborationSupplementalCommands(for bundleIdentifier: String) -> [SupplementalCommandTemplate] {
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let collaborationSection = isChinese ? "协作常用" : "Collaboration"
+        let navigationGroup = isChinese ? "导航" : "Navigation"
+        let composeGroup = isChinese ? "创建" : "Compose"
+
+        switch bundleIdentifier {
+        case "com.tinyspeck.slackmacgap":
+            return [
+                SupplementalCommandTemplate(
+                    sectionTitle: collaborationSection,
+                    subgroupTitle: navigationGroup,
+                    title: isChinese ? "快速切换" : "Quick Switcher",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_K, modifiers: Self.commandModifier),
+                    aliases: ["quick switcher", "switch channel", "快速切换", "切换频道"]
+                ),
+                SupplementalCommandTemplate(
+                    sectionTitle: collaborationSection,
+                    subgroupTitle: navigationGroup,
+                    title: isChinese ? "搜索消息" : "Search Messages",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_F, modifiers: Self.commandModifier),
+                    aliases: ["search messages", "search slack", "搜索消息", "Slack 搜索"]
+                ),
+                SupplementalCommandTemplate(
+                    sectionTitle: collaborationSection,
+                    subgroupTitle: composeGroup,
+                    title: isChinese ? "新建消息" : "New Message",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_N, modifiers: Self.commandModifier),
+                    aliases: ["new message", "compose message", "新建消息", "写消息"]
+                )
+            ]
+        case "notion.id":
+            return [
+                SupplementalCommandTemplate(
+                    sectionTitle: collaborationSection,
+                    subgroupTitle: commandGroupTitle(isChinese: isChinese),
+                    title: isChinese ? "搜索" : "Search",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_P, modifiers: Self.commandModifier),
+                    aliases: ["search", "search notion", "搜索", "Notion 搜索"]
+                ),
+                SupplementalCommandTemplate(
+                    sectionTitle: collaborationSection,
+                    subgroupTitle: composeGroup,
+                    title: isChinese ? "新建页面" : "New Page",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_N, modifiers: Self.commandModifier),
+                    aliases: ["new page", "create page", "新建页面", "创建页面"]
+                ),
+                SupplementalCommandTemplate(
+                    sectionTitle: collaborationSection,
+                    subgroupTitle: commandGroupTitle(isChinese: isChinese),
+                    title: isChinese ? "命令菜单" : "Command Menu",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_Slash, modifiers: Self.commandModifier),
+                    aliases: ["command menu", "slash command", "命令菜单", "斜杠菜单"]
+                )
+            ]
+        case "com.hnc.Discord":
+            return [
+                SupplementalCommandTemplate(
+                    sectionTitle: collaborationSection,
+                    subgroupTitle: navigationGroup,
+                    title: isChinese ? "快速切换" : "Quick Switcher",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_K, modifiers: Self.commandModifier),
+                    aliases: ["quick switcher", "switch server", "快速切换", "切换服务器"]
+                ),
+                SupplementalCommandTemplate(
+                    sectionTitle: collaborationSection,
+                    subgroupTitle: commandGroupTitle(isChinese: isChinese),
+                    title: isChinese ? "搜索" : "Search",
+                    shortcut: HotkeyBinding(keyCode: kVK_ANSI_F, modifiers: Self.commandModifier),
+                    aliases: ["search", "search discord", "搜索", "Discord 搜索"]
+                )
+            ]
+        default:
+            return []
+        }
+    }
+
+    private func commandGroupTitle(isChinese: Bool) -> String {
+        isChinese ? "命令" : "Commands"
     }
 
     private func menuRoots(for element: AXUIElement) -> [AXUIElement] {

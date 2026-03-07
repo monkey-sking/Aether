@@ -151,6 +151,23 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    var helperText: String {
+        switch self {
+        case .pushToTalk:
+            return Locale.current.identifier.hasPrefix("zh") ? "语音按住说话" : "Hold to speak"
+        case .toggleTracking:
+            return Locale.current.identifier.hasPrefix("zh") ? "启动或停止头控" : "Start or stop pointer tracking"
+        case .connectionLock:
+            return Locale.current.identifier.hasPrefix("zh") ? "切换连接锁定" : "Toggle connection lock"
+        case .toggleInputControlMode:
+            return Locale.current.identifier.hasPrefix("zh") ? "切换输入控制模式" : "Switch input control mode"
+        case .toggleLanguage:
+            return Locale.current.identifier.hasPrefix("zh") ? "切换语音语言" : "Switch dictation language"
+        case .toggleShortcutPanel:
+            return Locale.current.identifier.hasPrefix("zh") ? "显示或关闭当前应用快捷键面板" : "Show or hide the current app shortcuts panel"
+        }
+    }
+
     var defaultBinding: HotkeyBinding {
         switch self {
         case .toggleTracking:

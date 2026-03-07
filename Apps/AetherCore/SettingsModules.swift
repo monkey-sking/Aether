@@ -1,6 +1,78 @@
 import SwiftUI
 import AppKit
 
+enum VoiceSettingsSection: Hashable {
+    case basics
+    case termCorrections
+    case lexicon
+    case appControls
+    case insights
+
+    var zhTitle: String {
+        switch self {
+        case .basics: return "基础"
+        case .termCorrections: return "术语纠错"
+        case .lexicon: return "词库"
+        case .appControls: return "当前应用"
+        case .insights: return "统计"
+        }
+    }
+
+    var enTitle: String {
+        switch self {
+        case .basics: return "Basics"
+        case .termCorrections: return "Term Corrections"
+        case .lexicon: return "Lexicon"
+        case .appControls: return "Current App"
+        case .insights: return "Insights"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .basics: return "mic.fill"
+        case .termCorrections: return "text.magnifyingglass"
+        case .lexicon: return "text.badge.star"
+        case .appControls: return "app.badge"
+        case .insights: return "chart.bar.xaxis"
+        }
+    }
+
+    func title(isChinese: Bool) -> String {
+        isChinese ? zhTitle : enTitle
+    }
+
+    func pageTitle(isChinese: Bool) -> String {
+        switch self {
+        case .basics:
+            return isChinese ? "语音基础" : "Voice Basics"
+        case .termCorrections:
+            return isChinese ? "术语纠错" : "Term Corrections"
+        case .lexicon:
+            return isChinese ? "语音词库" : "Voice Lexicon"
+        case .appControls:
+            return isChinese ? "当前应用控制" : "Current App Controls"
+        case .insights:
+            return isChinese ? "语音统计" : "Voice Insights"
+        }
+    }
+
+    func pageSubtitle(isChinese: Bool) -> String {
+        switch self {
+        case .basics:
+            return isChinese ? "麦克风、识别语言和触发方式。" : "Microphone, recognition language, and activation modes."
+        case .termCorrections:
+            return isChinese ? "听写润色、识别纠错和按 App 的术语替换规则。" : "Dictation refinement, recognition corrections, and app-specific terminology rules."
+        case .lexicon:
+            return isChinese ? "唤醒词、前缀和命令别名。" : "Wake words, prefixes, and command aliases."
+        case .appControls:
+            return isChinese ? "查看前台 App 可直接触发的快捷键。" : "Review shortcuts available for the frontmost app."
+        case .insights:
+            return isChinese ? "按 App 查看语音输入与控制使用记录。" : "Per-app voice dictation and control activity history."
+        }
+    }
+}
+
 // MARK: - Input Settings (Voice)
 struct InputSettingsView: View {
     @EnvironmentObject var appState: AppState
@@ -8,6 +80,7 @@ struct InputSettingsView: View {
     @State private var editingGroupID: String?
     @State private var commandLocaleID: String = ""
     @State private var lexiconTransferStatus: String?
+    let section: VoiceSettingsSection
 
     private let supportedVoiceLocaleIDs = [
         "zh-CN", "en-US", "ja-JP", "ko-KR", "fr-FR", "de-DE", "es-ES"
@@ -154,11 +227,12 @@ struct InputSettingsView: View {
 
     var body: some View {
         SettingsPage(
-            title: String(localized: "settings.page.voice.title"),
-            subtitle: String(localized: "settings.page.voice.subtitle")
+            title: section.pageTitle(isChinese: isChinese),
+            subtitle: section.pageSubtitle(isChinese: isChinese)
         ) {
             VStack(spacing: 20) {
-                GlassCard {
+                if section == .basics {
+                    GlassCard {
                     VStack(alignment: .leading, spacing: 16) {
                         HStack {
                             Label(L10n.settingsMicrophone, systemImage: "mic.fill")
@@ -207,8 +281,10 @@ struct InputSettingsView: View {
                         }
                     }
                 }
+                }
                 
-                GlassCard {
+                if section == .basics {
+                    GlassCard {
                     VStack(alignment: .leading, spacing: 20) {
                         Label(L10n.activationMethods, systemImage: "bolt.fill")
                             .font(.headline)
@@ -291,14 +367,23 @@ struct InputSettingsView: View {
                                 .background(Color(nsColor: .controlBackgroundColor))
                                 .cornerRadius(8)
                         }
+
                     }
                 }
+                }
                 
-                GlassCard {
+                if section == .termCorrections {
+                    GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Label(L10n.settingsDictationMode, systemImage: "text.quote")
                             .font(.headline)
-                        
+
+                        Text(isChinese
+                             ? "对识别结果做后处理和润色，适合放在纠错页统一管理。"
+                             : "Post-process and refine dictation output from one place.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
                         ControlCard(
                             title: L10n.llmEnhanceDictation,
                             subtitle: L10n.settingsSmarterDictation,
@@ -306,12 +391,17 @@ struct InputSettingsView: View {
                             color: .purple,
                             isOn: $appState.isLLMEnhancementEnabled
                         )
-                        
+
                         Toggle(isOn: $appState.isAutoPunctuationEnabled) {
                             Text(L10n.settingsAutoPunctuation)
                         }
+                    }
+                }
 
-                        Divider()
+                    GlassCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label(isChinese ? "上下文术语纠错" : "Contextual Term Corrections", systemImage: "text.magnifyingglass")
+                            .font(.headline)
 
                         Toggle("上下文术语纠错", isOn: $appState.speechTermCorrectionEnabled)
                         Text("支持通用组与自定义分组。每组可独立启停、绑定 App、编辑词条规则。")
@@ -342,8 +432,10 @@ struct InputSettingsView: View {
                         }
                     }
                 }
+                }
 
-                GlassCard {
+                if section == .lexicon {
+                    GlassCard {
                     VStack(alignment: .leading, spacing: 14) {
                         Label(L10n.voiceLexiconTitle, systemImage: "list.bullet.clipboard")
                         .font(.headline)
@@ -504,8 +596,10 @@ struct InputSettingsView: View {
                         }
                     }
                 }
+                }
 
-                GlassCard {
+                if section == .appControls {
+                    GlassCard {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(alignment: .top) {
                             VStack(alignment: .leading, spacing: 4) {
@@ -516,8 +610,8 @@ struct InputSettingsView: View {
                                 .font(.headline)
 
                                 Text(Locale.current.identifier.hasPrefix("zh")
-                                     ? "这里展示前台 App 从菜单暴露出的快捷键。语音命中后会直接触发对应组合键。"
-                                     : "These commands come from the frontmost app's menu shortcuts. A matched voice command triggers the corresponding key combo.")
+                                     ? "这里展示前台 App 菜单暴露出的快捷键，并补充浏览器、编辑器、终端等常见默认快捷键。语音命中后会直接触发对应组合键。"
+                                     : "These commands come from the frontmost app's menu shortcuts, with common browser, editor, and terminal defaults filled in when helpful. A matched voice command triggers the corresponding key combo.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -546,8 +640,8 @@ struct InputSettingsView: View {
                         } else if let snapshot = frontmostAppCommandCatalog.snapshot, !snapshot.commands.isEmpty {
                             Text(
                                 Locale.current.identifier.hasPrefix("zh")
-                                    ? "已读取 \(snapshot.commands.count) 条快捷键。下面是推荐用于语音控制的高频项。"
-                                    : "Loaded \(snapshot.commands.count) shortcuts. The preview below highlights voice-friendly items."
+                                    ? "已读取 \(snapshot.commands.count) 条快捷键。下面是推荐用于语音控制的高频项，浏览器、编辑器和终端常用快捷键也会补进来。"
+                                    : "Loaded \(snapshot.commands.count) shortcuts. The preview below highlights voice-friendly items, including common browser, editor, and terminal defaults."
                             )
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -565,6 +659,11 @@ struct InputSettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+                }
+                }
+
+                if section == .insights {
+                    VoiceUsageInsightsCard()
                 }
             }
         }
@@ -627,6 +726,269 @@ struct InputSettingsView: View {
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
+    }
+
+}
+
+private struct HeadsetShortcutMappingCard: View {
+    @ObservedObject private var motionManager = HeadMotionManager.shared
+
+    private var isChinese: Bool {
+        Locale.current.identifier.hasPrefix("zh")
+    }
+
+    private var lastEventText: String {
+        guard !motionManager.lastHeadsetRemoteEventText.isEmpty else {
+            return isChinese ? "尚未收到耳机按钮事件" : "No headset button event received yet"
+        }
+
+        if let date = motionManager.lastHeadsetRemoteEventAt {
+            let formatter = DateFormatter()
+            formatter.timeStyle = .medium
+            return "\(motionManager.lastHeadsetRemoteEventText) · \(formatter.string(from: date))"
+        }
+        return motionManager.lastHeadsetRemoteEventText
+    }
+
+    var body: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "airpodspro")
+                        .foregroundColor(.secondary)
+                        .frame(width: 18)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(isChinese ? "耳机按钮映射" : "Headset Button Mapping")
+                            .font(.headline)
+                        Text(
+                            isChinese
+                                ? "耳机按钮本质上也是触发器，应该和键盘快捷键放在一起看。Aether 目前只保留双按切换输入 / 控制模式，三按开始 / 停止头控。"
+                                : "Headset buttons are also triggers and belong with shortcuts. Aether currently keeps double press for Dictation / Control switching and triple press for tracking."
+                        )
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    statusRow(
+                        title: isChinese ? "媒体遥控状态" : "Media Remote Status",
+                        value: motionManager.headsetRemoteStatusText.isEmpty
+                            ? (isChinese ? "初始化中" : "Initializing")
+                            : motionManager.headsetRemoteStatusText
+                    )
+                    statusRow(
+                        title: isChinese ? "最近一次耳机事件" : "Last Headset Event",
+                        value: lastEventText
+                    )
+                }
+                .padding(12)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 8) {
+                    row(
+                        title: isChinese ? "单按 / 单捏" : "Single Press",
+                        action: isChinese ? "系统保留" : "System Reserved",
+                        detail: isChinese
+                            ? "通常会被系统拿去做媒体或麦克风控制，所以 Aether 不再绑定，避免反复弹出系统提示。"
+                            : "Usually claimed by macOS for media or microphone control, so Aether no longer binds it."
+                    )
+                    row(
+                        title: isChinese ? "双按 / 双捏" : "Double Press",
+                        action: isChinese ? "切换输入 / 控制模式" : "Toggle Dictation / Control",
+                        detail: isChinese
+                            ? "三种语音触发方式下都可用。只切换模式，不启动录音。"
+                            : "Available in all activation modes. Switches mode only and does not start recording."
+                    )
+                    row(
+                        title: isChinese ? "三按 / 三捏" : "Triple Press",
+                        action: isChinese ? "开始 / 停止头控" : "Toggle Tracking",
+                        detail: isChinese
+                            ? "如果系统把“上一首”事件交给 Aether，就会用它来开始或停止头控。"
+                            : "If macOS routes the Previous Track event to Aether, it starts or stops head tracking."
+                    )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func row(title: String, action: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Text(action)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.accentColor)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.accentColor.opacity(0.12))
+                .clipShape(Capsule())
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+        .cornerRadius(10)
+    }
+
+    @ViewBuilder
+    private func statusRow(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.caption)
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+private struct VoiceLexiconSection: Identifiable {
+    let title: String
+    let subtitle: String
+    let presets: [VoiceCommandPreset]
+
+    var id: String { title }
+}
+
+private extension VoiceCommandPreset {
+    func editorTitle(locale: Locale = .current) -> String {
+        let isChinese = locale.identifier.hasPrefix("zh")
+        switch self {
+        case .clickLeft:
+            return isChinese ? "单击" : "Single Click"
+        case .clickRight:
+            return isChinese ? "右键点击" : "Right Click"
+        case .doubleClick:
+            return isChinese ? "双击" : "Double Click"
+        case .showShortcutPanel:
+            return isChinese ? "显示快捷键面板" : "Show Shortcuts Panel"
+        case .hideShortcutPanel:
+            return isChinese ? "关闭快捷键面板" : "Hide Shortcuts Panel"
+        case .startPointer:
+            return isChinese ? "开启头控" : "Enable Pointer Control"
+        case .stopPointer:
+            return isChinese ? "关闭头控" : "Disable Pointer Control"
+        case .recenter:
+            return isChinese ? "回中校准" : "Recenter"
+        case .scrollUp:
+            return isChinese ? "向上滚动" : "Scroll Up"
+        case .scrollDown:
+            return isChinese ? "向下滚动" : "Scroll Down"
+        case .scrollTop:
+            return isChinese ? "滚到顶部" : "Scroll To Top"
+        case .scrollBottom:
+            return isChinese ? "滚到底部" : "Scroll To Bottom"
+        case .dragStart:
+            return isChinese ? "开始拖拽" : "Start Drag"
+        case .dragEnd:
+            return isChinese ? "结束拖拽" : "End Drag"
+        case .undo:
+            return isChinese ? "撤销" : "Undo"
+        case .paste:
+            return isChinese ? "粘贴" : "Paste"
+        case .lockConnection:
+            return isChinese ? "锁定耳机连接" : "Lock Headset Connection"
+        case .unlockConnection:
+            return isChinese ? "解锁耳机连接" : "Unlock Headset Connection"
+        }
+    }
+
+    func editorDescription(locale: Locale = .current) -> String {
+        let isChinese = locale.identifier.hasPrefix("zh")
+        switch self {
+        case .clickLeft:
+            return isChinese ? "在当前鼠标位置执行一次左键点击。" : "Performs a left click at the current pointer position."
+        case .clickRight:
+            return isChinese ? "在当前鼠标位置打开右键菜单。" : "Opens the context menu at the current pointer position."
+        case .doubleClick:
+            return isChinese ? "适合打开文件、确认或激活列表项。" : "Useful for opening files or activating items."
+        case .showShortcutPanel:
+            return isChinese ? "展开当前 App 的快捷键总览浮层。" : "Shows the shortcut overlay for the frontmost app."
+        case .hideShortcutPanel:
+            return isChinese ? "关闭当前 App 的快捷键总览浮层。" : "Closes the shortcut overlay for the frontmost app."
+        case .startPointer:
+            return isChinese ? "开始用头部控制鼠标移动。" : "Starts moving the pointer with head motion."
+        case .stopPointer:
+            return isChinese ? "停止头部控制，只保留语音。" : "Stops head-driven pointer movement."
+        case .recenter:
+            return isChinese ? "把当前头部姿态设为新的中心位置。" : "Sets the current head pose as the new neutral center."
+        case .scrollUp:
+            return isChinese ? "页面向上滚动一段距离。" : "Scrolls the page upward."
+        case .scrollDown:
+            return isChinese ? "页面向下滚动一段距离。" : "Scrolls the page downward."
+        case .scrollTop:
+            return isChinese ? "快速回到页面顶部。" : "Jumps to the top of the page."
+        case .scrollBottom:
+            return isChinese ? "快速跳到页面底部。" : "Jumps to the bottom of the page."
+        case .dragStart:
+            return isChinese ? "按住鼠标左键，进入拖拽状态。" : "Presses and holds the left mouse button."
+        case .dragEnd:
+            return isChinese ? "释放拖拽中的鼠标左键。" : "Releases the left mouse button to drop."
+        case .undo:
+            return isChinese ? "发送系统撤销操作。" : "Triggers the standard Undo shortcut."
+        case .paste:
+            return isChinese ? "发送系统粘贴操作。" : "Triggers the standard Paste shortcut."
+        case .lockConnection:
+            return isChinese ? "锁定当前耳机连接，避免误切换。" : "Locks the active headset connection."
+        case .unlockConnection:
+            return isChinese ? "解除耳机连接锁定。" : "Releases the active headset connection lock."
+        }
+    }
+
+    func editorExample(locale: Locale = .current) -> String {
+        let isChinese = locale.identifier.hasPrefix("zh")
+        switch self {
+        case .clickLeft:
+            return isChinese ? "例如：点击、确认" : "Example: click, confirm"
+        case .clickRight:
+            return isChinese ? "例如：右键、打开菜单" : "Example: right click, open menu"
+        case .doubleClick:
+            return isChinese ? "例如：双击、打开它" : "Example: double click, open it"
+        case .showShortcutPanel:
+            return isChinese ? "例如：显示快捷键、打开面板" : "Example: show shortcuts, open panel"
+        case .hideShortcutPanel:
+            return isChinese ? "例如：关闭快捷键、收起面板" : "Example: hide shortcuts, close panel"
+        case .startPointer:
+            return isChinese ? "例如：开启头控、开始控制鼠标" : "Example: enable pointer, start cursor control"
+        case .stopPointer:
+            return isChinese ? "例如：关闭头控、停止控制鼠标" : "Example: stop pointer, disable cursor control"
+        case .recenter:
+            return isChinese ? "例如：回中、重新校准" : "Example: recenter, recalibrate"
+        case .scrollUp:
+            return isChinese ? "例如：往上滚、向上翻" : "Example: scroll up, go up"
+        case .scrollDown:
+            return isChinese ? "例如：往下滚、向下翻" : "Example: scroll down, go down"
+        case .scrollTop:
+            return isChinese ? "例如：回到顶部" : "Example: top of page"
+        case .scrollBottom:
+            return isChinese ? "例如：去到底部" : "Example: bottom of page"
+        case .dragStart:
+            return isChinese ? "例如：开始拖、按住不放" : "Example: start drag, hold down"
+        case .dragEnd:
+            return isChinese ? "例如：放下、结束拖拽" : "Example: drop, end drag"
+        case .undo:
+            return isChinese ? "例如：撤销上一步" : "Example: undo last step"
+        case .paste:
+            return isChinese ? "例如：粘贴内容" : "Example: paste here"
+        case .lockConnection:
+            return isChinese ? "例如：锁定耳机" : "Example: lock headset"
+        case .unlockConnection:
+            return isChinese ? "例如：解锁耳机" : "Example: unlock headset"
+        }
     }
 }
 
@@ -714,8 +1076,251 @@ private struct FrontmostAppCommandCard: View {
     }
 }
 
+private struct VoiceUsageInsightsCard: View {
+    @EnvironmentObject var appState: AppState
+
+    private var isChinese: Bool {
+        Locale.current.identifier.hasPrefix("zh")
+    }
+
+    private var recentEvents: [AppState.VoiceUsageEvent] {
+        Array(appState.voiceUsageHistory.prefix(30))
+    }
+
+    private var topApps: [AppState.VoiceUsageAppSummary] {
+        Array(appState.voiceUsageAppSummaries.prefix(8))
+    }
+
+    var body: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(
+                            isChinese ? "使用统计与历史" : "Usage Stats & History",
+                            systemImage: "chart.bar.xaxis"
+                        )
+                        .font(.headline)
+                        Text(
+                            isChinese
+                                ? "默认关闭。开启后仅在本机记录“在哪个 App 进行了语音输入/控制”，用于优化词库和命令配置。"
+                                : "Off by default. When enabled, Aether stores local per-app dictation/control usage to help tune lexicon and commands."
+                        )
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $appState.isVoiceUsageHistoryEnabled)
+                        .labelsHidden()
+                }
+
+                if !appState.isVoiceUsageHistoryEnabled {
+                    Text(
+                        appState.voiceUsageHistory.isEmpty
+                            ? (isChinese ? "记录已关闭，当前没有历史数据。" : "Tracking is off and there is no history yet.")
+                            : (isChinese
+                                ? "记录已关闭，已保留 \(appState.voiceUsageHistory.count) 条历史数据。"
+                                : "Tracking is off. \(appState.voiceUsageHistory.count) history items are retained.")
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                } else {
+                    let summary = appState.voiceUsageSummary
+                    HStack(spacing: 10) {
+                        VoiceUsageSummaryBadge(
+                            title: isChinese ? "总计" : "Total",
+                            value: "\(summary.total)"
+                        )
+                        VoiceUsageSummaryBadge(
+                            title: isChinese ? "语音输入" : "Dictation",
+                            value: "\(summary.dictationCount)"
+                        )
+                        VoiceUsageSummaryBadge(
+                            title: isChinese ? "控制命令" : "Control",
+                            value: "\(summary.controlCount)"
+                        )
+                    }
+
+                    if summary.total == 0 {
+                        Text(isChinese ? "暂无记录。先试一次语音输入或语音控制。" : "No usage yet. Try dictation or a voice control action first.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(isChinese ? "按 App 统计" : "Per-App Summary")
+                                .font(.subheadline.weight(.semibold))
+                            VStack(spacing: 8) {
+                                ForEach(topApps) { item in
+                                    VoiceUsageAppSummaryRow(summary: item)
+                                }
+                            }
+                        }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text(isChinese ? "最近记录" : "Recent Activity")
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer()
+                                Button(isChinese ? "清空记录" : "Clear History") {
+                                    appState.clearVoiceUsageHistory()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+
+                            VStack(spacing: 8) {
+                                ForEach(recentEvents) { event in
+                                    VoiceUsageEventRow(event: event)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct VoiceUsageSummaryBadge: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.headline)
+                .foregroundColor(.primary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+        .cornerRadius(10)
+    }
+}
+
+private struct VoiceUsageAppSummaryRow: View {
+    let summary: AppState.VoiceUsageAppSummary
+
+    private var bundleTail: String {
+        summary.bundleIdentifier
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(summary.appName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(bundleTail)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text("\(summary.dictationCount)/\(summary.controlCount)")
+                .font(.caption.monospacedDigit())
+                .foregroundColor(.secondary)
+            Text("\(summary.total)")
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.accentColor.opacity(0.12))
+                .foregroundColor(.accentColor)
+                .clipShape(Capsule())
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(10)
+    }
+}
+
+private struct VoiceUsageEventRow: View {
+    let event: AppState.VoiceUsageEvent
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private static let dateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd HH:mm"
+        return formatter
+    }()
+
+    private var isChinese: Bool {
+        Locale.current.identifier.hasPrefix("zh")
+    }
+
+    private var eventIcon: String {
+        event.kind == .dictation ? "text.bubble" : "command"
+    }
+
+    private var timeText: String {
+        if Calendar.current.isDateInToday(event.timestamp) {
+            return Self.timeFormatter.string(from: event.timestamp)
+        }
+        return Self.dateTimeFormatter.string(from: event.timestamp)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: eventIcon)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(event.action)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Spacer()
+                Text(timeText)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundColor(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                Text(event.appName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                Text(event.bundleIdentifier)
+                    .font(.caption2)
+                    .foregroundColor(.secondary.opacity(0.85))
+                    .lineLimit(1)
+            }
+
+            if let content = event.content, !content.isEmpty {
+                Text(content)
+                    .font(.caption)
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+                    .padding(.top, 1)
+            } else if event.kind == .dictation {
+                Text(isChinese ? "（空文本）" : "(empty text)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+        .cornerRadius(10)
+    }
+}
+
 private struct VoiceLexiconEditorRow: View {
     let title: String
+    let subtitle: String?
+    let example: String?
     @Binding var text: String
     let defaultValues: [String]
     let onReset: () -> Void
@@ -733,6 +1338,19 @@ private struct VoiceLexiconEditorRow: View {
                         .font(.caption)
                         .foregroundColor(.accentColor)
                 }
+            }
+
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let example, !example.isEmpty {
+                Text(example)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
 
             TextField(
@@ -1151,6 +1769,10 @@ struct OutputSettingsView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject var headManager = HeadMotionManager.shared
 
+    private var isChinese: Bool {
+        Locale.current.identifier.hasPrefix("zh")
+    }
+
     private var trackingBinding: Binding<Bool> {
         Binding(
             get: { headManager.isTracking },
@@ -1179,7 +1801,7 @@ struct OutputSettingsView: View {
                         isOn: trackingBinding
                     )
                 }
-                
+
                 GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Label(L10n.settingsGesturesClicks, systemImage: "hand.point.up.left.fill")
@@ -1194,22 +1816,15 @@ struct OutputSettingsView: View {
                         )
                     }
                 }
-                
+
                 GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
-                         Label(L10n.settingsCalibration, systemImage: "scope")
+                        Label(L10n.settingsCalibration, systemImage: "scope")
                             .font(.headline)
-                        
+
                         HStack {
                             Text(L10n.settingsCurrentStatus)
                             Spacer()
-                            // Text accepts LocalizedStringKey, but ternary with string literal might be tricky if one branch is String and other is LocalizedStringKey.
-                            // headManager.calibrationStatus is String.
-                            // We need to wrap it in Text() to handle localization vs string.
-                            // But here we are inside Text(). Text(LocalizedStringKey) vs Text(String). 
-                            // Text(condition ? L10n.x : String(y)) -> Type mismatch.
-                            // We should cast both to LocalizedStringKey? String can be converted to LocalizedStringKey but it won't be localized if it's dynamic.
-                            // Optimally:
                             if headManager.calibrationStatus == "Normal" {
                                 Text(L10n.calibrationNormal)
                                     .foregroundColor(.green)
@@ -1218,92 +1833,13 @@ struct OutputSettingsView: View {
                                     .foregroundColor(.orange)
                             }
                         }
-                        
+
                         Button(action: { headManager.recenter() }) {
                             Text(L10n.actionRecenterMatrix)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 8)
                         }
                         .controlSize(.large)
-                    }
-                }
-            }
-        }
-    }
-}
-
-// MARK: - System Settings
-struct SystemSettingsView: View {
-    @EnvironmentObject var appState: AppState
-    
-    var body: some View {
-        SettingsPage(
-            title: String(localized: "settings.page.advanced.title"),
-            subtitle: String(localized: "settings.page.advanced.subtitle")
-        ) {
-            VStack(spacing: 20) {
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label(L10n.settingsDriverStatus, systemImage: "cpu")
-                            .font(.headline)
-                        
-                        HStack {
-                            Text(appState.driverStatus)
-                                .font(.monospaced(.body)())
-                            Spacer()
-                            Circle()
-                                .fill(appState.driverStatus.contains("Connected") || appState.driverStatus.contains("Ready") ? Color.green : Color.orange)
-                                .frame(width: 10, height: 10)
-                        }
-                        
-                        if !(appState.driverStatus.contains("Connected") || appState.driverStatus.contains("Ready")) {
-                            Button(action: {
-                                appState.activateDriver()
-                            }) {
-                                Text(L10n.menuActivateDriver)
-                            }
-                        }
-                    }
-                }
-                
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label(L10n.permissionsTitle, systemImage: "lock.shield")
-                            .font(.headline)
-                        
-                       PermissionRow(
-                           icon: "hand.raised.fill",
-                           title: L10n.permissionAccessibility,
-                           isGranted: appState.accessibilityTrusted,
-                           detail: appState.accessibilityStatusDetail
-                       ) {
-                           appState.requestAccessibilityGuided()
-                       }
-                       PermissionRow(
-                           icon: "mic.fill",
-                           title: L10n.permissionMicrophone,
-                           isGranted: appState.microphoneAuthorized,
-                           detail: appState.microphoneStatusDetail
-                       ) {
-                           appState.requestMicrophoneGuided()
-                       }
-                       PermissionRow(
-                           icon: "waveform",
-                           title: L10n.permissionSpeech,
-                           isGranted: appState.speechAuthorized,
-                           detail: appState.speechStatusDetail
-                       ) {
-                           appState.requestSpeechGuided()
-                       }
-                    }
-                }
-                
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label(L10n.settingsTabGeneral, systemImage: "gear")
-                            .font(.headline)
-                        
-                        Toggle(L10n.showDockIcon, isOn: $appState.showDockIcon)
                     }
                 }
             }
@@ -1321,6 +1857,8 @@ struct ShortcutsSettingsView: View {
             GlassCard {
                 HotkeySettingsSection()
             }
+
+            HeadsetShortcutMappingCard()
         }
     }
 }

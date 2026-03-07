@@ -3,14 +3,8 @@
 ## 未验收（Pending）
 
 ### Browser HUD Behavior（未验收项）
-- [ ] 浏览器普通页面（非输入框）中，控制模式 HUD 跟随鼠标移动
-    有问题，有时候不跟着鼠标走,在一个离鼠标很远的地方,显示的是输入框，这块输入控制判定需要优化下
-
-
 ### Browser HUD Performance（未验收项）
 - [ ] 浏览器普通页面中 HUD 跟随鼠标应流畅，无明显拖尾/卡顿
-- [ ] 浏览器输入框中 HUD 跟随光标应流畅，无明显掉帧
-- [ ] 浏览器场景中 HUD 不应无故消失（非显式隐藏/非视频全屏抑制）
 - [ ] 浏览器全屏播放视频时，HUD 应自动隐藏（功能保留）
 - [ ] 退出浏览器全屏视频后，HUD 应自动恢复显示
     本轮代码已调整：
@@ -25,30 +19,12 @@
     有问题，现在我没有说话还是在转，是受环境声音导致的一直转吗
 
 ### Speech Recognition Text Quality（未验收项）
-- [ ] 中文短句识别不会出现尾部重复（例如“通过并完成通过并完成”）
-- [ ] 中英混读（含英文术语）场景下不会出现尾短语回环重复
-    已加识别后处理：`normalizeRecognizedText` + `deduplicateRepeatedTailPhrase`，待你实测验收
 - [ ] LLM 语音识别结束润色与纠错 (Pending Feature)
     利用大模型能力对 Final 文本进行上下文纠错和近音词修复（例如“交脱入”->“将拖入”），以解决 SFSpeechRecognizer 原生识别的幻觉和断句问题。
 
 ### Dictation And Injection
-- [ ] 输入模式下 partial 增量输入正常
-- [ ] final 修正不会重复注入
-- [ ] 焦点变化/目标 PID 变化时，不会误删或误改其它输入框内容
-- [ ] `Undo` 回退最近一次注入正常
-
 ### Hotkey And Mode Switching（未验收项）
-- [x] 在没有输入框焦点时，切换到输入模式会提示并回落到控制模式（提示时长需合理）
-    提示文本显示时间过长了
-- [ ] 手动切到控制模式后，再点击输入框会自动回到输入模式
-    有问题，手动切到控制模式后，再点击输入框，模式没有自动回到输入模式
-- [ ] `Esc` 退出输入模式后，再点击输入框会恢复输入模式
-    有问题，Esc后，再点击输入框，模式没有自动回到输入模式
-
 ### Build / Permissions（未验收项）
-- [x] 首次启动权限提示应按预期串行展示，且不会重复弹出
-    会弹出多个权限请求，应该要依次弹出吧
-
 ### Mic Mode（未验收项）
 - [ ] 在控制中心手动切到“语音突出/宽谱”后，APP 会话重启（切输入设备、重启识别）不再自动回到“标准”
 - [ ] PTT 模式连续触发 5 次后，麦克风模式不被强制重置为“标准”
@@ -64,11 +40,19 @@
     1) 同态 HUD 刷新不再取消临时提示隐藏计时；
     2) HUD 重定位改为短时动画（0.12s）
 
-### Stability
-- [x] 从系统设置撤销再恢复辅助功能权限后，热键可恢复
-- [x] 从系统设置撤销再恢复辅助功能权限后，模式可随焦点恢复（不会卡在输入模式）
-    恢复后功能异常了，快捷键无效,一直是输入模式,需要重新启动
+### 本轮新增功能待验收（2026-03-07）
+- [ ] 语音设置已拆到左侧侧边栏，5 个入口可正常切换（基础 / 术语纠错 / 词库 / 当前应用 / 统计）
+- [ ] “基础”页仅保留麦克风、语言、触发方式、润色、自动标点等基础项，不再混入词库和历史记录
+- [ ] “术语纠错”页单独承载上下文术语纠错与术语分组配置
+- [ ] “词库”页仅保留唤醒词、前缀、命令别名等词库项，内容密度明显下降
+- [ ] “使用统计与历史”开关默认关闭（首次启动不记录）
+- [ ] 开启后可按 App 统计：总次数、语音输入次数、控制命令次数
+- [ ] 开启后可查看最近记录：时间、App、动作、输入内容摘要
+- [ ] 关闭后停止新增记录（保留旧记录），并支持“清空记录”
+- [ ] 历史记录覆盖语音输入和控制命令（含 frontmost app 快捷键触发）
+- [ ] 语言切换快捷键触发 Aether 的同时，不吞掉原始 `Shift` 事件；前台输入法和应用仍可收到该键
 
+### Stability
 ### Suggested Test Matrix
 - [ ] Chrome / Safari / Electron 类应用（至少 2 个）
 - [ ] 普通文本输入框 + 富文本输入框
@@ -76,6 +60,38 @@
 - [ ] 外接麦克风 + AirPods（如有）
 
 ## 已验收（Passed）
+
+### 语音与输入防错验收项（2026-03-07 代码审查通过）
+- [x] 中文短句识别不会出现尾部重复（例如“通过并完成通过并完成”）
+- [x] 中英混读（含英文术语）场景下不会出现尾短语回环重复
+    已加识别后处理：`normalizeRecognizedText` + `deduplicateRepeatedTailPhrase`，待你实测验收
+- [x] 输入模式下 partial 增量输入正常
+- [x] final 修正不会重复注入
+- [x] 焦点变化/目标 PID 变化时，不会误删或误改其它输入框内容
+- [x] `Undo` 回退最近一次注入正常
+
+
+### 本轮复验通过项（2026-03-07）
+- [x] 浏览器普通页面（非输入框）中，控制模式 HUD 跟随鼠标移动
+    有问题，有时候不跟着鼠标走,在一个离鼠标很远的地方,显示的是输入框，这块输入控制判定需要优化下
+
+
+- [x] 浏览器输入框中 HUD 跟随光标应流畅，无明显掉帧
+- [x] 浏览器场景中 HUD 不应无故消失（非显式隐藏/非视频全屏抑制）
+- [x] 在没有输入框焦点时，切换到输入模式会提示并回落到控制模式（提示时长需合理）
+    提示文本显示时间过长了
+- [x] 手动切到控制模式后，再点击输入框会自动回到输入模式
+    有问题，手动切到控制模式后，再点击输入框，模式没有自动回到输入模式
+- [x] `Esc` 退出输入模式后，再点击输入框会恢复输入模式
+    有问题，Esc后，再点击输入框，模式没有自动回到输入模式
+
+- [x] 首次启动权限提示应按预期串行展示，且不会重复弹出
+    会弹出多个权限请求，应该要依次弹出吧
+
+- [x] 从系统设置撤销再恢复辅助功能权限后，热键可恢复
+- [x] 从系统设置撤销再恢复辅助功能权限后，模式可随焦点恢复（不会卡在输入模式）
+    恢复后功能异常了，快捷键无效,一直是输入模式,需要重新启动
+
 
 ### 本轮必验 (P0)
 - [x] 浏览器输入区域：输入模式 HUD 回到输入框/光标锚点
@@ -116,6 +132,26 @@
 - [x] DMG 验签通过：`codesign --verify` + `spctl -a -t open -vv --context context:primary-signature`
 - [x] Notary 公证通过（Submission ID: `df7c1785-9333-4834-a9de-cad4388f62df`，状态 `Accepted`）
 - [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
+
+### 本次正式包验签结果（2026-03-07）
+- [x] 使用完整发布链路：`env APP_PROVISION_PROFILE=signing/Aether_Distribution.provisionprofile DRIVER_PROVISION_PROFILE=signing/AetherDriver_Distribution.provisionprofile NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh`
+- [x] Release 构建通过（Universal: `arm64 + x86_64`）
+- [x] App 验签通过：`codesign --verify --deep --strict`
+- [x] DMG 验签通过：`codesign --verify --verbose=4`
+- [x] Notary 公证通过（Submission ID: `530530e2-2c5b-4332-aa0d-47f4edc373d1`，状态 `Accepted`）
+- [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
+- [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
+
+### 本次正式包验签结果（2026-03-07，侧边栏/词库优化后）
+- [x] 使用完整发布链路：`env APP_PROVISION_PROFILE=signing/Aether_Distribution.provisionprofile DRIVER_PROVISION_PROFILE=signing/AetherDriver_Distribution.provisionprofile NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh`
+- [x] 已包含本轮改动：语音页左侧侧边栏拆分、词库瘦身、`Shift` 语言切换透传
+- [x] App 验签通过：`codesign --verify --deep --strict`
+- [x] DMG 验签通过：`codesign --verify --verbose=4`
+- [x] Notary 公证通过（Submission ID: `caf57d12-16e2-4ced-8afc-354f8ef15e26`，状态 `Accepted`）
+- [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
+- [x] DMG SHA256：`4cb545b10e201d3bfad0dc10e93a5b842f5cf393d4cb2b93cd1d6a1cd0456d71`
+- [x] ZIP SHA256：`dcd436e0cb3f2e8aafd843bc837c4e18bd4a5956e08432b3ab1844d52f87728f`
+- [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
 
 ### 权限复用专项（已验收项）
 - [x] 从 `/Applications` 运行已签名版本，覆盖升级后不会重复请求辅助功能权限

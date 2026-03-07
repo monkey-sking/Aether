@@ -52,6 +52,7 @@ class HeadMotionManager: ObservableObject {
             persistentRecognitionControlMode = .auto
         }
         startStabilityTimer()
+        updateAirPodsRemoteCommandRegistration()
     }
     
     private var isHotkeyRegistered: Bool = false
@@ -65,6 +66,10 @@ class HeadMotionManager: ObservableObject {
     
     @Published var isTracking: Bool = false
     @Published var attitudeText: String = "No Data"
+    @Published private(set) var isHeadsetRemoteRegistered: Bool = false
+    @Published private(set) var headsetRemoteStatusText: String = ""
+    @Published private(set) var lastHeadsetRemoteEventText: String = ""
+    @Published private(set) var lastHeadsetRemoteEventAt: Date?
     
     // Callback for critical errors (to show UI alerts)
     var onError: ((String) -> Void)?
@@ -80,7 +85,10 @@ class HeadMotionManager: ObservableObject {
     // [Fix] Respect PTT Toggle in Settings
     // If false, the shortcut (Command/Mode) will NOT trigger PTT logic or HUD.
     @Published var isPTTEnabled: Bool = UserDefaults.standard.object(forKey: "isPTTEnabled") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(isPTTEnabled, forKey: "isPTTEnabled") }
+        didSet {
+            UserDefaults.standard.set(isPTTEnabled, forKey: "isPTTEnabled")
+            updateAirPodsRemoteCommandRegistration()
+        }
     }
     
     // Experience Optimization Constants
@@ -157,6 +165,9 @@ class HeadMotionManager: ObservableObject {
     private enum PTTSource: Hashable {
         case keyboard(Int)
         case mouse(Int)
+        case airPodsToggle
+        case airPodsSeekForward
+        case airPodsSeekBackward
     }
     private var activePTTSources: Set<PTTSource> = []
     private var isPTTPressed: Bool { !activePTTSources.isEmpty }
@@ -175,7 +186,13 @@ class HeadMotionManager: ObservableObject {
     private var pauseTarget: Any?
     private var toggleTarget: Any?
     private var nextTrackTarget: Any?
-    private var prevTrackTarget: Any?
+    private var previousTrackTarget: Any?
+    private var seekForwardTarget: Any?
+    private var seekBackwardTarget: Any?
+    private var voiceActivationMode: AppState.VoiceActivationMode = HeadMotionManager.loadVoiceActivationModeFromDefaults()
+    private var lastHeadsetModeToggleAt: Date = .distantPast
+    private var lastHeadsetTrackingToggleAt: Date = .distantPast
+    private let headsetRemoteActionDebounce: TimeInterval = 0.75
 
     // MARK: - Recognition Mode Override Persistence
     private static func loadRecognitionControlModeFromDefaults() -> RecognitionControlMode {
@@ -189,6 +206,14 @@ class HeadMotionManager: ObservableObject {
         default:
             return .auto
         }
+    }
+
+    private static func loadVoiceActivationModeFromDefaults() -> AppState.VoiceActivationMode {
+        if let raw = UserDefaults.standard.string(forKey: "voiceActivationMode"),
+           let mode = AppState.VoiceActivationMode(rawValue: raw) {
+            return mode
+        }
+        return .pushToTalk
     }
 
     private static func saveRecognitionControlMode(_ value: RecognitionControlMode) {
@@ -238,10 +263,10 @@ class HeadMotionManager: ObservableObject {
         self.calibrationStatus = "Calibrating..."
         self.isCalibrated = false
         self.isAirPodsStreamActive = false
+        self.refreshHeadsetRemoteStatus()
         
         // Reset attention state
         self.isLookingAtScreen = true
-        self.enableAirPodsCommands()
         
         // Start connection timeout timer (5 seconds)
         DispatchQueue.main.async {
@@ -289,6 +314,7 @@ class HeadMotionManager: ObservableObject {
             if !self.isAirPodsStreamActive {
                 self.isAirPodsStreamActive = true
                 os_log("AirPods Stream Detected", log: self.log)
+                self.refreshHeadsetRemoteStatus()
             }
             
             // Update Posture Bias based on Roll and Pitch
@@ -427,7 +453,6 @@ class HeadMotionManager: ObservableObject {
         connectionTimer = nil
         
         motionManager.stopDeviceMotionUpdates()
-        disableAirPodsCommands() // Clean up commands
         
         DispatchQueue.main.async {
             // Don't overwrite "Connection Failed" if that was the reason
@@ -441,6 +466,7 @@ class HeadMotionManager: ObservableObject {
         isCalibratingRange = false
         isAirPodsStreamActive = false
         isLookingAtScreen = false
+        refreshHeadsetRemoteStatus()
         os_log("Aether: Stopped tracking", log: log)
     }
     
@@ -554,12 +580,10 @@ class HeadMotionManager: ObservableObject {
                 attentionHysteresisBuffer = 0
                 
                 if isLookingAtScreen {
-                    os_log("Attention: Regained (Commands Enabled)", log: log)
-                    enableAirPodsCommands()
+                    os_log("Attention: Regained", log: log)
                     // Optional: Play subtle feedback sound
                 } else {
-                    os_log("Attention: Lost (Commands Disabled)", log: log)
-                    disableAirPodsCommands()
+                    os_log("Attention: Lost", log: log)
                     // Optional: Play subtle feedback sound
                 }
             }
@@ -568,54 +592,113 @@ class HeadMotionManager: ObservableObject {
         }
     }
 
-    private func enableAirPodsCommands() {
+    private func enableAirPodsCommands(enablePTT: Bool) {
         let commandCenter = MPRemoteCommandCenter.shared()
-        
-        // Bind Play/Pause -> Left Click
-        playTarget = commandCenter.playCommand.addTarget { [weak self] _ in
-            self?.handleClickCommand()
-             return .success
+
+        disableAirPodsCommands()
+
+        if enablePTT {
+            playTarget = commandCenter.playCommand.addTarget { [weak self] _ in
+                guard let self else { return .commandFailed }
+                return self.beginAirPodsPTT(source: .airPodsToggle, origin: "airpods-play")
+            }
+            pauseTarget = commandCenter.pauseCommand.addTarget { [weak self] _ in
+                guard let self else { return .commandFailed }
+                return self.endAirPodsPTT(source: .airPodsToggle, origin: "airpods-pause")
+            }
+            toggleTarget = commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+                guard let self else { return .commandFailed }
+                return self.toggleAirPodsPTT(origin: "airpods-toggle")
+            }
+            commandCenter.playCommand.isEnabled = true
+            commandCenter.pauseCommand.isEnabled = true
+            commandCenter.togglePlayPauseCommand.isEnabled = true
+        } else {
+            commandCenter.playCommand.isEnabled = false
+            commandCenter.pauseCommand.isEnabled = false
+            commandCenter.togglePlayPauseCommand.isEnabled = false
         }
-        pauseTarget = commandCenter.pauseCommand.addTarget { [weak self] _ in
-            self?.handleClickCommand()
-             return .success
-        }
-        toggleTarget = commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
-            self?.handleClickCommand()
-             return .success
-        }
-        commandCenter.playCommand.isEnabled = true
-        commandCenter.pauseCommand.isEnabled = true
-        commandCenter.togglePlayPauseCommand.isEnabled = true
-        
-        // Bind Next Track -> Right Click
+
         nextTrackTarget = commandCenter.nextTrackCommand.addTarget { [weak self] _ in
-            guard let self = self, self.isTracking, self.isLookingAtScreen else { return .commandFailed }
-            os_log("AirPods: Double Press -> Right Click", log: self.log)
-            DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY), button: .right) }
+            guard let self else { return .commandFailed }
+            DispatchQueue.main.async {
+                self.noteHeadsetRemoteEvent(
+                    display: Locale.current.identifier.hasPrefix("zh") ? "耳机双按" : "Headset Double Press"
+                )
+                guard self.shouldHandleHeadsetRemoteAction(kind: .modeToggle) else { return }
+                self.toggleRecognitionInputControlMode(source: "airpods-double-press", persist: false)
+            }
             return .success
         }
         commandCenter.nextTrackCommand.isEnabled = true
-        
-        // Bind Previous Track -> Double Click
-        prevTrackTarget = commandCenter.previousTrackCommand.addTarget { [weak self] _ in
-             guard let self = self, self.isTracking, self.isLookingAtScreen else { return .commandFailed }
-             os_log("AirPods: Triple Press -> Double Click", log: self.log)
-             DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY), doubleClick: true) }
-             return .success
+
+        previousTrackTarget = commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            DispatchQueue.main.async {
+                self.noteHeadsetRemoteEvent(
+                    display: Locale.current.identifier.hasPrefix("zh") ? "耳机三按" : "Headset Triple Press"
+                )
+                guard self.shouldHandleHeadsetRemoteAction(kind: .trackingToggle) else { return }
+                self.performTrackingToggle(source: "airpods-previous-track")
+            }
+            return .success
         }
         commandCenter.previousTrackCommand.isEnabled = true
+
+        if enablePTT {
+            seekForwardTarget = commandCenter.seekForwardCommand.addTarget { [weak self] event in
+                guard let self, let seek = event as? MPSeekCommandEvent else { return .commandFailed }
+                switch seek.type {
+                case .beginSeeking:
+                    return self.beginAirPodsPTT(source: .airPodsSeekForward, origin: "airpods-seek-forward-begin")
+                case .endSeeking:
+                    return self.endAirPodsPTT(source: .airPodsSeekForward, origin: "airpods-seek-forward-end")
+                @unknown default:
+                    return .commandFailed
+                }
+            }
+            commandCenter.seekForwardCommand.isEnabled = true
+
+            seekBackwardTarget = commandCenter.seekBackwardCommand.addTarget { [weak self] event in
+                guard let self, let seek = event as? MPSeekCommandEvent else { return .commandFailed }
+                switch seek.type {
+                case .beginSeeking:
+                    return self.beginAirPodsPTT(source: .airPodsSeekBackward, origin: "airpods-seek-backward-begin")
+                case .endSeeking:
+                    return self.endAirPodsPTT(source: .airPodsSeekBackward, origin: "airpods-seek-backward-end")
+                @unknown default:
+                    return .commandFailed
+                }
+            }
+            commandCenter.seekBackwardCommand.isEnabled = true
+        } else {
+            commandCenter.seekForwardCommand.isEnabled = false
+            commandCenter.seekBackwardCommand.isEnabled = false
+        }
         
         updateNowPlayingInfo()
+        isHeadsetRemoteRegistered = true
+        refreshHeadsetRemoteStatus()
     }
 
     private func updateNowPlayingInfo() {
+        guard shouldEnableAirPodsModeSwitch else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            refreshHeadsetRemoteStatus()
+            return
+        }
+
         var nowPlayingInfo = [String: Any]()
-        nowPlayingInfo[MPMediaItemPropertyTitle] = "Aether Motion Control"
-        nowPlayingInfo[MPMediaItemPropertyArtist] = "Head Tracking Active"
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = 1.0 // Appears as "Playing"
+        nowPlayingInfo[MPMediaItemPropertyTitle] = "Aether Headset Mode Switch"
+        nowPlayingInfo[MPMediaItemPropertyArtist] = "Double Press: Mode  ·  Triple Press: Tracking"
+        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = 0.0
+        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
         
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+        if #available(macOS 10.13, *) {
+            MPNowPlayingInfoCenter.default().playbackState = .playing
+        }
+        refreshHeadsetRemoteStatus()
     }
     
     private func disableAirPodsCommands() {
@@ -625,21 +708,23 @@ class HeadMotionManager: ObservableObject {
         if let target = pauseTarget { commandCenter.pauseCommand.removeTarget(target) }
         if let target = toggleTarget { commandCenter.togglePlayPauseCommand.removeTarget(target) }
         if let target = nextTrackTarget { commandCenter.nextTrackCommand.removeTarget(target) }
-        if let target = prevTrackTarget { commandCenter.previousTrackCommand.removeTarget(target) }
+        if let target = previousTrackTarget { commandCenter.previousTrackCommand.removeTarget(target) }
+        if let target = seekForwardTarget { commandCenter.seekForwardCommand.removeTarget(target) }
+        if let target = seekBackwardTarget { commandCenter.seekBackwardCommand.removeTarget(target) }
         
         playTarget = nil
         pauseTarget = nil
         toggleTarget = nil
         nextTrackTarget = nil
-        prevTrackTarget = nil
-        
-        // We do NOT set isEnabled = false, because that would disable the command system-wide 
-        // if we were the only registered target? No, actually setting isEnabled=false tells iOS/macOS 
-        // "I don't handle this", which passes it to the next app (Music).
-        // So yes, we SHOULD set them to false or nil behavior to let others handle it.
-        // Actually, removing targets is enough for other apps to take over if we are not the "Now Playing" app.
-        // But to be safe and explicit:
-        // commandCenter.playCommand.isEnabled = false // Let system handle it
+        previousTrackTarget = nil
+        seekForwardTarget = nil
+        seekBackwardTarget = nil
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        if #available(macOS 10.13, *) {
+            MPNowPlayingInfoCenter.default().playbackState = .stopped
+        }
+        isHeadsetRemoteRegistered = false
+        refreshHeadsetRemoteStatus()
     }
 
     @MainActor
@@ -691,6 +776,39 @@ class HeadMotionManager: ObservableObject {
                log: log, type: .info, source, persist ? "yes" : "no", isCommandMode ? "command" : "dictation")
     }
 
+    private enum HeadsetRemoteActionKind {
+        case modeToggle
+        case trackingToggle
+    }
+
+    @MainActor
+    private func shouldHandleHeadsetRemoteAction(kind: HeadsetRemoteActionKind) -> Bool {
+        let now = Date()
+        switch kind {
+        case .modeToggle:
+            guard now.timeIntervalSince(lastHeadsetModeToggleAt) >= headsetRemoteActionDebounce else { return false }
+            lastHeadsetModeToggleAt = now
+        case .trackingToggle:
+            guard now.timeIntervalSince(lastHeadsetTrackingToggleAt) >= headsetRemoteActionDebounce else { return false }
+            lastHeadsetTrackingToggleAt = now
+        }
+        return true
+    }
+
+    @MainActor
+    private func performTrackingToggle(source: String) {
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        if isTracking {
+            GlobalLogger.input.info("Tracking Toggle (\(source)): Stop Tracking")
+            HUDManager.shared.showTemporary(message: isChinese ? "⏹ 停止追踪" : "⏹ Stop Tracking", duration: 0.8)
+            stopTracking()
+        } else {
+            GlobalLogger.input.info("Tracking Toggle (\(source)): Start Tracking")
+            HUDManager.shared.showTemporary(message: isChinese ? "▶️ 启动追踪" : "▶️ Start Tracking", duration: 0.8)
+            startTracking()
+        }
+    }
+
     private func postRecognitionControlModeChanged(source: String) {
         NotificationCenter.default.post(
             name: Self.recognitionControlModeChangedNotification,
@@ -724,25 +842,6 @@ class HeadMotionManager: ObservableObject {
                log: log, type: .info, source, effectiveRecognitionControlMode.rawValue)
     }
     
-    private func handleClickCommand() {
-        // If PTT is active, Squeeze acts as a mode toggle/inverter
-        if isPTTPressed {
-            os_log("AirPods: Squeeze during PTT -> Toggle Recognition Mode", log: log)
-            DispatchQueue.main.async {
-                self.toggleRecognitionInputControlMode(source: "airpods-ptt-squeeze", persist: false)
-                // Audio feedback for mode switch
-                NSSound.beep()
-            }
-            return
-        }
-
-        guard isTracking, isLookingAtScreen else { return }
-
-        // Normal operation: Single Press -> Left Click
-        os_log("AirPods: Single Press -> Left Click", log: log)
-        DispatchQueue.main.async { self.triggerMouseClick(at: CGPoint(x: self.currentX, y: self.currentY)) }
-    }
-    
     // ... triggerMouseClick (unchanged) ...
     
     private func triggerMouseClick(at point: CGPoint, button: CGMouseButton = .left, doubleClick: Bool = false) {
@@ -771,6 +870,127 @@ class HeadMotionManager: ObservableObject {
     private func moveToAbsolutePosition(x: CGFloat, y: CGFloat) {
         let maxY = desktopFrame == .zero ? NSScreen.screens.reduce(CGFloat(0)) { max($0, $1.frame.maxY) } : desktopFrame.maxY
         AutomationOutputs.shared.moveCursor(to: CGPoint(x: x, y: y), desktopMaxY: maxY)
+        if Thread.isMainThread {
+            HUDManager.shared.notifyPointerMoved()
+        } else {
+            DispatchQueue.main.async {
+                HUDManager.shared.notifyPointerMoved()
+            }
+        }
+    }
+
+    func setVoiceActivationMode(_ mode: AppState.VoiceActivationMode) {
+        voiceActivationMode = mode
+        updateAirPodsRemoteCommandRegistration()
+    }
+
+    private var shouldEnableAirPodsModeSwitch: Bool {
+        true
+    }
+
+    private func updateAirPodsRemoteCommandRegistration() {
+        let shouldEnable = shouldEnableAirPodsModeSwitch
+        if shouldEnable {
+            releaseAirPodsPTTSources(reason: "airpods-single-press-disabled")
+            enableAirPodsCommands(enablePTT: false)
+        } else {
+            releaseAirPodsPTTSources(reason: "airpods-ptt-disabled")
+            disableAirPodsCommands()
+        }
+        updateNowPlayingInfo()
+    }
+
+    private func refreshHeadsetRemoteStatus() {
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        if !shouldEnableAirPodsModeSwitch {
+            headsetRemoteStatusText = isChinese ? "耳机遥控未启用" : "Headset remote disabled"
+            return
+        }
+
+        if isAirPodsStreamActive {
+            headsetRemoteStatusText = isChinese
+                ? "媒体遥控已注册，AirPods 数据流已连接"
+                : "Media remote registered, AirPods motion stream connected"
+        } else if isHeadsetRemoteRegistered {
+            headsetRemoteStatusText = isChinese
+                ? "媒体遥控已注册，等待系统把双按 / 三按事件转发给 Aether"
+                : "Media remote registered and waiting for macOS to route double or triple press events to Aether"
+        } else {
+            headsetRemoteStatusText = isChinese
+                ? "耳机遥控未注册"
+                : "Headset remote not registered"
+        }
+    }
+
+    private func noteHeadsetRemoteEvent(display: String) {
+        lastHeadsetRemoteEventText = display
+        lastHeadsetRemoteEventAt = Date()
+        refreshHeadsetRemoteStatus()
+    }
+
+    private func beginAirPodsPTT(source: PTTSource, origin: String) -> MPRemoteCommandHandlerStatus {
+        guard voiceActivationMode == .pushToTalk, isPTTEnabled else { return .commandFailed }
+        beginPTT(from: source, origin: origin)
+        return .success
+    }
+
+    private func endAirPodsPTT(source: PTTSource, origin: String) -> MPRemoteCommandHandlerStatus {
+        guard voiceActivationMode == .pushToTalk else { return .commandFailed }
+        endPTT(from: source, origin: origin)
+        return .success
+    }
+
+    private func toggleAirPodsPTT(origin: String) -> MPRemoteCommandHandlerStatus {
+        guard voiceActivationMode == .pushToTalk, isPTTEnabled else { return .commandFailed }
+        if activePTTSources.contains(.airPodsToggle) {
+            endPTT(from: .airPodsToggle, origin: origin)
+        } else {
+            beginPTT(from: .airPodsToggle, origin: origin)
+        }
+        return .success
+    }
+
+    private func beginPTT(from source: PTTSource, origin: String) {
+        guard !activePTTSources.contains(source) else { return }
+        let wasPressed = isPTTPressed
+        activePTTSources.insert(source)
+
+        if !wasPressed {
+            transientRecognitionControlMode = nil
+            transientModeAnchorTypingState = nil
+            transientModeObservedTypingState = nil
+            transientModeObservedAt = .distantPast
+            os_log("PTT DOWN (%{public}@)", log: log, type: .info, origin)
+            NotificationCenter.default.post(name: HeadMotionManager.pttDownNotification, object: nil)
+        }
+        updateNowPlayingInfo()
+    }
+
+    private func endPTT(from source: PTTSource, origin: String) {
+        guard activePTTSources.contains(source) else { return }
+        activePTTSources.remove(source)
+        if !isPTTPressed {
+            os_log("PTT UP (%{public}@)", log: log, type: .info, origin)
+            NotificationCenter.default.post(name: HeadMotionManager.pttUpNotification, object: nil)
+        }
+        updateNowPlayingInfo()
+    }
+
+    private func releaseAirPodsPTTSources(reason: String) {
+        let wasPressed = isPTTPressed
+        let retainedSources = activePTTSources.filter { source in
+            switch source {
+            case .airPodsToggle, .airPodsSeekForward, .airPodsSeekBackward:
+                return false
+            case .keyboard, .mouse:
+                return true
+            }
+        }
+        activePTTSources = Set(retainedSources)
+        if wasPressed && !isPTTPressed {
+            os_log("PTT UP (%{public}@)", log: log, type: .info, reason)
+            NotificationCenter.default.post(name: HeadMotionManager.pttUpNotification, object: nil)
+        }
     }
 
     @MainActor
@@ -863,7 +1083,7 @@ class HeadMotionManager: ObservableObject {
                     case .toggleLanguage:
                         GlobalLogger.input.info("Hotkey: Toggle Language (flagsChanged)")
                         NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
-                        return nil
+                        return Unmanaged.passUnretained(event)
                     case .toggleTracking, .connectionLock, .toggleInputControlMode, .toggleShortcutPanel, .pushToTalk:
                         break
                     }
@@ -896,13 +1116,14 @@ class HeadMotionManager: ObservableObject {
                 if let action = HotkeyManager.shared.matchKeyDown(keyCode: keyCode, flags: flags) {
                     switch action {
                     case .toggleTracking:
+                        let isChinese = Locale.current.identifier.hasPrefix("zh")
                         if manager.isTracking {
                             GlobalLogger.input.info("Hotkey: Stop Tracking")
-                            HUDManager.shared.showTemporary(message: "⏹ 停止追踪")
+                            HUDManager.shared.showTemporary(message: isChinese ? "⏹ 停止追踪" : "⏹ Stop Tracking")
                             DispatchQueue.main.async { manager.stopTracking() }
                         } else {
                             GlobalLogger.input.info("Hotkey: Start Tracking")
-                            HUDManager.shared.showTemporary(message: "▶️ 启动追踪")
+                            HUDManager.shared.showTemporary(message: isChinese ? "▶️ 启动追踪" : "▶️ Start Tracking")
                             DispatchQueue.main.async { manager.startTracking() }
                         }
                         return nil
@@ -923,7 +1144,7 @@ class HeadMotionManager: ObservableObject {
                     case .toggleLanguage:
                         GlobalLogger.input.info("Hotkey: Toggle Language")
                         NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
-                        return nil
+                        return Unmanaged.passUnretained(event)
 
                     case .toggleShortcutPanel:
                         GlobalLogger.input.info("Hotkey: Toggle Shortcut Panel")
@@ -936,21 +1157,8 @@ class HeadMotionManager: ObservableObject {
 
                         let source = PTTSource.keyboard(Int(keyCode))
                         guard !manager.activePTTSources.contains(source) else { return nil }
-                        
-                        let wasPressed = manager.isPTTPressed
-                        manager.activePTTSources.insert(source)
-                        
-                        if !wasPressed {
-                            GlobalLogger.input.info("Hotkey: PTT DOWN Detected (Keyboard)")
-                            manager.transientRecognitionControlMode = nil // Reset temporary override on new PTT session
-                            manager.transientModeAnchorTypingState = nil
-                            manager.transientModeObservedTypingState = nil
-                            manager.transientModeObservedAt = .distantPast
-                            NotificationCenter.default.post(
-                                name: HeadMotionManager.pttDownNotification,
-                                object: nil
-                            )
-                        }
+                        GlobalLogger.input.info("Hotkey: PTT DOWN Detected (Keyboard)")
+                        manager.beginPTT(from: source, origin: "keyboard-hotkey")
                         return nil // Consumes event (Good)
                     }
                 }
@@ -964,20 +1172,8 @@ class HeadMotionManager: ObservableObject {
                 
                 // If this specific key was part of PTT activation
                 if manager.activePTTSources.contains(source) || (keyCode == Int64(pttKeyCode) && manager.isPTTPressed) {
-                     // Cleanup legacy or current
-                     manager.activePTTSources.remove(source)
-                     // If pttKeyCode matched but wasn't in set (legacy recovery?), remove it too.
-                     if keyCode == Int64(pttKeyCode) {
-                          // Try removing generic if needed, but 'source' covers it.
-                     }
-                     
-                     if !manager.isPTTPressed {
-                         GlobalLogger.input.info("Hotkey: PTT UP Detected (Keyboard)")
-                         NotificationCenter.default.post(
-                             name: HeadMotionManager.pttUpNotification,
-                             object: nil
-                         )
-                     }
+                     GlobalLogger.input.info("Hotkey: PTT UP Detected (Keyboard)")
+                     manager.endPTT(from: source, origin: "keyboard-hotkey")
                      return nil
                 }
             }
@@ -995,13 +1191,14 @@ class HeadMotionManager: ObservableObject {
                 if let action = HotkeyManager.shared.matchMouseDown(button: btn, flags: flags) {
                     switch action {
                     case .toggleTracking:
+                        let isChinese = Locale.current.identifier.hasPrefix("zh")
                         if manager.isTracking {
                             GlobalLogger.input.info("Mouse Hotkey: Stop Tracking")
-                            HUDManager.shared.showTemporary(message: "⏹ 停止追踪")
+                            HUDManager.shared.showTemporary(message: isChinese ? "⏹ 停止追踪" : "⏹ Stop Tracking")
                             DispatchQueue.main.async { manager.stopTracking() }
                         } else {
                             GlobalLogger.input.info("Mouse Hotkey: Start Tracking")
-                            HUDManager.shared.showTemporary(message: "▶️ 启动追踪")
+                            HUDManager.shared.showTemporary(message: isChinese ? "▶️ 启动追踪" : "▶️ Start Tracking")
                             DispatchQueue.main.async { manager.startTracking() }
                         }
                         return nil
@@ -1035,20 +1232,8 @@ class HeadMotionManager: ObservableObject {
                         
                         let source = PTTSource.mouse(btn)
                         if !manager.activePTTSources.contains(source) {
-                            let wasPressed = manager.isPTTPressed
-                            manager.activePTTSources.insert(source)
-                            
-                            if !wasPressed {
-                                GlobalLogger.input.info("Mouse PTT DOWN Detected (Button \(btn))")
-                                manager.transientRecognitionControlMode = nil // Reset temporary override
-                                manager.transientModeAnchorTypingState = nil
-                                manager.transientModeObservedTypingState = nil
-                                manager.transientModeObservedAt = .distantPast
-                                NotificationCenter.default.post(
-                                    name: HeadMotionManager.pttDownNotification,
-                                    object: nil
-                                )
-                            }
+                            GlobalLogger.input.info("Mouse PTT DOWN Detected (Button \(btn))")
+                            manager.beginPTT(from: source, origin: "mouse-hotkey")
                         }
                         return nil
                     }
@@ -1060,15 +1245,8 @@ class HeadMotionManager: ObservableObject {
                 let source = PTTSource.mouse(btn)
                 
                 if manager.activePTTSources.contains(source) {
-                    manager.activePTTSources.remove(source)
-                    
-                    if !manager.isPTTPressed {
-                        GlobalLogger.input.info("Mouse PTT UP Detected (Button \(btn))")
-                        NotificationCenter.default.post(
-                            name: HeadMotionManager.pttUpNotification,
-                            object: nil
-                        )
-                    }
+                    GlobalLogger.input.info("Mouse PTT UP Detected (Button \(btn))")
+                    manager.endPTT(from: source, origin: "mouse-hotkey")
                     return nil
                 }
             }

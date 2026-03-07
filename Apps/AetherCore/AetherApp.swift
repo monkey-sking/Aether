@@ -319,9 +319,60 @@ class AppState: ObservableObject {
         }
     }
 
+    enum VoiceUsageEventKind: String, Codable {
+        case dictation
+        case control
+    }
+
+    struct VoiceUsageEvent: Codable, Identifiable, Equatable {
+        var id: String
+        var timestamp: Date
+        var appName: String
+        var bundleIdentifier: String
+        var kind: VoiceUsageEventKind
+        var action: String
+        var content: String?
+
+        init(
+            id: String = UUID().uuidString,
+            timestamp: Date = Date(),
+            appName: String,
+            bundleIdentifier: String,
+            kind: VoiceUsageEventKind,
+            action: String,
+            content: String? = nil
+        ) {
+            self.id = id
+            self.timestamp = timestamp
+            self.appName = appName
+            self.bundleIdentifier = bundleIdentifier
+            self.kind = kind
+            self.action = action
+            self.content = content
+        }
+    }
+
+    struct VoiceUsageSummary {
+        let total: Int
+        let dictationCount: Int
+        let controlCount: Int
+    }
+
+    struct VoiceUsageAppSummary: Identifiable {
+        var id: String { bundleIdentifier }
+        let appName: String
+        let bundleIdentifier: String
+        let total: Int
+        let dictationCount: Int
+        let controlCount: Int
+    }
+
     private static let speechTermGroupsStorageKey = "speechTermGroupsV2"
     private static let voiceCommandOverridesStorageKey = "voiceCommandOverridesV1"
     private static let voiceLanguageTermsOverridesStorageKey = "voiceLanguageTermsOverridesV1"
+    private static let voiceUsageHistoryEnabledStorageKey = "voiceUsageHistoryEnabledV1"
+    private static let voiceUsageHistoryStorageKey = "voiceUsageHistoryV1"
+    private static let maxVoiceUsageHistoryCount = 400
 
     private static func defaultSpeechTermGroups() -> [SpeechTermGroupConfig] {
         [
@@ -399,6 +450,26 @@ class AppState: ObservableObject {
         }
     }
 
+    private static func loadVoiceUsageHistory() -> [VoiceUsageEvent] {
+        guard let data = UserDefaults.standard.data(forKey: voiceUsageHistoryStorageKey),
+              let events = try? JSONDecoder().decode([VoiceUsageEvent].self, from: data) else {
+            return []
+        }
+        let sorted = events.sorted { $0.timestamp > $1.timestamp }
+        return trimVoiceUsageHistory(sorted)
+    }
+
+    private static func saveVoiceUsageHistory(_ events: [VoiceUsageEvent]) {
+        if let data = try? JSONEncoder().encode(events) {
+            UserDefaults.standard.set(data, forKey: voiceUsageHistoryStorageKey)
+        }
+    }
+
+    private static func trimVoiceUsageHistory(_ events: [VoiceUsageEvent]) -> [VoiceUsageEvent] {
+        guard events.count > maxVoiceUsageHistoryCount else { return events }
+        return Array(events.prefix(maxVoiceUsageHistoryCount))
+    }
+
     enum VoiceActivationMode: String, CaseIterable, Identifiable {
         case pushToTalk
         case wakeWord
@@ -456,6 +527,7 @@ class AppState: ObservableObject {
         didSet {
             guard oldValue != voiceActivationMode else { return }
             UserDefaults.standard.set(voiceActivationMode.rawValue, forKey: "voiceActivationMode")
+            HeadMotionManager.shared.setVoiceActivationMode(voiceActivationMode)
             applyVoiceActivationMode()
         }
     }
@@ -545,6 +617,7 @@ class AppState: ObservableObject {
     private func applyVoiceActivationMode() {
         isApplyingActivationMode = true
         defer { isApplyingActivationMode = false }
+        HeadMotionManager.shared.setVoiceActivationMode(voiceActivationMode)
         
         let requiresContinuousSession = voiceActivationMode != .pushToTalk
         let micAuthorizedNow = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
@@ -631,6 +704,21 @@ class AppState: ObservableObject {
             AppState.saveSpeechTermGroups(speechTermGroups)
         }
     }
+    @Published var isVoiceUsageHistoryEnabled: Bool = UserDefaults.standard.object(forKey: voiceUsageHistoryEnabledStorageKey) as? Bool ?? false {
+        didSet {
+            UserDefaults.standard.set(isVoiceUsageHistoryEnabled, forKey: Self.voiceUsageHistoryEnabledStorageKey)
+        }
+    }
+    @Published var voiceUsageHistory: [VoiceUsageEvent] = AppState.loadVoiceUsageHistory() {
+        didSet {
+            let trimmed = Self.trimVoiceUsageHistory(voiceUsageHistory)
+            if trimmed.count != voiceUsageHistory.count {
+                voiceUsageHistory = trimmed
+                return
+            }
+            Self.saveVoiceUsageHistory(trimmed)
+        }
+    }
     @Published var voiceCommandOverrides: [VoiceCommandOverrideConfig] = AppState.loadVoiceCommandOverrides() {
         didSet {
             AppState.saveVoiceCommandOverrides(voiceCommandOverrides)
@@ -642,6 +730,46 @@ class AppState: ObservableObject {
             AppState.saveVoiceLanguageTermsOverrides(voiceLanguageTermsOverrides)
             voiceService.setVoiceLanguageTermsOverrides(voiceLanguageTermsOverrides)
         }
+    }
+
+    var voiceUsageSummary: VoiceUsageSummary {
+        var dictation = 0
+        var control = 0
+        for entry in voiceUsageHistory {
+            switch entry.kind {
+            case .dictation:
+                dictation += 1
+            case .control:
+                control += 1
+            }
+        }
+        return VoiceUsageSummary(total: voiceUsageHistory.count, dictationCount: dictation, controlCount: control)
+    }
+
+    var voiceUsageAppSummaries: [VoiceUsageAppSummary] {
+        let grouped = Dictionary(grouping: voiceUsageHistory) { $0.bundleIdentifier }
+        let summaries = grouped.map { bundleID, entries -> VoiceUsageAppSummary in
+            let dictationCount = entries.filter { $0.kind == .dictation }.count
+            let controlCount = entries.count - dictationCount
+            let appName = entries.first?.appName ?? bundleID
+            return VoiceUsageAppSummary(
+                appName: appName,
+                bundleIdentifier: bundleID,
+                total: entries.count,
+                dictationCount: dictationCount,
+                controlCount: controlCount
+            )
+        }
+        return summaries.sorted {
+            if $0.total == $1.total {
+                return $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
+            }
+            return $0.total > $1.total
+        }
+    }
+
+    func clearVoiceUsageHistory() {
+        voiceUsageHistory = []
     }
 
     func addSpeechTermGroup() {
@@ -852,24 +980,6 @@ class AppState: ObservableObject {
 
     @Published var onboardingStep: OnboardingStep = .done
     
-    @Published var showDockIcon: Bool = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(showDockIcon, forKey: "showDockIcon")
-            if showDockIcon {
-                NSApp.setActivationPolicy(.regular)
-                // When switching to regular, we might want to activate to show the dock icon explicitly immediately
-                // But usually the system handles it.
-            } else {
-                NSApp.setActivationPolicy(.accessory)
-            }
-            
-            // Re-activate app if needed to refresh UI state, though setActivationPolicy usually handles visibility
-            if showDockIcon {
-                NSApp.activate(ignoringOtherApps: true)
-            }
-        }
-    }
-
     @Published var hudAutoHideSeconds: Double = UserDefaults.standard.object(forKey: "hudAutoHideSeconds") as? Double ?? 1.5 {
         didSet {
             let clamped = min(max(hudAutoHideSeconds, 0.5), 8.0)
@@ -892,6 +1002,7 @@ class AppState: ObservableObject {
     private var hasShownAccessibilityHint: Bool = false
     private var hasRequestedAccessibilityPromptThisRun: Bool = false
     private var lastObservedAccessibilityTrusted: Bool?
+    private var accessibilityRecoveryTimer: Timer?
 
     
     init() {
@@ -952,7 +1063,9 @@ class AppState: ObservableObject {
             
         // Restore voice activation state after initial SwiftUI graph setup to avoid startup re-entrancy.
         DispatchQueue.main.async { [weak self] in
-            self?.applyVoiceActivationMode()
+            guard let self else { return }
+            HeadMotionManager.shared.setVoiceActivationMode(self.voiceActivationMode)
+            self.applyVoiceActivationMode()
         }
         
         voiceService.setLLMEnhancementEnabled(self.isLLMEnhancementEnabled)
@@ -1100,10 +1213,41 @@ class AppState: ObservableObject {
         guard lastObservedAccessibilityTrusted != trusted else { return }
         lastObservedAccessibilityTrusted = trusted
         motionService.recoverFromAccessibilityTrustChange(trusted, source: source)
+        HUDManager.shared.recoverFromAccessibilityTrustChange(trusted: trusted, source: source)
+        if trusted {
+            _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
+            CurrentAppShortcutPanelManager.shared.refreshIfVisible()
+            stopAccessibilityRecoveryPolling()
+        }
         if trusted {
             hasRequestedAccessibilityPromptThisRun = false
             hasShownAccessibilityHint = false
         }
+    }
+
+    private func startAccessibilityRecoveryPolling() {
+        stopAccessibilityRecoveryPolling()
+        let deadline = Date().addingTimeInterval(18)
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] timer in
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    timer.invalidate()
+                    return
+                }
+                self.refreshPermissions()
+                if AXIsProcessTrusted() || Date() >= deadline {
+                    timer.invalidate()
+                    self.accessibilityRecoveryTimer = nil
+                }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        accessibilityRecoveryTimer = timer
+    }
+
+    private func stopAccessibilityRecoveryPolling() {
+        accessibilityRecoveryTimer?.invalidate()
+        accessibilityRecoveryTimer = nil
     }
 
     private static func deriveOnboardingStep(
@@ -1190,44 +1334,184 @@ class AppState: ObservableObject {
         switch intent {
         case .clickLeft:
             motionService.clickLeft()
+            recordVoiceControl(intent)
         case .clickRight:
             motionService.clickRight()
+            recordVoiceControl(intent)
         case .doubleClick:
             motionService.doubleClick()
+            recordVoiceControl(intent)
         case .showShortcutPanel:
             showShortcutPanel()
+            recordVoiceControl(intent)
         case .hideShortcutPanel:
             hideShortcutPanel()
+            recordVoiceControl(intent)
         case .startPointer:
             motionService.startTracking()
+            recordVoiceControl(intent)
         case .stopPointer:
             motionService.stopTracking()
+            recordVoiceControl(intent)
         case .recenter:
             motionService.recenter()
+            recordVoiceControl(intent)
         case .frontmostAppCommand(let command):
             AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: command.processIdentifier)
+            recordVoiceControl(
+                intent,
+                appName: command.appName,
+                bundleIdentifier: command.bundleIdentifier
+            )
         case .scroll(let dx, let dy):
             motionService.scroll(dx: dx, dy: dy)
+            recordVoiceControl(intent)
         case .scrollToWeb(let edge):
             if edge == "top" { motionService.scrollToTop() }
             else { motionService.scrollToBottom() }
+            recordVoiceControl(intent)
         case .dragStart:
             motionService.dragStart()
+            recordVoiceControl(intent)
         case .dragEnd:
             motionService.dragEnd()
+            recordVoiceControl(intent)
         case .undo:
-            voiceService.undoLastInjection()
+            // Already applied inside SpeechManager. Keep this branch for usage tracking only.
+            recordVoiceControl(intent)
         case .paste:
-            // Handled by SpeechManager
-            break
+            // Already applied inside SpeechManager. Keep this branch for usage tracking only.
+            recordVoiceControl(intent)
         case .lockConnection:
             connectionLock.lock()
+            recordVoiceControl(intent)
         case .unlockConnection:
             connectionLock.unlock()
-        case .dictation:
-            break
+            recordVoiceControl(intent)
+        case .dictation(let text):
+            recordVoiceDictation(text)
         case .unknown:
             break
+        }
+    }
+
+    private func recordVoiceControl(
+        _ intent: VoiceIntent,
+        appName: String? = nil,
+        bundleIdentifier: String? = nil
+    ) {
+        recordVoiceUsageEvent(
+            kind: .control,
+            action: voiceIntentActionTitle(intent),
+            content: nil,
+            appName: appName,
+            bundleIdentifier: bundleIdentifier
+        )
+    }
+
+    private func recordVoiceDictation(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
+        recordVoiceUsageEvent(
+            kind: .dictation,
+            action: Locale.current.identifier.hasPrefix("zh") ? "语音输入" : "Dictation",
+            content: text,
+            appName: appName,
+            bundleIdentifier: bundleIdentifier
+        )
+    }
+
+    private func recordVoiceUsageEvent(
+        kind: VoiceUsageEventKind,
+        action: String,
+        content: String?,
+        appName: String?,
+        bundleIdentifier: String?
+    ) {
+        guard isVoiceUsageHistoryEnabled else { return }
+        let context = resolvedVoiceUsageAppContext(appName: appName, bundleIdentifier: bundleIdentifier)
+        let entry = VoiceUsageEvent(
+            appName: context.name,
+            bundleIdentifier: context.bundleIdentifier,
+            kind: kind,
+            action: action,
+            content: normalizedVoiceUsageContent(content)
+        )
+        voiceUsageHistory.insert(entry, at: 0)
+    }
+
+    private func resolvedVoiceUsageAppContext(
+        appName: String?,
+        bundleIdentifier: String?
+    ) -> (name: String, bundleIdentifier: String) {
+        if let appName, !appName.isEmpty, let bundleIdentifier, !bundleIdentifier.isEmpty {
+            return (appName, bundleIdentifier)
+        }
+        if let app = NSWorkspace.shared.frontmostApplication,
+           let bundleID = app.bundleIdentifier,
+           !bundleID.isEmpty {
+            return (app.localizedName ?? bundleID, bundleID)
+        }
+        let fallbackName = Locale.current.identifier.hasPrefix("zh") ? "未知应用" : "Unknown App"
+        return (appName ?? fallbackName, bundleIdentifier ?? "unknown.app")
+    }
+
+    private func normalizedVoiceUsageContent(_ raw: String?) -> String? {
+        guard var text = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return nil
+        }
+        text = text.replacingOccurrences(of: "\n", with: " ")
+        if text.count > 280 {
+            text = String(text.prefix(280)) + "…"
+        }
+        return text
+    }
+
+    private func voiceIntentActionTitle(_ intent: VoiceIntent) -> String {
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        switch intent {
+        case .clickLeft:
+            return isChinese ? "左键点击" : "Left Click"
+        case .clickRight:
+            return isChinese ? "右键点击" : "Right Click"
+        case .doubleClick:
+            return isChinese ? "双击" : "Double Click"
+        case .showShortcutPanel:
+            return isChinese ? "显示快捷键面板" : "Show Shortcut Panel"
+        case .hideShortcutPanel:
+            return isChinese ? "关闭快捷键面板" : "Hide Shortcut Panel"
+        case .startPointer:
+            return isChinese ? "开启头控" : "Enable Pointer"
+        case .stopPointer:
+            return isChinese ? "关闭头控" : "Disable Pointer"
+        case .recenter:
+            return isChinese ? "回中校准" : "Recenter"
+        case .frontmostAppCommand(let command):
+            return "\(command.title) (\(command.shortcut.displayString))"
+        case .scroll(_, let dy):
+            if dy == 0 { return isChinese ? "滚动" : "Scroll" }
+            return dy > 0
+                ? (isChinese ? "向下滚动" : "Scroll Down")
+                : (isChinese ? "向上滚动" : "Scroll Up")
+        case .scrollToWeb(let edge):
+            if edge == "top" {
+                return isChinese ? "滚动到顶部" : "Scroll to Top"
+            }
+            return isChinese ? "滚动到底部" : "Scroll to Bottom"
+        case .dragStart:
+            return isChinese ? "开始拖拽" : "Start Drag"
+        case .dragEnd:
+            return isChinese ? "结束拖拽" : "End Drag"
+        case .undo:
+            return isChinese ? "撤销" : "Undo"
+        case .paste:
+            return isChinese ? "粘贴" : "Paste"
+        case .lockConnection:
+            return isChinese ? "锁定连接" : "Lock Connection"
+        case .unlockConnection:
+            return isChinese ? "解锁连接" : "Unlock Connection"
+        case .dictation:
+            return isChinese ? "语音输入" : "Dictation"
+        case .unknown:
+            return isChinese ? "未知命令" : "Unknown Command"
         }
     }
 
@@ -1315,6 +1599,7 @@ class AppState: ObservableObject {
         if !didShowSystemPrompt {
             permissions.openAccessibilityPrivacyPane()
         }
+        startAccessibilityRecoveryPolling()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             self?.refreshPermissions()
         }
@@ -1456,6 +1741,13 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
         isVisible ? hide() : show()
     }
 
+    func refreshIfVisible() {
+        guard isVisible else { return }
+        _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
+        updatePanelFrame()
+        panel?.contentViewController?.view.needsLayout = true
+    }
+
     @objc private func handleFrontmostAppChanged() {
         guard isVisible else { return }
         _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
@@ -1489,13 +1781,51 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
         guard let panel else { return }
         let screen = activeScreen()
         let visibleFrame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let width = min(max(visibleFrame.width - 56, 900), 1500)
-        let height = min(max(visibleFrame.height - 96, 560), 900)
+        let preferredSize = preferredPanelSize(in: visibleFrame)
+        let width = min(preferredSize.width, visibleFrame.width - 40)
+        let height = min(preferredSize.height, visibleFrame.height - 40)
         let origin = CGPoint(
             x: visibleFrame.midX - width / 2,
             y: visibleFrame.midY - height / 2
         )
         panel.setFrame(NSRect(origin: origin, size: CGSize(width: width, height: height)), display: true)
+    }
+
+    private func preferredPanelSize(in visibleFrame: NSRect) -> CGSize {
+        let globalSectionHeight = CurrentAppShortcutPanelLayout.estimatedHeight(forGlobalShortcutCount: HotkeyAction.allCases.count)
+        guard AXIsProcessTrusted(),
+              let snapshot = FrontmostAppCommandCatalog.shared.snapshot,
+              !snapshot.commands.isEmpty else {
+            let width = min(max(visibleFrame.width * 0.54, 820), 980)
+            let height = min(max(globalSectionHeight + 300, 520), visibleFrame.height - 40)
+            return CGSize(width: width, height: height)
+        }
+
+        let sections = CurrentAppShortcutPanelLayout.makeSections(from: snapshot)
+        let columnCount = max(1, min(sections.count, 3))
+        let cardWidth: CGFloat = 340
+        let gridSpacing: CGFloat = 18
+        let outerPadding: CGFloat = 52
+        let headerHeight: CGFloat = 96
+        let groupHeaderHeight: CGFloat = 54
+        let footerBreathingRoom: CGFloat = 28
+
+        let width = max(
+            760,
+            CGFloat(columnCount) * cardWidth + CGFloat(max(columnCount - 1, 0)) * gridSpacing + outerPadding
+        )
+
+        let appContentHeight = CurrentAppShortcutPanelLayout.estimatedColumnHeight(
+            for: sections,
+            columnCount: columnCount,
+            spacing: gridSpacing
+        )
+        let contentHeight =
+            groupHeaderHeight + globalSectionHeight +
+            gridSpacing +
+            groupHeaderHeight + appContentHeight
+        let height = max(560, headerHeight + contentHeight + outerPadding + footerBreathingRoom)
+        return CGSize(width: width, height: height)
     }
 
     private func activeScreen() -> NSScreen? {
@@ -1511,16 +1841,15 @@ private struct CurrentAppShortcutPanelSection: Identifiable {
     var id: String { title }
 }
 
-private struct CurrentAppShortcutPanelView: View {
-    @StateObject private var catalog = FrontmostAppCommandCatalog.shared
-    @Environment(\.colorScheme) private var colorScheme
+private struct AetherGlobalShortcutPanelEntry: Identifiable {
+    let action: HotkeyAction
+    let binding: HotkeyBinding
 
-    private var snapshot: FrontmostAppCommandSnapshot? {
-        catalog.snapshot
-    }
+    var id: String { action.rawValue }
+}
 
-    private var sections: [CurrentAppShortcutPanelSection] {
-        guard let snapshot else { return [] }
+private enum CurrentAppShortcutPanelLayout {
+    static func makeSections(from snapshot: FrontmostAppCommandSnapshot) -> [CurrentAppShortcutPanelSection] {
         var ordered: [String] = []
         var grouped: [String: [FrontmostAppCommand]] = [:]
 
@@ -1536,6 +1865,81 @@ private struct CurrentAppShortcutPanelView: View {
         return ordered.map { CurrentAppShortcutPanelSection(title: $0, commands: grouped[$0] ?? []) }
     }
 
+    static func preferredColumnCount(for sectionCount: Int) -> Int {
+        max(1, min(sectionCount, 3))
+    }
+
+    static func estimatedHeight(for section: CurrentAppShortcutPanelSection) -> CGFloat {
+        let visibleCommands = min(max(section.commands.count, 1), 10)
+        return 76 + CGFloat(visibleCommands) * 42
+    }
+
+    static func estimatedHeight(forGlobalShortcutCount count: Int) -> CGFloat {
+        let visibleCommands = min(max(count, 1), 8)
+        return 88 + CGFloat(visibleCommands) * 44
+    }
+
+    static func makeColumns(
+        from sections: [CurrentAppShortcutPanelSection],
+        columnCount: Int,
+        spacing: CGFloat
+    ) -> [[CurrentAppShortcutPanelSection]] {
+        guard columnCount > 1, !sections.isEmpty else {
+            return sections.isEmpty ? [] : [sections]
+        }
+
+        var columns = Array(repeating: [CurrentAppShortcutPanelSection](), count: columnCount)
+        var heights = Array(repeating: CGFloat(0), count: columnCount)
+
+        for section in sections {
+            let estimated = estimatedHeight(for: section)
+            let targetIndex = heights.enumerated().min(by: { $0.element < $1.element })?.offset ?? 0
+            columns[targetIndex].append(section)
+            heights[targetIndex] += estimated + spacing
+        }
+
+        return columns.filter { !$0.isEmpty }
+    }
+
+    static func estimatedColumnHeight(
+        for sections: [CurrentAppShortcutPanelSection],
+        columnCount: Int,
+        spacing: CGFloat
+    ) -> CGFloat {
+        makeColumns(from: sections, columnCount: columnCount, spacing: spacing)
+            .map { column in
+                column.enumerated().reduce(CGFloat(0)) { partial, pair in
+                    let spacingHeight = pair.offset == 0 ? CGFloat(0) : spacing
+                    return partial + spacingHeight + estimatedHeight(for: pair.element)
+                }
+            }
+            .max() ?? 0
+    }
+}
+
+private struct CurrentAppShortcutPanelView: View {
+    @StateObject private var catalog = FrontmostAppCommandCatalog.shared
+    @StateObject private var hotkeyManager = HotkeyManager.shared
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isPanelFocused: Bool = true
+    @State private var blurWorkItem: DispatchWorkItem?
+    @State private var searchText: String = ""
+
+    private var snapshot: FrontmostAppCommandSnapshot? {
+        catalog.snapshot
+    }
+
+    private var sections: [CurrentAppShortcutPanelSection] {
+        guard let snapshot else { return [] }
+        return CurrentAppShortcutPanelLayout.makeSections(from: snapshot)
+    }
+
+    private var globalShortcuts: [AetherGlobalShortcutPanelEntry] {
+        HotkeyAction.allCases.map {
+            AetherGlobalShortcutPanelEntry(action: $0, binding: hotkeyManager.binding(for: $0))
+        }
+    }
+
     private var appIcon: NSImage? {
         guard let snapshot else { return nil }
         guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: snapshot.bundleIdentifier) else { return nil }
@@ -1546,12 +1950,46 @@ private struct CurrentAppShortcutPanelView: View {
         Locale.current.identifier.hasPrefix("zh")
     }
 
-    private let columns = [GridItem(.adaptive(minimum: 280, maximum: 420), spacing: 18, alignment: .top)]
+    private var normalizedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var filteredSections: [CurrentAppShortcutPanelSection] {
+        guard !normalizedSearchText.isEmpty else { return sections }
+        return sections.compactMap { section in
+            let commands = section.commands.filter(matchesSearch)
+            guard !commands.isEmpty else { return nil }
+            return CurrentAppShortcutPanelSection(title: section.title, commands: commands)
+        }
+    }
+
+    private var filteredGlobalShortcuts: [AetherGlobalShortcutPanelEntry] {
+        guard !normalizedSearchText.isEmpty else { return globalShortcuts }
+        return globalShortcuts.filter(matchesSearch)
+    }
+
+    private var filteredAppShortcutCount: Int {
+        filteredSections.reduce(0) { $0 + $1.commands.count }
+    }
+
+    private var totalVisibleShortcutCount: Int {
+        filteredAppShortcutCount + filteredGlobalShortcuts.count
+    }
+
+    private var sectionColumns: [[CurrentAppShortcutPanelSection]] {
+        CurrentAppShortcutPanelLayout.makeColumns(
+            from: filteredSections,
+            columnCount: CurrentAppShortcutPanelLayout.preferredColumnCount(for: filteredSections.count),
+            spacing: 18
+        )
+    }
 
     private var panelGradient: LinearGradient {
         let top = Color(nsColor: colorScheme == .dark ? .windowBackgroundColor : .controlBackgroundColor)
         let bottom = Color(nsColor: .windowBackgroundColor)
-        return LinearGradient(colors: [top.opacity(0.98), bottom.opacity(0.96)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        let topOpacity = isPanelFocused ? 0.98 : 0.86
+        let bottomOpacity = isPanelFocused ? 0.96 : 0.82
+        return LinearGradient(colors: [top.opacity(topOpacity), bottom.opacity(bottomOpacity)], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     private var panelStroke: Color {
@@ -1559,11 +1997,15 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private var chromeBackground: Color {
-        Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.04)
+        let base = colorScheme == .dark ? 0.12 : 0.04
+        return Color.primary.opacity(isPanelFocused ? base : base * 1.35)
     }
 
     private var cardBackground: Color {
-        Color(nsColor: colorScheme == .dark ? .controlBackgroundColor : .textBackgroundColor).opacity(colorScheme == .dark ? 0.84 : 0.9)
+        let focusedOpacity = colorScheme == .dark ? 0.84 : 0.9
+        let blurredOpacity = colorScheme == .dark ? 0.7 : 0.76
+        return Color(nsColor: colorScheme == .dark ? .controlBackgroundColor : .textBackgroundColor)
+            .opacity(isPanelFocused ? focusedOpacity : blurredOpacity)
     }
 
     private var cardStroke: Color {
@@ -1584,38 +2026,91 @@ private struct CurrentAppShortcutPanelView: View {
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .stroke(panelStroke, lineWidth: 1)
                 )
-                .shadow(color: .black.opacity(0.12), radius: 28, y: 18)
+                .shadow(color: .black.opacity(isPanelFocused ? 0.12 : 0.08), radius: isPanelFocused ? 28 : 18, y: isPanelFocused ? 18 : 10)
 
             VStack(alignment: .leading, spacing: 20) {
                 header
 
-                if !AXIsProcessTrusted() {
-                    emptyState(
-                        title: isChinese ? "需要辅助功能权限" : "Accessibility Permission Required",
-                        detail: isChinese
-                            ? "开启辅助功能后，Aether 才能读取当前 App 的菜单和快捷键。"
-                            : "Aether needs Accessibility permission to read the current app's menus and shortcuts."
-                    )
-                } else if let snapshot, !snapshot.commands.isEmpty {
-                    ScrollView {
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
-                            ForEach(sections) { section in
-                                CurrentAppShortcutSectionCard(section: section)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        panelGroupHeader(
+                            title: snapshot?.appName ?? (isChinese ? "当前 App" : "Current App"),
+                            detail: isChinese
+                                ? "下面是前台应用的菜单快捷键和常见默认快捷键。"
+                                : "Below are the frontmost app's menu shortcuts plus common defaults.",
+                            count: filteredAppShortcutCount
+                        )
+
+                        if !AXIsProcessTrusted() {
+                            emptyState(
+                                title: isChinese ? "需要辅助功能权限" : "Accessibility Permission Required",
+                                detail: isChinese
+                                    ? "开启辅助功能后，Aether 才能读取当前 App 的菜单和快捷键。"
+                                    : "Aether needs Accessibility permission to read the current app's menus and shortcuts."
+                            )
+                        } else if let snapshot, !snapshot.commands.isEmpty, !filteredSections.isEmpty {
+                            HStack(alignment: .top, spacing: 18) {
+                                ForEach(Array(sectionColumns.enumerated()), id: \.offset) { _, column in
+                                    VStack(alignment: .leading, spacing: 18) {
+                                        ForEach(column) { section in
+                                            CurrentAppShortcutSectionCard(section: section, onTrigger: triggerCurrentAppShortcut)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .top)
+                                }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        } else if !normalizedSearchText.isEmpty {
+                            emptyState(
+                                title: isChinese ? "没有匹配的快捷键" : "No Matching Shortcuts",
+                                detail: isChinese
+                                    ? "换个关键词试试，可以搜菜单名、功能名、别名或组合键。"
+                                    : "Try another keyword. Search matches titles, menu paths, aliases, and shortcut keys."
+                            )
+                        } else {
+                            emptyState(
+                                title: isChinese ? "当前 App 暂无可读快捷键" : "No Readable Shortcuts Yet",
+                                detail: isChinese
+                                    ? "切到目标应用后再试一次，或者手动展开该应用的菜单栏。"
+                                    : "Switch back to the target app and try again, or manually open that app's menu bar once."
+                            )
                         }
-                        .padding(.bottom, 4)
+
+                        panelGroupHeader(
+                            title: isChinese ? "Aether 全局" : "Aether Global",
+                            detail: isChinese
+                                ? "这些是 Aether 自己的全局热键，不依赖当前 App。"
+                                : "These are Aether's own global shortcuts and do not depend on the frontmost app.",
+                            count: filteredGlobalShortcuts.count
+                        )
+
+                        AetherGlobalShortcutSectionCard(entries: filteredGlobalShortcuts, onTrigger: triggerGlobalShortcut)
                     }
-                    .scrollIndicators(.hidden)
-                } else {
-                    emptyState(
-                        title: isChinese ? "当前 App 暂无可读快捷键" : "No Readable Shortcuts Yet",
-                        detail: isChinese
-                            ? "切到目标应用后再试一次，或者手动展开该应用的菜单栏。"
-                            : "Switch back to the target app and try again, or manually open that app's menu bar once."
-                    )
+                    .padding(.bottom, 4)
                 }
+                .scrollIndicators(.hidden)
             }
             .padding(26)
+        }
+        .opacity(isPanelFocused ? 1.0 : 0.9)
+        .onHover { isHovering in
+            if isHovering {
+                blurWorkItem?.cancel()
+                blurWorkItem = nil
+                withAnimation(.easeOut(duration: 0.16)) {
+                    isPanelFocused = true
+                }
+                return
+            }
+
+            let work = DispatchWorkItem {
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    isPanelFocused = false
+                }
+            }
+            blurWorkItem?.cancel()
+            blurWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: work)
         }
     }
 
@@ -1643,8 +2138,8 @@ private struct CurrentAppShortcutPanelView: View {
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                 Text(
                     isChinese
-                        ? "按顶层菜单分组展示可触发快捷键。语音命中后会直接发送对应组合键。"
-                        : "Shortcut commands grouped by top-level menu. A voice match sends the corresponding key combo."
+                        ? "按顶层菜单分组展示可触发快捷键，并补充浏览器、编辑器、终端等常见默认快捷键。语音命中后会直接发送对应组合键。"
+                        : "Shortcut commands grouped by top-level menu, with common browser, editor, and terminal defaults filled in when useful. A voice match sends the corresponding key combo."
                 )
                 .font(.subheadline)
                 .foregroundColor(.secondary)
@@ -1652,15 +2147,22 @@ private struct CurrentAppShortcutPanelView: View {
 
             Spacer(minLength: 20)
 
-            if let snapshot {
-                Text("\(snapshot.commands.count) \(isChinese ? "条快捷键" : "shortcuts")")
+            Text("\(totalVisibleShortcutCount) \(isChinese ? "条快捷键" : "shortcuts")")
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Color.accentColor.opacity(0.12))
                     .foregroundColor(.accentColor)
                     .clipShape(Capsule())
-            }
+
+            TextField(isChinese ? "搜索快捷键" : "Search shortcuts", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.subheadline)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .frame(width: 240)
+                .background(chromeBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             Button(String(localized: "generic.refresh")) {
                 _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
@@ -1694,10 +2196,84 @@ private struct CurrentAppShortcutPanelView: View {
         .background(emptyStateBackground)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
+
+    private func panelGroupHeader(title: String, detail: String, count: Int) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                if isPanelFocused {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            Text("\(count)")
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(chromeBackground)
+                .clipShape(Capsule())
+        }
+    }
+
+    private func matchesSearch(_ command: FrontmostAppCommand) -> Bool {
+        let needle = normalizedSearchText
+        guard !needle.isEmpty else { return true }
+        let haystacks = [
+            command.title,
+            command.displayPath,
+            command.shortcut.displayString,
+            command.aliases.joined(separator: " ")
+        ]
+        return haystacks.contains { $0.lowercased().contains(needle) }
+    }
+
+    private func matchesSearch(_ entry: AetherGlobalShortcutPanelEntry) -> Bool {
+        let needle = normalizedSearchText
+        guard !needle.isEmpty else { return true }
+        let haystacks = [
+            entry.action.label,
+            entry.action.helperText,
+            entry.binding.displayString
+        ]
+        return haystacks.contains { $0.lowercased().contains(needle) }
+    }
+
+    private func triggerCurrentAppShortcut(_ command: FrontmostAppCommand) {
+        AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: command.processIdentifier)
+    }
+
+    private func triggerGlobalShortcut(_ entry: AetherGlobalShortcutPanelEntry) {
+        switch entry.action {
+        case .toggleTracking:
+            let manager = HeadMotionManager.shared
+            manager.isTracking ? manager.stopTracking() : manager.startTracking()
+        case .connectionLock:
+            ConnectionLockService.shared.toggle()
+        case .toggleInputControlMode:
+            HeadMotionManager.shared.toggleRecognitionInputControlMode(source: "shortcut-panel", persist: false)
+        case .toggleLanguage:
+            NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
+        case .toggleShortcutPanel:
+            CurrentAppShortcutPanelManager.shared.toggle()
+        case .pushToTalk:
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "按住说话请继续使用快捷键" : "Use the hold-to-talk hotkey",
+                recognitionControlMode: .auto,
+                duration: 0.9
+            )
+        }
+    }
 }
 
 private struct CurrentAppShortcutSectionCard: View {
     let section: CurrentAppShortcutPanelSection
+    let onTrigger: (FrontmostAppCommand) -> Void
     @Environment(\.colorScheme) private var colorScheme
 
     private var cardBackground: Color {
@@ -1715,7 +2291,7 @@ private struct CurrentAppShortcutSectionCard: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(section.commands) { command in
-                    CurrentAppShortcutRow(command: command)
+                    CurrentAppShortcutRow(command: command, onTrigger: onTrigger)
                 }
             }
         }
@@ -1730,8 +2306,77 @@ private struct CurrentAppShortcutSectionCard: View {
     }
 }
 
+private struct AetherGlobalShortcutSectionCard: View {
+    let entries: [AetherGlobalShortcutPanelEntry]
+    let onTrigger: (AetherGlobalShortcutPanelEntry) -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var cardBackground: Color {
+        Color(nsColor: colorScheme == .dark ? .controlBackgroundColor : .textBackgroundColor).opacity(colorScheme == .dark ? 0.84 : 0.9)
+    }
+
+    private var cardStroke: Color {
+        Color.primary.opacity(colorScheme == .dark ? 0.1 : 0.05)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(entries) { entry in
+                AetherGlobalShortcutRow(entry: entry, onTrigger: onTrigger)
+                if entry.id != entries.last?.id {
+                    Divider()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(18)
+        .background(cardBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(cardStroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+private struct AetherGlobalShortcutRow: View {
+    let entry: AetherGlobalShortcutPanelEntry
+    let onTrigger: (AetherGlobalShortcutPanelEntry) -> Void
+
+    var body: some View {
+        Button {
+            onTrigger(entry)
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.action.label)
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Text(entry.action.helperText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                Text(entry.binding.displayString)
+                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.accentColor.opacity(0.1))
+                    .clipShape(Capsule())
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 2)
+    }
+}
+
 private struct CurrentAppShortcutRow: View {
     let command: FrontmostAppCommand
+    let onTrigger: (FrontmostAppCommand) -> Void
 
     private var submenuPath: String {
         guard command.menuPath.count > 1 else { return "" }
@@ -1739,28 +2384,34 @@ private struct CurrentAppShortcutRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(command.title)
-                    .font(.body.weight(.semibold))
-                    .foregroundColor(.primary)
-                if !submenuPath.isEmpty {
-                    Text(submenuPath)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+        Button {
+            onTrigger(command)
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(command.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.primary)
+                    if !submenuPath.isEmpty {
+                        Text(submenuPath)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
+
+                Spacer(minLength: 12)
+
+                Text(command.shortcut.displayString)
+                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.accentColor.opacity(0.1))
+                    .clipShape(Capsule())
             }
-
-            Spacer(minLength: 12)
-
-            Text(command.shortcut.displayString)
-                .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                .foregroundColor(.accentColor)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.accentColor.opacity(0.1))
-                .clipShape(Capsule())
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .padding(.vertical, 2)
     }
 }
@@ -1801,12 +2452,8 @@ class AetherAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Respect user's Dock visibility preference.
-        let showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
-        NSApp.setActivationPolicy(showDockIcon ? .regular : .accessory)
-        if showDockIcon {
-            NSApp.activate(ignoringOtherApps: true)
-        }
+        // Menu-bar-first app: keep Dock hidden by default.
+        NSApp.setActivationPolicy(.accessory)
         enforceApplicationsInstallPathIfNeeded()
     }
 }

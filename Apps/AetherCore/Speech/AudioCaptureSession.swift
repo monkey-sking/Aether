@@ -154,7 +154,7 @@ final class AudioCaptureSession {
         }
 
         let dynamic = adaptiveNoiseFloor * 2.2 + 0.01
-        adaptiveVADThreshold = min(max(max(base, dynamic), 0.03), 0.35)
+        adaptiveVADThreshold = min(max(max(base, dynamic), 0.03), 0.85)
 
         // Hysteresis: once active, require slightly less energy to keep active.
         let threshold = lastVoiceActivity ? adaptiveVADThreshold * 0.86 : adaptiveVADThreshold
