@@ -23,10 +23,13 @@ final class HUDManager {
     private var lastFullscreenSuppressionCheckAt: Date = .distantPast
     private var cachedFullscreenSuppressionResult: Bool = false
     private var cachedFullscreenSuppressionBundleID: String = ""
+    private let pointerFollowThrottleInterval: TimeInterval = 1.0 / 50.0
+    private var lastPointerFollowAt: Date = .distantPast
     private var lastGoodTypingRect: CGRect?
     private var lastGoodTypingRectAt: Date = .distantPast
     private var lastInputInteractionPoint: CGPoint?
     private var lastInputInteractionAt: Date = .distantPast
+    private var typingSuppressedUntil: Date = .distantPast
     
     private var hudWindow: NSPanel?
     private var hideTask: DispatchWorkItem?
@@ -170,9 +173,91 @@ final class HUDManager {
     func hide() {
         update(mode: .hidden, language: state.language, inputDeviceIcon: state.inputDeviceIcon)
     }
-    
+
+    func notifyPointerMoved() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { self.notifyPointerMoved() }
+            return
+        }
+
+        guard state.mode != .hidden else { return }
+        guard !state.isTypingContext else { return }
+
+        let now = Date()
+        guard now.timeIntervalSince(lastPointerFollowAt) >= pointerFollowThrottleInterval else { return }
+        lastPointerFollowAt = now
+        requestReposition(immediate: true)
+    }
+
+    func recoverFromAccessibilityTrustChange(trusted: Bool, source: String = "ax-trust-change") {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { self.recoverFromAccessibilityTrustChange(trusted: trusted, source: source) }
+            return
+        }
+
+        detector.handleAccessibilityTrustChange(trusted: trusted)
+        lastAXTypingCheckAt = .distantPast
+        lastAXFocusRectCheckAt = .distantPast
+        lastAXCaretRectCheckAt = .distantPast
+        lastAXEstimatedCaretCheckAt = .distantPast
+        lastAXFocusDebugCheckAt = .distantPast
+        lastGoodTypingRect = nil
+        lastGoodTypingRectAt = .distantPast
+
+        guard trusted, state.mode != .hidden else { return }
+        _ = source
+        requestReposition(immediate: true)
+    }
+
+    func handleGlobalMouseDown(at point: CGPoint) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { self.handleGlobalMouseDown(at: point) }
+            return
+        }
+
+        let activeInputRect: CGRect? = {
+            if let r = detector.currentUpdate.inputRect, !isProbablyWholeWindowRect(r), (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+                return r
+            }
+            if let r = axFocusedElementRectThrottled(), !isProbablyWholeWindowRect(r), (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+                return r
+            }
+            return nil
+        }()
+
+        if let activeInputRect, activeInputRect.insetBy(dx: -8, dy: -8).contains(point) {
+            typingSuppressedUntil = .distantPast
+            lastInputInteractionPoint = point
+            lastInputInteractionAt = Date()
+            return
+        }
+
+        typingSuppressedUntil = Date().addingTimeInterval(0.35)
+        lastAXTypingCheckAt = .distantPast
+        cachedAXTypingState = false
+        lastAXCaretRectCheckAt = .distantPast
+        cachedAXCaretRect = nil
+        lastAXEstimatedCaretCheckAt = .distantPast
+        cachedAXEstimatedCaretPoint = nil
+        cachedAXEstimatedCaretBounds = nil
+        lastGoodTypingRect = nil
+        lastGoodTypingRectAt = .distantPast
+        lastInputInteractionPoint = nil
+        lastInputInteractionAt = .distantPast
+
+        guard state.mode != .hidden else { return }
+        requestReposition(immediate: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            self.requestReposition(immediate: true)
+            HeadMotionManager.shared.refreshTransientRecognitionControlModeIfNeeded(source: "mouse-noninput")
+        }
+    }
+
     // Replacement for HotkeyFeedbackHUD.typingContextSnapshot()
     func lastKnownTypingState() -> Bool {
+        if Date() < typingSuppressedUntil {
+            return false
+        }
         // Prefer caret/sticky (fast, high confidence), but fall back to AX focused element editability.
         // This fixes cases where the caret rect is not obtainable (some apps / web views),
         // but the focus is clearly in a text input.
@@ -275,6 +360,18 @@ final class HUDManager {
             return AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &v) == .success
         }()
         let hasInsertionContextOnFocus = hasCollapsedSelectedRange || hasMarkerRange
+        let focusedRectLooksLikeInput: Bool = {
+            guard let r = axFocusedElementRectThrottled(),
+                  !isProbablyWholeWindowRect(r) else {
+                return false
+            }
+            return isTypingBoxSizedRect(r) || isWebInputSizedRect(r)
+        }()
+        let hasStrongInsertionEvidenceOnFocus: Bool = {
+            guard hasInsertionContextOnFocus else { return false }
+            if axCaretRectThrottled() != nil { return true }
+            return focusedRectLooksLikeInput
+        }()
 
         func hasInsertionContext(_ e: AXUIElement) -> Bool {
             var selectedRangeValue: CFTypeRef?
@@ -327,19 +424,18 @@ final class HUDManager {
         // Role-based fallback: treat common input roles as typing context.
         if directEditableRoles.contains(role) { return true }
 
-        if (role == "AXGroup" || role == "AXScrollArea" || role == "AXSplitGroup" || role == "AXRadioButton" || role == "AXButton"),
-           hasEditableDescendant(element) {
-            return true
+        if role == "AXGroup" || role == "AXScrollArea" || role == "AXSplitGroup" || role == "AXRadioButton" || role == "AXButton" {
+            if hasStrongInsertionEvidenceOnFocus { return true }
+            if focusedRectLooksLikeInput, hasEditableDescendant(element) { return true }
+            return false
         }
 
         // WebArea is extremely common as a focused element in web UIs even when not in a text box.
-        // Old stable behavior preferred OR to reduce false negatives when switching focus in web apps.
         if role == "AXWebArea" {
-            if editable || hasInsertionContextOnFocus { return true }
+            if editable { return true }
+            if hasStrongInsertionEvidenceOnFocus { return true }
             if isWeirdWebTypingApp(bundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier),
-               let r = axFocusedElementRectThrottled(),
-               isWebInputSizedRect(r),
-               !isProbablyWholeWindowRect(r) {
+               focusedRectLooksLikeInput {
                 return true
             }
             return false
@@ -351,6 +447,9 @@ final class HUDManager {
 
         // As a last resort, accept insertion-context attributes for non-WebArea elements.
         if hasInsertionContextOnFocus {
+            if role == "AXStaticText" {
+                return hasStrongInsertionEvidenceOnFocus
+            }
             return true
         }
 
@@ -412,7 +511,12 @@ final class HUDManager {
             return false
         }
         let element = focusedElement as! AXUIElement
+        var roleRef: CFTypeRef?
+        let role = (AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success)
+            ? (roleRef as? String ?? "")
+            : ""
 
+        var hasInsertionContext = false
         var selectedRangeRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeRef) == .success,
            let selectedRangeRef,
@@ -421,19 +525,29 @@ final class HUDManager {
             if AXValueGetType(ax) == .cfRange {
                 var range = CFRange()
                 if AXValueGetValue(ax, .cfRange, &range) {
-                    if range.length == 0 { return true }
+                    if range.length == 0 { hasInsertionContext = true }
                 } else {
-                    return true
+                    hasInsertionContext = true
                 }
             } else {
-                return true
+                hasInsertionContext = true
             }
         }
         var markerRangeRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRangeRef) == .success {
-            return true
+            hasInsertionContext = true
         }
-        return false
+        guard hasInsertionContext else { return false }
+
+        if ["AXWebArea", "AXGroup", "AXScrollArea", "AXSplitGroup", "AXStaticText"].contains(role) {
+            if axCaretRectThrottled() != nil { return true }
+            guard let r = axFocusedElementRectThrottled(),
+                  !isProbablyWholeWindowRect(r) else {
+                return false
+            }
+            return isTypingBoxSizedRect(r) || isWebInputSizedRect(r)
+        }
+        return true
     }
 
     private func appKitRectFromAX(_ axRect: CGRect) -> CGRect? {
@@ -898,7 +1012,7 @@ final class HUDManager {
         }
         
         let update = detector.currentUpdate
-        let mouseLoc = NSEvent.mouseLocation
+        let mouseLoc = currentCursorLocation()
         
         // 1. Determine Anchor & Mode
         var anchor = mouseLoc
@@ -1269,7 +1383,7 @@ final class HUDManager {
         // Never suppress while user is in typing context.
         if state.isTypingContext { return false }
 
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else {
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(currentCursorLocation()) }) ?? NSScreen.main else {
             return false
         }
 
@@ -1380,6 +1494,10 @@ final class HUDManager {
         case .leftCenter:
             return CGPoint(x: anchor.x - size.width - padding, y: anchor.y - size.height / 2)
         }
+    }
+
+    private func currentCursorLocation() -> CGPoint {
+        NSEvent.mouseLocation
     }
     
     // MARK: - Hide Logic

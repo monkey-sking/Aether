@@ -179,6 +179,11 @@ final class SpeechManager: ObservableObject {
     private var didRecordFirstPartialForSession: Bool = false
     private var lastAdaptiveTextCount: Int = 0
     private var lastAdaptiveSampleAt: Date = .distantPast
+    private var deferredAudioStopWorkItem: DispatchWorkItem?
+    private var pttAudioCaptureGracePeriod: TimeInterval {
+        let raw = UserDefaults.standard.object(forKey: "pttAudioCaptureGracePeriod") as? Double ?? 8.0
+        return min(max(raw, 1.5), 20.0)
+    }
 
     private struct RuntimeSpeechMetrics {
         var sessions: Int = 0
@@ -430,6 +435,7 @@ final class SpeechManager: ObservableObject {
     // MARK: - Core Session Lifecycle
 
     func startOnce() {
+        cancelDeferredAudioStop()
         isStopping = false
         activeUtteranceID = 0
 
@@ -657,7 +663,10 @@ final class SpeechManager: ObservableObject {
             let textToUse = self.lastTranscript.isEmpty ? fallbackTranscript : self.lastTranscript
             self.handleTranscript(textToUse, utteranceID: self.activeUtteranceID)
             self.isStopping = false
-            if !self.isAlwaysListeningEnabled { self.stopAudioCapture(); if !keepHUDVisible { HUDManager.shared.hide() } }
+            if !self.isAlwaysListeningEnabled {
+                self.scheduleDeferredAudioStop()
+                if !keepHUDVisible { HUDManager.shared.hide() }
+            }
             else { if !keepHUDVisible { self.refreshContinuousHUD() } }
         }
         finalizationWorkItem = workItem
@@ -665,10 +674,29 @@ final class SpeechManager: ObservableObject {
     }
 
     private func stopAudioCapture() {
+        cancelDeferredAudioStop()
         audioCapture.stop()
     }
 
+    private func cancelDeferredAudioStop() {
+        deferredAudioStopWorkItem?.cancel()
+        deferredAudioStopWorkItem = nil
+    }
+
+    private func scheduleDeferredAudioStop() {
+        cancelDeferredAudioStop()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.deferredAudioStopWorkItem = nil
+            guard !self.recognitionSession.isRunning, !self.isStopping, !self.isAlwaysListeningEnabled, !self.isPTTHeld else { return }
+            self.audioCapture.stop()
+        }
+        deferredAudioStopWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + pttAudioCaptureGracePeriod, execute: workItem)
+    }
+
     func teardownEngine() {
+        cancelDeferredAudioStop()
         isStopping = false
         eosDetector.stop()
         recognitionSession.cancel()
@@ -926,8 +954,14 @@ final class SpeechManager: ObservableObject {
     private func applyProcessedJob(_ job: ProcessedJob) {
         guard utteranceExecutionGuard.shouldExecute(sessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID) else { return }
         switch job.intent {
-        case .undo: injector.undoPasteIfRecent(); status = NSLocalizedString("speech.undo", comment: "")
-        case .paste: AutomationOutputs.shared.pasteFromClipboard(); status = "Pasted (Cmd+V)"
+        case .undo:
+            injector.undoPasteIfRecent()
+            status = NSLocalizedString("speech.undo", comment: "")
+            onIntent?(.undo)
+        case .paste:
+            AutomationOutputs.shared.pasteFromClipboard()
+            status = "Pasted (Cmd+V)"
+            onIntent?(.paste)
         case .dictation(let text):
             guard isJobInputTargetValidForInjection(job) else { status = NSLocalizedString("speech.done", comment: ""); return }
             let hasStreamed = job.screenTypedCount > 0 || !job.streamedTextSnapshot.isEmpty
@@ -952,6 +986,7 @@ final class SpeechManager: ObservableObject {
                 injector.type(text, targetPID: job.targetPID)
                 status = NSLocalizedString("speech.typed", comment: "")
             }
+            onIntent?(.dictation(text))
         default: onIntent?(job.intent); status = NSLocalizedString("speech.done", comment: "")
         }
     }
@@ -1183,9 +1218,9 @@ final class SpeechManager: ObservableObject {
             guard let self else { return }
             Task { @MainActor in
                 guard self.sessionGeneration == gen, !self.isMicProgressPausedForTarget else { return }
-                let baseThreshold = Float(UserDefaults.standard.object(forKey: "micProgressVADThreshold") as? Double ?? 0.07)
-                let ringThreshold = min(max(baseThreshold + 0.08, 0.14), 0.35)
-                let isVoiceActive = self.latestVoiceActivity && self.latestVoiceRMS >= ringThreshold
+                
+                // Rely solely on the robust adaptive VAD from AudioCaptureSession
+                let isVoiceActive = self.latestVoiceActivity
 
                 if isVoiceActive {
                     self.micProgressSilentTicks = 0
@@ -1342,6 +1377,7 @@ final class SpeechManager: ObservableObject {
         }
         func hasInsertionCtx(_ el: AXUIElement) -> Bool {
             var v: CFTypeRef?
+            var hasInsertion = false
             if AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute as CFString, &v) == .success,
                let raw = v,
                CFGetTypeID(raw) == AXValueGetTypeID() {
@@ -1349,16 +1385,78 @@ final class SpeechManager: ObservableObject {
                 if AXValueGetType(ax) == .cfRange {
                     var range = CFRange()
                     if AXValueGetValue(ax, .cfRange, &range) {
-                        if range.length == 0 { return true }
+                        if range.length == 0 { hasInsertion = true }
                     } else {
-                        return true
+                        hasInsertion = true
                     }
                 } else {
-                    return true
+                    hasInsertion = true
                 }
             }
-            if AXUIElementCopyAttributeValue(el, "AXSelectedTextMarkerRange" as CFString, &v) == .success { return true }
-            return false
+            if AXUIElementCopyAttributeValue(el, "AXSelectedTextMarkerRange" as CFString, &v) == .success { hasInsertion = true }
+            guard hasInsertion else { return false }
+
+            var rr: CFTypeRef?
+            let role = (AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &rr) == .success)
+                ? (rr as? String ?? "")
+                : ""
+            if ["AXWebArea", "AXGroup", "AXScrollArea", "AXSplitGroup", "AXStaticText"].contains(role) {
+                if HUDManager.shared.lastKnownTypingState() { return true }
+                guard let r = axRect(el),
+                      isInputLikeRect(r),
+                      !isLikelyWholeWindowRect(r) else {
+                    return false
+                }
+            }
+            return true
+        }
+        func appKitRect(fromAX rect: CGRect) -> CGRect? {
+            let desktopMaxY = NSScreen.screens.map(\.frame.maxY).max() ?? 0
+            guard desktopMaxY > 0 else { return nil }
+            return CGRect(
+                x: rect.origin.x,
+                y: desktopMaxY - rect.origin.y - rect.size.height,
+                width: rect.size.width,
+                height: rect.size.height
+            )
+        }
+        func axRect(_ el: AXUIElement) -> CGRect? {
+            var pr: CFTypeRef?
+            var sr: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(el, kAXPositionAttribute as CFString, &pr) == .success,
+                  AXUIElementCopyAttributeValue(el, kAXSizeAttribute as CFString, &sr) == .success,
+                  let pr,
+                  let sr,
+                  CFGetTypeID(pr) == AXValueGetTypeID(),
+                  CFGetTypeID(sr) == AXValueGetTypeID() else { return nil }
+            let pv = pr as! AXValue
+            let sv = sr as! AXValue
+            guard AXValueGetType(pv) == .cgPoint, AXValueGetType(sv) == .cgSize else { return nil }
+            var p = CGPoint.zero
+            var s = CGSize.zero
+            guard AXValueGetValue(pv, .cgPoint, &p),
+                  AXValueGetValue(sv, .cgSize, &s) else { return nil }
+            return appKitRect(fromAX: CGRect(origin: p, size: s))
+        }
+        func isInputLikeRect(_ r: CGRect) -> Bool {
+            guard r.width > 0, r.height > 0 else { return false }
+            guard r.height >= 18, r.height <= 220 else { return false }
+            return r.width >= 56
+        }
+        func isLikelyWholeWindowRect(_ r: CGRect) -> Bool {
+            let screens = NSScreen.screens
+            let screen = screens.first(where: { $0.frame.intersects(r) }) ??
+                screens.first(where: { $0.visibleFrame.intersects(r) }) ??
+                NSScreen.main ??
+                screens.first
+            let visible = screen?.visibleFrame ?? .zero
+            guard visible.width > 0, visible.height > 0 else { return false }
+            let area = r.width * r.height
+            let visibleArea = visible.width * visible.height
+            if visibleArea > 0, area > visibleArea * 0.22 { return true }
+            if r.height > 280 { return true }
+            if r.width > visible.width * 0.92, r.height > 60 { return true }
+            return r.width > visible.width * 0.65 && r.height > visible.height * 0.45
         }
         func hasEditableChild(_ el: AXUIElement, depth: Int = 4) -> Bool {
             if depth <= 0 { return false }
@@ -1392,7 +1490,10 @@ final class SpeechManager: ObservableObject {
                     if role == kAXTextAreaRole as String { return hasIns }
                     return editable || hasIns
                 }
-                if ["AXGroup","AXScrollArea","AXSplitGroup","AXRadioButton","AXButton"].contains(role), hasEditableChild(ax) { return true }
+                if ["AXGroup","AXScrollArea","AXSplitGroup","AXRadioButton","AXButton"].contains(role) {
+                    if hasIns { return true }
+                    if let r = axRect(ax), isInputLikeRect(r), !isLikelyWholeWindowRect(r), hasEditableChild(ax) { return true }
+                }
                 if terminals.contains(bid) { return editable || hasIns }
                 if editable || hasIns {
                     if role == "AXWebArea" { return editable && hasIns }

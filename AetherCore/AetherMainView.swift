@@ -15,10 +15,13 @@ struct AetherMainView: View {
 
     enum Panel: Hashable {
         case overview
-        case voice
+        case voiceBasics
+        case voiceTerms
+        case voiceLexicon
+        case voiceAppControls
+        case voiceInsights
         case pointer
         case shortcuts
-        case advanced
     }
 
     var body: some View {
@@ -33,9 +36,26 @@ struct AetherMainView: View {
                 }
 
                 Section {
-                    NavigationLink(value: Panel.voice) {
-                        Label(localeText(zh: "语音", en: "Voice"), systemImage: "mic.fill")
+                    NavigationLink(value: Panel.voiceBasics) {
+                        Label(localeText(zh: "基础", en: "Basics"), systemImage: "mic.fill")
                     }
+                    NavigationLink(value: Panel.voiceTerms) {
+                        Label(localeText(zh: "术语纠错", en: "Term Corrections"), systemImage: "text.magnifyingglass")
+                    }
+                    NavigationLink(value: Panel.voiceLexicon) {
+                        Label(localeText(zh: "词库", en: "Lexicon"), systemImage: "text.badge.star")
+                    }
+                    NavigationLink(value: Panel.voiceAppControls) {
+                        Label(localeText(zh: "当前应用", en: "Current App"), systemImage: "app.badge")
+                    }
+                    NavigationLink(value: Panel.voiceInsights) {
+                        Label(localeText(zh: "统计", en: "Insights"), systemImage: "chart.bar.xaxis")
+                    }
+                } header: {
+                    Text(localeText(zh: "语音", en: "Voice"))
+                }
+
+                Section {
                     NavigationLink(value: Panel.pointer) {
                         Label(localeText(zh: "指针", en: "Pointer"), systemImage: "viewfinder")
                     }
@@ -43,16 +63,9 @@ struct AetherMainView: View {
                         Label(localeText(zh: "快捷键", en: "Shortcuts"), systemImage: "keyboard")
                     }
                 } header: {
-                    Text(localeText(zh: "核心控制", en: "Core Controls"))
+                    Text(localeText(zh: "其他控制", en: "Other Controls"))
                 }
 
-                Section {
-                    NavigationLink(value: Panel.advanced) {
-                        Label(localeText(zh: "高级", en: "Advanced"), systemImage: "slider.horizontal.3")
-                    }
-                } header: {
-                    Text(localeText(zh: "配置", en: "Configuration"))
-                }
             }
             .navigationTitle("Aether")
             .listStyle(.sidebar)
@@ -61,14 +74,20 @@ struct AetherMainView: View {
             switch selection {
             case .overview:
                 OverviewDashboardView()
-            case .voice:
-                InputSettingsView()
+            case .voiceBasics:
+                InputSettingsView(section: .basics)
+            case .voiceTerms:
+                InputSettingsView(section: .termCorrections)
+            case .voiceLexicon:
+                InputSettingsView(section: .lexicon)
+            case .voiceAppControls:
+                InputSettingsView(section: .appControls)
+            case .voiceInsights:
+                InputSettingsView(section: .insights)
             case .pointer:
                 OutputSettingsView()
             case .shortcuts:
                 ShortcutsSettingsView()
-            case .advanced:
-                SystemSettingsView()
             case .none:
                 Text(L10n.selectItem)
             }
@@ -84,9 +103,11 @@ struct AetherMainView: View {
 private struct OverviewDashboardView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var headManager = HeadMotionManager.shared
+    @State private var readinessExpanded: Bool = false
 
     private let columns = [
-        GridItem(.adaptive(minimum: 220), spacing: 16)
+        GridItem(.flexible(minimum: 280), spacing: 16),
+        GridItem(.flexible(minimum: 280), spacing: 16)
     ]
 
     private var trackingBinding: Binding<Bool> {
@@ -142,6 +163,10 @@ private struct OverviewDashboardView: View {
         setupItems.filter { !$0.isReady }.count + (appState.driverState == .needsUserApproval ? 1 : 0)
     }
 
+    private var readinessCanCollapse: Bool {
+        blockingIssuesCount == 0
+    }
+
     private var overviewSubtitle: String {
         if blockingIssuesCount == 0 {
             return isChinese
@@ -178,7 +203,10 @@ private struct OverviewDashboardView: View {
                 isChinese: isChinese,
                 setupItems: setupItems,
                 showDriverApproval: appState.driverState == .needsUserApproval,
-                openPrivacyAndSecurity: appState.openPrivacyAndSecurityPane
+                openPrivacyAndSecurity: appState.openPrivacyAndSecurityPane,
+                isCollapsed: readinessCanCollapse && !readinessExpanded,
+                canCollapse: readinessCanCollapse,
+                onToggle: { readinessExpanded.toggle() }
             )
 
             LazyVGrid(columns: columns, spacing: 16) {
@@ -242,7 +270,9 @@ private struct OverviewDashboardView: View {
                         OverviewMetricCard(
                             title: isChinese ? "按住说话快捷键" : "Push to Talk Shortcut",
                             value: HotkeyManager.shared.binding(for: .pushToTalk).displayString,
-                            detail: isChinese ? "可在快捷键页修改" : "Editable in the Shortcuts page"
+                            detail: appState.voiceActivationMode == .pushToTalk
+                                ? (isChinese ? "键盘可按住说话；耳机双按切模式，三按开关头控" : "Keyboard for PTT; headset double press switches mode, triple press toggles tracking")
+                                : (isChinese ? "耳机双按切模式，三按开关头控" : "Headset double press switches mode, triple press toggles tracking")
                         )
                     }
 
@@ -262,6 +292,12 @@ private struct OverviewDashboardView: View {
                 }
             }
         }
+        .onAppear {
+            readinessExpanded = !readinessCanCollapse
+        }
+        .onChange(of: readinessCanCollapse) { _, canCollapse in
+            readinessExpanded = !canCollapse
+        }
     }
 }
 
@@ -270,6 +306,9 @@ private struct OverviewReadinessCard: View {
     let setupItems: [OverviewSetupItem]
     let showDriverApproval: Bool
     let openPrivacyAndSecurity: () -> Void
+    let isCollapsed: Bool
+    let canCollapse: Bool
+    let onToggle: () -> Void
 
     private var readyCount: Int {
         setupItems.filter(\.isReady).count
@@ -293,60 +332,78 @@ private struct OverviewReadinessCard: View {
                         title: "\(readyCount)/\(setupItems.count) \(isChinese ? "已完成" : "Ready")",
                         tint: readyCount == setupItems.count ? .green : .orange
                     )
+                    if canCollapse {
+                        Button(action: onToggle) {
+                            Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
 
-                VStack(spacing: 10) {
-                    ForEach(setupItems) { item in
-                        HStack(spacing: 12) {
-                            Image(systemName: item.icon)
-                                .frame(width: 20)
-                                .foregroundColor(item.isReady ? .green : .orange)
+                if isCollapsed {
+                    Text(
+                        isChinese
+                            ? "核心权限都已就绪。需要时可展开查看详情。"
+                            : "All core permissions are ready. Expand if you need details."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 2)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(setupItems) { item in
+                            HStack(spacing: 12) {
+                                Image(systemName: item.icon)
+                                    .frame(width: 20)
+                                    .foregroundColor(item.isReady ? .green : .orange)
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.title)
-                                    .font(.subheadline.weight(.medium))
-                                Text(item.detail)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title)
+                                        .font(.subheadline.weight(.medium))
+                                    Text(item.detail)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                if item.isReady {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                } else if let actionTitle = item.actionTitle, let action = item.action {
+                                    Button(actionTitle, action: action)
+                                        .controlSize(.small)
+                                }
                             }
+                            .padding(12)
+                            .background(Color(nsColor: .controlBackgroundColor))
+                            .cornerRadius(12)
+                        }
 
-                            Spacer()
+                        if showDriverApproval {
+                            HStack(spacing: 12) {
+                                Image(systemName: "lock.shield.fill")
+                                    .frame(width: 20)
+                                    .foregroundColor(.orange)
 
-                            if item.isReady {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
-                            } else if let actionTitle = item.actionTitle, let action = item.action {
-                                Button(actionTitle, action: action)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(isChinese ? "驱动审批" : "Driver Approval")
+                                        .font(.subheadline.weight(.medium))
+                                    Text(isChinese ? "系统扩展还需要在“隐私与安全性”里允许。" : "The system extension still needs approval in Privacy & Security.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                Button(isChinese ? "打开设置" : "Open Settings", action: openPrivacyAndSecurity)
                                     .controlSize(.small)
                             }
+                            .padding(12)
+                            .background(Color.orange.opacity(0.08))
+                            .cornerRadius(12)
                         }
-                        .padding(12)
-                        .background(Color(nsColor: .controlBackgroundColor))
-                        .cornerRadius(12)
-                    }
-
-                    if showDriverApproval {
-                        HStack(spacing: 12) {
-                            Image(systemName: "lock.shield.fill")
-                                .frame(width: 20)
-                                .foregroundColor(.orange)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(isChinese ? "驱动审批" : "Driver Approval")
-                                    .font(.subheadline.weight(.medium))
-                                Text(isChinese ? "系统扩展还需要在“隐私与安全性”里允许。" : "The system extension still needs approval in Privacy & Security.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Spacer()
-
-                            Button(isChinese ? "打开设置" : "Open Settings", action: openPrivacyAndSecurity)
-                                .controlSize(.small)
-                        }
-                        .padding(12)
-                        .background(Color.orange.opacity(0.08))
-                        .cornerRadius(12)
                     }
                 }
             }

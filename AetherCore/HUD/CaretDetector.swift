@@ -73,6 +73,47 @@ final class CaretDetector: ObservableObject {
     func stop() {
         stopFollowTimer()
     }
+
+    func handleAccessibilityTrustChange(trusted: Bool) {
+        DispatchQueue.main.async {
+            self.isFetchingCaret = false
+            self.teardownAXObserver()
+            if trusted {
+                self.setupAXObserver()
+                self.recalcCaret()
+            } else {
+                self.resetCaretState()
+                self.updateState()
+            }
+        }
+    }
+
+    func handleGlobalMouseClick(at point: CGPoint) {
+        DispatchQueue.main.async {
+            let activeInputRect = self.currentInputLikeRect()
+            let insideInput = activeInputRect?.insetBy(dx: -8, dy: -8).contains(point) ?? false
+            if insideInput {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.035) {
+                    self.recalcCaret()
+                }
+                return
+            }
+
+            self.bridgedCaretRect = nil
+            self.bridgedInputContextRect = nil
+            self.bridgedBundleID = nil
+            self.bridgedCaretAt = nil
+            self.resetCaretState()
+            self.updateState()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.035) {
+                self.recalcCaret()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                self.recalcCaret()
+            }
+        }
+    }
     
     func recentCaretRect(maxAge: TimeInterval = 0.28) -> CGRect? {
          guard let rect = lastCaretRect, let ts = lastCaretRectAt else { return nil }
@@ -93,9 +134,9 @@ final class CaretDetector: ObservableObject {
         
         // Mouse Click
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                self?.recalcCaret()
-            }
+            let point = NSEvent.mouseLocation
+            HUDManager.shared.handleGlobalMouseDown(at: point)
+            self?.handleGlobalMouseClick(at: point)
         }) {
             eventMonitors.append(monitor)
         }
@@ -235,6 +276,16 @@ final class CaretDetector: ObservableObject {
         self.caretStickyTimer?.invalidate()
         self.caretStickyTimer = nil
     }
+
+    private func currentInputLikeRect() -> CGRect? {
+        if let r = currentUpdate.inputRect, isInputLikeBounds(r), !isLikelyWholeWindowBounds(r) {
+            return r
+        }
+        if let r = currentUpdate.caretRect {
+            return r.insetBy(dx: -18, dy: -12)
+        }
+        return nil
+    }
     
     private func performCaretDetection() {
         var newRect: CGRect? = nil
@@ -342,10 +393,16 @@ final class CaretDetector: ObservableObject {
             let collapsedInsertionContext = hasCollapsedInsertionContext(element)
             var isEditable = ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea"].contains(role)
             let axEditable = readAXBool(element, attribute: "AXEditable")
-            if role == "AXWebArea" || role == "AXGroup" {
+            let hasStrongContainerInsertionEvidence: Bool = {
+                guard collapsedInsertionContext else { return false }
+                if self.extractRectFromElement(element) != nil { return true }
+                guard let bounds = self.elementBoundsRect(element) else { return false }
+                return self.isInputLikeBounds(bounds) && !self.isLikelyWholeWindowBounds(bounds)
+            }()
+            if role == "AXWebArea" || role == "AXGroup" || role == "AXScrollArea" || role == "AXSplitGroup" {
                 // Browser/web containers are frequently focused even when not typing.
-                // Require stronger evidence before treating them as editable.
-                isEditable = (axEditable == true) || collapsedInsertionContext
+                // Only keep them editable when AX gives stronger evidence than a stale collapsed range.
+                isEditable = (axEditable == true) || hasStrongContainerInsertionEvidence
             } else if axEditable == true {
                 isEditable = true
             }
@@ -703,6 +760,51 @@ final class CaretDetector: ObservableObject {
             }
         }
         return nil
+    }
+
+    private func elementBoundsRect(_ element: AXUIElement) -> CGRect? {
+        var posValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posValue) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success,
+              let posValue,
+              let sizeValue else {
+            return nil
+        }
+
+        let posV = posValue as! AXValue
+        let sizeV = sizeValue as! AXValue
+        var p = CGPoint.zero
+        var s = CGSize.zero
+        guard AXValueGetValue(posV, .cgPoint, &p),
+              AXValueGetValue(sizeV, .cgSize, &s) else {
+            return nil
+        }
+        let axRect = CGRect(origin: p, size: s)
+        return appKitRectFromAX(axRect)
+    }
+
+    private func isInputLikeBounds(_ rect: CGRect) -> Bool {
+        guard rect.width > 0, rect.height > 0 else { return false }
+        guard rect.height >= 18, rect.height <= 220 else { return false }
+        return rect.width >= 56
+    }
+
+    private func isLikelyWholeWindowBounds(_ rect: CGRect) -> Bool {
+        guard rect.width > 0, rect.height > 0 else { return true }
+        let screen = NSScreen.screens.first(where: { $0.frame.intersects(rect) }) ??
+            NSScreen.screens.first(where: { $0.visibleFrame.intersects(rect) }) ??
+            NSScreen.main ??
+            NSScreen.screens.first
+        let visible = screen?.visibleFrame ?? .zero
+        guard visible.width > 0, visible.height > 0 else { return false }
+
+        let area = rect.width * rect.height
+        let screenArea = visible.width * visible.height
+        if screenArea > 0, area > screenArea * 0.22 { return true }
+        if rect.height > 280 { return true }
+        if rect.width > visible.width * 0.92, rect.height > 60 { return true }
+        return rect.width > visible.width * 0.65 && rect.height > visible.height * 0.45
     }
     
     private func readAXBool(_ element: AXUIElement, attribute: String) -> Bool? {
