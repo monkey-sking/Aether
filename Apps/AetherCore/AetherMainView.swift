@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 private struct OverviewSetupItem: Identifiable {
@@ -24,12 +25,20 @@ struct AetherMainView: View {
         case shortcuts
     }
 
+    private var isChinese: Bool {
+        Locale.current.identifier.hasPrefix("zh")
+    }
+
+    private var currentPanel: Panel {
+        selection ?? .overview
+    }
+
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
                 Section {
                     NavigationLink(value: Panel.overview) {
-                        Label(localeText(zh: "总览", en: "Overview"), systemImage: "square.grid.2x2.fill")
+                        panelLabel(.overview)
                     }
                 } header: {
                     Text(localeText(zh: "工作区", en: "Workspace"))
@@ -37,19 +46,19 @@ struct AetherMainView: View {
 
                 Section {
                     NavigationLink(value: Panel.voiceBasics) {
-                        Label(localeText(zh: "基础", en: "Basics"), systemImage: "mic.fill")
+                        panelLabel(.voiceBasics)
                     }
                     NavigationLink(value: Panel.voiceTerms) {
-                        Label(localeText(zh: "术语纠错", en: "Term Corrections"), systemImage: "text.magnifyingglass")
+                        panelLabel(.voiceTerms)
                     }
                     NavigationLink(value: Panel.voiceLexicon) {
-                        Label(localeText(zh: "词库", en: "Lexicon"), systemImage: "text.badge.star")
+                        panelLabel(.voiceLexicon)
                     }
                     NavigationLink(value: Panel.voiceAppControls) {
-                        Label(localeText(zh: "当前应用", en: "Current App"), systemImage: "app.badge")
+                        panelLabel(.voiceAppControls)
                     }
                     NavigationLink(value: Panel.voiceInsights) {
-                        Label(localeText(zh: "统计", en: "Insights"), systemImage: "chart.bar.xaxis")
+                        panelLabel(.voiceInsights)
                     }
                 } header: {
                     Text(localeText(zh: "语音", en: "Voice"))
@@ -57,17 +66,16 @@ struct AetherMainView: View {
 
                 Section {
                     NavigationLink(value: Panel.pointer) {
-                        Label(localeText(zh: "指针", en: "Pointer"), systemImage: "viewfinder")
+                        panelLabel(.pointer)
                     }
                     NavigationLink(value: Panel.shortcuts) {
-                        Label(localeText(zh: "快捷键", en: "Shortcuts"), systemImage: "keyboard")
+                        panelLabel(.shortcuts)
                     }
                 } header: {
                     Text(localeText(zh: "其他控制", en: "Other Controls"))
                 }
 
             }
-            .navigationTitle("Aether")
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
         } detail: {
@@ -93,10 +101,139 @@ struct AetherMainView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                WindowTitleToolbarContent(
+                    sectionTitle: panelTitle(currentPanel),
+                    sectionSubtitle: panelSubtitle(currentPanel),
+                    symbolName: panelSymbol(currentPanel)
+                )
+            }
+        }
+        .background(
+            StandardWindowConfigurator(
+                title: "Aether",
+                subtitle: panelTitle(currentPanel)
+            )
+        )
     }
 
     private func localeText(zh: String, en: String) -> String {
         Locale.current.identifier.hasPrefix("zh") ? zh : en
+    }
+
+    @ViewBuilder
+    private func panelLabel(_ panel: Panel) -> some View {
+        Label(panelTitle(panel), systemImage: panelSymbol(panel))
+    }
+
+    private func panelTitle(_ panel: Panel) -> String {
+        switch panel {
+        case .overview:
+            return localeText(zh: "总览", en: "Overview")
+        case .voiceBasics:
+            return localeText(zh: "基础", en: "Basics")
+        case .voiceTerms:
+            return localeText(zh: "术语纠错", en: "Term Corrections")
+        case .voiceLexicon:
+            return localeText(zh: "词库", en: "Lexicon")
+        case .voiceAppControls:
+            return localeText(zh: "当前应用", en: "Current App")
+        case .voiceInsights:
+            return localeText(zh: "统计", en: "Insights")
+        case .pointer:
+            return localeText(zh: "指针", en: "Pointer")
+        case .shortcuts:
+            return localeText(zh: "快捷键", en: "Shortcuts")
+        }
+    }
+
+    private func panelSubtitle(_ panel: Panel) -> String {
+        switch panel {
+        case .overview:
+            return localeText(zh: "系统总览与快速控制", en: "Overview and quick controls")
+        case .voiceBasics, .voiceTerms, .voiceLexicon, .voiceAppControls, .voiceInsights:
+            return localeText(zh: "语音配置", en: "Voice configuration")
+        case .pointer:
+            return localeText(zh: "指针与校准", en: "Pointer and calibration")
+        case .shortcuts:
+            return localeText(zh: "全局快捷键", en: "Global shortcuts")
+        }
+    }
+
+    private func panelSymbol(_ panel: Panel) -> String {
+        switch panel {
+        case .overview:
+            return "square.grid.2x2.fill"
+        case .voiceBasics:
+            return "mic.fill"
+        case .voiceTerms:
+            return "text.magnifyingglass"
+        case .voiceLexicon:
+            return "text.badge.star"
+        case .voiceAppControls:
+            return "app.badge"
+        case .voiceInsights:
+            return "chart.bar.xaxis"
+        case .pointer:
+            return "viewfinder"
+        case .shortcuts:
+            return "keyboard"
+        }
+    }
+}
+
+private struct WindowTitleToolbarContent: View {
+    let sectionTitle: String
+    let sectionSubtitle: String
+    let symbolName: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: symbolName)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .background(Color.secondary.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(sectionTitle)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(sectionSubtitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+private struct StandardWindowConfigurator: NSViewRepresentable {
+    let title: String
+    let subtitle: String
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            applyConfiguration(for: view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            applyConfiguration(for: nsView.window)
+        }
+    }
+
+    private func applyConfiguration(for window: NSWindow?) {
+        guard let window else { return }
+        window.title = title
+        window.subtitle = subtitle
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.toolbarStyle = .unifiedCompact
     }
 }
 
@@ -178,22 +315,6 @@ private struct OverviewDashboardView: View {
             : "\(blockingIssuesCount) setup item(s) still need attention before Aether is fully ready."
     }
 
-    private var activationModeSummary: String {
-        switch appState.voiceActivationMode {
-        case .pushToTalk:
-            return isChinese ? "按住说话" : "Push to Talk"
-        case .wakeWord:
-            return isChinese ? "唤醒词" : "Wake Word"
-        case .handsFree:
-            return isChinese ? "免提常驻" : "Hands-Free"
-        }
-    }
-
-    private var selectedMicrophoneName: String {
-        appState.availableInputDevices.first(where: { $0.id == appState.selectedInputDeviceID })?.name
-            ?? (isChinese ? "系统默认" : "System Default")
-    }
-
     var body: some View {
         SettingsPage(
             title: isChinese ? "总览" : "Overview",
@@ -227,68 +348,6 @@ private struct OverviewDashboardView: View {
                         isChinese: isChinese,
                         mode: $appState.voiceActivationMode
                     )
-                }
-            }
-
-            GlassCard {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(isChinese ? "实时状态" : "Live Status")
-                                .font(.headline)
-                            Text(isChinese ? "检查当前模式、最近转写和设备运行情况。" : "Check the current mode, latest transcript, and device state.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        OverviewStateTag(
-                            title: blockingIssuesCount == 0
-                                ? (isChinese ? "已就绪" : "Ready")
-                                : (isChinese ? "需处理" : "Needs Attention"),
-                            tint: blockingIssuesCount == 0 ? .green : .orange
-                        )
-                    }
-
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        OverviewMetricCard(
-                            title: isChinese ? "语音模式" : "Voice Mode",
-                            value: activationModeSummary,
-                            detail: isChinese ? "当前输入策略" : "Current input strategy"
-                        )
-                        OverviewMetricCard(
-                            title: isChinese ? "语音状态" : "Voice Status",
-                            value: appState.voiceStatus,
-                            detail: selectedMicrophoneName
-                        )
-                        OverviewMetricCard(
-                            title: isChinese ? "校准状态" : "Calibration",
-                            value: headManager.calibrationStatus == "Normal"
-                                ? (isChinese ? "正常" : "Normal")
-                                : headManager.calibrationStatus,
-                            detail: isChinese ? "指针控制稳定性" : "Pointer control stability"
-                        )
-                        OverviewMetricCard(
-                            title: isChinese ? "按住说话快捷键" : "Push to Talk Shortcut",
-                            value: HotkeyManager.shared.binding(for: .pushToTalk).displayString,
-                            detail: appState.voiceActivationMode == .pushToTalk
-                                ? (isChinese ? "键盘可按住说话；耳机双按切模式，三按开关头控" : "Keyboard for PTT; headset double press switches mode, triple press toggles tracking")
-                                : (isChinese ? "耳机双按切模式，三按开关头控" : "Headset double press switches mode, triple press toggles tracking")
-                        )
-                    }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(isChinese ? "最近一次识别" : "Latest Transcript")
-                            .font(.subheadline.weight(.medium))
-                        Text(appState.lastVoiceTranscript.isEmpty
-                             ? (isChinese ? "还没有识别内容" : "No transcript captured yet")
-                             : appState.lastVoiceTranscript)
-                            .font(.body)
-                            .foregroundColor(appState.lastVoiceTranscript.isEmpty ? .secondary : .primary)
-                            .lineLimit(2)
-                    }
-                    .padding(14)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(14)
                 }
             }
         }
@@ -515,31 +574,6 @@ private struct VoiceModeTile: View {
         case .handsFree:
             return isChinese ? "免提" : "Hands-Free"
         }
-    }
-}
-
-private struct OverviewMetricCard: View {
-    let title: String
-    let value: String
-    let detail: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption)
-                .foregroundColor(.secondary)
-            Text(value)
-                .font(.system(.body, design: .rounded).weight(.semibold))
-                .lineLimit(1)
-            Text(detail)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(14)
     }
 }
 

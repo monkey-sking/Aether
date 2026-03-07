@@ -144,15 +144,6 @@ class HeadMotionManager: ObservableObject {
     private var currentY: CGFloat = 0
     private let smoothing: CGFloat = 0.5 // Responsive but steady
     
-    // Tilt Scroll
-    @Published var isTiltScrollEnabled: Bool = UserDefaults.standard.object(forKey: "isTiltScrollEnabled") as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(isTiltScrollEnabled, forKey: "isTiltScrollEnabled")
-        }
-    }
-    private let tiltScrollThreshold: Double = 0.25 // Radian (~15 degrees)
-    private var lastScrollTime: Date = Date()
-    
     private var baseYaw: Double = 0
     private var basePitch: Double = 0
     private var isCalibrated: Bool = false
@@ -398,8 +389,6 @@ class HeadMotionManager: ObservableObject {
                 self.currentVelocity = sqrt(pow(offYaw, 2) + pow(offPitch, 2))
             }
             
-            // Handle Tilt Scroll
-            self.handleTiltScroll(pitch: offPitch)
         }
     }
     
@@ -535,40 +524,6 @@ class HeadMotionManager: ObservableObject {
         os_log("Aether: Calibration Finished", log: log)
     }
     
-    private func handleTiltScroll(pitch: Double) {
-        guard isTiltScrollEnabled else { return }
-        
-        var scrollDy: Int = 0
-        let now = Date()
-        let dt = now.timeIntervalSince(lastScrollTime)
-        
-        // Rate limit: Max 60Hz
-        if dt < 0.016 { return } 
-        lastScrollTime = now
-        
-        if pitch < -tiltScrollThreshold {
-            // Looking UP -> Scroll DOWN? Or Scroll UP?
-            // Convention: Head Up -> Page Up -> Scroll Content Down (dy > 0)
-            // macOS Natural Scrolling: Swipe Down = Content Up.
-            // Let's assume standard behavior:
-            // Head Up (Negative Pitch) -> Scroll Up (dy > 0)
-            
-            let amount = pow((abs(pitch) - tiltScrollThreshold) * 10, 1.5)
-            scrollDy = Int(amount * 5) 
-        } else if pitch > tiltScrollThreshold {
-            // Looking DOWN -> Scroll Down (dy < 0)
-            let amount = pow((pitch - tiltScrollThreshold) * 10, 1.5)
-            scrollDy = -Int(amount * 5)
-        }
-        
-        if scrollDy != 0 {
-            if isDebugModeEnabled {
-                os_log("Tilt Scroll: Pitch %.3f -> dy %d", log: log, type: .debug, pitch, scrollDy)
-            }
-            AutomationOutputs.shared.scroll(dx: 0, dy: scrollDy)
-        }
-    }
-
     private func updateAttentionState(yaw: Double) {
         let isCurrentlyLooking = abs(yaw) < attentionThresholdYaw
         
@@ -891,8 +846,9 @@ class HeadMotionManager: ObservableObject {
     private func updateAirPodsRemoteCommandRegistration() {
         let shouldEnable = shouldEnableAirPodsModeSwitch
         if shouldEnable {
-            releaseAirPodsPTTSources(reason: "airpods-single-press-disabled")
-            enableAirPodsCommands(enablePTT: false)
+            let shouldEnableSinglePressPTT = voiceActivationMode == .pushToTalk && isPTTEnabled
+            releaseAirPodsPTTSources(reason: shouldEnableSinglePressPTT ? "airpods-ptt-refresh" : "airpods-single-press-disabled")
+            enableAirPodsCommands(enablePTT: shouldEnableSinglePressPTT)
         } else {
             releaseAirPodsPTTSources(reason: "airpods-ptt-disabled")
             disableAirPodsCommands()
@@ -913,8 +869,8 @@ class HeadMotionManager: ObservableObject {
                 : "Media remote registered, AirPods motion stream connected"
         } else if isHeadsetRemoteRegistered {
             headsetRemoteStatusText = isChinese
-                ? "媒体遥控已注册，等待系统把双按 / 三按事件转发给 Aether"
-                : "Media remote registered and waiting for macOS to route double or triple press events to Aether"
+                ? "媒体遥控已注册，等待系统把单按 / 双按 / 三按事件转发给 Aether"
+                : "Media remote registered and waiting for macOS to route single, double, or triple press events to Aether"
         } else {
             headsetRemoteStatusText = isChinese
                 ? "耳机遥控未注册"
@@ -930,18 +886,27 @@ class HeadMotionManager: ObservableObject {
 
     private func beginAirPodsPTT(source: PTTSource, origin: String) -> MPRemoteCommandHandlerStatus {
         guard voiceActivationMode == .pushToTalk, isPTTEnabled else { return .commandFailed }
+        noteHeadsetRemoteEvent(
+            display: Locale.current.identifier.hasPrefix("zh") ? "耳机单按" : "Headset Single Press"
+        )
         beginPTT(from: source, origin: origin)
         return .success
     }
 
     private func endAirPodsPTT(source: PTTSource, origin: String) -> MPRemoteCommandHandlerStatus {
         guard voiceActivationMode == .pushToTalk else { return .commandFailed }
+        noteHeadsetRemoteEvent(
+            display: Locale.current.identifier.hasPrefix("zh") ? "耳机单按结束" : "Headset Single Press End"
+        )
         endPTT(from: source, origin: origin)
         return .success
     }
 
     private func toggleAirPodsPTT(origin: String) -> MPRemoteCommandHandlerStatus {
         guard voiceActivationMode == .pushToTalk, isPTTEnabled else { return .commandFailed }
+        noteHeadsetRemoteEvent(
+            display: Locale.current.identifier.hasPrefix("zh") ? "耳机单按切换" : "Headset Single Press Toggle"
+        )
         if activePTTSources.contains(.airPodsToggle) {
             endPTT(from: .airPodsToggle, origin: origin)
         } else {

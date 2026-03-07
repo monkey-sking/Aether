@@ -806,6 +806,9 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
     case clickLeft
     case clickRight
     case doubleClick
+    case mediaPlayPause
+    case mediaPrevious
+    case mediaNext
     case showShortcutPanel
     case hideShortcutPanel
     case startPointer
@@ -832,6 +835,12 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return .clickRight
         case .doubleClick:
             return .doubleClick
+        case .mediaPlayPause:
+            return .mediaPlayPause
+        case .mediaPrevious:
+            return .mediaPrevious
+        case .mediaNext:
+            return .mediaNext
         case .showShortcutPanel:
             return .showShortcutPanel
         case .hideShortcutPanel:
@@ -883,6 +892,12 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return isChinese ? "右键" : "Right Click"
         case .doubleClick:
             return isChinese ? "双击" : "Double Click"
+        case .mediaPlayPause:
+            return isChinese ? "播放 / 暂停" : "Play / Pause"
+        case .mediaPrevious:
+            return isChinese ? "上一首" : "Previous Track"
+        case .mediaNext:
+            return isChinese ? "下一首" : "Next Track"
         case .showShortcutPanel:
             return isChinese ? "显示快捷键面板" : "Show Shortcuts Panel"
         case .hideShortcutPanel:
@@ -929,6 +944,9 @@ enum VoiceIntent: Equatable {
     case clickLeft
     case clickRight
     case doubleClick
+    case mediaPlayPause
+    case mediaPrevious
+    case mediaNext
     case showShortcutPanel
     case hideShortcutPanel
     case startPointer
@@ -1133,6 +1151,15 @@ final class VoiceCommandRouter {
         case .doubleClick:
             chinese = ["双击"]
             english = ["double click", "doubleclick"]
+        case .mediaPlayPause:
+            chinese = ["播放", "暂停", "播放暂停", "继续播放"]
+            english = ["play", "pause", "play pause", "toggle playback"]
+        case .mediaPrevious:
+            chinese = ["上一首", "上一个"]
+            english = ["previous track", "previous", "back track"]
+        case .mediaNext:
+            chinese = ["下一首", "下一个"]
+            english = ["next track", "next", "skip track"]
         case .showShortcutPanel:
             chinese = ["显示快捷键面板", "打开快捷键面板", "显示当前应用快捷键", "打开当前应用快捷键", "显示命令面板"]
             english = ["show shortcuts panel", "open shortcuts panel", "show app shortcuts", "show current app shortcuts"]

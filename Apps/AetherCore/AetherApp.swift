@@ -5,6 +5,7 @@ import AVFoundation
 import Speech
 import Carbon
 import UniformTypeIdentifiers
+import IOKit.hidsystem
 
 let kAetherDriverBundleID = "com.7fei.Aether.AetherDriver"
 
@@ -44,6 +45,7 @@ final class MotionService: ObservableObject {
     @Published private(set) var isTracking: Bool = false
     @Published private(set) var attitudeText: String = "No Data"
     @Published private(set) var calibrationStatus: String = "Normal"
+    @Published private(set) var lastErrorMessage: String = ""
 
     private let manager: HeadMotionManager
     private var cancellables = Set<AnyCancellable>()
@@ -72,12 +74,13 @@ final class MotionService: ObservableObject {
     
     @MainActor
     private func presentError(_ message: String) {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "Motion Tracking Failed")
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        lastErrorMessage = message
+        CurrentAppShortcutPanelManager.shared.hide()
+        HUDManager.shared.showTemporary(
+            message: message,
+            icon: "exclamationmark.triangle.fill",
+            duration: 1.6
+        )
     }
 
     func setGlobalHotkeysEnabled(_ enabled: Bool) {
@@ -243,6 +246,165 @@ final class VoiceService: ObservableObject {
 
     func undoLastInjection() {
         manager.undoLastInjection()
+    }
+}
+
+@MainActor
+final class NowPlayingService: ObservableObject {
+    @Published private(set) var appName: String = ""
+    @Published private(set) var bundleIdentifier: String = ""
+    @Published private(set) var title: String = ""
+    @Published private(set) var artist: String = ""
+    @Published private(set) var album: String = ""
+    @Published private(set) var playbackRate: Double = 0
+    @Published private(set) var sourcePID: Int32 = 0
+    @Published private(set) var lastUpdatedAt: Date?
+
+    private let callbackQueue = DispatchQueue(label: "com.aether.now-playing.callback", qos: .userInitiated)
+    private var pollTimer: Timer?
+
+    private typealias GetNowPlayingInfoFn = @convention(c) (DispatchQueue, @escaping @convention(block) (CFDictionary?) -> Void) -> Void
+    private typealias GetNowPlayingPIDFn = @convention(c) (DispatchQueue, @escaping @convention(block) (Int32) -> Void) -> Void
+
+    private let getNowPlayingInfoFn: GetNowPlayingInfoFn?
+    private let getNowPlayingPIDFn: GetNowPlayingPIDFn?
+
+    private let mediaRemoteTitleKey = "kMRMediaRemoteNowPlayingInfoTitle"
+    private let mediaRemoteArtistKey = "kMRMediaRemoteNowPlayingInfoArtist"
+    private let mediaRemoteAlbumKey = "kMRMediaRemoteNowPlayingInfoAlbum"
+    private let mediaRemotePlaybackRateKey = "kMRMediaRemoteNowPlayingInfoPlaybackRate"
+
+    init() {
+        let handle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_NOW)
+        if let infoRaw = dlsym(handle, "MRMediaRemoteGetNowPlayingInfo") {
+            self.getNowPlayingInfoFn = unsafeBitCast(infoRaw, to: GetNowPlayingInfoFn.self)
+        } else {
+            self.getNowPlayingInfoFn = nil
+        }
+
+        if let pidRaw = dlsym(handle, "MRMediaRemoteGetNowPlayingApplicationPID") {
+            self.getNowPlayingPIDFn = unsafeBitCast(pidRaw, to: GetNowPlayingPIDFn.self)
+        } else {
+            self.getNowPlayingPIDFn = nil
+        }
+
+        refresh()
+        startPolling()
+    }
+
+    deinit {
+        pollTimer?.invalidate()
+    }
+
+    var isAvailable: Bool {
+        sourcePID != 0 || !title.isEmpty || !appName.isEmpty
+    }
+
+    var playbackStatusText: String {
+        guard isAvailable else { return "Idle" }
+        return playbackRate > 0.01 ? "Playing" : "Paused"
+    }
+
+    func refresh() {
+        guard let getNowPlayingInfoFn, let getNowPlayingPIDFn else {
+            applySnapshot(pid: 0, info: nil)
+            return
+        }
+
+        let group = DispatchGroup()
+        var fetchedPID: Int32 = 0
+        var fetchedInfo: NSDictionary?
+
+        group.enter()
+        getNowPlayingPIDFn(callbackQueue) { pid in
+            fetchedPID = pid
+            group.leave()
+        }
+
+        group.enter()
+        getNowPlayingInfoFn(callbackQueue) { info in
+            if let info {
+                fetchedInfo = info as NSDictionary
+            } else {
+                fetchedInfo = nil
+            }
+            group.leave()
+        }
+
+        group.notify(queue: .main) { [weak self] in
+            self?.applySnapshot(pid: fetchedPID, info: fetchedInfo)
+        }
+    }
+
+    func togglePlayPause() {
+        sendMediaKey(NX_KEYTYPE_PLAY)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.refresh()
+        }
+    }
+
+    func nextTrack() {
+        sendMediaKey(NX_KEYTYPE_NEXT)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.refresh()
+        }
+    }
+
+    func previousTrack() {
+        sendMediaKey(NX_KEYTYPE_PREVIOUS)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.refresh()
+        }
+    }
+
+    private func startPolling() {
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            self?.refresh()
+        }
+    }
+
+    private func applySnapshot(pid: Int32, info: NSDictionary?) {
+        sourcePID = pid
+        if let app = NSRunningApplication(processIdentifier: pid_t(pid)) {
+            appName = app.localizedName ?? ""
+            bundleIdentifier = app.bundleIdentifier ?? ""
+        } else {
+            appName = ""
+            bundleIdentifier = ""
+        }
+
+        title = info?[mediaRemoteTitleKey] as? String ?? ""
+        artist = info?[mediaRemoteArtistKey] as? String ?? ""
+        album = info?[mediaRemoteAlbumKey] as? String ?? ""
+        playbackRate = (info?[mediaRemotePlaybackRateKey] as? NSNumber)?.doubleValue ?? 0
+        lastUpdatedAt = Date()
+    }
+
+    private func sendMediaKey(_ keyCode: Int32) {
+        postMediaKey(keyCode, state: true)
+        postMediaKey(keyCode, state: false)
+    }
+
+    private func postMediaKey(_ keyCode: Int32, state: Bool) {
+        let keyState = state ? 0xA : 0xB
+        let data1 = Int((keyCode << 16) | (Int32(keyState) << 8))
+
+        guard let event = NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: NSEvent.ModifierFlags(rawValue: 0xA00),
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            subtype: 8,
+            data1: data1,
+            data2: -1
+        ) else {
+            return
+        }
+
+        event.cgEvent?.post(tap: .cghidEventTap)
     }
 }
 
@@ -523,6 +685,12 @@ class AppState: ObservableObject {
     @Published var lastVoiceTranscript: String = ""
     @Published var lastVoiceError: String = ""
     @Published var lastVoiceWakeTime: Date?
+    @Published var nowPlayingAppName: String = ""
+    @Published var nowPlayingBundleIdentifier: String = ""
+    @Published var nowPlayingTitle: String = ""
+    @Published var nowPlayingArtist: String = ""
+    @Published var nowPlayingAlbum: String = ""
+    @Published var nowPlayingStatus: String = "Idle"
     @Published var voiceActivationMode: VoiceActivationMode = AppState.loadActivationMode() {
         didSet {
             guard oldValue != voiceActivationMode else { return }
@@ -994,6 +1162,7 @@ class AppState: ObservableObject {
     private let driverService = DriverService()
     let motionService = MotionService()
     let voiceService = VoiceService()
+    let nowPlayingService = NowPlayingService()
     private let permissions = PermissionsService()
     let connectionLock = ConnectionLockService.shared
 
@@ -1040,6 +1209,11 @@ class AppState: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+
+        nowPlayingService.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
         
         voiceService.$availableInputDevices
             .receive(on: DispatchQueue.main)
@@ -1080,6 +1254,20 @@ class AppState: ObservableObject {
             .assign(to: &$lastVoiceError)
         voiceService.$lastWakeTime
             .assign(to: &$lastVoiceWakeTime)
+
+        nowPlayingService.$appName
+            .assign(to: &$nowPlayingAppName)
+        nowPlayingService.$bundleIdentifier
+            .assign(to: &$nowPlayingBundleIdentifier)
+        nowPlayingService.$title
+            .assign(to: &$nowPlayingTitle)
+        nowPlayingService.$artist
+            .assign(to: &$nowPlayingArtist)
+        nowPlayingService.$album
+            .assign(to: &$nowPlayingAlbum)
+        nowPlayingService.$playbackRate
+            .map { $0 > 0.01 ? "Playing" : "Paused" }
+            .assign(to: &$nowPlayingStatus)
 
 
         voiceService.onIntent = { [weak self] intent in
@@ -1330,6 +1518,26 @@ class AppState: ObservableObject {
         CurrentAppShortcutPanelManager.shared.toggle()
     }
 
+    func toggleRecognitionInputControlMode() {
+        HeadMotionManager.shared.toggleRecognitionInputControlMode(source: "menu-bar", persist: true)
+    }
+
+    func refreshNowPlaying() {
+        nowPlayingService.refresh()
+    }
+
+    func toggleNowPlayingPlayback() {
+        nowPlayingService.togglePlayPause()
+    }
+
+    func skipNowPlayingForward() {
+        nowPlayingService.nextTrack()
+    }
+
+    func skipNowPlayingBackward() {
+        nowPlayingService.previousTrack()
+    }
+
     private func applyVoiceIntent(_ intent: VoiceIntent) {
         switch intent {
         case .clickLeft:
@@ -1341,6 +1549,27 @@ class AppState: ObservableObject {
         case .doubleClick:
             motionService.doubleClick()
             recordVoiceControl(intent)
+        case .mediaPlayPause:
+            nowPlayingService.togglePlayPause()
+            recordVoiceControl(
+                intent,
+                appName: nowPlayingAppName.isEmpty ? nil : nowPlayingAppName,
+                bundleIdentifier: nowPlayingBundleIdentifier.isEmpty ? nil : nowPlayingBundleIdentifier
+            )
+        case .mediaPrevious:
+            nowPlayingService.previousTrack()
+            recordVoiceControl(
+                intent,
+                appName: nowPlayingAppName.isEmpty ? nil : nowPlayingAppName,
+                bundleIdentifier: nowPlayingBundleIdentifier.isEmpty ? nil : nowPlayingBundleIdentifier
+            )
+        case .mediaNext:
+            nowPlayingService.nextTrack()
+            recordVoiceControl(
+                intent,
+                appName: nowPlayingAppName.isEmpty ? nil : nowPlayingAppName,
+                bundleIdentifier: nowPlayingBundleIdentifier.isEmpty ? nil : nowPlayingBundleIdentifier
+            )
         case .showShortcutPanel:
             showShortcutPanel()
             recordVoiceControl(intent)
@@ -1474,6 +1703,12 @@ class AppState: ObservableObject {
             return isChinese ? "右键点击" : "Right Click"
         case .doubleClick:
             return isChinese ? "双击" : "Double Click"
+        case .mediaPlayPause:
+            return isChinese ? "播放或暂停" : "Play or Pause"
+        case .mediaPrevious:
+            return isChinese ? "上一首" : "Previous Track"
+        case .mediaNext:
+            return isChinese ? "下一首" : "Next Track"
         case .showShortcutPanel:
             return isChinese ? "显示快捷键面板" : "Show Shortcut Panel"
         case .hideShortcutPanel:
@@ -1713,6 +1948,7 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
     @Published private(set) var isVisible: Bool = false
 
     private var panel: NSPanel?
+    private var globalEventMonitors: [Any] = []
 
     private init() {
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -1728,17 +1964,34 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
         ensurePanel()
         updatePanelFrame()
         panel?.alphaValue = 1.0
-        panel?.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+        panel?.makeKeyAndOrderFront(nil)
+        installDismissMonitorsIfNeeded()
         isVisible = true
     }
 
     func hide() {
         panel?.orderOut(nil)
+        uninstallDismissMonitors()
         isVisible = false
     }
 
     func toggle() {
         isVisible ? hide() : show()
+    }
+
+    func hideAndRun(targetPID: pid_t? = nil, action: @escaping @MainActor () -> Void) {
+        hide()
+        let delay: TimeInterval = targetPID == nil ? 0.04 : 0.12
+
+        if let targetPID, targetPID > 0,
+           let app = NSRunningApplication(processIdentifier: targetPID) {
+            app.activate(options: [.activateIgnoringOtherApps])
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            action()
+        }
     }
 
     func refreshIfVisible() {
@@ -1750,6 +2003,8 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
 
     @objc private func handleFrontmostAppChanged() {
         guard isVisible else { return }
+        guard let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return }
+        if front == Bundle.main.bundleIdentifier { return }
         _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
         updatePanelFrame()
     }
@@ -1758,9 +2013,9 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
         guard panel == nil else { return }
 
         let hostingController = NSHostingController(rootView: CurrentAppShortcutPanelView())
-        let panel = NSPanel(
+        let panel = ShortcutOverlayPanel(
             contentRect: NSRect(x: 0, y: 0, width: 1160, height: 760),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -1770,11 +2025,42 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
         panel.isOpaque = false
         panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
-        panel.hidesOnDeactivate = false
+        panel.hidesOnDeactivate = true
         panel.isMovableByWindowBackground = true
         panel.ignoresMouseEvents = false
+        panel.becomesKeyOnlyIfNeeded = false
         panel.contentViewController = hostingController
         self.panel = panel
+    }
+
+    private func installDismissMonitorsIfNeeded() {
+        guard globalEventMonitors.isEmpty else { return }
+
+        if let mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: { [weak self] event in
+            guard let self, self.isVisible, let panel else { return }
+            let point = NSEvent.mouseLocation
+            if !panel.frame.contains(point) {
+                DispatchQueue.main.async { self.hide() }
+            }
+        }) {
+            globalEventMonitors.append(mouseMonitor)
+        }
+
+        if let keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            guard let self, self.isVisible else { return }
+            if event.keyCode == UInt16(kVK_Escape) {
+                DispatchQueue.main.async { self.hide() }
+            }
+        }) {
+            globalEventMonitors.append(keyMonitor)
+        }
+    }
+
+    private func uninstallDismissMonitors() {
+        for monitor in globalEventMonitors {
+            NSEvent.removeMonitor(monitor)
+        }
+        globalEventMonitors.removeAll()
     }
 
     private func updatePanelFrame() {
@@ -1832,6 +2118,11 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
         let mouseLocation = NSEvent.mouseLocation
         return NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) })
     }
+}
+
+private final class ShortcutOverlayPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }
 
 private struct CurrentAppShortcutPanelSection: Identifiable {
@@ -1921,6 +2212,7 @@ private struct CurrentAppShortcutPanelView: View {
     @StateObject private var catalog = FrontmostAppCommandCatalog.shared
     @StateObject private var hotkeyManager = HotkeyManager.shared
     @Environment(\.colorScheme) private var colorScheme
+    @FocusState private var isSearchFieldFocused: Bool
     @State private var isPanelFocused: Bool = true
     @State private var blurWorkItem: DispatchWorkItem?
     @State private var searchText: String = ""
@@ -2093,6 +2385,11 @@ private struct CurrentAppShortcutPanelView: View {
             .padding(26)
         }
         .opacity(isPanelFocused ? 1.0 : 0.9)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                isSearchFieldFocused = true
+            }
+        }
         .onHover { isHovering in
             if isHovering {
                 blurWorkItem?.cancel()
@@ -2138,8 +2435,8 @@ private struct CurrentAppShortcutPanelView: View {
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                 Text(
                     isChinese
-                        ? "按顶层菜单分组展示可触发快捷键，并补充浏览器、编辑器、终端等常见默认快捷键。语音命中后会直接发送对应组合键。"
-                        : "Shortcut commands grouped by top-level menu, with common browser, editor, and terminal defaults filled in when useful. A voice match sends the corresponding key combo."
+                        ? "按顶层菜单分组展示可触发快捷键，并补充浏览器、编辑器、终端等常见默认快捷键。语音命中或直接点击条目，都会发送对应组合键。"
+                        : "Shortcut commands grouped by top-level menu, with common browser, editor, and terminal defaults filled in when useful. Voice matches and direct clicks both send the corresponding key combo."
                 )
                 .font(.subheadline)
                 .foregroundColor(.secondary)
@@ -2148,12 +2445,20 @@ private struct CurrentAppShortcutPanelView: View {
             Spacer(minLength: 20)
 
             Text("\(totalVisibleShortcutCount) \(isChinese ? "条快捷键" : "shortcuts")")
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.accentColor.opacity(0.12))
-                    .foregroundColor(.accentColor)
-                    .clipShape(Capsule())
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.accentColor.opacity(0.12))
+                .foregroundColor(.accentColor)
+                .clipShape(Capsule())
+
+            Text(isChinese ? "可点击触发" : "Clickable")
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(chromeBackground)
+                .foregroundColor(.secondary)
+                .clipShape(Capsule())
 
             TextField(isChinese ? "搜索快捷键" : "Search shortcuts", text: $searchText)
                 .textFieldStyle(.plain)
@@ -2163,6 +2468,7 @@ private struct CurrentAppShortcutPanelView: View {
                 .frame(width: 240)
                 .background(chromeBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .focused($isSearchFieldFocused)
 
             Button(String(localized: "generic.refresh")) {
                 _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
@@ -2245,28 +2551,37 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private func triggerCurrentAppShortcut(_ command: FrontmostAppCommand) {
-        AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: command.processIdentifier)
+        CurrentAppShortcutPanelManager.shared.hideAndRun(targetPID: command.processIdentifier) {
+            AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: command.processIdentifier)
+        }
     }
 
     private func triggerGlobalShortcut(_ entry: AetherGlobalShortcutPanelEntry) {
-        switch entry.action {
-        case .toggleTracking:
-            let manager = HeadMotionManager.shared
-            manager.isTracking ? manager.stopTracking() : manager.startTracking()
-        case .connectionLock:
-            ConnectionLockService.shared.toggle()
-        case .toggleInputControlMode:
-            HeadMotionManager.shared.toggleRecognitionInputControlMode(source: "shortcut-panel", persist: false)
-        case .toggleLanguage:
-            NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
-        case .toggleShortcutPanel:
-            CurrentAppShortcutPanelManager.shared.toggle()
-        case .pushToTalk:
-            HUDManager.shared.showTemporary(
-                message: isChinese ? "按住说话请继续使用快捷键" : "Use the hold-to-talk hotkey",
-                recognitionControlMode: .auto,
-                duration: 0.9
-            )
+        if entry.action == .toggleShortcutPanel {
+            CurrentAppShortcutPanelManager.shared.hide()
+            return
+        }
+
+        CurrentAppShortcutPanelManager.shared.hideAndRun {
+            switch entry.action {
+            case .toggleTracking:
+                let manager = HeadMotionManager.shared
+                manager.isTracking ? manager.stopTracking() : manager.startTracking()
+            case .connectionLock:
+                ConnectionLockService.shared.toggle()
+            case .toggleInputControlMode:
+                HeadMotionManager.shared.toggleRecognitionInputControlMode(source: "shortcut-panel", persist: false)
+            case .toggleLanguage:
+                NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
+            case .toggleShortcutPanel:
+                break
+            case .pushToTalk:
+                HUDManager.shared.showTemporary(
+                    message: isChinese ? "按住说话请继续使用快捷键" : "Use the hold-to-talk hotkey",
+                    recognitionControlMode: .auto,
+                    duration: 0.9
+                )
+            }
         }
     }
 }

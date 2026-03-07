@@ -992,6 +992,10 @@ final class HUDManager {
     private func ensureWindowVisible() {
         ensureWindow()
         guard let panel = hudWindow else { return }
+        guard !shouldSuppressHUDForAetherForegroundWindow() else {
+            panel.orderOut(nil)
+            return
+        }
         if !panel.isVisible || panel.alphaValue < 0.9 {
             panel.alphaValue = 1.0
             panel.orderFront(nil)
@@ -1004,6 +1008,11 @@ final class HUDManager {
         if state.mode == .hidden { return }
         
         guard let panel = hudWindow else { return }
+
+        if shouldSuppressHUDForAetherForegroundWindow() {
+            panel.orderOut(nil)
+            return
+        }
         
         // --- Fullscreen Video Check ---
         if shouldSuppressHUDForFullscreenVideo() {
@@ -1401,6 +1410,18 @@ final class HUDManager {
         let result = isFrontmostFocusedWindowLikelyFullscreen(app: app, on: screen)
         cachedFullscreenSuppressionResult = result
         return result
+    }
+
+    private func shouldSuppressHUDForAetherForegroundWindow() -> Bool {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication,
+              frontApp.bundleIdentifier == Bundle.main.bundleIdentifier else {
+            return false
+        }
+
+        return NSApp.windows.contains { window in
+            guard !(window is NSPanel) else { return false }
+            return window.isVisible && window.styleMask.contains(.titled)
+        }
     }
 
     private func isFrontmostFocusedWindowLikelyFullscreen(app: NSRunningApplication, on screen: NSScreen) -> Bool {

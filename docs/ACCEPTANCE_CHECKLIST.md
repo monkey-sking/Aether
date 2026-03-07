@@ -5,7 +5,9 @@
 ### Browser HUD Behavior（未验收项）
 ### Browser HUD Performance（未验收项）
 - [ ] 浏览器普通页面中 HUD 跟随鼠标应流畅，无明显拖尾/卡顿
+    浏览器中控制模式有点卡顿
 - [ ] 浏览器全屏播放视频时，HUD 应自动隐藏（功能保留）
+    没有自动隐藏
 - [ ] 退出浏览器全屏视频后，HUD 应自动恢复显示
     本轮代码已调整：
     1) HUD 重定位仅在输入态或显式诊断时执行 AX 重查询；
@@ -41,16 +43,36 @@
     2) HUD 重定位改为短时动画（0.12s）
 
 ### 本轮新增功能待验收（2026-03-07）
-- [ ] 语音设置已拆到左侧侧边栏，5 个入口可正常切换（基础 / 术语纠错 / 词库 / 当前应用 / 统计）
-- [ ] “基础”页仅保留麦克风、语言、触发方式、润色、自动标点等基础项，不再混入词库和历史记录
+- [x] 语音设置已拆到左侧侧边栏，5 个入口可正常切换（基础 / 术语纠错 / 词库 / 当前应用 / 统计）
+- [x] “基础”页仅保留麦克风、语言、触发方式、润色、自动标点等基础项，不再混入词库和历史记录
+- [ ] 总览页已移除“实时状态”信息堆叠卡片，仅保留准备情况和高频控制入口
+- [ ] 主窗口采用标准 macOS 标题栏与 unified toolbar，窗口标题显示正常，当前页面信息在 toolbar 内展示
+- [ ] 菜单栏入口已收敛为高频控制结构：状态、核心控制、Now Playing、权限修复、退出，不再重复堆叠设置项
+- [x] 菜单栏图标已切换到自定义模板图标，浅色/深色菜单栏下识别正常
 - [ ] “术语纠错”页单独承载上下文术语纠错与术语分组配置
 - [ ] “词库”页仅保留唤醒词、前缀、命令别名等词库项，内容密度明显下降
-- [ ] “使用统计与历史”开关默认关闭（首次启动不记录）
-- [ ] 开启后可按 App 统计：总次数、语音输入次数、控制命令次数
-- [ ] 开启后可查看最近记录：时间、App、动作、输入内容摘要
-- [ ] 关闭后停止新增记录（保留旧记录），并支持“清空记录”
+- [x] 已移除“手势与点击 / 头部倾斜滚动”功能入口与底层行为，不再暴露或后台生效
+- [x] App 图标已替换为新图标，并移除白底/白边；Finder、Dock、窗口标题图标显示一致
+- [x] “使用统计与历史”开关默认关闭（首次启动不记录）
+- [x] 开启后可按 App 统计：总次数、语音输入次数、控制命令次数
+- [x] 开启后可查看最近记录：时间、App、动作、输入内容摘要
+- [x] 关闭后停止新增记录（保留旧记录），并支持“清空记录”
 - [ ] 历史记录覆盖语音输入和控制命令（含 frontmost app 快捷键触发）
-- [ ] 语言切换快捷键触发 Aether 的同时，不吞掉原始 `Shift` 事件；前台输入法和应用仍可收到该键
+- [x] 语言切换快捷键触发 Aether 的同时，不吞掉原始 `Shift` 事件；前台输入法和应用仍可收到该键
+- [ ] 浏览器普通网页（非输入区域）点击后，不再持续判定为输入模式；HUD 和输入/控制模式应回到控制语义
+- [ ] 浏览器在“输入框 -> 网页空白区域 -> 输入框”之间切换时，输入态不会粘住，模式切换稳定
+- [ ] 没有真实可编辑输入框时，不会继续停留在输入模式；HUD 不应显示待输入文本假象
+- [ ] 当焦点不在可编辑文本框时，听写内容不会只显示在 HUD 上而未注入；应直接回落并给出短暂提示
+- [ ] 快捷键面板支持搜索：可按功能名、菜单路径、别名、快捷键串过滤结果
+- [ ] 快捷键面板支持直接点击触发：当前 App 快捷键点击后直接发送组合键
+- [ ] 快捷键面板支持直接点击触发：Aether 全局项点击后执行对应内部动作（追踪、连接锁定、切换模式、切换语言、面板显示/隐藏）
+- [ ] 搜索无结果时显示空状态提示，不显示空白列表
+- [ ] 唤醒词模式待机时，未被唤醒前不显示 HUD，也不回显未激活阶段的识别文本
+- [ ] 控制模式下语音未匹配到可执行命令时，HUD 给出短暂失败提示，不应静默无反馈
+- [ ] 已接入系统 Now Playing：可读取当前播放来源（App / 标题 / 状态）
+- [ ] Aether 可通过系统媒体语义控制当前播放来源：播放/暂停、上一首、下一首
+- [ ] 语音词库已新增媒体控制命令（播放/暂停、上一首、下一首），并可自定义别名
+- [ ] PTT 模式下，AirPods 单按会尝试接管系统播放/暂停语义作为按住说话；双按/三按仍保留 Aether 控制
 
 ### Stability
 ### Suggested Test Matrix
@@ -151,6 +173,59 @@
 - [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
 - [x] DMG SHA256：`4cb545b10e201d3bfad0dc10e93a5b842f5cf393d4cb2b93cd1d6a1cd0456d71`
 - [x] ZIP SHA256：`dcd436e0cb3f2e8aafd843bc837c4e18bd4a5956e08432b3ab1844d52f87728f`
+- [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
+
+### 本次正式包验签结果（2026-03-07，网页输入态修复与快捷面板增强后）
+- [x] 使用完整发布链路：`env APP_PROVISION_PROFILE=signing/Aether_Distribution.provisionprofile DRIVER_PROVISION_PROFILE=signing/AetherDriver_Distribution.provisionprofile NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh`
+- [x] 已包含本轮改动：浏览器非输入区域点击后退出输入态、快捷键面板搜索、面板点击直接触发
+- [x] App 验签通过：`codesign --verify --deep --strict`
+- [x] DMG 验签通过：`codesign --verify --verbose=4`
+- [x] Notary 公证通过（Submission ID: `1f4e86b1-e79f-4c68-985e-0c9de0464b64`，状态 `Accepted`）
+- [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
+- [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
+
+### 本次正式包验签结果（2026-03-07，移除手势与点击孤立入口后）
+- [x] 使用完整发布链路：`env APP_PROVISION_PROFILE=signing/Aether_Distribution.provisionprofile DRIVER_PROVISION_PROFILE=signing/AetherDriver_Distribution.provisionprofile NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh`
+- [x] 已包含本轮改动：指针设置页移除“手势与点击 / 头部倾斜滚动”孤立入口
+- [x] App 验签通过：`codesign --verify --deep --strict`
+- [x] DMG 验签通过：`codesign --verify --verbose=4`
+- [x] Notary 公证通过（Submission ID: `6f5eac11-9346-4a1f-a73c-5b8d231f63fe`，状态 `Accepted`）
+- [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
+- [x] DMG SHA256：`971927f27ac0e2bb9aff73baad8379278529bbb0572935be7fbe6542b394eb78`
+- [x] ZIP SHA256：`07154395dcaf6c903b0ffb98b6eab60a7252c7f9ed5daeeaed9fcc5fc259e23b`
+- [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
+
+### 本次正式包验签结果（2026-03-07，彻底移除头部倾斜滚动后）
+- [x] 使用完整发布链路：`env APP_PROVISION_PROFILE=signing/Aether_Distribution.provisionprofile DRIVER_PROVISION_PROFILE=signing/AetherDriver_Distribution.provisionprofile NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh`
+- [x] 已包含本轮改动：移除“手势与点击 / 头部倾斜滚动”功能入口与底层行为
+- [x] App 验签通过：`codesign --verify --deep --strict`
+- [x] DMG 验签通过：`codesign --verify --verbose=4`
+- [x] Notary 公证通过（Submission ID: `4048ab13-03d2-4c31-a39c-a08538c68e71`，状态 `Accepted`）
+- [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
+- [x] DMG SHA256：`eb4b27a9c52267543b19bcbacf8808f2f4811ffe50a1a968e29bdaaa071a03a0`
+- [x] ZIP SHA256：`23876635140e30f1d7bca461d8048af91d0bd35837b7c83ff0fa6d286cd7b7df`
+- [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
+
+### 本次正式包验签结果（2026-03-07，移除总览实时状态卡片后）
+- [x] 使用完整发布链路：`env APP_PROVISION_PROFILE=signing/Aether_Distribution.provisionprofile DRIVER_PROVISION_PROFILE=signing/AetherDriver_Distribution.provisionprofile NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh`
+- [x] 已包含本轮改动：总览页移除“实时状态”信息堆叠卡片
+- [x] App 验签通过：`codesign --verify --deep --strict`
+- [x] DMG 验签通过：`codesign --verify --verbose=4`
+- [x] Notary 公证通过（Submission ID: `02a284e9-0129-457a-8464-332982119e80`，状态 `Accepted`）
+- [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
+- [x] DMG SHA256：`b44ed55758f51ff5e572b109d111014c4e76c85833e76a938fb785101360f074`
+- [x] ZIP SHA256：`87e4996d0fb94c2209e86193c2e542390b6b4d71b1daf122ddbb4558d7b9e30f`
+- [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
+
+### 本次正式包验签结果（2026-03-07，菜单栏 / 图标 / Now Playing 联调后）
+- [x] 使用完整发布链路：`env APP_PROVISION_PROFILE=signing/Aether_Distribution.provisionprofile DRIVER_PROVISION_PROFILE=signing/AetherDriver_Distribution.provisionprofile NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh`
+- [x] 已包含本轮改动：菜单栏结构重构、自定义菜单栏图标、新 App 图标、Now Playing 控制与语音词库补齐、AirPods 单按 PTT
+- [x] App 验签通过：`codesign --verify --deep --strict`
+- [x] DMG 验签通过：`codesign --verify --verbose=4`
+- [x] Notary 公证通过（Submission ID: `b0a12fee-07ad-40ef-b1d1-944513876fde`，状态 `Accepted`）
+- [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
+- [x] DMG SHA256：`ef54e182cacf4620504c61bb8d223e12b2de4c2825a827ae237c7cfa258d6868`
+- [x] ZIP SHA256：`5869d7c70cb8b4b17b0963bbf483ac11270f08670ab149d9eb10675e24656c8c`
 - [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
 
 ### 权限复用专项（已验收项）

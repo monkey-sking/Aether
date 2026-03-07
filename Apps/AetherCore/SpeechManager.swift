@@ -505,11 +505,13 @@ final class SpeechManager: ObservableObject {
     private func handlePartial(_ rawText: String) {
         guard sessionGeneration > 0 else { return }
         var text = rawText
+        var wakeWordDetected = false
 
         // Wake word detection & stripping
         if isWakeWordEnabled && !isDirectCommandEnabled {
             let result = wakeWordDetector.process(text, localeIdentifier: activeLocale.identifier)
             if result.wakeDetected {
+                wakeWordDetected = true
                 if !isAwake {
                     lastWakeTime = Date(); playWakeSound()
                     if isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled { rearmInputTarget(reason: "wake-word") }
@@ -519,6 +521,12 @@ final class SpeechManager: ObservableObject {
         }
 
         text = normalizeRecognizedText(text)
+        let isWakeGatedStandby = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled && !isAwake
+        if isWakeGatedStandby && !wakeWordDetected {
+            clearUnarmedWakePreview()
+            refreshContinuousHUD(isDictating: false)
+            return
+        }
         let prev = lastTranscript
         let now = Date()
         if text != prev {
@@ -539,6 +547,10 @@ final class SpeechManager: ObservableObject {
             if isAlwaysListeningEnabled && isDirectCommandEnabled { rearmInputTarget(reason: "direct-utterance-start") }
         }
         if !hasPayload && isUtteranceActive { isUtteranceActive = false }
+
+        if recognitionControlMode != .command {
+            syncSessionInputTargetFromCurrentFocus(resetDictationStream: dictationHandler.screenTypedText.isEmpty)
+        }
 
         let liveTyping = throttledTypingMode()
         let canType = isAwake || isDirectCommandEnabled || !isAlwaysListeningEnabled
@@ -958,12 +970,19 @@ final class SpeechManager: ObservableObject {
             injector.undoPasteIfRecent()
             status = NSLocalizedString("speech.undo", comment: "")
             onIntent?(.undo)
+            clearHandledCommandPreview()
         case .paste:
             AutomationOutputs.shared.pasteFromClipboard()
             status = "Pasted (Cmd+V)"
             onIntent?(.paste)
+            clearHandledCommandPreview()
         case .dictation(let text):
-            guard isJobInputTargetValidForInjection(job) else { status = NSLocalizedString("speech.done", comment: ""); return }
+            guard isJobInputTargetValidForInjection(job) else {
+                status = NSLocalizedString("speech.done", comment: "")
+                showMissingInputTargetHUD()
+                clearHandledCommandPreview()
+                return
+            }
             let hasStreamed = job.screenTypedCount > 0 || !job.streamedTextSnapshot.isEmpty
             if job.sessionTypingMode || hasStreamed {
                 // Use DictationHandler's diff-based correction instead of old TypingFinalizationPlanner
@@ -987,8 +1006,65 @@ final class SpeechManager: ObservableObject {
                 status = NSLocalizedString("speech.typed", comment: "")
             }
             onIntent?(.dictation(text))
-        default: onIntent?(job.intent); status = NSLocalizedString("speech.done", comment: "")
+        case .unknown(let transcript):
+            status = activeLocale.identifier.starts(with: "zh") ? "未匹配到控制命令" : "No matching control command"
+            clearHandledCommandPreview()
+            if !job.sessionTypingMode {
+                showUnknownCommandHUD(transcript)
+            }
+            onIntent?(job.intent)
+        default:
+            onIntent?(job.intent)
+            status = NSLocalizedString("speech.done", comment: "")
+            clearHandledCommandPreview()
         }
+    }
+
+    private func clearHandledCommandPreview() {
+        lastTranscript = ""
+        lastChangeAt = nil
+        lastStableText = ""
+        isUtteranceActive = false
+        if isAlwaysListeningEnabled || isWakeWordEnabled || recognitionSession.isRunning || isStopping {
+            refreshContinuousHUD(isDictating: false)
+        } else {
+            HUDManager.shared.hide()
+        }
+    }
+
+    private func showMissingInputTargetHUD() {
+        HUDManager.shared.showTemporary(
+            message: activeLocale.identifier.starts(with: "zh") ? "未检测到可输入文本框" : "No editable text field detected",
+            recognitionControlMode: .command,
+            icon: "keyboard.badge.exclamationmark",
+            duration: 1.0
+        )
+    }
+
+    private func showUnknownCommandHUD(_ transcript: String) {
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let message: String
+        if activeLocale.identifier.starts(with: "zh") {
+            message = trimmed.isEmpty ? "未匹配到控制命令" : "未匹配到控制命令：\(trimmed)"
+        } else {
+            message = trimmed.isEmpty ? "No matching control command" : "No matching control command: \(trimmed)"
+        }
+        HUDManager.shared.showTemporary(
+            message: message,
+            recognitionControlMode: .command,
+            icon: "xmark.circle.fill",
+            duration: 1.1
+        )
+    }
+
+    private func clearUnarmedWakePreview() {
+        guard !lastTranscript.isEmpty || lastChangeAt != nil || isUtteranceActive || !lastStableText.isEmpty else {
+            return
+        }
+        lastTranscript = ""
+        lastChangeAt = nil
+        lastStableText = ""
+        isUtteranceActive = false
     }
 
     private func commonPrefixLen(_ a: String, _ b: String) -> Int {
@@ -1191,7 +1267,12 @@ final class SpeechManager: ObservableObject {
 
         let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
         let mode: HUDMode; var message = ""
-        if isWakeGated && !isAwake && !isStopping && !isDictating && lastTranscript.isEmpty { mode = .standby }
+        if isWakeGated && !isAwake && !isStopping && !isDictating {
+            clearHUDOverride()
+            clearUnarmedWakePreview()
+            HUDManager.shared.hide()
+            return
+        }
         else if isDictating { mode = .dictation }
         else if isStopping { mode = .processing }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
@@ -1547,13 +1628,29 @@ final class SpeechManager: ObservableObject {
     private func currentFocusedInputSnapshot() -> FocusedInputSnapshot? {
         let sw = AXUIElementCreateSystemWide(); var fe: CFTypeRef?
         guard AXUIElementCopyAttributeValue(sw, kAXFocusedUIElementAttribute as CFString, &fe) == .success, let r = fe, CFGetTypeID(r) == AXUIElementGetTypeID() else { return nil }
-        let el = r as! AXUIElement; var pid: pid_t = 0; AXUIElementGetPid(el, &pid); guard pid > 0 else { return nil }
+        let el = r as! AXUIElement
+        guard isFocusedElementUsableForDictation(el) else { return nil }
+        var pid: pid_t = 0; AXUIElementGetPid(el, &pid); guard pid > 0 else { return nil }
         return FocusedInputSnapshot(pid: pid, bundleID: NSRunningApplication(processIdentifier: pid)?.bundleIdentifier, elementFingerprint: makeElementFingerprint(el))
     }
     private func lockSessionInputTarget() {
         let snap = currentFocusedInputSnapshot()
         sessionTargetPID = snap?.pid; sessionTargetBundleID = snap?.bundleID
         sessionTargetElementFingerprint = snap?.elementFingerprint; didLogSessionTargetMismatch = false
+    }
+    private func syncSessionInputTargetFromCurrentFocus(resetDictationStream: Bool) {
+        guard let snap = currentFocusedInputSnapshot() else { return }
+        let changed = sessionTargetPID != snap.pid ||
+            sessionTargetBundleID != snap.bundleID ||
+            sessionTargetElementFingerprint != snap.elementFingerprint
+        guard changed else { return }
+        sessionTargetPID = snap.pid
+        sessionTargetBundleID = snap.bundleID
+        sessionTargetElementFingerprint = snap.elementFingerprint
+        didLogSessionTargetMismatch = false
+        if resetDictationStream {
+            dictationHandler.reset(targetPID: sessionTargetPID)
+        }
     }
     private func rearmInputTarget(reason: String) {
         lockSessionInputTarget(); micProgressLockedPID = sessionTargetPID; isMicProgressPausedForTarget = false
@@ -1571,12 +1668,60 @@ final class SpeechManager: ObservableObject {
         let trusted = accessibilityTrustedSnapshot || AXIsProcessTrusted()
         if accessibilityTrustedSnapshot != trusted { accessibilityTrustedSnapshot = trusted }
         if !trusted { return false }
-        if job.sessionTypingMode && (job.targetPID == nil || job.targetPID == 0) { return true }
+        if job.sessionTypingMode && (job.targetPID == nil || job.targetPID == 0) {
+            return currentFocusedInputSnapshot() != nil
+        }
         guard let tp = job.targetPID, tp > 0 else { return true }
         guard let front = NSWorkspace.shared.frontmostApplication else { return false }
         let matches = front.processIdentifier == tp || (job.targetBundleID.map { front.bundleIdentifier == $0 } ?? false)
         guard matches else { return false }
         return true
+    }
+
+    private func isFocusedElementUsableForDictation(_ element: AXUIElement) -> Bool {
+        func boolAttr(_ attr: CFString) -> Bool {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, attr, &value) == .success else { return false }
+            if let b = value as? Bool { return b }
+            if let n = value as? NSNumber { return n.boolValue }
+            return false
+        }
+        func hasInsertionContext() -> Bool {
+            var value: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
+               let raw = value,
+               CFGetTypeID(raw) == AXValueGetTypeID() {
+                let ax = raw as! AXValue
+                if AXValueGetType(ax) == .cfRange {
+                    var range = CFRange()
+                    if AXValueGetValue(ax, .cfRange, &range) {
+                        if range.length == 0 { return true }
+                    } else {
+                        return true
+                    }
+                } else {
+                    return true
+                }
+            }
+            var markerRange: CFTypeRef?
+            return AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRange) == .success
+        }
+
+        var roleRef: CFTypeRef?
+        let role = (AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success)
+            ? (roleRef as? String ?? "")
+            : ""
+
+        let editable = boolAttr("AXEditable" as CFString)
+        let insertionContext = hasInsertionContext()
+        let directRoles: Set<String> = [kAXTextFieldRole as String, "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
+
+        if directRoles.contains(role) { return true }
+        if role == kAXTextAreaRole as String { return insertionContext }
+        if role == "AXWebArea" || role == "AXGroup" || role == "AXScrollArea" || role == "AXSplitGroup" || role == "AXStaticText" {
+            return editable && insertionContext
+        }
+        return editable && insertionContext
     }
 
     // MARK: - Speech Term Corrections (preserved)

@@ -104,7 +104,6 @@ enum L10n {
 
     // New Controls
     static let showDockIcon: LocalizedStringKey = "control.show_dock_icon"
-    static let tiltScroll: LocalizedStringKey = "control.tilt_scroll"
     static let debugMode: LocalizedStringKey = "control.debug_mode"
 
     // Speech Status
@@ -182,8 +181,6 @@ enum L10n {
     static let settingsCommandTimeout: LocalizedStringKey = "settings.command_timeout"
     static let settingsFeedbackSound: LocalizedStringKey = "settings.feedback_sound"
     static let settingsAutoPunctuation: LocalizedStringKey = "settings.auto_punctuation"
-    static let settingsGesturesClicks: LocalizedStringKey = "settings.gestures_clicks"
-    static let settingsTiltScrollSubtitle: LocalizedStringKey = "settings.tilt_scroll_subtitle"
     static let settingsCalibration: LocalizedStringKey = "settings.calibration"
     static let settingsCurrentStatus: LocalizedStringKey = "settings.current_status"
     static let settingsDriverStatus: LocalizedStringKey = "settings.driver_status"
