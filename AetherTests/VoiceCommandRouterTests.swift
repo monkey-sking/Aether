@@ -28,8 +28,6 @@ final class VoiceCommandRouterTests: XCTestCase {
         XCTAssertEqual(router.route(transcript: "停止"), .stopPointer)
         XCTAssertEqual(router.route(transcript: "开始"), .startPointer)
         XCTAssertEqual(router.route(transcript: "居中"), .recenter)
-        XCTAssertEqual(router.route(transcript: "打开悬停"), .setDwell(true))
-        XCTAssertEqual(router.route(transcript: "关闭悬停"), .setDwell(false))
     }
     
     func testScrollingAndDragging() {

@@ -5,6 +5,12 @@ import AppKit
 struct InputSettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var editingGroupID: String?
+    @State private var commandLocaleID: String = ""
+    @State private var lexiconTransferStatus: String?
+
+    private let supportedVoiceLocaleIDs = [
+        "zh-CN", "en-US", "ja-JP", "ko-KR", "fr-FR", "de-DE", "es-ES"
+    ]
 
     private var microphoneOptions: [FixedPopUpOption] {
         appState.availableInputDevices.map { device in
@@ -22,20 +28,7 @@ struct InputSettingsView: View {
         )
     }
 
-    private var localeOptions: [FixedPopUpOption] {
-        [
-            .init(id: "system", title: NSLocalizedString("language.system", comment: "")),
-            .init(id: "zh-CN", title: NSLocalizedString("language.zh_CN", comment: "")),
-            .init(id: "en-US", title: NSLocalizedString("language.en_US", comment: "")),
-            .init(id: "ja-JP", title: NSLocalizedString("language.ja_JP", comment: "")),
-            .init(id: "ko-KR", title: NSLocalizedString("language.ko_KR", comment: "")),
-            .init(id: "fr-FR", title: NSLocalizedString("language.fr_FR", comment: "")),
-            .init(id: "de-DE", title: NSLocalizedString("language.de_DE", comment: "")),
-            .init(id: "es-ES", title: NSLocalizedString("language.es_ES", comment: "")),
-        ]
-    }
-
-    private var localeSelection: Binding<String> {
+    private var speechLanguageSelection: Binding<String> {
         Binding(
             get: { appState.voiceService.explicitLocaleIdentifier ?? "system" },
             set: { newValue in
@@ -44,12 +37,80 @@ struct InputSettingsView: View {
         )
     }
 
+    private var effectiveSpeechLocaleID: String {
+        normalizedCommandLocaleIdentifier(appState.voiceService.explicitLocaleIdentifier ?? Locale.current.identifier)
+    }
+
+    private var effectiveSpeechLocaleDisplayName: String {
+        localeTitle(for: effectiveSpeechLocaleID)
+    }
+
+    private var isFollowingSystemSpeechLocale: Bool {
+        appState.voiceService.explicitLocaleIdentifier == nil
+    }
+
+    private var speechLanguageOptions: [VoiceLanguageOption] {
+        [
+            VoiceLanguageOption(id: "system", title: String(localized: "language.system"))
+        ] + supportedVoiceLocaleIDs.map { VoiceLanguageOption(id: $0, title: localeTitle(for: $0)) }
+    }
+
+    private var lexiconLanguageOptions: [VoiceLanguageOption] {
+        supportedVoiceLocaleIDs.map { VoiceLanguageOption(id: $0, title: localeTitle(for: $0)) }
+    }
+
+    private var resolvedCommandLocaleID: String {
+        let preferred = commandLocaleID.isEmpty
+            ? (appState.voiceService.explicitLocaleIdentifier ?? Locale.current.identifier)
+            : commandLocaleID
+        return normalizedCommandLocaleIdentifier(preferred)
+    }
+
+    private var commandLocaleDisplayName: String {
+        Locale.current.localizedString(forIdentifier: resolvedCommandLocaleID) ?? resolvedCommandLocaleID
+    }
+
+    private func normalizedCommandLocaleIdentifier(_ raw: String) -> String {
+        let candidate = raw == "system" ? Locale.current.identifier : raw
+        if supportedVoiceLocaleIDs.contains(candidate) {
+            return candidate
+        }
+        return candidate.hasPrefix("zh") ? "zh-CN" : "en-US"
+    }
+
+    private func localeTitle(for localeIdentifier: String) -> String {
+        switch localeIdentifier {
+        case "system":
+            return String(localized: "language.system")
+        case "zh-CN":
+            return String(localized: "language.zh_CN")
+        case "en-US":
+            return String(localized: "language.en_US")
+        case "ja-JP":
+            return String(localized: "language.ja_JP")
+        case "ko-KR":
+            return String(localized: "language.ko_KR")
+        case "fr-FR":
+            return String(localized: "language.fr_FR")
+        case "de-DE":
+            return String(localized: "language.de_DE")
+        case "es-ES":
+            return String(localized: "language.es_ES")
+        default:
+            return Locale.current.localizedString(forIdentifier: localeIdentifier) ?? localeIdentifier
+        }
+    }
+
     var body: some View {
-        ScrollView(.vertical) {
+        SettingsPage(
+            title: Locale.current.identifier.hasPrefix("zh") ? "语音" : "Voice",
+            subtitle: Locale.current.identifier.hasPrefix("zh")
+                ? "管理麦克风、唤起方式、听写增强和术语纠错。"
+                : "Manage microphone input, activation mode, dictation enhancement, and terminology rules."
+        ) {
             VStack(spacing: 20) {
-                // Microphone Section
                 GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 16) {
                         HStack {
                             Label(L10n.settingsMicrophone, systemImage: "mic.fill")
                                 .font(.body)
@@ -65,22 +126,39 @@ struct InputSettingsView: View {
                                 )
                             }
                         }
-                        
+
                         Divider()
-                        
-                        HStack {
-                            Label(L10n.settingsSpeechLanguage, systemImage: "globe")
-                                .font(.body)
-                            Spacer()
-                            FixedWidthPopUpMenu(
-                                options: localeOptions,
-                                selection: localeSelection
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Label(L10n.settingsSpeechLanguage, systemImage: "globe")
+                                        .font(.body)
+                                    Text(Locale.current.identifier.hasPrefix("zh")
+                                         ? "影响语音识别和默认命令词库。"
+                                         : "This controls speech recognition and the default command lexicon.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                LanguageStatusTag(
+                                    title: isFollowingSystemSpeechLocale
+                                        ? (Locale.current.identifier.hasPrefix("zh")
+                                            ? "跟随系统 · \(effectiveSpeechLocaleDisplayName)"
+                                            : "System · \(effectiveSpeechLocaleDisplayName)")
+                                        : effectiveSpeechLocaleDisplayName,
+                                    tint: .blue
+                                )
+                            }
+
+                            VoiceLanguageChipPicker(
+                                options: speechLanguageOptions,
+                                selection: speechLanguageSelection
                             )
                         }
                     }
                 }
                 
-                // Activation Section
                 GlassCard {
                     VStack(alignment: .leading, spacing: 20) {
                         Label(L10n.activationMethods, systemImage: "bolt.fill")
@@ -144,44 +222,29 @@ struct InputSettingsView: View {
                         }
                         
                         Divider()
-                        
-                        // PTT shortcut configuration
+
                         HStack(alignment: .center) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(L10n.activationShortcut)
                                     .font(.body)
-                                Text(L10n.activationShortcutHint)
+                                Text(Locale.current.identifier.hasPrefix("zh")
+                                     ? "当前按键为 \(appState.voicePTTBinding.displayString)。如需修改，请到“快捷键”页面统一设置。"
+                                     : "Current shortcut: \(appState.voicePTTBinding.displayString). Change it from the Shortcuts page.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             Spacer()
-                            
-                            HStack(spacing: 12) {
-                                HStack(spacing: 4) {
-                                    KeyRecorderView(
-                                        binding: $appState.voicePTTBinding,
-                                        onChange: { newBind in
-                                            appState.updatePTTBinding(newBind)
-                                        },
-                                        font: .body
-                                    )
-                                    
-                                    Button(action: {
-                                        appState.updatePTTBinding(HotkeyAction.pushToTalk.defaultBinding)
-                                    }) {
-                                        Image(systemName: "arrow.counterclockwise")
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help(L10n.hotkeyResetSingle)
-                                }
-                            }
+                            Text(appState.voicePTTBinding.displayString)
+                                .font(.system(.caption, design: .monospaced))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .cornerRadius(8)
                         }
                     }
                 }
                 
-                // Dictation Mode Settings
                 GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Label(L10n.settingsDictationMode, systemImage: "text.quote")
@@ -230,8 +293,143 @@ struct InputSettingsView: View {
                         }
                     }
                 }
+
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Label(L10n.voiceLexiconTitle, systemImage: "list.bullet.clipboard")
+                        .font(.headline)
+
+                        Text(L10n.voiceLexiconDescription)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(L10n.voiceLexiconEditingLanguage)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundColor(.secondary)
+                                Text(Locale.current.identifier.hasPrefix("zh")
+                                     ? "按语言编辑唤醒词、前缀和命令别名。"
+                                     : "Edit wake words, prefixes, and command aliases per language.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            LanguageStatusTag(title: commandLocaleDisplayName, tint: .blue)
+                            Button(L10n.voiceLexiconResetLanguage) {
+                                appState.resetCommandOverrides(for: resolvedCommandLocaleID)
+                                appState.resetVoiceLanguageTermsOverrides(for: resolvedCommandLocaleID)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+
+                        VoiceLanguageChipPicker(
+                            options: lexiconLanguageOptions,
+                            selection: Binding(
+                                get: { resolvedCommandLocaleID },
+                                set: { commandLocaleID = $0 }
+                            )
+                        )
+
+                        HStack(spacing: 10) {
+                            Button(L10n.voiceLexiconImport) {
+                                do {
+                                    if let url = try appState.importVoiceLexicon() {
+                                        lexiconTransferStatus = "\(String(localized: "voice_lexicon.imported")): \(url.lastPathComponent)"
+                                    }
+                                } catch {
+                                    lexiconTransferStatus = "\(String(localized: "voice_lexicon.import_failed")): \(error.localizedDescription)"
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+
+                            Button(L10n.voiceLexiconExport) {
+                                do {
+                                    if let url = try appState.exportVoiceLexicon() {
+                                        lexiconTransferStatus = "\(String(localized: "voice_lexicon.exported")): \(url.lastPathComponent)"
+                                    }
+                                } catch {
+                                    lexiconTransferStatus = "\(String(localized: "voice_lexicon.export_failed")): \(error.localizedDescription)"
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+
+                            Spacer()
+                        }
+
+                        if let lexiconTransferStatus, !lexiconTransferStatus.isEmpty {
+                            Text(lexiconTransferStatus)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        VStack(spacing: 12) {
+                            VoiceTermsEditorRow(
+                                title: String(localized: "voice_lexicon.wake_words"),
+                                text: Binding(
+                                    get: { appState.wakeWordOverrideText(for: resolvedCommandLocaleID) },
+                                    set: { appState.updateWakeWordOverrideText($0, for: resolvedCommandLocaleID) }
+                                ),
+                                defaultValues: WakeWordDetector.defaultWakePhrases(for: resolvedCommandLocaleID),
+                                onReset: {
+                                    appState.updateWakeWordOverrideText("", for: resolvedCommandLocaleID)
+                                }
+                            )
+
+                            VoiceTermsEditorRow(
+                                title: String(localized: "voice_lexicon.command_prefixes"),
+                                text: Binding(
+                                    get: { appState.commandPrefixOverrideText(for: resolvedCommandLocaleID) },
+                                    set: { appState.updateCommandPrefixOverrideText($0, for: resolvedCommandLocaleID) }
+                                ),
+                                defaultValues: VoiceCommandRouter.defaultCommandPrefixes(for: resolvedCommandLocaleID),
+                                onReset: {
+                                    appState.updateCommandPrefixOverrideText("", for: resolvedCommandLocaleID)
+                                }
+                            )
+
+                            VoiceTermsEditorRow(
+                                title: String(localized: "voice_lexicon.dictation_prefixes"),
+                                text: Binding(
+                                    get: { appState.dictationPrefixOverrideText(for: resolvedCommandLocaleID) },
+                                    set: { appState.updateDictationPrefixOverrideText($0, for: resolvedCommandLocaleID) }
+                                ),
+                                defaultValues: VoiceCommandRouter.defaultDictationPrefixes(for: resolvedCommandLocaleID),
+                                onReset: {
+                                    appState.updateDictationPrefixOverrideText("", for: resolvedCommandLocaleID)
+                                }
+                            )
+                        }
+
+                        Divider()
+
+                        VStack(spacing: 12) {
+                            ForEach(VoiceCommandPreset.allCases) { preset in
+                                VoiceCommandAliasRow(
+                                    preset: preset,
+                                    text: Binding(
+                                        get: { appState.commandOverrideText(for: preset, localeIdentifier: resolvedCommandLocaleID) },
+                                        set: { appState.updateCommandOverrideText($0, for: preset, localeIdentifier: resolvedCommandLocaleID) }
+                                    ),
+                                    defaultAliases: VoiceCommandRouter.defaultAliases(for: preset, localeIdentifier: resolvedCommandLocaleID),
+                                    onReset: {
+                                        appState.updateCommandOverrideText("", for: preset, localeIdentifier: resolvedCommandLocaleID)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
             }
-            .padding()
+        }
+        .onAppear {
+            if commandLocaleID.isEmpty {
+                let preferred = appState.voiceService.explicitLocaleIdentifier ?? Locale.current.identifier
+                commandLocaleID = normalizedCommandLocaleIdentifier(preferred)
+            }
         }
         .sheet(isPresented: Binding(
             get: { editingGroupID != nil },
@@ -285,6 +483,155 @@ struct InputSettingsView: View {
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct VoiceLanguageOption: Identifiable, Equatable {
+    let id: String
+    let title: String
+}
+
+private struct VoiceLanguageChipPicker: View {
+    let options: [VoiceLanguageOption]
+    @Binding var selection: String
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 112), spacing: 10)
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+            ForEach(options) { option in
+                Button {
+                    selection = option.id
+                } label: {
+                    Text(option.title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(selection == option.id ? .accentColor : .primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(selection == option.id ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor).opacity(0.72))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(selection == option.id ? Color.accentColor.opacity(0.35) : Color.black.opacity(0.05), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+private struct LanguageStatusTag: View {
+    let title: String
+    let tint: Color
+
+    var body: some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(tint.opacity(0.12))
+            .foregroundColor(tint)
+            .clipShape(Capsule())
+    }
+}
+
+private struct VoiceTermsEditorRow: View {
+    let title: String
+    @Binding var text: String
+    let defaultValues: [String]
+    let onReset: () -> Void
+
+    private var hasOverride: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.body.weight(.medium))
+                Spacer()
+                if hasOverride {
+                    Text(L10n.voiceLexiconCustom)
+                        .font(.caption)
+                        .foregroundColor(.accentColor)
+                }
+            }
+
+            TextField(
+                String(localized: "voice_lexicon.leave_empty"),
+                text: $text
+            )
+            .textFieldStyle(.roundedBorder)
+
+            HStack(alignment: .firstTextBaseline) {
+                Text("\(String(localized: "voice_lexicon.default")): \(defaultValues.joined(separator: ", "))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+
+                Spacer()
+
+                Button(L10n.voiceLexiconClear) {
+                    onReset()
+                }
+                .buttonStyle(.borderless)
+                .disabled(!hasOverride)
+            }
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(10)
+    }
+}
+
+private struct VoiceCommandAliasRow: View {
+    let preset: VoiceCommandPreset
+    @Binding var text: String
+    let defaultAliases: [String]
+    let onReset: () -> Void
+
+    private var hasOverride: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(preset.title())
+                    .font(.body.weight(.medium))
+                Spacer()
+                if hasOverride {
+                    Text(L10n.voiceLexiconCustom)
+                        .font(.caption)
+                        .foregroundColor(.accentColor)
+                }
+            }
+
+            TextField(
+                String(localized: "voice_lexicon.leave_empty"),
+                text: $text
+            )
+            .textFieldStyle(.roundedBorder)
+
+            HStack(alignment: .firstTextBaseline) {
+                Text("\(String(localized: "voice_lexicon.default")): \(defaultAliases.joined(separator: ", "))")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+
+                Spacer()
+
+                Button(L10n.voiceLexiconClear) {
+                    onReset()
+                }
+                .buttonStyle(.borderless)
+                .disabled(!hasOverride)
+            }
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(10)
     }
 }
 
@@ -691,9 +1038,13 @@ struct OutputSettingsView: View {
     }
     
     var body: some View {
-        ScrollView {
+        SettingsPage(
+            title: Locale.current.identifier.hasPrefix("zh") ? "指针" : "Pointer",
+            subtitle: Locale.current.identifier.hasPrefix("zh")
+                ? "集中调整头控启停、点击方式与校准状态。"
+                : "Adjust tracking, click behavior, and calibration in one place."
+        ) {
             VStack(spacing: 20) {
-                // Tracking Toggle
                 GlassCard {
                     ControlCard(
                         title: L10n.commandCenterMotionMatrix, // Reusing Motion Matrix title which is appropriate
@@ -704,20 +1055,11 @@ struct OutputSettingsView: View {
                     )
                 }
                 
-                // Gestures
                 GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Label(L10n.settingsGesturesClicks, systemImage: "hand.point.up.left.fill")
                             .font(.headline)
-                        
-                        ControlCard(
-                            title: L10n.dwellClick,
-                            subtitle: L10n.settingsDwellClickSubtitle,
-                            icon: "timer",
-                            color: .orange,
-                            isOn: $appState.isDwellClickEnabled
-                        )
-                        
+
                         ControlCard(
                             title: L10n.tiltScroll,
                             subtitle: L10n.settingsTiltScrollSubtitle,
@@ -728,7 +1070,6 @@ struct OutputSettingsView: View {
                     }
                 }
                 
-                // Calibration
                 GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
                          Label(L10n.settingsCalibration, systemImage: "scope")
@@ -762,7 +1103,6 @@ struct OutputSettingsView: View {
                     }
                 }
             }
-            .padding()
         }
     }
 }
@@ -772,9 +1112,13 @@ struct SystemSettingsView: View {
     @EnvironmentObject var appState: AppState
     
     var body: some View {
-        ScrollView {
+        SettingsPage(
+            title: Locale.current.identifier.hasPrefix("zh") ? "高级" : "Advanced",
+            subtitle: Locale.current.identifier.hasPrefix("zh")
+                ? "查看驱动、权限和应用级行为设置。"
+                : "Review driver state, permissions, and app-level behavior."
+        ) {
             VStack(spacing: 20) {
-                // Driver Status
                 GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Label(L10n.settingsDriverStatus, systemImage: "cpu")
@@ -799,7 +1143,6 @@ struct SystemSettingsView: View {
                     }
                 }
                 
-                // Permissions
                 GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Label(L10n.permissionsTitle, systemImage: "lock.shield")
@@ -832,7 +1175,6 @@ struct SystemSettingsView: View {
                     }
                 }
                 
-                // General
                 GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Label(L10n.settingsTabGeneral, systemImage: "gear")
@@ -842,7 +1184,6 @@ struct SystemSettingsView: View {
                     }
                 }
             }
-            .padding()
         }
     }
 }
@@ -850,13 +1191,15 @@ struct SystemSettingsView: View {
 // MARK: - Shortcuts Placeholder
 struct ShortcutsSettingsView: View {
     var body: some View {
-         ScrollView {
-             VStack(spacing: 20) {
-                 GlassCard {
-                     HotkeySettingsSection()
-                 }
-             }
-             .padding()
-         }
+        SettingsPage(
+            title: Locale.current.identifier.hasPrefix("zh") ? "快捷键" : "Shortcuts",
+            subtitle: Locale.current.identifier.hasPrefix("zh")
+                ? "统一管理按住说话、头控和连接锁等全局快捷键。"
+                : "Manage Push to Talk, pointer control, connection lock, and other global shortcuts."
+        ) {
+            GlassCard {
+                HotkeySettingsSection()
+            }
+        }
     }
 }

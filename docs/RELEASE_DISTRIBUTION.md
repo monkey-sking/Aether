@@ -41,9 +41,9 @@ NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh
 
 默认行为（无分发 profile）：
 
-- 若未提供 `APP_PROVISION_PROFILE`，脚本会使用“兼容签名”模式：
-- 不注入受限 entitlement（避免 launchd `spawn failed` / Code 162）
-- 移除 `Contents/Library/SystemExtensions`（确保应用可直接启动）
+- 若未提供 `APP_PROVISION_PROFILE` 和 `DRIVER_PROVISION_PROFILE`，脚本会自动使用“兼容签名”模式。
+- 兼容模式会移除 `Contents/Library/SystemExtensions`，并移除 `com.apple.developer.system-extension.install` entitlement。
+- 这类包适合先分发主 App 与语音能力，不包含 DriverKit 系统扩展能力。
 
 如需保留系统扩展能力，请显式提供 profile：
 

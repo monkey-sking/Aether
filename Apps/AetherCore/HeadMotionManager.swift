@@ -87,14 +87,6 @@ class HeadMotionManager: ObservableObject {
     private let deadzone: Double = 0.005  // Ignore movements smaller than ~0.3 degrees
     private let accelerationPower: Double = 1.5 // 1.0 is linear, >1.0 is exponential
     
-    // Dwell Click State
-    @Published var isDwellClickEnabled: Bool = false
-    private var dwellStartTime: Date?
-    private var lastDwellPos: CGPoint = .zero
-    private let dwellRadius: CGFloat = 15.0 // More forgiving radius
-    private let dwellDuration: TimeInterval = 0.8 // Seconds
-    private let movementThreshold: CGFloat = 2.0 // Min movement to reset timer during dwell
-    
     // Dynamic Range Calibration
     @Published var calibrationStatus: String = "Normal"
     
@@ -171,9 +163,6 @@ class HeadMotionManager: ObservableObject {
     
     // Store aggregate desktop dimensions
     private var desktopFrame: NSRect = .zero
-    
-    // UI Overlay
-    private var dwellOverlay: DwellOverlayWindow? = nil
     
     // Attention Awareness
     @Published var isLookingAtScreen: Bool = true
@@ -293,7 +282,6 @@ class HeadMotionManager: ObservableObject {
                 
                 DispatchQueue.main.async {
                     self.attitudeText = "Tracking..."
-                    self.dwellOverlay = DwellOverlayWindow()
                 }
             }
             // -------------------------------------
@@ -442,11 +430,9 @@ class HeadMotionManager: ObservableObject {
         disableAirPodsCommands() // Clean up commands
         
         DispatchQueue.main.async {
-            self.dwellOverlay?.orderOut(nil)
-            self.dwellOverlay = nil
             // Don't overwrite "Connection Failed" if that was the reason
-            if self.isTracking { 
-                self.attitudeText = "Stopped" 
+            if self.isTracking {
+                self.attitudeText = "Stopped"
             }
             self.isTracking = false
         }
@@ -515,7 +501,6 @@ class HeadMotionManager: ObservableObject {
         isCalibrated = false
         isCalibratingRange = true
         calibrationStatus = "Calibrating..."
-        dwellStartTime = nil
     }
     
     func finishCalibration() {
@@ -576,12 +561,6 @@ class HeadMotionManager: ObservableObject {
                     os_log("Attention: Lost (Commands Disabled)", log: log)
                     disableAirPodsCommands()
                     // Optional: Play subtle feedback sound
-                    
-                    // Clear dwell state when looking away
-                    DispatchQueue.main.async {
-                        self.dwellStartTime = nil
-                        self.dwellOverlay?.update(progress: 0, position: .zero, isClicking: false)
-                    }
                 }
             }
         } else {
@@ -792,33 +771,6 @@ class HeadMotionManager: ObservableObject {
     private func moveToAbsolutePosition(x: CGFloat, y: CGFloat) {
         let maxY = desktopFrame == .zero ? NSScreen.screens.reduce(CGFloat(0)) { max($0, $1.frame.maxY) } : desktopFrame.maxY
         AutomationOutputs.shared.moveCursor(to: CGPoint(x: x, y: y), desktopMaxY: maxY)
-        handleDwellClick(at: CGPoint(x: x, y: y))
-    }
-    
-    private func handleDwellClick(at point: CGPoint) {
-        // Dwell only works if looking at screen
-        guard isDwellClickEnabled && !isCalibratingRange && isTracking && isLookingAtScreen else { return }
-        
-        let dist = sqrt(pow(point.x - lastDwellPos.x, 2) + pow(point.y - lastDwellPos.y, 2))
-        DispatchQueue.main.async {
-            if dist < self.dwellRadius {
-                if let start = self.dwellStartTime {
-                    let duration = Date().timeIntervalSince(start)
-                    let progress = min(1.0, duration / self.dwellDuration)
-                    self.dwellOverlay?.update(progress: progress, position: point, isClicking: progress >= 1.0)
-                    if duration >= self.dwellDuration {
-                        self.triggerMouseClick(at: point)
-                        self.dwellStartTime = nil
-                    }
-                } else {
-                    self.dwellStartTime = Date()
-                }
-            } else {
-                self.dwellStartTime = nil
-                self.lastDwellPos = point
-                self.dwellOverlay?.update(progress: 0, position: point, isClicking: false)
-            }
-        }
     }
 
     @MainActor
@@ -1267,33 +1219,4 @@ class HeadMotionManager: ObservableObject {
                log: log, type: .info, source)
     }
 
-}
-
-
-// MARK: - Overlay Components
-struct DwellProgressView: View {
-    var progress: Double
-    var isClicking: Bool
-    var body: some View {
-        ZStack {
-            Circle().stroke(Color.white.opacity(0.3), lineWidth: 4).frame(width: 32, height: 32).background(Circle().fill(Color.black.opacity(0.2)))
-            Circle().trim(from: 0, to: CGFloat(progress)).stroke(isClicking ? Color.orange : Color.white, style: StrokeStyle(lineWidth: 4, lineCap: .round)).frame(width: 32, height: 32).rotationEffect(.degrees(-90))
-        }.animation(.linear(duration: 0.1), value: progress)
-    }
-}
-
-class DwellOverlayWindow: NSPanel {
-    init() {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 40, height: 40), styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
-        self.level = .mainMenu + 1
-        self.isFloatingPanel = true
-        self.backgroundColor = .clear
-        self.ignoresMouseEvents = true
-        self.contentView = NSHostingView(rootView: DwellProgressView(progress: 0, isClicking: false))
-    }
-    func update(progress: Double, position: CGPoint, isClicking: Bool) {
-        self.setFrameOrigin(CGPoint(x: position.x - 20, y: position.y - 20))
-        self.contentView = NSHostingView(rootView: DwellProgressView(progress: progress, isClicking: isClicking))
-        if progress > 0 || isClicking { self.orderFront(nil) } else { self.orderOut(nil) }
-    }
 }

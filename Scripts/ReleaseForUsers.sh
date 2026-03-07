@@ -25,6 +25,7 @@ HOST_ARCH="$(uname -m)"
 if [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" == "1" ]]; then
   HOST_ARCH="arm64"
 fi
+FULL_FEATURE_DISTRIBUTION=0
 
 log() { echo "[release] $*"; }
 err() { echo "[release] ERROR: $*" >&2; exit 1; }
@@ -74,9 +75,18 @@ build_unsigned() {
   [[ -d "$APP_PATH" ]] || err "Build succeeded but app not found: ${APP_PATH}"
 }
 
+configure_distribution_mode() {
+  if [[ -n "${APP_PROVISION_PROFILE:-}" && -f "${APP_PROVISION_PROFILE}" && -n "${DRIVER_PROVISION_PROFILE:-}" && -f "${DRIVER_PROVISION_PROFILE}" ]]; then
+    FULL_FEATURE_DISTRIBUTION=1
+    log "Distribution mode: full-feature package with embedded app + driver profiles."
+  else
+    FULL_FEATURE_DISTRIBUTION=0
+    log "Distribution mode: compatibility package without system extension payload."
+  fi
+}
+
 embed_profiles_if_provided() {
-  [[ -n "${APP_PROVISION_PROFILE:-}" && -f "${APP_PROVISION_PROFILE}" ]] || err "APP_PROVISION_PROFILE is required for full-feature distribution."
-  [[ -n "${DRIVER_PROVISION_PROFILE:-}" && -f "${DRIVER_PROVISION_PROFILE}" ]] || err "DRIVER_PROVISION_PROFILE is required for full-feature distribution."
+  [[ "$FULL_FEATURE_DISTRIBUTION" == "1" ]] || return 0
 
   local dext
   dext="$(find "${APP_PATH}/Contents/Library/SystemExtensions" -name "*.dext" -type d | head -n 1 || true)"
@@ -125,8 +135,20 @@ prepare_sign_entitlements() {
   fi
 }
 
+prepare_compatibility_bundle() {
+  [[ "$FULL_FEATURE_DISTRIBUTION" == "0" ]] || return 0
+
+  log "Preparing compatibility bundle..."
+  rm -f "${APP_PATH}/Contents/embedded.provisionprofile"
+  rm -rf "${APP_PATH}/Contents/Library/SystemExtensions"
+
+  cp "${APP_ENTITLEMENTS}" "${APP_SIGN_ENTITLEMENTS}"
+  /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.system-extension.install" "${APP_SIGN_ENTITLEMENTS}" >/dev/null 2>&1 || true
+}
+
 sign_app_bundle() {
   local identity="$1"
+  local app_codesign_args=(--force --options runtime --timestamp --sign "$identity")
   log "Signing app with identity: ${identity}"
 
   xattr -cr "$APP_PATH" >/dev/null 2>&1 || true
@@ -152,9 +174,11 @@ sign_app_bundle() {
     done
   fi
 
-  codesign --force --options runtime --timestamp \
-    --entitlements "${APP_SIGN_ENTITLEMENTS}" \
-    --sign "$identity" "$APP_PATH"
+  if [[ -n "${APP_SIGN_ENTITLEMENTS:-}" && -f "${APP_SIGN_ENTITLEMENTS}" ]]; then
+    app_codesign_args+=(--entitlements "${APP_SIGN_ENTITLEMENTS}")
+  fi
+
+  codesign "${app_codesign_args[@]}" "$APP_PATH"
 
   codesign --verify --deep --strict --verbose=2 "$APP_PATH" >/dev/null
   log "Code sign verification passed."
@@ -202,10 +226,15 @@ main() {
   cd "$PROJECT_ROOT"
   local identity
   identity="$(find_signing_identity)"
+  configure_distribution_mode
   build_unsigned
   embed_profiles_if_provided
-  prepare_sign_entitlements "${APP_ENTITLEMENTS}" "${APP_PROFILE_PLIST}" "${APP_SIGN_ENTITLEMENTS}"
-  prepare_sign_entitlements "${DRIVER_ENTITLEMENTS}" "${DRIVER_PROFILE_PLIST}" "${DRIVER_SIGN_ENTITLEMENTS}"
+  if [[ "$FULL_FEATURE_DISTRIBUTION" == "1" ]]; then
+    prepare_sign_entitlements "${APP_ENTITLEMENTS}" "${APP_PROFILE_PLIST}" "${APP_SIGN_ENTITLEMENTS}"
+    prepare_sign_entitlements "${DRIVER_ENTITLEMENTS}" "${DRIVER_PROFILE_PLIST}" "${DRIVER_SIGN_ENTITLEMENTS}"
+  else
+    prepare_compatibility_bundle
+  fi
   sign_app_bundle "$identity"
   package_outputs
   sign_dmg "$identity"

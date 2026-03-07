@@ -42,7 +42,6 @@ enum L10n {
     static let openPrivacyAndSecurity: LocalizedStringKey = "system_extension.open_privacy_security"
 
     // Controls
-    static let dwellClick: LocalizedStringKey = "control.dwell_click"
     static let forceDriverOnly: LocalizedStringKey = "control.force_driver_only"
     static let alwaysListening: LocalizedStringKey = "control.always_listening"
     static let alwaysListeningWakeWindow: LocalizedStringKey = "control.always_listening_wake_window"
@@ -184,7 +183,6 @@ enum L10n {
     static let settingsFeedbackSound: LocalizedStringKey = "settings.feedback_sound"
     static let settingsAutoPunctuation: LocalizedStringKey = "settings.auto_punctuation"
     static let settingsGesturesClicks: LocalizedStringKey = "settings.gestures_clicks"
-    static let settingsDwellClickSubtitle: LocalizedStringKey = "settings.dwell_click_subtitle"
     static let settingsTiltScrollSubtitle: LocalizedStringKey = "settings.tilt_scroll_subtitle"
     static let settingsCalibration: LocalizedStringKey = "settings.calibration"
     static let settingsCurrentStatus: LocalizedStringKey = "settings.current_status"
@@ -195,4 +193,24 @@ enum L10n {
     static let statusPaused: LocalizedStringKey = "status.paused"
     static let calibrationNormal: LocalizedStringKey = "calibration.normal"
     static let hotkeyResetSingle: LocalizedStringKey = "hotkey.reset_single"
+
+    // Voice Lexicon
+    static let voiceLexiconTitle: LocalizedStringKey = "voice_lexicon.title"
+    static let voiceLexiconDescription: LocalizedStringKey = "voice_lexicon.description"
+    static let voiceLexiconEditingLanguage: LocalizedStringKey = "voice_lexicon.editing_language"
+    static let voiceLexiconCurrentTarget: LocalizedStringKey = "voice_lexicon.current_target"
+    static let voiceLexiconResetLanguage: LocalizedStringKey = "voice_lexicon.reset_language"
+    static let voiceLexiconExport: LocalizedStringKey = "voice_lexicon.export"
+    static let voiceLexiconImport: LocalizedStringKey = "voice_lexicon.import"
+    static let voiceLexiconWakeWords: LocalizedStringKey = "voice_lexicon.wake_words"
+    static let voiceLexiconCommandPrefixes: LocalizedStringKey = "voice_lexicon.command_prefixes"
+    static let voiceLexiconDictationPrefixes: LocalizedStringKey = "voice_lexicon.dictation_prefixes"
+    static let voiceLexiconLeaveEmpty: LocalizedStringKey = "voice_lexicon.leave_empty"
+    static let voiceLexiconDefault: LocalizedStringKey = "voice_lexicon.default"
+    static let voiceLexiconCustom: LocalizedStringKey = "voice_lexicon.custom"
+    static let voiceLexiconClear: LocalizedStringKey = "voice_lexicon.clear"
+    static let voiceLexiconImported: LocalizedStringKey = "voice_lexicon.imported"
+    static let voiceLexiconExported: LocalizedStringKey = "voice_lexicon.exported"
+    static let voiceLexiconImportFailed: LocalizedStringKey = "voice_lexicon.import_failed"
+    static let voiceLexiconExportFailed: LocalizedStringKey = "voice_lexicon.export_failed"
 }

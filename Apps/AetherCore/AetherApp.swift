@@ -4,6 +4,7 @@ import Combine
 import AVFoundation
 import Speech
 import Carbon
+import UniformTypeIdentifiers
 
 let kAetherDriverBundleID = "com.7fei.Aether.AetherDriver"
 
@@ -43,11 +44,6 @@ final class MotionService: ObservableObject {
     @Published private(set) var isTracking: Bool = false
     @Published private(set) var attitudeText: String = "No Data"
     @Published private(set) var calibrationStatus: String = "Normal"
-
-    var isDwellClickEnabled: Bool {
-        get { manager.isDwellClickEnabled }
-        set { manager.isDwellClickEnabled = newValue }
-    }
 
     private let manager: HeadMotionManager
     private var cancellables = Set<AnyCancellable>()
@@ -233,6 +229,14 @@ final class VoiceService: ObservableObject {
         manager.isLLMEnhancementEnabled = enabled
     }
 
+    func setVoiceCommandOverrides(_ overrides: [VoiceCommandOverrideConfig]) {
+        manager.setVoiceCommandOverrides(overrides)
+    }
+
+    func setVoiceLanguageTermsOverrides(_ overrides: [VoiceLanguageTermsOverrideConfig]) {
+        manager.setVoiceLanguageTermsOverrides(overrides)
+    }
+
     func setAccessibilityTrusted(_ trusted: Bool) {
         manager.updateAccessibilityTrusted(trusted)
     }
@@ -283,6 +287,13 @@ final class PermissionsService: ObservableObject {
 
 @MainActor
 class AppState: ObservableObject {
+    struct VoiceLexiconBackup: Codable {
+        var version: Int = 1
+        var exportedAt: Date = Date()
+        var commandOverrides: [VoiceCommandOverrideConfig]
+        var languageTermsOverrides: [VoiceLanguageTermsOverrideConfig]
+    }
+
     struct SpeechTermGroupConfig: Codable, Identifiable, Equatable {
         var id: String
         var name: String
@@ -309,6 +320,8 @@ class AppState: ObservableObject {
     }
 
     private static let speechTermGroupsStorageKey = "speechTermGroupsV2"
+    private static let voiceCommandOverridesStorageKey = "voiceCommandOverridesV1"
+    private static let voiceLanguageTermsOverridesStorageKey = "voiceLanguageTermsOverridesV1"
 
     private static func defaultSpeechTermGroups() -> [SpeechTermGroupConfig] {
         [
@@ -355,6 +368,34 @@ class AppState: ObservableObject {
     private static func saveSpeechTermGroups(_ groups: [SpeechTermGroupConfig]) {
         if let data = try? JSONEncoder().encode(groups) {
             UserDefaults.standard.set(data, forKey: speechTermGroupsStorageKey)
+        }
+    }
+
+    private static func loadVoiceCommandOverrides() -> [VoiceCommandOverrideConfig] {
+        guard let data = UserDefaults.standard.data(forKey: voiceCommandOverridesStorageKey),
+              let overrides = try? JSONDecoder().decode([VoiceCommandOverrideConfig].self, from: data) else {
+            return []
+        }
+        return overrides
+    }
+
+    private static func saveVoiceCommandOverrides(_ overrides: [VoiceCommandOverrideConfig]) {
+        if let data = try? JSONEncoder().encode(overrides) {
+            UserDefaults.standard.set(data, forKey: voiceCommandOverridesStorageKey)
+        }
+    }
+
+    private static func loadVoiceLanguageTermsOverrides() -> [VoiceLanguageTermsOverrideConfig] {
+        guard let data = UserDefaults.standard.data(forKey: voiceLanguageTermsOverridesStorageKey),
+              let overrides = try? JSONDecoder().decode([VoiceLanguageTermsOverrideConfig].self, from: data) else {
+            return []
+        }
+        return overrides
+    }
+
+    private static func saveVoiceLanguageTermsOverrides(_ overrides: [VoiceLanguageTermsOverrideConfig]) {
+        if let data = try? JSONEncoder().encode(overrides) {
+            UserDefaults.standard.set(data, forKey: voiceLanguageTermsOverridesStorageKey)
         }
     }
 
@@ -406,12 +447,6 @@ class AppState: ObservableObject {
     @Published var attitudeData: String = "No Data"
     
     @Published var calibrationStatus: String = "Normal"
-    @Published var isDwellClickEnabled: Bool = UserDefaults.standard.object(forKey: "isDwellClickEnabled_v3") as? Bool ?? false {
-        didSet {
-            UserDefaults.standard.set(isDwellClickEnabled, forKey: "isDwellClickEnabled_v3")
-            motionService.isDwellClickEnabled = isDwellClickEnabled
-        }
-    }
 
     @Published var voiceStatus: String = "Idle"
     @Published var lastVoiceTranscript: String = ""
@@ -596,6 +631,18 @@ class AppState: ObservableObject {
             AppState.saveSpeechTermGroups(speechTermGroups)
         }
     }
+    @Published var voiceCommandOverrides: [VoiceCommandOverrideConfig] = AppState.loadVoiceCommandOverrides() {
+        didSet {
+            AppState.saveVoiceCommandOverrides(voiceCommandOverrides)
+            voiceService.setVoiceCommandOverrides(voiceCommandOverrides)
+        }
+    }
+    @Published var voiceLanguageTermsOverrides: [VoiceLanguageTermsOverrideConfig] = AppState.loadVoiceLanguageTermsOverrides() {
+        didSet {
+            AppState.saveVoiceLanguageTermsOverrides(voiceLanguageTermsOverrides)
+            voiceService.setVoiceLanguageTermsOverrides(voiceLanguageTermsOverrides)
+        }
+    }
 
     func addSpeechTermGroup() {
         speechTermGroups.append(
@@ -613,6 +660,159 @@ class AppState: ObservableObject {
         speechTermGroups.removeAll { $0.id == id }
         if speechTermGroups.isEmpty {
             speechTermGroups = AppState.defaultSpeechTermGroups()
+        }
+    }
+
+    func effectiveCommandAliases(for preset: VoiceCommandPreset, localeIdentifier: String) -> [String] {
+        VoiceCommandRouter.effectiveAliases(
+            for: preset,
+            localeIdentifier: localeIdentifier,
+            overrides: voiceCommandOverrides
+        )
+    }
+
+    func commandOverrideText(for preset: VoiceCommandPreset, localeIdentifier: String) -> String {
+        guard let override = voiceCommandOverrides.first(where: {
+            $0.localeIdentifier == localeIdentifier && $0.commandID == preset.rawValue
+        }) else {
+            return ""
+        }
+        return override.aliases.joined(separator: ", ")
+    }
+
+    func updateCommandOverrideText(_ raw: String, for preset: VoiceCommandPreset, localeIdentifier: String) {
+        let aliases = raw
+            .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        voiceCommandOverrides.removeAll {
+            $0.localeIdentifier == localeIdentifier && $0.commandID == preset.rawValue
+        }
+
+        guard !aliases.isEmpty else { return }
+
+        voiceCommandOverrides.append(
+            VoiceCommandOverrideConfig(
+                localeIdentifier: localeIdentifier,
+                commandID: preset.rawValue,
+                aliases: aliases
+            )
+        )
+    }
+
+    func resetCommandOverrides(for localeIdentifier: String) {
+        voiceCommandOverrides.removeAll { $0.localeIdentifier == localeIdentifier }
+    }
+
+    func wakeWordOverrideText(for localeIdentifier: String) -> String {
+        voiceLanguageTermsOverrides
+            .first(where: { $0.localeIdentifier == localeIdentifier })?
+            .wakeWords
+            .joined(separator: ", ") ?? ""
+    }
+
+    func commandPrefixOverrideText(for localeIdentifier: String) -> String {
+        voiceLanguageTermsOverrides
+            .first(where: { $0.localeIdentifier == localeIdentifier })?
+            .commandPrefixes
+            .joined(separator: ", ") ?? ""
+    }
+
+    func dictationPrefixOverrideText(for localeIdentifier: String) -> String {
+        voiceLanguageTermsOverrides
+            .first(where: { $0.localeIdentifier == localeIdentifier })?
+            .dictationPrefixes
+            .joined(separator: ", ") ?? ""
+    }
+
+    func updateWakeWordOverrideText(_ raw: String, for localeIdentifier: String) {
+        updateVoiceLanguageTermsOverride(for: localeIdentifier) { config in
+            config.wakeWords = parseVoiceTermsText(raw)
+        }
+    }
+
+    func updateCommandPrefixOverrideText(_ raw: String, for localeIdentifier: String) {
+        updateVoiceLanguageTermsOverride(for: localeIdentifier) { config in
+            config.commandPrefixes = parseVoiceTermsText(raw)
+        }
+    }
+
+    func updateDictationPrefixOverrideText(_ raw: String, for localeIdentifier: String) {
+        updateVoiceLanguageTermsOverride(for: localeIdentifier) { config in
+            config.dictationPrefixes = parseVoiceTermsText(raw)
+        }
+    }
+
+    func resetVoiceLanguageTermsOverrides(for localeIdentifier: String) {
+        voiceLanguageTermsOverrides.removeAll { $0.localeIdentifier == localeIdentifier }
+    }
+
+    func exportVoiceLexicon() throws -> URL? {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "AetherVoiceLexicon.json"
+        panel.prompt = String(localized: "voice_lexicon.export")
+
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+
+        let payload = VoiceLexiconBackup(
+            commandOverrides: voiceCommandOverrides,
+            languageTermsOverrides: voiceLanguageTermsOverrides
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(payload)
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
+    func importVoiceLexicon() throws -> URL? {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.prompt = String(localized: "voice_lexicon.import")
+
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+
+        let data = try Data(contentsOf: url)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let payload = try decoder.decode(VoiceLexiconBackup.self, from: data)
+        voiceCommandOverrides = payload.commandOverrides
+        voiceLanguageTermsOverrides = payload.languageTermsOverrides
+        return url
+    }
+
+    private func parseVoiceTermsText(_ raw: String) -> [String] {
+        raw
+            .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func updateVoiceLanguageTermsOverride(
+        for localeIdentifier: String,
+        mutate: (inout VoiceLanguageTermsOverrideConfig) -> Void
+    ) {
+        var config = voiceLanguageTermsOverrides.first(where: { $0.localeIdentifier == localeIdentifier }) ??
+            VoiceLanguageTermsOverrideConfig(
+                localeIdentifier: localeIdentifier,
+                wakeWords: [],
+                commandPrefixes: [],
+                dictationPrefixes: []
+            )
+
+        mutate(&config)
+
+        voiceLanguageTermsOverrides.removeAll { $0.localeIdentifier == localeIdentifier }
+        let hasAnyValues = !config.wakeWords.isEmpty || !config.commandPrefixes.isEmpty || !config.dictationPrefixes.isEmpty
+        if hasAnyValues {
+            voiceLanguageTermsOverrides.append(config)
         }
     }
     
@@ -750,14 +950,14 @@ class AppState: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$isGazeWakeEnabled)
             
-        motionService.isDwellClickEnabled = self.isDwellClickEnabled
-        
         // Restore voice activation state after initial SwiftUI graph setup to avoid startup re-entrancy.
         DispatchQueue.main.async { [weak self] in
             self?.applyVoiceActivationMode()
         }
         
         voiceService.setLLMEnhancementEnabled(self.isLLMEnhancementEnabled)
+        voiceService.setVoiceCommandOverrides(self.voiceCommandOverrides)
+        voiceService.setVoiceLanguageTermsOverrides(self.voiceLanguageTermsOverrides)
 
         voiceService.$status
             .assign(to: &$voiceStatus)
@@ -981,8 +1181,6 @@ class AppState: ObservableObject {
             motionService.stopTracking()
         case .recenter:
             motionService.recenter()
-        case .setDwell(let enabled):
-            isDwellClickEnabled = enabled
         case .scroll(let dx, let dy):
             motionService.scroll(dx: dx, dy: dy)
         case .scrollToWeb(let edge):
@@ -1116,17 +1314,15 @@ class AppState: ObservableObject {
         case .denied, .restricted:
             // Recovery path for stale/broken TCC rows:
             // reset app microphone decision, then re-request to force macOS prompt and re-create list entry.
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            Task { [weak self] in
+                _ = await Self.resetTCCAsync(service: "Microphone")
+                try? await Task.sleep(for: .milliseconds(200))
                 guard let self else { return }
-                _ = Self.resetTCC(service: "Microphone")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    self.permissions.requestMicrophone()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-                        self.refreshPermissions()
-                        if !self.microphoneAuthorized {
-                            self.permissions.openMicrophonePrivacyPane()
-                        }
-                    }
+                self.permissions.requestMicrophone()
+                try? await Task.sleep(for: .milliseconds(900))
+                self.refreshPermissions()
+                if !self.microphoneAuthorized {
+                    self.permissions.openMicrophonePrivacyPane()
                 }
             }
         @unknown default:
@@ -1150,17 +1346,15 @@ class AppState: ObservableObject {
                 }
             }
         case .denied, .restricted:
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            Task { [weak self] in
+                _ = await Self.resetTCCAsync(service: "SpeechRecognition")
+                try? await Task.sleep(for: .milliseconds(200))
                 guard let self else { return }
-                _ = Self.resetTCC(service: "SpeechRecognition")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    self.permissions.requestSpeech()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-                        self.refreshPermissions()
-                        if !self.speechAuthorized {
-                            self.permissions.openSpeechPrivacyPane()
-                        }
-                    }
+                self.permissions.requestSpeech()
+                try? await Task.sleep(for: .milliseconds(900))
+                self.refreshPermissions()
+                if !self.speechAuthorized {
+                    self.permissions.openSpeechPrivacyPane()
                 }
             }
         @unknown default:
@@ -1169,7 +1363,13 @@ class AppState: ObservableObject {
         }
     }
 
-    private static func resetTCC(service: String) -> Bool {
+    nonisolated private static func resetTCCAsync(service: String) async -> Bool {
+        await Task.detached(priority: .userInitiated) {
+            resetTCC(service: service)
+        }.value
+    }
+
+    nonisolated private static func resetTCC(service: String) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
         process.arguments = ["reset", service, "com.7fei.Aether"]
@@ -1252,7 +1452,7 @@ struct AetherApp: App {
             AetherMainView()
                 .environmentObject(appState)
         }
-        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1120, height: 760)
         .commands {
             SidebarCommands() // Enable View -> Show/Hide Sidebar
         }

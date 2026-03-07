@@ -11,26 +11,40 @@ struct HotkeySettingsSection: View {
     @State private var recordingAction: HotkeyAction? = nil // Exclusive recording state
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text(String(localized: "hotkey.section_title"))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(localized: "hotkey.section_title"))
+                        .font(.headline)
+                    Text(localeAwareSubtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
                 Spacer()
                 Button(String(localized: "hotkey.reset_all")) {
                     hotkeyManager.resetToDefaults()
                 }
-                .font(.caption2)
-                .controlSize(.mini)
+                .font(.caption)
+                .controlSize(.small)
             }
 
-            ForEach(HotkeyAction.allCases.filter { $0 != .pushToTalk }) { action in
-                KeyRecorderRow(action: action, recordingAction: $recordingAction)
+            VStack(spacing: 10) {
+                ForEach(HotkeyAction.allCases) { action in
+                    KeyRecorderRow(action: action, recordingAction: $recordingAction)
+                }
             }
         }
-        .padding(8)
-        .background(Color.black.opacity(0.06))
-        .cornerRadius(8)
+        .padding(16)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(14)
+    }
+
+    private var localeAwareSubtitle: String {
+        if Locale.current.identifier.hasPrefix("zh") {
+            return "点击某一项后按下新的组合键，按 Esc 取消。"
+        } else {
+            return "Click a shortcut, then press the new key combination. Press Esc to cancel."
+        }
     }
 }
 
@@ -44,14 +58,18 @@ struct KeyRecorderRow: View {
     var isRecording: Bool { recordingAction == action }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(action.label)
-                .font(.callout)
-                .frame(minWidth: 120, alignment: .leading)
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(action.label)
+                    .font(.callout.weight(.medium))
+                Text(helperText)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .frame(minWidth: 180, alignment: .leading)
 
             Spacer()
 
-            // Key display / recorder button
             Button(action: {
                 if isRecording {
                     recordingAction = nil
@@ -63,16 +81,16 @@ struct KeyRecorderRow: View {
                      ? String(localized: "hotkey.press_key")
                      : hotkeyManager.binding(for: action).displayString)
                     .font(.system(.caption, design: .monospaced))
-                    .frame(minWidth: 60)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .frame(minWidth: 84)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
                     .background(isRecording
-                                ? Color.accentColor.opacity(0.2)
-                                : Color(NSColor.controlBackgroundColor))
-                    .cornerRadius(6)
+                                ? Color.accentColor.opacity(0.18)
+                                : Color(nsColor: .windowBackgroundColor))
+                    .cornerRadius(8)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(isRecording ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isRecording ? Color.accentColor : Color.gray.opacity(0.25), lineWidth: 1)
                     )
             }
             .buttonStyle(.plain)
@@ -90,13 +108,31 @@ struct KeyRecorderRow: View {
                 ) : nil
             )
 
-            // Reset single action
             Button(action: { hotkeyManager.resetAction(action) }) {
                 Image(systemName: "arrow.counterclockwise")
-                    .font(.caption2)
+                    .font(.caption)
             }
             .buttonStyle(.plain)
             .help(String(localized: "hotkey.reset_single"))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .cornerRadius(10)
+    }
+
+    private var helperText: String {
+        switch action {
+        case .pushToTalk:
+            return Locale.current.identifier.hasPrefix("zh") ? "语音按住说话" : "Hold to speak"
+        case .toggleTracking:
+            return Locale.current.identifier.hasPrefix("zh") ? "启动或停止头控" : "Start or stop pointer tracking"
+        case .connectionLock:
+            return Locale.current.identifier.hasPrefix("zh") ? "切换连接锁定" : "Toggle connection lock"
+        case .toggleInputControlMode:
+            return Locale.current.identifier.hasPrefix("zh") ? "切换输入控制模式" : "Switch input control mode"
+        case .toggleLanguage:
+            return Locale.current.identifier.hasPrefix("zh") ? "切换语音语言" : "Switch dictation language"
         }
     }
 }

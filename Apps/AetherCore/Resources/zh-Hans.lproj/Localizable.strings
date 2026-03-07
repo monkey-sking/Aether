@@ -211,3 +211,23 @@
 "language.fr_FR" = "Français";
 "language.de_DE" = "Deutsch";
 "language.es_ES" = "Español";
+
+/* Voice Lexicon */
+"voice_lexicon.title" = "语音词库";
+"voice_lexicon.description" = "按语言统一配置唤醒词、强制前缀和命令别名。多个说法可用逗号或换行分隔；留空时使用内置默认词库。";
+"voice_lexicon.editing_language" = "编辑语言";
+"voice_lexicon.current_target" = "当前目标";
+"voice_lexicon.reset_language" = "恢复该语言默认";
+"voice_lexicon.export" = "导出 JSON";
+"voice_lexicon.import" = "导入 JSON";
+"voice_lexicon.wake_words" = "唤醒词";
+"voice_lexicon.command_prefixes" = "强制命令前缀";
+"voice_lexicon.dictation_prefixes" = "强制输入前缀";
+"voice_lexicon.leave_empty" = "留空则使用默认词库";
+"voice_lexicon.default" = "默认";
+"voice_lexicon.custom" = "已自定义";
+"voice_lexicon.clear" = "清空";
+"voice_lexicon.imported" = "已导入";
+"voice_lexicon.exported" = "已导出";
+"voice_lexicon.import_failed" = "导入失败";
+"voice_lexicon.export_failed" = "导出失败";
