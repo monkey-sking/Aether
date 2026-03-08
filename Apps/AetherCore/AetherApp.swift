@@ -2090,7 +2090,10 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
     }
 
     private func preferredPanelSize(in visibleFrame: NSRect) -> CGSize {
-        let globalSectionHeight = CurrentAppShortcutPanelLayout.estimatedHeight(forGlobalShortcutCount: HotkeyAction.allCases.count)
+        let visibleGlobalShortcutCount = (appState?.voiceActivationMode == .pushToTalk)
+            ? HotkeyAction.allCases.count
+            : HotkeyAction.allCases.filter { $0 != .pushToTalk }.count
+        let globalSectionHeight = CurrentAppShortcutPanelLayout.estimatedHeight(forGlobalShortcutCount: visibleGlobalShortcutCount)
         guard AXIsProcessTrusted(),
               let snapshot = FrontmostAppCommandCatalog.shared.snapshot,
               !snapshot.commands.isEmpty else {
@@ -2239,7 +2242,9 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private var globalShortcuts: [AetherGlobalShortcutPanelEntry] {
-        HotkeyAction.allCases.map {
+        HotkeyAction.allCases.filter {
+            $0 != .pushToTalk || CurrentAppShortcutPanelManager.shared.appState?.voiceActivationMode == .pushToTalk
+        }.map {
             AetherGlobalShortcutPanelEntry(action: $0, binding: hotkeyManager.binding(for: $0))
         }
     }

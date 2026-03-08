@@ -22,6 +22,7 @@ struct AetherMainView: View {
         case voiceAppControls
         case voiceInsights
         case pointer
+        case headset
         case shortcuts
     }
 
@@ -68,6 +69,9 @@ struct AetherMainView: View {
                     NavigationLink(value: Panel.pointer) {
                         panelLabel(.pointer)
                     }
+                    NavigationLink(value: Panel.headset) {
+                        panelLabel(.headset)
+                    }
                     NavigationLink(value: Panel.shortcuts) {
                         panelLabel(.shortcuts)
                     }
@@ -94,6 +98,8 @@ struct AetherMainView: View {
                 InputSettingsView(section: .insights)
             case .pointer:
                 OutputSettingsView()
+            case .headset:
+                HeadsetSettingsView()
             case .shortcuts:
                 ShortcutsSettingsView()
             case .none:
@@ -134,6 +140,8 @@ struct AetherMainView: View {
             return localeText(zh: "统计", en: "Insights")
         case .pointer:
             return localeText(zh: "指针", en: "Pointer")
+        case .headset:
+            return localeText(zh: "耳机按钮", en: "Headset Buttons")
         case .shortcuts:
             return localeText(zh: "快捷键", en: "Shortcuts")
         }
@@ -155,6 +163,8 @@ struct AetherMainView: View {
             return "chart.bar.xaxis"
         case .pointer:
             return "viewfinder"
+        case .headset:
+            return "airpodspro"
         case .shortcuts:
             return "keyboard"
         }
