@@ -20,6 +20,9 @@ class HeadMotionManager: ObservableObject {
     static let pttUpNotification = Notification.Name("AetherPTTUp")
     static let recognitionControlModeChangedNotification = Notification.Name("AetherRecognitionControlModeChanged")
     private static let recognitionModeOverrideKey = "AetherRecognitionModeOverride"
+    private static let headsetTriplePressActionKey = "AetherHeadsetTriplePressAction"
+    private static let autoStartTrackingOnHeadsetConnectionKey = "AetherAutoStartTrackingOnHeadsetConnection"
+    private static let showPostureGuideBeforeTrackingKey = "AetherShowPostureGuideBeforeTracking"
 
     enum RecognitionControlMode: String, Sendable {
         case auto
@@ -45,11 +48,67 @@ class HeadMotionManager: ObservableObject {
         case lookLow    // Bias for Dictation (optional, like reading a script)
     }
 
+    enum HeadsetTriplePressAction: String, CaseIterable, Identifiable, Sendable {
+        case none
+        case toggleLanguage
+        case connectionLock
+        case toggleShortcutPanel
+        case toggleInputControlMode
+        case toggleTracking
+
+        var id: String { rawValue }
+
+        var hotkeyAction: HotkeyAction? {
+            switch self {
+            case .none:
+                return nil
+            case .toggleLanguage:
+                return .toggleLanguage
+            case .connectionLock:
+                return .connectionLock
+            case .toggleShortcutPanel:
+                return .toggleShortcutPanel
+            case .toggleInputControlMode:
+                return .toggleInputControlMode
+            case .toggleTracking:
+                return .toggleTracking
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .none:
+                return Locale.current.identifier.hasPrefix("zh") ? "无动作" : "No Action"
+            case .toggleLanguage, .connectionLock, .toggleShortcutPanel, .toggleInputControlMode, .toggleTracking:
+                return hotkeyAction?.label ?? rawValue
+            }
+        }
+
+        var helperText: String {
+            switch self {
+            case .none:
+                return Locale.current.identifier.hasPrefix("zh") ? "三按后不执行额外动作。" : "Do nothing on triple press."
+            case .toggleLanguage, .connectionLock, .toggleShortcutPanel, .toggleInputControlMode, .toggleTracking:
+                return hotkeyAction?.helperText ?? ""
+            }
+        }
+    }
+
     private init() {
         // Hotkeys require Accessibility trust. Install the event tap only after permissions are granted.
         // Reset legacy persisted override. Manual mode switch is now focus-follow aware and temporary.
         if persistentRecognitionControlMode != .auto {
             persistentRecognitionControlMode = .auto
+        }
+        lastObservedAirPodSide = AirPodsDetector.shared.currentSide()
+        airPodsStateObserver = NotificationCenter.default.addObserver(
+            forName: .AirPodsStateChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                self?.handleAirPodsStateChanged(notification)
+            }
         }
         startStabilityTimer()
         updateAirPodsRemoteCommandRegistration()
@@ -90,10 +149,32 @@ class HeadMotionManager: ObservableObject {
             updateAirPodsRemoteCommandRegistration()
         }
     }
+
+    @Published var headsetTriplePressAction: HeadsetTriplePressAction = HeadMotionManager.loadHeadsetTriplePressActionFromDefaults() {
+        didSet {
+            HeadMotionManager.saveHeadsetTriplePressAction(headsetTriplePressAction)
+            updateNowPlayingInfo()
+        }
+    }
+
+    @Published var autoStartTrackingOnHeadsetConnection: Bool = UserDefaults.standard.object(forKey: HeadMotionManager.autoStartTrackingOnHeadsetConnectionKey) as? Bool ?? false {
+        didSet {
+            UserDefaults.standard.set(autoStartTrackingOnHeadsetConnection, forKey: HeadMotionManager.autoStartTrackingOnHeadsetConnectionKey)
+        }
+    }
+
+    @Published var showPostureGuideBeforeTracking: Bool = UserDefaults.standard.object(forKey: HeadMotionManager.showPostureGuideBeforeTrackingKey) as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(showPostureGuideBeforeTracking, forKey: HeadMotionManager.showPostureGuideBeforeTrackingKey)
+        }
+    }
     
     // Experience Optimization Constants
     private let deadzone: Double = 0.005  // Ignore movements smaller than ~0.3 degrees
-    private let accelerationPower: Double = 1.5 // 1.0 is linear, >1.0 is exponential
+    private let trackingSmoothing: CGFloat = 0.5
+    private let precisionSmoothing: CGFloat = 0.18
+    private let cursorHoldRadius: CGFloat = 8
+    private let precisionZoneRadius: CGFloat = 44
     
     // Dynamic Range Calibration
     @Published var calibrationStatus: String = "Normal"
@@ -142,7 +223,6 @@ class HeadMotionManager: ObservableObject {
     // Smoothing
     private var currentX: CGFloat = 0
     private var currentY: CGFloat = 0
-    private let smoothing: CGFloat = 0.5 // Responsive but steady
     
     private var baseYaw: Double = 0
     private var basePitch: Double = 0
@@ -181,9 +261,13 @@ class HeadMotionManager: ObservableObject {
     private var seekForwardTarget: Any?
     private var seekBackwardTarget: Any?
     private var voiceActivationMode: AppState.VoiceActivationMode = HeadMotionManager.loadVoiceActivationModeFromDefaults()
-    private var lastHeadsetModeToggleAt: Date = .distantPast
-    private var lastHeadsetTrackingToggleAt: Date = .distantPast
+    private var lastHeadsetSinglePressAt: Date = .distantPast
+    private var lastHeadsetDoublePressAt: Date = .distantPast
+    private var lastHeadsetTriplePressAt: Date = .distantPast
     private let headsetRemoteActionDebounce: TimeInterval = 0.75
+    private var lastObservedAirPodSide: AirPodSide = .none
+    private var pendingAutoTrackingStart: DispatchWorkItem?
+    private var airPodsStateObserver: NSObjectProtocol?
 
     // MARK: - Recognition Mode Override Persistence
     private static func loadRecognitionControlModeFromDefaults() -> RecognitionControlMode {
@@ -207,6 +291,14 @@ class HeadMotionManager: ObservableObject {
         return .pushToTalk
     }
 
+    private static func loadHeadsetTriplePressActionFromDefaults() -> HeadsetTriplePressAction {
+        guard let raw = UserDefaults.standard.string(forKey: headsetTriplePressActionKey),
+              let action = HeadsetTriplePressAction(rawValue: raw) else {
+            return .toggleLanguage
+        }
+        return action
+    }
+
     private static func saveRecognitionControlMode(_ value: RecognitionControlMode) {
         switch value {
         case .command:
@@ -216,6 +308,10 @@ class HeadMotionManager: ObservableObject {
         case .auto:
             UserDefaults.standard.removeObject(forKey: recognitionModeOverrideKey)
         }
+    }
+
+    private static func saveHeadsetTriplePressAction(_ action: HeadsetTriplePressAction) {
+        UserDefaults.standard.set(action.rawValue, forKey: headsetTriplePressActionKey)
     }
     
     
@@ -229,6 +325,8 @@ class HeadMotionManager: ObservableObject {
     
     func startTracking() {
         guard !isTracking else { return }
+        pendingAutoTrackingStart?.cancel()
+        pendingAutoTrackingStart = nil
         
         // CRITICAL: Verify AirPods are actually available before starting
         // isDeviceMotionAvailable checks if the device SUPPORTS motion tracking
@@ -358,21 +456,28 @@ class HeadMotionManager: ObservableObject {
             let rawNormX = (offYaw - midYaw) / rangeX
             let rawNormY = (offPitch - midPitch) / rangeY
             
-            func applyDeadzoneAndAccel(_ val: Double) -> Double {
+            func applyDeadzoneAndLinearResponse(_ val: Double) -> Double {
                 let absVal = abs(val)
                 if absVal < deadzone { return 0 }
                 let scaled = (absVal - deadzone) / (0.5 - deadzone)
-                return pow(scaled, accelerationPower) * 0.5 * (val > 0 ? 1 : -1)
+                return min(0.5, scaled * 0.5) * (val > 0 ? 1 : -1)
             }
             
-            let normX = max(-0.5, min(0.5, applyDeadzoneAndAccel(rawNormX)))
-            let normY = max(-0.5, min(0.5, applyDeadzoneAndAccel(rawNormY)))
+            let normX = max(-0.5, min(0.5, applyDeadzoneAndLinearResponse(rawNormX)))
+            let normY = max(-0.5, min(0.5, applyDeadzoneAndLinearResponse(rawNormY)))
             
             let rawTargetX = self.desktopFrame.midX - (CGFloat(normX) * self.desktopFrame.width)
             let rawTargetY = self.desktopFrame.midY + (CGFloat(normY) * self.desktopFrame.height)
-            
-            self.currentX = (self.currentX * (1 - smoothing)) + (rawTargetX * smoothing)
-            self.currentY = (self.currentY * (1 - smoothing)) + (rawTargetY * smoothing)
+
+            let deltaX = rawTargetX - self.currentX
+            let deltaY = rawTargetY - self.currentY
+            let distance = hypot(deltaX, deltaY)
+
+            if distance > self.cursorHoldRadius {
+                let smoothing = distance < self.precisionZoneRadius ? self.precisionSmoothing : self.trackingSmoothing
+                self.currentX = (self.currentX * (1 - smoothing)) + (rawTargetX * smoothing)
+                self.currentY = (self.currentY * (1 - smoothing)) + (rawTargetY * smoothing)
+            }
             
             let targetX = max(self.desktopFrame.minX, min(self.desktopFrame.maxX, self.currentX))
             let targetY = max(self.desktopFrame.minY, min(self.desktopFrame.maxY, self.currentY))
@@ -434,6 +539,8 @@ class HeadMotionManager: ObservableObject {
     }
     
     func stopTracking() {
+        pendingAutoTrackingStart?.cancel()
+        pendingAutoTrackingStart = nil
         stopTrackingInternal()
     }
 
@@ -547,60 +654,101 @@ class HeadMotionManager: ObservableObject {
         }
     }
 
-    private func enableAirPodsCommands(enablePTT: Bool) {
+    @MainActor
+    private func handleAirPodsStateChanged(_ notification: Notification) {
+        let newSide = (notification.object as? AirPodSide) ?? AirPodsDetector.shared.currentSide()
+        let wasConnected = lastObservedAirPodSide != .none
+        let isConnected = newSide != .none
+        lastObservedAirPodSide = newSide
+
+        if !isConnected {
+            pendingAutoTrackingStart?.cancel()
+            pendingAutoTrackingStart = nil
+            return
+        }
+
+        guard autoStartTrackingOnHeadsetConnection, !wasConnected else { return }
+        scheduleAutoTrackingStartAfterConnection()
+    }
+
+    @MainActor
+    private func scheduleAutoTrackingStartAfterConnection() {
+        guard autoStartTrackingOnHeadsetConnection, !isTracking else { return }
+
+        pendingAutoTrackingStart?.cancel()
+
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let baseDelay: TimeInterval = showPostureGuideBeforeTracking ? 1.2 : 0.35
+        if showPostureGuideBeforeTracking {
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "请坐正并看向屏幕，准备启动头控" : "Sit upright and look at the screen to start tracking",
+                duration: baseDelay
+            )
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.autoStartTrackingOnHeadsetConnection, !self.isTracking, self.lastObservedAirPodSide != .none else { return }
+            let isChinese = Locale.current.identifier.hasPrefix("zh")
+            guard self.motionManager.isDeviceMotionAvailable else {
+                HUDManager.shared.showTemporary(
+                    message: isChinese ? "当前耳机不支持头部姿态，未自动开启头控" : "This headset does not support head motion tracking",
+                    duration: 0.95
+                )
+                return
+            }
+            self.startTracking()
+        }
+
+        pendingAutoTrackingStart = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + baseDelay, execute: workItem)
+    }
+
+    private func enableAirPodsCommands(enableSeekPTT: Bool) {
         let commandCenter = MPRemoteCommandCenter.shared()
 
         disableAirPodsCommands()
 
-        if enablePTT {
-            playTarget = commandCenter.playCommand.addTarget { [weak self] _ in
-                guard let self else { return .commandFailed }
-                return self.beginAirPodsPTT(source: .airPodsToggle, origin: "airpods-play")
+        playTarget = commandCenter.playCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            DispatchQueue.main.async {
+                self.handleHeadsetSinglePress(origin: "airpods-play")
             }
-            pauseTarget = commandCenter.pauseCommand.addTarget { [weak self] _ in
-                guard let self else { return .commandFailed }
-                return self.endAirPodsPTT(source: .airPodsToggle, origin: "airpods-pause")
-            }
-            toggleTarget = commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
-                guard let self else { return .commandFailed }
-                return self.toggleAirPodsPTT(origin: "airpods-toggle")
-            }
-            commandCenter.playCommand.isEnabled = true
-            commandCenter.pauseCommand.isEnabled = true
-            commandCenter.togglePlayPauseCommand.isEnabled = true
-        } else {
-            commandCenter.playCommand.isEnabled = false
-            commandCenter.pauseCommand.isEnabled = false
-            commandCenter.togglePlayPauseCommand.isEnabled = false
+            return .success
         }
+        pauseTarget = commandCenter.pauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            DispatchQueue.main.async {
+                self.handleHeadsetSinglePress(origin: "airpods-pause")
+            }
+            return .success
+        }
+        toggleTarget = commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            DispatchQueue.main.async {
+                self.handleHeadsetSinglePress(origin: "airpods-toggle")
+            }
+            return .success
+        }
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.pauseCommand.isEnabled = true
+        commandCenter.togglePlayPauseCommand.isEnabled = true
 
         nextTrackTarget = commandCenter.nextTrackCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
-            DispatchQueue.main.async {
-                self.noteHeadsetRemoteEvent(
-                    display: Locale.current.identifier.hasPrefix("zh") ? "耳机双按" : "Headset Double Press"
-                )
-                guard self.shouldHandleHeadsetRemoteAction(kind: .modeToggle) else { return }
-                self.toggleRecognitionInputControlMode(source: "airpods-double-press", persist: false)
-            }
+            DispatchQueue.main.async { self.handleHeadsetDoublePress() }
             return .success
         }
         commandCenter.nextTrackCommand.isEnabled = true
 
         previousTrackTarget = commandCenter.previousTrackCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
-            DispatchQueue.main.async {
-                self.noteHeadsetRemoteEvent(
-                    display: Locale.current.identifier.hasPrefix("zh") ? "耳机三按" : "Headset Triple Press"
-                )
-                guard self.shouldHandleHeadsetRemoteAction(kind: .trackingToggle) else { return }
-                self.performTrackingToggle(source: "airpods-previous-track")
-            }
+            DispatchQueue.main.async { self.handleHeadsetTriplePress() }
             return .success
         }
         commandCenter.previousTrackCommand.isEnabled = true
 
-        if enablePTT {
+        if enableSeekPTT {
             seekForwardTarget = commandCenter.seekForwardCommand.addTarget { [weak self] event in
                 guard let self, let seek = event as? MPSeekCommandEvent else { return .commandFailed }
                 switch seek.type {
@@ -643,9 +791,12 @@ class HeadMotionManager: ObservableObject {
             return
         }
 
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
         var nowPlayingInfo = [String: Any]()
-        nowPlayingInfo[MPMediaItemPropertyTitle] = "Aether Headset Mode Switch"
-        nowPlayingInfo[MPMediaItemPropertyArtist] = "Double Press: Mode  ·  Triple Press: Tracking"
+        nowPlayingInfo[MPMediaItemPropertyTitle] = isChinese ? "Aether 耳机按钮映射" : "Aether Headset Mapping"
+        nowPlayingInfo[MPMediaItemPropertyArtist] = isChinese
+            ? "单按: 切模式  ·  双按: 头控  ·  三按: \(headsetTriplePressAction.label)"
+            : "Single: Mode  ·  Double: Tracking  ·  Triple: \(headsetTriplePressAction.label)"
         nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = 0.0
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
         
@@ -732,22 +883,89 @@ class HeadMotionManager: ObservableObject {
     }
 
     private enum HeadsetRemoteActionKind {
-        case modeToggle
-        case trackingToggle
+        case singlePress
+        case doublePress
+        case triplePress
     }
 
     @MainActor
     private func shouldHandleHeadsetRemoteAction(kind: HeadsetRemoteActionKind) -> Bool {
         let now = Date()
         switch kind {
-        case .modeToggle:
-            guard now.timeIntervalSince(lastHeadsetModeToggleAt) >= headsetRemoteActionDebounce else { return false }
-            lastHeadsetModeToggleAt = now
-        case .trackingToggle:
-            guard now.timeIntervalSince(lastHeadsetTrackingToggleAt) >= headsetRemoteActionDebounce else { return false }
-            lastHeadsetTrackingToggleAt = now
+        case .singlePress:
+            guard now.timeIntervalSince(lastHeadsetSinglePressAt) >= headsetRemoteActionDebounce else { return false }
+            lastHeadsetSinglePressAt = now
+        case .doublePress:
+            guard now.timeIntervalSince(lastHeadsetDoublePressAt) >= headsetRemoteActionDebounce else { return false }
+            lastHeadsetDoublePressAt = now
+        case .triplePress:
+            guard now.timeIntervalSince(lastHeadsetTriplePressAt) >= headsetRemoteActionDebounce else { return false }
+            lastHeadsetTriplePressAt = now
         }
         return true
+    }
+
+    @MainActor
+    private func handleHeadsetSinglePress(origin: String) {
+        noteHeadsetRemoteEvent(
+            display: Locale.current.identifier.hasPrefix("zh") ? "耳机单按" : "Headset Single Press"
+        )
+        guard shouldHandleHeadsetRemoteAction(kind: .singlePress) else { return }
+        performHeadsetAction(.toggleInputControlMode, source: origin)
+    }
+
+    @MainActor
+    private func handleHeadsetDoublePress() {
+        noteHeadsetRemoteEvent(
+            display: Locale.current.identifier.hasPrefix("zh") ? "耳机双按" : "Headset Double Press"
+        )
+        guard shouldHandleHeadsetRemoteAction(kind: .doublePress) else { return }
+        performHeadsetAction(.toggleTracking, source: "airpods-double-press")
+    }
+
+    @MainActor
+    private func handleHeadsetTriplePress() {
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        noteHeadsetRemoteEvent(
+            display: isChinese
+                ? "耳机三按 · \(headsetTriplePressAction.label)"
+                : "Headset Triple Press · \(headsetTriplePressAction.label)"
+        )
+        guard shouldHandleHeadsetRemoteAction(kind: .triplePress) else { return }
+        guard let action = headsetTriplePressAction.hotkeyAction else {
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "耳机三按未设置动作" : "No triple-press action assigned",
+                duration: 0.8
+            )
+            return
+        }
+        performHeadsetAction(action, source: "airpods-triple-press")
+    }
+
+    @MainActor
+    private func performHeadsetAction(_ action: HotkeyAction, source: String) {
+        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        switch action {
+        case .toggleTracking:
+            performTrackingToggle(source: source)
+        case .connectionLock:
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "🔒 切换耳机连接锁定" : "🔒 Toggle Connection Lock",
+                duration: 0.8
+            )
+            NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
+        case .toggleInputControlMode:
+            toggleRecognitionInputControlMode(source: source, persist: false)
+        case .toggleLanguage:
+            NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
+        case .toggleShortcutPanel:
+            NotificationCenter.default.post(name: .toggleShortcutPanel, object: nil)
+        case .pushToTalk:
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "耳机三按不支持按住说话" : "Triple press cannot be Push To Talk",
+                duration: 0.8
+            )
+        }
     }
 
     @MainActor
@@ -846,9 +1064,9 @@ class HeadMotionManager: ObservableObject {
     private func updateAirPodsRemoteCommandRegistration() {
         let shouldEnable = shouldEnableAirPodsModeSwitch
         if shouldEnable {
-            let shouldEnableSinglePressPTT = voiceActivationMode == .pushToTalk && isPTTEnabled
-            releaseAirPodsPTTSources(reason: shouldEnableSinglePressPTT ? "airpods-ptt-refresh" : "airpods-single-press-disabled")
-            enableAirPodsCommands(enablePTT: shouldEnableSinglePressPTT)
+            let shouldEnableSeekPTT = voiceActivationMode == .pushToTalk && isPTTEnabled
+            releaseAirPodsPTTSources(reason: shouldEnableSeekPTT ? "airpods-ptt-refresh" : "airpods-single-press-disabled")
+            enableAirPodsCommands(enableSeekPTT: shouldEnableSeekPTT)
         } else {
             releaseAirPodsPTTSources(reason: "airpods-ptt-disabled")
             disableAirPodsCommands()

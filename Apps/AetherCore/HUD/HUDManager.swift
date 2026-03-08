@@ -4,6 +4,19 @@ import Combine
 
 final class HUDManager {
     static let shared = HUDManager()
+
+    private struct HUDPresentationSnapshot {
+        let mode: HUDMode
+        let message: String
+        let language: String
+        let recognitionControlMode: HUDRecognitionControlMode
+        let inputDeviceIcon: String
+    }
+
+    enum HUDUpdateLifetime {
+        case persistent
+        case temporary(UUID)
+    }
     
     let state = HUDState()
     private let detector = CaretDetector()
@@ -25,6 +38,7 @@ final class HUDManager {
     private var cachedFullscreenSuppressionBundleID: String = ""
     private let pointerFollowThrottleInterval: TimeInterval = 1.0 / 50.0
     private var lastPointerFollowAt: Date = .distantPast
+    private var lastPointerMoveAt: Date = .distantPast
     private var lastGoodTypingRect: CGRect?
     private var lastGoodTypingRectAt: Date = .distantPast
     private var lastInputInteractionPoint: CGPoint?
@@ -32,8 +46,12 @@ final class HUDManager {
     private var typingSuppressedUntil: Date = .distantPast
     private var hudWindow: NSPanel?
     private var hideTask: DispatchWorkItem?
+    private var languageIndicatorHideTask: DispatchWorkItem?
     private var pendingRepositionWorkItem: DispatchWorkItem?
     private var lastSmoothedWindowOrigin: CGPoint?
+    private var lastPersistentSnapshot: HUDPresentationSnapshot?
+    private var activeTemporaryToken: UUID?
+    private var activeTemporaryFallbackSnapshot: HUDPresentationSnapshot?
     private var cancellables = Set<AnyCancellable>()
     
     private init() {
@@ -66,7 +84,8 @@ final class HUDManager {
         message: String = "",
         language: String,
         recognitionControlMode: HUDRecognitionControlMode = .auto,
-        inputDeviceIcon: String = "mic.fill"
+        inputDeviceIcon: String = "mic.fill",
+        lifetime: HUDUpdateLifetime = .persistent
     ) {
         
         // Main thread safety
@@ -77,7 +96,8 @@ final class HUDManager {
                     message: message,
                     language: language,
                     recognitionControlMode: recognitionControlMode,
-                    inputDeviceIcon: inputDeviceIcon
+                    inputDeviceIcon: inputDeviceIcon,
+                    lifetime: lifetime
                 )
             }
             return
@@ -101,6 +121,25 @@ final class HUDManager {
             state.recognitionControlMode == recognitionControlMode &&
             state.inputDeviceIcon == inputDeviceIcon
 
+        switch lifetime {
+        case .persistent:
+            activeTemporaryToken = nil
+            activeTemporaryFallbackSnapshot = nil
+            if mode == .hidden {
+                lastPersistentSnapshot = nil
+            } else {
+                lastPersistentSnapshot = HUDPresentationSnapshot(
+                    mode: mode,
+                    message: message,
+                    language: language,
+                    recognitionControlMode: recognitionControlMode,
+                    inputDeviceIcon: inputDeviceIcon
+                )
+            }
+        case .temporary(let token):
+            activeTemporaryToken = token
+        }
+
         state.update(
             mode: mode,
             message: message,
@@ -113,6 +152,7 @@ final class HUDManager {
             // Ensure transient indicators don't linger when the HUD is dismissed.
             state.isMicProgressVisible = false
             state.micProgress = 0.0
+            hideLanguageIndicator()
         }
         
         // Mode-specific behavior
@@ -159,18 +199,39 @@ final class HUDManager {
         icon: String? = nil,
         duration: TimeInterval = 2.0
     ) {
+        let token = UUID()
+        activeTemporaryFallbackSnapshot = activeTemporaryFallbackSnapshot ?? lastPersistentSnapshot
         update(
             mode: .command,
             message: message,
             language: language ?? state.language,
             recognitionControlMode: recognitionControlMode,
-            inputDeviceIcon: icon ?? state.inputDeviceIcon
+            inputDeviceIcon: icon ?? state.inputDeviceIcon,
+            lifetime: .temporary(token)
         )
-        scheduleHide(delay: max(0.4, duration))
+        scheduleHide(delay: max(0.4, duration), token: token)
     }
     
     func hide() {
         update(mode: .hidden, language: state.language, inputDeviceIcon: state.inputDeviceIcon)
+    }
+
+    func showTemporaryLanguageIndicator(duration: TimeInterval = 1.1) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { self.showTemporaryLanguageIndicator(duration: duration) }
+            return
+        }
+
+        guard state.mode != .hidden else { return }
+        languageIndicatorHideTask?.cancel()
+        state.isLanguageIndicatorVisible = true
+        requestReposition(immediate: true)
+
+        let task = DispatchWorkItem { [weak self] in
+            self?.hideLanguageIndicator()
+        }
+        languageIndicatorHideTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0.4, duration), execute: task)
     }
 
     func notifyPointerMoved() {
@@ -185,6 +246,7 @@ final class HUDManager {
         let now = Date()
         guard now.timeIntervalSince(lastPointerFollowAt) >= pointerFollowThrottleInterval else { return }
         lastPointerFollowAt = now
+        lastPointerMoveAt = now
         requestReposition(immediate: true)
     }
 
@@ -303,6 +365,23 @@ final class HUDManager {
             return true
         }
         return axEditableLikely
+    }
+
+    private func shouldUseBrowserPointerFollowFastPath(now: Date) -> Bool {
+        guard state.recognitionControlMode == .auto else { return false }
+        guard !state.isTypingContext else { return false }
+        guard now.timeIntervalSince(lastPointerMoveAt) < 0.18 else { return false }
+
+        let bundleID = (NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "").lowercased()
+        guard !bundleID.isEmpty else { return false }
+        return bundleID.contains("safari")
+            || bundleID.contains("chrome")
+            || bundleID.contains("chromium")
+            || bundleID.contains("brave")
+            || bundleID.contains("arc")
+            || bundleID.contains("firefox")
+            || bundleID.contains("edge")
+            || bundleID.contains("kagi")
     }
 
     private func isAXFocusedElementEditable() -> Bool {
@@ -1022,6 +1101,8 @@ final class HUDManager {
         
         let update = detector.currentUpdate
         let mouseLoc = currentCursorLocation()
+        let now = Date()
+        let useBrowserPointerFollowFastPath = shouldUseBrowserPointerFollowFastPath(now: now)
         
         // 1. Determine Anchor & Mode
         var anchor = mouseLoc
@@ -1032,14 +1113,13 @@ final class HUDManager {
         case .dictation:
             uiTypingMode = true
         case .auto:
-            uiTypingMode = lastKnownTypingState()
+            uiTypingMode = useBrowserPointerFollowFastPath ? false : lastKnownTypingState()
         }
         let wasTypingMode = state.isTypingContext
         var layoutTypingMode = false
         var preferAboveInput = false
         var preferBelowInput = false
         var typingRect: CGRect? = nil
-        let now = Date()
         let hudAnchorTraceEnabled = UserDefaults.standard.object(forKey: "hudAnchorTraceEnabled") as? Bool ?? false
         var axFocusRect: CGRect?
         var axCaret: CGRect?
@@ -1525,10 +1605,14 @@ final class HUDManager {
     
     // MARK: - Hide Logic
     
-    private func scheduleHide(delay: TimeInterval) {
+    private func scheduleHide(delay: TimeInterval, token: UUID? = nil) {
         hideTask?.cancel()
         let task = DispatchWorkItem { [weak self] in
-            self?.performHide()
+            if let token {
+                self?.restoreAfterTemporaryHide(token: token)
+            } else {
+                self?.performHide()
+            }
         }
         hideTask = task
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: task)
@@ -1536,6 +1620,14 @@ final class HUDManager {
     
     private func cancelHide() {
         hideTask?.cancel()
+    }
+
+    private func hideLanguageIndicator() {
+        languageIndicatorHideTask?.cancel()
+        languageIndicatorHideTask = nil
+        guard state.isLanguageIndicatorVisible else { return }
+        state.isLanguageIndicatorVisible = false
+        requestReposition(immediate: true)
     }
     
     private func performHide() {
@@ -1546,5 +1638,32 @@ final class HUDManager {
             self.lastSmoothedWindowOrigin = nil
             self.hudWindow?.orderOut(nil)
         })
+    }
+
+    private func restoreAfterTemporaryHide(token: UUID) {
+        guard activeTemporaryToken == token else { return }
+
+        let fallback = activeTemporaryFallbackSnapshot
+        activeTemporaryToken = nil
+        activeTemporaryFallbackSnapshot = nil
+
+        if let fallback, fallback.mode != .hidden {
+            update(
+                mode: fallback.mode,
+                message: fallback.message,
+                language: fallback.language,
+                recognitionControlMode: fallback.recognitionControlMode,
+                inputDeviceIcon: fallback.inputDeviceIcon
+            )
+            return
+        }
+
+        update(
+            mode: .hidden,
+            message: "",
+            language: state.language,
+            recognitionControlMode: state.recognitionControlMode,
+            inputDeviceIcon: state.inputDeviceIcon
+        )
     }
 }

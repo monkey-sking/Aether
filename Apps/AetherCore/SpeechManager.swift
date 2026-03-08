@@ -384,6 +384,7 @@ final class SpeechManager: ObservableObject {
             recognitionControlMode: hudRecognitionControlMode,
             inputDeviceIcon: hudInputIcon()
         )
+        hud.showTemporaryLanguageIndicator()
         if recognitionSession.isRunning {
             stopAndFinalize()
             startOnce()
@@ -721,7 +722,6 @@ final class SpeechManager: ObservableObject {
 
     func setVoiceLanguageTermsOverrides(_ overrides: [VoiceLanguageTermsOverrideConfig]) {
         wakeWordDetector.overrides = overrides
-        commandRouter.languageTermsOverrides = overrides
     }
 
     private func cleanup() {
@@ -813,28 +813,22 @@ final class SpeechManager: ObservableObject {
 
     // MARK: - handleTranscript (unified finalization)
     private func handleTranscript(_ transcript: String, utteranceID: Int? = nil) {
-        let trimmed = normalizeRecognizedText(transcript).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        let rawTrimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawTrimmed.isEmpty else { return }
 
-        let candidateUtteranceID = utteranceID ?? activeUtteranceID
-        let now = Date()
-        if candidateUtteranceID > 0, sessionGeneration == lastHandledSessionGeneration,
-           candidateUtteranceID == lastHandledUtteranceID, trimmed == lastHandledTranscript,
-           now.timeIntervalSince(lastHandledAt) < 2.0 { return }
-
-        var textToRoute = trimmed
+        var textToRoute = rawTrimmed
         var wakeWordDetected = false
 
         if isDirectCommandEnabled {
-            let wakeResult = wakeWordDetector.process(trimmed, localeIdentifier: activeLocale.identifier)
+            let wakeResult = wakeWordDetector.process(rawTrimmed, localeIdentifier: activeLocale.identifier)
             if isWakeWordEnabled && wakeResult.wakeDetected {
                 textToRoute = wakeResult.payload; wakeWordDetected = true; playWakeSound()
-            } else { textToRoute = trimmed }
+            } else { textToRoute = rawTrimmed }
         } else if isAlwaysListeningEnabled {
-            let wakeResult = wakeWordDetector.process(trimmed, localeIdentifier: activeLocale.identifier)
+            let wakeResult = wakeWordDetector.process(rawTrimmed, localeIdentifier: activeLocale.identifier)
             if isAwake {
                 if wakeResult.wakeDetected { textToRoute = wakeResult.payload; wakeWordDetected = true; playWakeSound() }
-                else { textToRoute = trimmed }
+                else { textToRoute = rawTrimmed }
             } else {
                 if wakeResult.wakeDetected { textToRoute = wakeResult.payload; wakeWordDetected = true; playWakeSound(); lastWakeTime = Date() }
                 else { return }
@@ -875,6 +869,22 @@ final class SpeechManager: ObservableObject {
             }
         }
 
+        let correctionScope: SpeechCorrectionScope = switch routingBias {
+        case .forceCommand, .commandPreferred:
+            .command
+        case .forceDictation, .dictationPreferred, .neutral:
+            typingContext ? .dictation : .command
+        }
+
+        textToRoute = normalizeRecognizedText(textToRoute, scope: correctionScope).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !textToRoute.isEmpty else { return }
+
+        let candidateUtteranceID = utteranceID ?? activeUtteranceID
+        let now = Date()
+        if candidateUtteranceID > 0, sessionGeneration == lastHandledSessionGeneration,
+           candidateUtteranceID == lastHandledUtteranceID, textToRoute == lastHandledTranscript,
+           now.timeIntervalSince(lastHandledAt) < 2.0 { return }
+
         _ = refreshFrontmostAppCommands()
         let decision = commandRouter.routeDetailed(
             transcript: textToRoute,
@@ -913,7 +923,7 @@ final class SpeechManager: ObservableObject {
         var resolvedUID = utteranceID ?? activeUtteranceID
         if resolvedUID <= 0 { resolvedUID = nextUtteranceID; nextUtteranceID += 1; activeUtteranceID = resolvedUID }
         lastHandledSessionGeneration = sessionGeneration; lastHandledUtteranceID = resolvedUID
-        lastHandledTranscript = trimmed; lastHandledAt = now
+        lastHandledTranscript = textToRoute; lastHandledAt = now
 
         enqueueIntentForParallelExecution(intent, typingContext: typingContext, utteranceID: resolvedUID, originSessionGeneration: sessionGeneration)
     }
@@ -1274,7 +1284,7 @@ final class SpeechManager: ObservableObject {
             return
         }
         else if isDictating { mode = .dictation }
-        else if isStopping { mode = .processing }
+        else if isStopping, sessionTypingMode { mode = .processing }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
         else { mode = .listening }
         HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon())
@@ -1730,7 +1740,15 @@ final class SpeechManager: ObservableObject {
 
     // MARK: - Speech Term Corrections (preserved)
     private struct SpeechTermGroup: Codable { var id: String; var name: String; var isEnabled: Bool; var applyToAllApps: Bool; var appList: String; var rulesText: String }
-    private struct SpeechReplacementRule { let from: String; let to: String; let requiresCommandLike: Bool }
+    private enum SpeechCorrectionScope {
+        case dictation
+        case command
+    }
+    private struct SpeechReplacementRule {
+        let from: String
+        let to: String
+        let scope: SpeechCorrectionScope?
+    }
     private func shouldEnableSpeechTermCorrection() -> Bool {
         if UserDefaults.standard.object(forKey: "speechTermCorrectionEnabled") != nil { return UserDefaults.standard.bool(forKey: "speechTermCorrectionEnabled") }
         if UserDefaults.standard.object(forKey: "speechFixDevTerms") == nil { return true }
@@ -1759,11 +1777,18 @@ final class SpeechManager: ObservableObject {
         raw.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty && !$0.hasPrefix("#") }
             .compactMap { line in let p = line.components(separatedBy: "=>").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 guard p.count >= 2, !p[0].isEmpty, !p[1].isEmpty else { return nil }
-                return SpeechReplacementRule(from: p[0], to: p[1], requiresCommandLike: p.count >= 3 && p[2].lowercased().contains("cmd")) }
+                let scope: SpeechCorrectionScope? = {
+                    guard p.count >= 3 else { return nil }
+                    let marker = p[2].lowercased()
+                    if marker.contains("cmd") || marker.contains("command") || marker.contains("control") { return .command }
+                    if marker.contains("dict") || marker.contains("input") { return .dictation }
+                    return nil
+                }()
+                return SpeechReplacementRule(from: p[0], to: p[1], scope: scope) }
     }
     private func replacementRules(for g: SpeechTermGroup) -> [SpeechReplacementRule] { replacementRules(from: g.rulesText) }
-    private func normalizeRecognizedText(_ raw: String) -> String {
-        let corrected = applyContextualSpeechCorrections(raw)
+    private func normalizeRecognizedText(_ raw: String, scope: SpeechCorrectionScope = .dictation) -> String {
+        let corrected = applyContextualSpeechCorrections(raw, scope: scope)
         return deduplicateRepeatedTailPhrase(corrected)
     }
     private func deduplicateRepeatedTailPhrase(_ raw: String) -> String {
@@ -1803,20 +1828,26 @@ final class SpeechManager: ObservableObject {
 
         return String(chars)
     }
-    private func applyContextualSpeechCorrections(_ raw: String) -> String {
+    private func applyContextualSpeechCorrections(_ raw: String, scope: SpeechCorrectionScope) -> String {
         guard shouldEnableSpeechTermCorrection(), raw.count <= 120 else { return raw }
         let gs = activeGroupsForCurrentContext()
         if gs.isEmpty {
-            guard raw.contains("后果") else { return raw }
+            guard scope == .command, raw.contains("后果") else { return raw }
             let wl = groupAppWhitelist(UserDefaults.standard.string(forKey: "speechFixDevTermsWhitelist") ?? "")
             if wl.isEmpty { return raw }; let bs = currentContextBundleIDs()
             guard bs.contains(where: { b in wl.contains(where: { b.contains($0) }) }) else { return raw }
-            guard isGitHubCommandLikePhrase(raw) else { return raw }
             return raw.replacingOccurrences(of: "后果", with: "GitHub")
         }
         var c = raw
+        if scope == .command {
+            let trimmed = c.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed == "邮件" {
+                c = "右键"
+            }
+        }
         for g in gs { for r in replacementRules(for: g) { guard c.contains(r.from) else { continue }
-            if r.requiresCommandLike && !isGitHubCommandLikePhrase(c) { continue }; c = c.replacingOccurrences(of: r.from, with: r.to) } }
+            if let ruleScope = r.scope, ruleScope != scope { continue }
+            c = c.replacingOccurrences(of: r.from, with: r.to) } }
         return c
     }
 }
