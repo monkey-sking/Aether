@@ -23,7 +23,7 @@ struct HUDView: View {
                     .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
                     .fixedSize()
                 contextIcon
-                languageToggle
+                if state.isLanguageIndicatorVisible { languageToggle }
 
             case .command:
                 micIcon
@@ -33,13 +33,13 @@ struct HUDView: View {
                     .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
                     .fixedSize()
                 contextIcon
-                languageToggle
+                if state.isLanguageIndicatorVisible { languageToggle }
 
             case .dictation:
                 micIcon
                 WaveformView(level: state.audioLevel)
                 contextIcon
-                languageToggle
+                if state.isLanguageIndicatorVisible { languageToggle }
 
             case .processing:
                 Image(systemName: "ellipsis")

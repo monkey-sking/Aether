@@ -24,6 +24,7 @@ final class HUDState: ObservableObject {
     @Published var isTypingContext: Bool = false
     @Published var recognitionControlMode: HUDRecognitionControlMode = .auto
     @Published var inputDeviceIcon: String = "mic.fill"
+    @Published var isLanguageIndicatorVisible: Bool = false
     // 0...1 progress for current recording segment (visual ring around mic icon).
     @Published var micProgress: CGFloat = 0.0
     @Published var isMicProgressVisible: Bool = false

@@ -1015,35 +1015,9 @@ class AppState: ObservableObject {
             .joined(separator: ", ") ?? ""
     }
 
-    func commandPrefixOverrideText(for localeIdentifier: String) -> String {
-        voiceLanguageTermsOverrides
-            .first(where: { $0.localeIdentifier == localeIdentifier })?
-            .commandPrefixes
-            .joined(separator: ", ") ?? ""
-    }
-
-    func dictationPrefixOverrideText(for localeIdentifier: String) -> String {
-        voiceLanguageTermsOverrides
-            .first(where: { $0.localeIdentifier == localeIdentifier })?
-            .dictationPrefixes
-            .joined(separator: ", ") ?? ""
-    }
-
     func updateWakeWordOverrideText(_ raw: String, for localeIdentifier: String) {
         updateVoiceLanguageTermsOverride(for: localeIdentifier) { config in
             config.wakeWords = parseVoiceTermsText(raw)
-        }
-    }
-
-    func updateCommandPrefixOverrideText(_ raw: String, for localeIdentifier: String) {
-        updateVoiceLanguageTermsOverride(for: localeIdentifier) { config in
-            config.commandPrefixes = parseVoiceTermsText(raw)
-        }
-    }
-
-    func updateDictationPrefixOverrideText(_ raw: String, for localeIdentifier: String) {
-        updateVoiceLanguageTermsOverride(for: localeIdentifier) { config in
-            config.dictationPrefixes = parseVoiceTermsText(raw)
         }
     }
 
@@ -1113,7 +1087,9 @@ class AppState: ObservableObject {
         mutate(&config)
 
         voiceLanguageTermsOverrides.removeAll { $0.localeIdentifier == localeIdentifier }
-        let hasAnyValues = !config.wakeWords.isEmpty || !config.commandPrefixes.isEmpty || !config.dictationPrefixes.isEmpty
+        config.commandPrefixes = []
+        config.dictationPrefixes = []
+        let hasAnyValues = !config.wakeWords.isEmpty
         if hasAnyValues {
             voiceLanguageTermsOverrides.append(config)
         }

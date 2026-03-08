@@ -64,7 +64,7 @@ enum VoiceSettingsSection: Hashable {
         case .termCorrections:
             return isChinese ? "听写润色、识别纠错和按 App 的术语替换规则。" : "Dictation refinement, recognition corrections, and app-specific terminology rules."
         case .lexicon:
-            return isChinese ? "唤醒词、前缀和命令别名。" : "Wake words, prefixes, and command aliases."
+            return isChinese ? "唤醒词和命令别名。" : "Wake words and command aliases."
         case .appControls:
             return isChinese ? "查看前台 App 可直接触发的快捷键。" : "Review shortcuts available for the frontmost app."
         case .insights:
@@ -430,8 +430,8 @@ struct InputSettingsView: View {
                                     .font(.caption.weight(.semibold))
                                     .foregroundColor(.secondary)
                                 Text(Locale.current.identifier.hasPrefix("zh")
-                                     ? "按语言编辑唤醒词、前缀和命令别名。"
-                                     : "Edit wake words, prefixes, and command aliases per language.")
+                                     ? "按语言编辑唤醒词和命令别名。"
+                                     : "Edit wake words and command aliases per language.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -503,42 +503,6 @@ struct InputSettingsView: View {
                                 defaultValues: WakeWordDetector.defaultWakePhrases(for: resolvedCommandLocaleID),
                                 onReset: {
                                     appState.updateWakeWordOverrideText("", for: resolvedCommandLocaleID)
-                                }
-                            )
-
-                            VoiceLexiconEditorRow(
-                                title: String(localized: "voice_lexicon.command_prefixes"),
-                                subtitle: isChinese
-                                    ? "不走唤醒词，直接把后面的内容当成控制命令。"
-                                    : "Force the following phrase to be treated as a control command.",
-                                example: isChinese
-                                    ? "例如：命令，关闭标签页"
-                                    : "Example: command, close tab",
-                                text: Binding(
-                                    get: { appState.commandPrefixOverrideText(for: resolvedCommandLocaleID) },
-                                    set: { appState.updateCommandPrefixOverrideText($0, for: resolvedCommandLocaleID) }
-                                ),
-                                defaultValues: VoiceCommandRouter.defaultCommandPrefixes(for: resolvedCommandLocaleID),
-                                onReset: {
-                                    appState.updateCommandPrefixOverrideText("", for: resolvedCommandLocaleID)
-                                }
-                            )
-
-                            VoiceLexiconEditorRow(
-                                title: String(localized: "voice_lexicon.dictation_prefixes"),
-                                subtitle: isChinese
-                                    ? "切到输入模式，把后面的内容当作普通文本插入。"
-                                    : "Force the following phrase to be inserted as plain dictation text.",
-                                example: isChinese
-                                    ? "例如：输入，帮我写一封邮件"
-                                    : "Example: type, write an email for me",
-                                text: Binding(
-                                    get: { appState.dictationPrefixOverrideText(for: resolvedCommandLocaleID) },
-                                    set: { appState.updateDictationPrefixOverrideText($0, for: resolvedCommandLocaleID) }
-                                ),
-                                defaultValues: VoiceCommandRouter.defaultDictationPrefixes(for: resolvedCommandLocaleID),
-                                onReset: {
-                                    appState.updateDictationPrefixOverrideText("", for: resolvedCommandLocaleID)
                                 }
                             )
                         }
@@ -728,11 +692,26 @@ struct InputSettingsView: View {
 }
 
 private struct HeadsetShortcutMappingCard: View {
-    @EnvironmentObject private var appState: AppState
     @ObservedObject private var motionManager = HeadMotionManager.shared
 
     private var isChinese: Bool {
         Locale.current.identifier.hasPrefix("zh")
+    }
+
+    private var triplePressOptions: [FixedPopUpOption] {
+        HeadMotionManager.HeadsetTriplePressAction.allCases.map {
+            FixedPopUpOption(id: $0.rawValue, title: $0.label)
+        }
+    }
+
+    private var triplePressSelection: Binding<String> {
+        Binding(
+            get: { motionManager.headsetTriplePressAction.rawValue },
+            set: { newValue in
+                guard let action = HeadMotionManager.HeadsetTriplePressAction(rawValue: newValue) else { return }
+                motionManager.headsetTriplePressAction = action
+            }
+        )
     }
 
     private var lastEventText: String {
@@ -761,8 +740,8 @@ private struct HeadsetShortcutMappingCard: View {
                             .font(.headline)
                         Text(
                             isChinese
-                                ? "耳机按钮本质上也是触发器，应该和键盘快捷键放在一起看。Aether 现在会在按住说话模式下接管单按，双按切换输入 / 控制模式，三按开始 / 停止头控。"
-                                : "Headset buttons are also triggers and belong with shortcuts. Aether now uses single press for PTT in push-to-talk mode, double press for Dictation / Control switching, and triple press for tracking."
+                                ? "耳机按钮本质上也是触发器，应该和键盘快捷键放在一起看。Aether 现在固定使用单按切换输入 / 控制模式，双按开始 / 停止头控，三按执行你选择的自定义动作。"
+                                : "Headset buttons are triggers too. Aether now uses single press for Dictation / Control switching, double press for tracking, and triple press for a configurable action."
                         )
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -789,26 +768,44 @@ private struct HeadsetShortcutMappingCard: View {
                 VStack(alignment: .leading, spacing: 8) {
                     row(
                         title: isChinese ? "单按 / 单捏" : "Single Press",
-                        action: isChinese ? "按住说话" : "Push To Talk",
+                        action: isChinese ? "切换输入 / 控制模式" : "Toggle Dictation / Control",
                         detail: isChinese
-                            ? "仅在“按住说话”模式下生效；Aether 会尝试接管播放 / 暂停语义来开始或结束录音。"
-                            : "Enabled only in push-to-talk mode. Aether uses the play/pause semantic to begin or end recording."
+                            ? "所有语音触发方式下都生效。单按只切换模式，不会直接开始录音。"
+                            : "Available in all activation modes. Single press switches mode without starting voice capture."
                     )
                     row(
                         title: isChinese ? "双按 / 双捏" : "Double Press",
-                        action: isChinese ? "切换输入 / 控制模式" : "Toggle Dictation / Control",
+                        action: isChinese ? "开始 / 停止头控" : "Toggle Tracking",
                         detail: isChinese
-                            ? "三种语音触发方式下都可用。只切换模式，不启动录音。"
-                            : "Available in all activation modes. Switches mode only and does not start recording."
+                            ? "如果系统把“下一首”事件交给 Aether，就会用它来开始或停止头控。"
+                            : "If macOS routes the Next Track event to Aether, it starts or stops head tracking."
                     )
                     row(
                         title: isChinese ? "三按 / 三捏" : "Triple Press",
-                        action: isChinese ? "开始 / 停止头控" : "Toggle Tracking",
+                        action: motionManager.headsetTriplePressAction.label,
                         detail: isChinese
-                            ? "如果系统把“上一首”事件交给 Aether，就会用它来开始或停止头控。"
-                            : "If macOS routes the Previous Track event to Aether, it starts or stops head tracking."
+                            ? "如果系统把“上一首”事件交给 Aether，就会执行下面选定的自定义动作。"
+                            : "If macOS routes the Previous Track event to Aether, it runs the action you pick below."
                     )
                 }
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(isChinese ? "三按自定义动作" : "Triple Press Action")
+                            .font(.subheadline.weight(.semibold))
+                        Text(motionManager.headsetTriplePressAction.helperText)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer(minLength: 16)
+                    FixedWidthPopUpMenu(
+                        options: triplePressOptions,
+                        selection: triplePressSelection
+                    )
+                }
+                .padding(12)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+                .cornerRadius(10)
             }
         }
     }
@@ -1508,7 +1505,7 @@ private struct SpeechTermGroupEditorSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("词条规则")
                     .font(.subheadline.weight(.semibold))
-                Text("每行一条：`原词=>目标词`，可选 `=>cmd` 仅命令语境生效。")
+                Text("每行一条：`原词=>目标词`；可选 `=>cmd` 仅控制模式生效，`=>dict` 仅输入模式生效。")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 TextEditor(text: $group.rulesText)
@@ -1801,6 +1798,20 @@ struct OutputSettingsView: View {
             }
         )
     }
+
+    private var autoStartTrackingBinding: Binding<Bool> {
+        Binding(
+            get: { headManager.autoStartTrackingOnHeadsetConnection },
+            set: { headManager.autoStartTrackingOnHeadsetConnection = $0 }
+        )
+    }
+
+    private var postureGuideBinding: Binding<Bool> {
+        Binding(
+            get: { headManager.showPostureGuideBeforeTracking },
+            set: { headManager.showPostureGuideBeforeTracking = $0 }
+        )
+    }
     
     var body: some View {
         SettingsPage(
@@ -1809,13 +1820,27 @@ struct OutputSettingsView: View {
         ) {
             VStack(spacing: 20) {
                 GlassCard {
-                    ControlCard(
-                        title: L10n.commandCenterMotionMatrix, // Reusing Motion Matrix title which is appropriate
-                        subtitle: headManager.isTracking ? L10n.statusActive : L10n.statusPaused,
-                        icon: "viewfinder",
-                        color: .green,
-                        isOn: trackingBinding
-                    )
+                    VStack(alignment: .leading, spacing: 14) {
+                        ControlCard(
+                            title: L10n.commandCenterMotionMatrix, // Reusing Motion Matrix title which is appropriate
+                            subtitle: headManager.isTracking ? L10n.statusActive : L10n.statusPaused,
+                            icon: "viewfinder",
+                            color: .green,
+                            isOn: trackingBinding
+                        )
+
+                        Divider()
+
+                        Toggle(
+                            isChinese ? "连接耳机后自动开启头控" : "Auto-start tracking when headset connects",
+                            isOn: autoStartTrackingBinding
+                        )
+                        Toggle(
+                            isChinese ? "自动开启前显示姿态引导" : "Show posture guide before auto-start",
+                            isOn: postureGuideBinding
+                        )
+                        .disabled(!headManager.autoStartTrackingOnHeadsetConnection)
+                    }
                 }
 
                 GlassCard {

@@ -1000,7 +1000,6 @@ final class VoiceCommandRouter {
 
     private struct State {
         var overrides: [VoiceCommandOverrideConfig] = []
-        var languageTermsOverrides: [VoiceLanguageTermsOverrideConfig] = []
         var frontmostAppCommands: [FrontmostAppCommand] = []
     }
 
@@ -1012,15 +1011,6 @@ final class VoiceCommandRouter {
         set {
             stateQueue.sync(flags: .barrier) {
                 state.overrides = newValue
-            }
-        }
-    }
-
-    var languageTermsOverrides: [VoiceLanguageTermsOverrideConfig] {
-        get { stateQueue.sync { state.languageTermsOverrides } }
-        set {
-            stateQueue.sync(flags: .barrier) {
-                state.languageTermsOverrides = newValue
             }
         }
     }
@@ -1064,26 +1054,8 @@ final class VoiceCommandRouter {
             return VoiceCommandDecision(intent: .dictation(trimmed), confidence: .high, reason: "forced-dictation-bias")
         }
         
-        // --- 2. Normalized Force Prefixes ---
-        let isForceCommand = hasCommandPrefix(
-            s,
-            localeIdentifier: localeIdentifier,
-            languageTermsOverrides: currentState.languageTermsOverrides
-        ) || bias == .forceCommand
-        let isForceDictation = hasDictationPrefix(
-            s,
-            localeIdentifier: localeIdentifier,
-            languageTermsOverrides: currentState.languageTermsOverrides
-        )
-
-        if isForceDictation {
-            let payload = stripDictationPrefix(
-                from: trimmed,
-                localeIdentifier: localeIdentifier,
-                languageTermsOverrides: currentState.languageTermsOverrides
-            )
-            return VoiceCommandDecision(intent: .dictation(payload.isEmpty ? trimmed : payload), confidence: .high, reason: "forced-dictation-prefix")
-        }
+        // --- 2. Explicit command forcing ---
+        let isForceCommand = bias == .forceCommand
 
         // --- 3. Smart Routing Logic ---
         // If we are in an input field (dictationPreferred) and NOT explicitly forcing a command,
@@ -1104,9 +1076,7 @@ final class VoiceCommandRouter {
             }
 
             // Otherwise, everything is treated as dictation in an input field
-            if !isForceDictation {
-                return VoiceCommandDecision(intent: .dictation(trimmed), confidence: .high, reason: "typing-preferred")
-            }
+            return VoiceCommandDecision(intent: .dictation(trimmed), confidence: .high, reason: "typing-preferred")
         }
 
         // --- 4. Local Command Matching (Standard Workflow) ---
@@ -1146,7 +1116,7 @@ final class VoiceCommandRouter {
             chinese = ["点击", "单击"]
             english = ["click"]
         case .clickRight:
-            chinese = ["右键"]
+            chinese = ["右键", "右击", "邮件"]
             english = ["right click", "rightclick", "context"]
         case .doubleClick:
             chinese = ["双击"]
@@ -1226,21 +1196,6 @@ final class VoiceCommandRouter {
         let currentState = stateSnapshot()
         var ordered: [String] = []
         var seen = Set<String>()
-
-        for prefix in commandPrefixes(
-            localeIdentifier: localeIdentifier,
-            languageTermsOverrides: currentState.languageTermsOverrides
-        ) + dictationPrefixes(
-            localeIdentifier: localeIdentifier,
-            languageTermsOverrides: currentState.languageTermsOverrides
-        ) {
-            let normalized = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalized.isEmpty else { continue }
-            let key = normalized.lowercased()
-            guard !seen.contains(key) else { continue }
-            seen.insert(key)
-            ordered.append(normalized)
-        }
 
         for preset in VoiceCommandPreset.allCases {
             for alias in Self.effectiveAliases(for: preset, localeIdentifier: localeIdentifier, overrides: currentState.overrides) {
@@ -1374,66 +1329,6 @@ final class VoiceCommandRouter {
             .filter { !$0.isEmpty }
     }
 
-    private func hasCommandPrefix(
-        _ normalized: String,
-        localeIdentifier: String,
-        languageTermsOverrides: [VoiceLanguageTermsOverrideConfig]
-    ) -> Bool {
-        commandPrefixes(localeIdentifier: localeIdentifier, languageTermsOverrides: languageTermsOverrides)
-            .contains { normalized.hasPrefix(normalizeMatchString($0)) }
-    }
-
-    private func hasDictationPrefix(
-        _ normalized: String,
-        localeIdentifier: String,
-        languageTermsOverrides: [VoiceLanguageTermsOverrideConfig]
-    ) -> Bool {
-        dictationPrefixes(localeIdentifier: localeIdentifier, languageTermsOverrides: languageTermsOverrides)
-            .contains { normalized.hasPrefix(normalizeMatchString($0)) }
-    }
-
-    private func stripDictationPrefix(
-        from raw: String,
-        localeIdentifier: String,
-        languageTermsOverrides: [VoiceLanguageTermsOverrideConfig]
-    ) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowercase = trimmed.lowercased()
-        let prefixes = dictationPrefixes(localeIdentifier: localeIdentifier, languageTermsOverrides: languageTermsOverrides)
-
-        for prefix in prefixes {
-            if lowercase.hasPrefix(prefix.lowercased()) {
-                let dropCount = prefix.count
-                let suffix = trimmed.dropFirst(dropCount).trimmingCharacters(in: .whitespacesAndNewlines)
-                return String(suffix)
-            }
-        }
-
-        return trimmed
-    }
-
-    private func commandPrefixes(
-        localeIdentifier: String,
-        languageTermsOverrides: [VoiceLanguageTermsOverrideConfig]
-    ) -> [String] {
-        if let override = languageTermsOverride(for: localeIdentifier, languageTermsOverrides: languageTermsOverrides),
-           !override.commandPrefixes.isEmpty {
-            return VoiceLexiconSupport.uniqueTerms(override.commandPrefixes)
-        }
-        return Self.defaultCommandPrefixes(for: localeIdentifier)
-    }
-
-    private func dictationPrefixes(
-        localeIdentifier: String,
-        languageTermsOverrides: [VoiceLanguageTermsOverrideConfig]
-    ) -> [String] {
-        if let override = languageTermsOverride(for: localeIdentifier, languageTermsOverrides: languageTermsOverrides),
-           !override.dictationPrefixes.isEmpty {
-            return VoiceLexiconSupport.uniqueTerms(override.dictationPrefixes)
-        }
-        return Self.defaultDictationPrefixes(for: localeIdentifier)
-    }
-
     private func normalizeMatchString(_ raw: String) -> String {
         raw
             .lowercased()
@@ -1454,28 +1349,6 @@ final class VoiceCommandRouter {
         let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
         return overrides.first(where: { $0.localeIdentifier == raw && $0.commandID == preset.rawValue }) ??
             overrides.first(where: { $0.localeIdentifier == canonical && $0.commandID == preset.rawValue })
-    }
-
-    static func defaultCommandPrefixes(for localeIdentifier: String) -> [String] {
-        VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier).lowercased().hasPrefix("zh")
-            ? ["指令", "command"]
-            : ["command", "指令"]
-    }
-
-    static func defaultDictationPrefixes(for localeIdentifier: String) -> [String] {
-        VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier).lowercased().hasPrefix("zh")
-            ? ["输入", "写", "input", "type"]
-            : ["input", "type", "输入", "写"]
-    }
-
-    private func languageTermsOverride(
-        for localeIdentifier: String,
-        languageTermsOverrides: [VoiceLanguageTermsOverrideConfig]
-    ) -> VoiceLanguageTermsOverrideConfig? {
-        let raw = localeIdentifier
-        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
-        return languageTermsOverrides.first(where: { $0.localeIdentifier == raw }) ??
-            languageTermsOverrides.first(where: { $0.localeIdentifier == canonical })
     }
 
     private func stateSnapshot() -> State {

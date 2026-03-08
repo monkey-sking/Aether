@@ -216,6 +216,20 @@ private struct OverviewDashboardView: View {
         )
     }
 
+    private var autoStartTrackingBinding: Binding<Bool> {
+        Binding(
+            get: { headManager.autoStartTrackingOnHeadsetConnection },
+            set: { headManager.autoStartTrackingOnHeadsetConnection = $0 }
+        )
+    }
+
+    private var postureGuideBinding: Binding<Bool> {
+        Binding(
+            get: { headManager.showPostureGuideBeforeTracking },
+            set: { headManager.showPostureGuideBeforeTracking = $0 }
+        )
+    }
+
     private var isChinese: Bool {
         Locale.current.identifier.hasPrefix("zh")
     }
@@ -288,14 +302,14 @@ private struct OverviewDashboardView: View {
 
             LazyVGrid(columns: columns, spacing: 16) {
                 GlassCard {
-                    OverviewToggleTile(
-                        title: isChinese ? "头控指针" : "Pointer Control",
+                    PointerControlTile(
+                        isChinese: isChinese,
                         subtitle: headManager.isTracking
                             ? (isChinese ? "AirPods 头控正在运行" : "AirPods tracking is running")
                             : (isChinese ? "开启后可使用头部控制指针" : "Start tracking to move the pointer"),
-                        systemImage: "viewfinder",
-                        tint: .green,
-                        isOn: trackingBinding
+                        isOn: trackingBinding,
+                        autoStartOnConnect: autoStartTrackingBinding,
+                        showPostureGuide: postureGuideBinding
                     )
                 }
 
@@ -458,6 +472,78 @@ private struct OverviewToggleTile: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 148, alignment: .topLeading)
+    }
+}
+
+private struct PointerControlTile: View {
+    let isChinese: Bool
+    let subtitle: String
+    @Binding var isOn: Bool
+    @Binding var autoStartOnConnect: Bool
+    @Binding var showPostureGuide: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                ZStack {
+                    Circle()
+                        .fill(isOn ? Color.green : Color.gray.opacity(0.16))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "viewfinder")
+                        .foregroundColor(isOn ? .white : .secondary)
+                }
+                Spacer()
+                Toggle("", isOn: $isOn)
+                    .labelsHidden()
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(isChinese ? "头控指针" : "Pointer Control")
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(spacing: 8) {
+                inlineToggle(
+                    title: isChinese ? "连接耳机后自动开启" : "Auto-start when headset connects",
+                    isOn: $autoStartOnConnect
+                )
+                inlineToggle(
+                    title: isChinese ? "显示姿态引导" : "Show posture guide",
+                    isOn: $showPostureGuide
+                )
+                .disabled(!autoStartOnConnect)
+                .opacity(autoStartOnConnect ? 1 : 0.55)
+            }
+
+            Text(
+                isChinese
+                    ? "仅支持带头部姿态传感器的耳机；不支持的设备连接后不会自动开启。"
+                    : "Auto-start only works with head-motion-capable headsets."
+            )
+            .font(.caption2)
+            .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 172, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func inlineToggle(title: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.caption.weight(.medium))
+            Spacer()
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+        .cornerRadius(10)
     }
 }
 
