@@ -167,9 +167,9 @@ struct InputSettingsView: View {
                 presets: [.mediaPlayPause, .mediaPrevious, .mediaNext, .showShortcutPanel, .hideShortcutPanel]
             ),
             VoiceLexiconSection(
-                title: isChinese ? "指针与连接" : "Pointer & Connection",
-                subtitle: isChinese ? "头控启停、回中校准与耳机连接锁定。" : "Pointer tracking, recentering, and headset connection lock.",
-                presets: [.startPointer, .stopPointer, .recenter, .lockConnection, .unlockConnection]
+                title: isChinese ? "指针控制" : "Pointer Control",
+                subtitle: isChinese ? "头控启停与回中操作。" : "Pointer tracking and recentering commands.",
+                presets: [.startPointer, .stopPointer, .recenter]
             )
         ]
     }
@@ -364,13 +364,38 @@ struct InputSettingsView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
 
-                        ControlCard(
-                            title: L10n.llmEnhanceDictation,
-                            subtitle: L10n.settingsSmarterDictation,
-                            icon: "sparkles",
-                            color: .purple,
-                            isOn: $appState.isLLMEnhancementEnabled
-                        )
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.gray.opacity(0.16))
+                                    .frame(width: 40, height: 40)
+
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(isChinese ? "大模型优化" : "LLM Enhancement")
+                                    .font(.subheadline.weight(.medium))
+                                Text(isChinese ? "敬请期待" : "Coming Soon")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            Text(isChinese ? "敬请期待" : "Coming Soon")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .clipShape(Capsule())
+                        }
+                        .padding(12)
+                        .background(Color(nsColor: .controlBackgroundColor))
+                        .cornerRadius(12)
 
                         Toggle(isOn: $appState.isAutoPunctuationEnabled) {
                             Text(L10n.settingsAutoPunctuation)
@@ -1853,30 +1878,84 @@ struct OutputSettingsView: View {
                             isOn: postureGuideBinding
                         )
                         .disabled(!headManager.autoStartTrackingOnHeadsetConnection)
+
+                        Divider()
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(isChinese ? "回中" : "Recenter")
+                                    .font(.subheadline.weight(.semibold))
+                                Text(
+                                    isChinese
+                                        ? "把当前头部朝向重新设为中心，适合姿态变化后快速校正。"
+                                        : "Use the current head position as the new center after your posture changes."
+                                )
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            }
+                            Spacer(minLength: 16)
+                            Button(action: { headManager.recenter() }) {
+                                Text(isChinese ? "重新取中心" : "Recenter Now")
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                            }
+                            .buttonStyle(.plain)
+                            .background(Color(nsColor: .controlBackgroundColor).opacity(headManager.isTracking ? 0.72 : 0.42))
+                            .cornerRadius(10)
+                            .disabled(!headManager.isTracking)
+                        }
                     }
                 }
+            }
+        }
+    }
+}
+
+struct HeadsetSettingsView: View {
+    @ObservedObject private var connectionLock = ConnectionLockService.shared
+
+    private var isChinese: Bool {
+        Locale.current.identifier.hasPrefix("zh")
+    }
+
+    var body: some View {
+        SettingsPage(
+            title: isChinese ? "耳机按钮" : "Headset Buttons",
+            subtitle: isChinese
+                ? "单按、双按、三按的系统媒体事件映射。"
+                : "Map single, double, and triple headset button presses."
+        ) {
+            VStack(spacing: 20) {
+                HeadsetShortcutMappingCard()
 
                 GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label(L10n.settingsCalibration, systemImage: "scope")
+                        Label(isChinese ? "连接锁定" : "Connection Lock", systemImage: "lock.fill")
                             .font(.headline)
 
+                        Text(
+                            isChinese
+                                ? "低频高级功能。需要时可手动锁定当前耳机连接，减少 AirPods 在多设备间误切换。"
+                                : "Low-frequency advanced control. Lock the current headset connection when you need to prevent unwanted device switching."
+                        )
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
                         HStack {
-                            Text(L10n.settingsCurrentStatus)
+                            Text(isChinese ? "当前状态" : "Current Status")
+                                .font(.subheadline.weight(.semibold))
                             Spacer()
-                            if headManager.calibrationStatus == "Normal" {
-                                Text(L10n.calibrationNormal)
-                                    .foregroundColor(.green)
-                            } else {
-                                Text(headManager.calibrationStatus)
-                                    .foregroundColor(.orange)
-                            }
+                            Text(connectionLock.isLocked ? (isChinese ? "已锁定" : "Locked") : (isChinese ? "未锁定" : "Unlocked"))
+                                .foregroundColor(connectionLock.isLocked ? .green : .secondary)
                         }
 
-                        Button(action: { headManager.recenter() }) {
-                            Text(L10n.actionRecenterMatrix)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
+                        Button(action: { connectionLock.toggle() }) {
+                            Text(connectionLock.isLocked
+                                 ? (isChinese ? "解除连接锁定" : "Unlock Connection")
+                                 : (isChinese ? "锁定当前连接" : "Lock Current Connection"))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
                         }
                         .controlSize(.large)
                     }
@@ -1896,8 +1975,6 @@ struct ShortcutsSettingsView: View {
             GlassCard {
                 HotkeySettingsSection()
             }
-
-            HeadsetShortcutMappingCard()
         }
     }
 }

@@ -7,8 +7,15 @@ import os
 // MARK: - Hotkey Settings Section
 
 struct HotkeySettingsSection: View {
+    @EnvironmentObject var appState: AppState
     @ObservedObject var hotkeyManager = HotkeyManager.shared
     @State private var recordingAction: HotkeyAction? = nil // Exclusive recording state
+
+    private var visibleActions: [HotkeyAction] {
+        HotkeyAction.allCases.filter { action in
+            action != .pushToTalk || appState.voiceActivationMode == .pushToTalk
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -29,7 +36,7 @@ struct HotkeySettingsSection: View {
             }
 
             VStack(spacing: 10) {
-                ForEach(HotkeyAction.allCases) { action in
+                ForEach(visibleActions) { action in
                     KeyRecorderRow(action: action, recordingAction: $recordingAction)
                 }
             }
