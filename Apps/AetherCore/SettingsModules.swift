@@ -698,20 +698,42 @@ private struct HeadsetShortcutMappingCard: View {
         Locale.current.identifier.hasPrefix("zh")
     }
 
-    private var triplePressOptions: [FixedPopUpOption] {
-        HeadMotionManager.HeadsetTriplePressAction.allCases.map {
+    private var pressActionOptions: [FixedPopUpOption] {
+        HeadMotionManager.HeadsetPressAction.allCases.map {
             FixedPopUpOption(id: $0.rawValue, title: $0.label)
         }
     }
 
-    private var triplePressSelection: Binding<String> {
+    private func selection(for kind: HeadMotionManager.HeadsetPressKind) -> Binding<String> {
         Binding(
-            get: { motionManager.headsetTriplePressAction.rawValue },
+            get: { action(for: kind).rawValue },
             set: { newValue in
-                guard let action = HeadMotionManager.HeadsetTriplePressAction(rawValue: newValue) else { return }
-                motionManager.headsetTriplePressAction = action
+                guard let action = HeadMotionManager.HeadsetPressAction(rawValue: newValue) else { return }
+                setAction(action, for: kind)
             }
         )
+    }
+
+    private func action(for kind: HeadMotionManager.HeadsetPressKind) -> HeadMotionManager.HeadsetPressAction {
+        switch kind {
+        case .single:
+            return motionManager.headsetSinglePressAction
+        case .double:
+            return motionManager.headsetDoublePressAction
+        case .triple:
+            return motionManager.headsetTriplePressAction
+        }
+    }
+
+    private func setAction(_ action: HeadMotionManager.HeadsetPressAction, for kind: HeadMotionManager.HeadsetPressKind) {
+        switch kind {
+        case .single:
+            motionManager.headsetSinglePressAction = action
+        case .double:
+            motionManager.headsetDoublePressAction = action
+        case .triple:
+            motionManager.headsetTriplePressAction = action
+        }
     }
 
     private var lastEventText: String {
@@ -740,8 +762,8 @@ private struct HeadsetShortcutMappingCard: View {
                             .font(.headline)
                         Text(
                             isChinese
-                                ? "耳机按钮本质上也是触发器，应该和键盘快捷键放在一起看。Aether 现在固定使用单按切换输入 / 控制模式，双按开始 / 停止头控，三按执行你选择的自定义动作。"
-                                : "Headset buttons are triggers too. Aether now uses single press for Dictation / Control switching, double press for tracking, and triple press for a configurable action."
+                                ? "耳机单按、双按、三按都可以单独指定动作。默认分别是切换输入 / 控制模式、开始 / 停止头控、切换语言；修改后会立即生效并保存到本机。"
+                                : "Single, double, and triple press can each trigger their own action. The defaults are mode switching, tracking toggle, and language switching, and changes apply immediately."
                         )
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -766,71 +788,62 @@ private struct HeadsetShortcutMappingCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 8) {
-                    row(
-                        title: isChinese ? "单按 / 单捏" : "Single Press",
-                        action: isChinese ? "切换输入 / 控制模式" : "Toggle Dictation / Control",
+                    actionRow(
+                        kind: .single,
                         detail: isChinese
-                            ? "所有语音触发方式下都生效。单按只切换模式，不会直接开始录音。"
-                            : "Available in all activation modes. Single press switches mode without starting voice capture."
+                            ? "系统把单按事件交给 Aether 时，会执行这里选定的动作。默认只切换模式，不会直接开始录音。"
+                            : "When macOS routes a single press to Aether, it runs the action selected here. By default it switches modes without starting capture."
                     )
-                    row(
-                        title: isChinese ? "双按 / 双捏" : "Double Press",
-                        action: isChinese ? "开始 / 停止头控" : "Toggle Tracking",
+                    actionRow(
+                        kind: .double,
                         detail: isChinese
-                            ? "如果系统把“下一首”事件交给 Aether，就会用它来开始或停止头控。"
-                            : "If macOS routes the Next Track event to Aether, it starts or stops head tracking."
+                            ? "系统把双按事件交给 Aether 时，会执行这里选定的动作。默认用来开始或停止头控。"
+                            : "When macOS routes a double press to Aether, it runs the action selected here. By default it toggles tracking."
                     )
-                    row(
-                        title: isChinese ? "三按 / 三捏" : "Triple Press",
-                        action: motionManager.headsetTriplePressAction.label,
+                    actionRow(
+                        kind: .triple,
                         detail: isChinese
-                            ? "如果系统把“上一首”事件交给 Aether，就会执行下面选定的自定义动作。"
-                            : "If macOS routes the Previous Track event to Aether, it runs the action you pick below."
+                            ? "系统把三按事件交给 Aether 时，会执行这里选定的动作。默认用来切换语言。"
+                            : "When macOS routes a triple press to Aether, it runs the action selected here. By default it cycles languages."
                     )
                 }
-
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(isChinese ? "三按自定义动作" : "Triple Press Action")
-                            .font(.subheadline.weight(.semibold))
-                        Text(motionManager.headsetTriplePressAction.helperText)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer(minLength: 16)
-                    FixedWidthPopUpMenu(
-                        options: triplePressOptions,
-                        selection: triplePressSelection
-                    )
-                }
-                .padding(12)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
-                .cornerRadius(10)
             }
         }
     }
 
     @ViewBuilder
-    private func row(title: String, action: String, detail: String) -> some View {
+    private func actionRow(kind: HeadMotionManager.HeadsetPressKind, detail: String) -> some View {
+        let currentAction = action(for: kind)
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
+                Text(isChinese ? kind.zhLabel : kind.enLabel)
                     .font(.subheadline.weight(.semibold))
                 Text(detail)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Text(currentAction.helperText)
+                    .font(.caption)
+                    .foregroundColor(.secondary.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 12)
 
-            Text(action)
-                .font(.caption.weight(.semibold))
-                .foregroundColor(.accentColor)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.accentColor.opacity(0.12))
-                .clipShape(Capsule())
+            VStack(alignment: .trailing, spacing: 8) {
+                Text(currentAction.label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.accentColor.opacity(0.12))
+                    .clipShape(Capsule())
+
+                FixedWidthPopUpMenu(
+                    options: pressActionOptions,
+                    selection: selection(for: kind)
+                )
+            }
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))

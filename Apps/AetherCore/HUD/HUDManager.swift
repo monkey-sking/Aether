@@ -1495,15 +1495,7 @@ final class HUDManager {
     }
 
     private func shouldSuppressHUDForAetherForegroundWindow() -> Bool {
-        guard let frontApp = NSWorkspace.shared.frontmostApplication,
-              frontApp.bundleIdentifier == Bundle.main.bundleIdentifier else {
-            return false
-        }
-
-        return NSApp.windows.contains { window in
-            guard !(window is NSPanel) else { return false }
-            return window.isVisible && window.styleMask.contains(.titled)
-        }
+        false
     }
 
     private func isFrontmostFocusedWindowLikelyFullscreen(app: NSRunningApplication, on screen: NSScreen) -> Bool {
