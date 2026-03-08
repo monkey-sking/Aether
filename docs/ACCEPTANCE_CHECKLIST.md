@@ -5,7 +5,9 @@
 ### Browser HUD Behavior（未验收项）
 ### Browser HUD Performance（未验收项）
 - [ ] 浏览器普通页面中 HUD 跟随鼠标应流畅，无明显拖尾/卡顿
-    浏览器中控制模式有点卡顿
+    浏览器中控制模式有点卡顿，HUD有瞬移的这情况
+- [ ] 点击其他 APP 的非输入区域时，不应被 HUD 拦截，也不应自动吸回之前的输入框
+    本轮代码已调整：Aether 不在前台时，HUD 改为鼠标穿透，避免覆盖层吃掉外部应用点击
 - [ ] 浏览器全屏播放视频时，HUD 应自动隐藏（功能保留）
     没有自动隐藏
 - [ ] 退出浏览器全屏视频后，HUD 应自动恢复显示
@@ -13,20 +15,12 @@
     1) HUD 重定位仅在输入态或显式诊断时执行 AX 重查询；
     2) HUD 锚点追踪写文件默认关闭（`hudAnchorTraceEnabled=false`）；
     3) 全屏视频抑制恢复默认开启（`suppressHUDInFullscreenVideo=true`），并增加前台进程 + 聚焦窗口全屏校验，避免普通页面误隐藏
-### Voice Progress Ring
-- [ ] 无语音输入时，进度环不持续转圈
-- [ ] 仅在检测到语音活动时，进度环显示并推进
-- [ ] 语音停止后，进度环可隐藏/复位
-- [ ] 不会出现“一圈转完又一圈”持续空转
-    有问题，现在我没有说话还是在转，是受环境声音导致的一直转吗
+
 
 ### Speech Recognition Text Quality（未验收项）
 - [ ] LLM 语音识别结束润色与纠错 (Pending Feature)
     利用大模型能力对 Final 文本进行上下文纠错和近音词修复（例如“交脱入”->“将拖入”），以解决 SFSpeechRecognizer 原生识别的幻觉和断句问题。
 
-### Dictation And Injection
-### Hotkey And Mode Switching（未验收项）
-### Build / Permissions（未验收项）
 ### Mic Mode（未验收项）
 - [ ] 在控制中心手动切到“语音突出/宽谱”后，APP 会话重启（切输入设备、重启识别）不再自动回到“标准”
 - [ ] PTT 模式连续触发 5 次后，麦克风模式不被强制重置为“标准”
@@ -35,53 +29,48 @@
     1) `AudioCaptureSession.start()` 不再显式 `setVoiceProcessingEnabled(false)`；
     2) `autoVoiceProcessingForSpeakers` 默认关闭（需显式开启才会自动启用 VoiceProcessingIO）
 
-### HUD 提示与动画（未验收项）
-- [ ] “已退出输入模式”提示应为短暂提示，显示后自动消失（不应常驻）
-- [ ] 出现该提示时，HUD 位置移动应为平滑过渡，不应瞬移
-    本轮代码已调整：
-    1) 同态 HUD 刷新不再取消临时提示隐藏计时；
-    2) HUD 重定位改为短时动画（0.12s）
-
 ### 本轮新增功能待验收（2026-03-07）
+- [ ] 设置页切换语音触发方式后，HUD 状态会立即刷新并同步到新模式
+- [ ] 主窗口拉起链路统一到当前主窗口，不再走旧的 `showSettingsWindow:` 路径
+- [ ] 浏览器普通网页（非输入区域）点击后，不再持续判定为输入模式；HUD 和输入/控制模式应回到控制语义
+- [ ] 浏览器在“输入框 -> 网页空白区域 -> 输入框”之间切换时，输入态不会粘住，模式切换稳定
+- [ ] 没有真实可编辑输入框时，不会继续停留在输入模式；HUD 不应显示待输入文本假象
+- [ ] 当焦点不在可编辑文本框时，听写内容不会只显示在 HUD 上而未注入；应直接回落并给出短暂提示
+- [x] 快捷键面板支持搜索：可按功能名、菜单路径、别名、快捷键串过滤结果
+- [x] 快捷键面板支持直接点击触发：当前 App 快捷键点击后直接发送组合键
+- [x] 快捷键面板支持直接点击触发：Aether 全局项点击后执行对应内部动作（追踪、连接锁定、切换模式、切换语言、面板显示/隐藏）
+- [x] 搜索无结果时显示空状态提示，不显示空白列表
+- [ ] 唤醒词模式待机时，未被唤醒前不显示 HUD，也不回显未激活阶段的识别文本
+- [ ] 控制模式下语音未匹配到可执行命令时，HUD 给出短暂失败提示，不应静默无反馈
+- [ ] 菜单栏和设置页已移除“当前播放”展示 UI，仅保留底层媒体控制能力
+- [ ] 媒体控制能力保留在底层：Aether 可通过系统媒体语义控制当前播放来源（播放/暂停、上一首、下一首）
+- [ ] 语音词库可自定义媒体控制命令别名（播放/暂停、上一首、下一首）
+- [ ] PTT 模式下，AirPods 单按会尝试接管系统播放/暂停语义作为按住说话；双按/三按仍保留 Aether 控制
+
+
+### Suggested Test Matrix
+- [ ] 普通文本输入框 + 富文本输入框
+- [ ] 英文输入法 + 中文输入法
+- [ ] 外接麦克风 + AirPods（如有）
+
+## 已验收（Passed）
+
+### 从待验收移入（2026-03-08 补充）
+- [x] 历史记录覆盖语音输入和控制命令（含 frontmost app 快捷键触发）
+- [x] 快捷面板点击触发会写入“使用统计与历史”
+
+### 从待验收移入（2026-03-08）
 - [x] 语音设置已拆到左侧侧边栏，5 个入口可正常切换（基础 / 术语纠错 / 词库 / 当前应用 / 统计）
 - [x] “基础”页仅保留麦克风、语言、触发方式、润色、自动标点等基础项，不再混入词库和历史记录
-- [ ] 总览页已移除“实时状态”信息堆叠卡片，仅保留准备情况和高频控制入口
-- [ ] 主窗口采用标准 macOS 标题栏与 unified toolbar，窗口标题显示正常，当前页面信息在 toolbar 内展示
-- [ ] 菜单栏入口已收敛为高频控制结构：状态、核心控制、Now Playing、权限修复、退出，不再重复堆叠设置项
 - [x] 菜单栏图标已切换到自定义模板图标，浅色/深色菜单栏下识别正常
-- [ ] “术语纠错”页单独承载上下文术语纠错与术语分组配置
-- [ ] “词库”页仅保留唤醒词、前缀、命令别名等词库项，内容密度明显下降
 - [x] 已移除“手势与点击 / 头部倾斜滚动”功能入口与底层行为，不再暴露或后台生效
 - [x] App 图标已替换为新图标，并移除白底/白边；Finder、Dock、窗口标题图标显示一致
 - [x] “使用统计与历史”开关默认关闭（首次启动不记录）
 - [x] 开启后可按 App 统计：总次数、语音输入次数、控制命令次数
 - [x] 开启后可查看最近记录：时间、App、动作、输入内容摘要
 - [x] 关闭后停止新增记录（保留旧记录），并支持“清空记录”
-- [ ] 历史记录覆盖语音输入和控制命令（含 frontmost app 快捷键触发）
 - [x] 语言切换快捷键触发 Aether 的同时，不吞掉原始 `Shift` 事件；前台输入法和应用仍可收到该键
-- [ ] 浏览器普通网页（非输入区域）点击后，不再持续判定为输入模式；HUD 和输入/控制模式应回到控制语义
-- [ ] 浏览器在“输入框 -> 网页空白区域 -> 输入框”之间切换时，输入态不会粘住，模式切换稳定
-- [ ] 没有真实可编辑输入框时，不会继续停留在输入模式；HUD 不应显示待输入文本假象
-- [ ] 当焦点不在可编辑文本框时，听写内容不会只显示在 HUD 上而未注入；应直接回落并给出短暂提示
-- [ ] 快捷键面板支持搜索：可按功能名、菜单路径、别名、快捷键串过滤结果
-- [ ] 快捷键面板支持直接点击触发：当前 App 快捷键点击后直接发送组合键
-- [ ] 快捷键面板支持直接点击触发：Aether 全局项点击后执行对应内部动作（追踪、连接锁定、切换模式、切换语言、面板显示/隐藏）
-- [ ] 搜索无结果时显示空状态提示，不显示空白列表
-- [ ] 唤醒词模式待机时，未被唤醒前不显示 HUD，也不回显未激活阶段的识别文本
-- [ ] 控制模式下语音未匹配到可执行命令时，HUD 给出短暂失败提示，不应静默无反馈
-- [ ] 已接入系统 Now Playing：可读取当前播放来源（App / 标题 / 状态）
-- [ ] Aether 可通过系统媒体语义控制当前播放来源：播放/暂停、上一首、下一首
-- [ ] 语音词库已新增媒体控制命令（播放/暂停、上一首、下一首），并可自定义别名
-- [ ] PTT 模式下，AirPods 单按会尝试接管系统播放/暂停语义作为按住说话；双按/三按仍保留 Aether 控制
-
-### Stability
-### Suggested Test Matrix
-- [ ] Chrome / Safari / Electron 类应用（至少 2 个）
-- [ ] 普通文本输入框 + 富文本输入框
-- [ ] 英文输入法 + 中文输入法
-- [ ] 外接麦克风 + AirPods（如有）
-
-## 已验收（Passed）
+- [x] Chrome / Safari / Electron 类应用（至少 2 个）
 
 ### 语音与输入防错验收项（2026-03-07 代码审查通过）
 - [x] 中文短句识别不会出现尾部重复（例如“通过并完成通过并完成”）
@@ -226,6 +215,28 @@
 - [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
 - [x] DMG SHA256：`ef54e182cacf4620504c61bb8d223e12b2de4c2825a827ae237c7cfa258d6868`
 - [x] ZIP SHA256：`5869d7c70cb8b4b17b0963bbf483ac11270f08670ab149d9eb10675e24656c8c`
+- [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
+
+### 本次正式包验签结果（2026-03-08，参照 Aion 收敛标题栏与 HUD 避让菜单层后）
+- [x] 使用完整发布链路：`env APP_PROVISION_PROFILE=signing/Aether_Distribution.provisionprofile DRIVER_PROVISION_PROFILE=signing/AetherDriver_Distribution.provisionprofile NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh`
+- [x] 已包含本轮改动：主窗口标题栏切回标准 unified 风格，标题可见；HUD 在菜单栏弹层/菜单/Popover 显示时自动隐藏避让
+- [x] App 验签通过：`codesign --verify --deep --strict`
+- [x] DMG 验签通过：`codesign --verify --verbose=4`
+- [x] Notary 公证通过（Submission ID: `2ff25c65-e100-44d0-9d30-31a0a8d19b6a`，状态 `Accepted`）
+- [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
+- [x] DMG SHA256：`db828fc16019a1c6e4bef4715597f54cb6ad0997b11284a3331ad9f681012be4`
+- [x] ZIP SHA256：`267fb74433fe293a252e479b90a84af502a678518590d1bcd6b1e7f502839065`
+- [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
+
+### 本次正式包验签结果（2026-03-08，HUD 刷新 / 词库瘦身 / 移除当前播放 UI 后）
+- [x] 使用完整发布链路：`env APP_PROVISION_PROFILE=signing/Aether_Distribution.provisionprofile DRIVER_PROVISION_PROFILE=signing/AetherDriver_Distribution.provisionprofile NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh`
+- [x] 已包含本轮改动：切换触发方式后 HUD 立即刷新、主窗口拉起链路统一、快捷面板点击写入统计历史、词库页继续瘦身、菜单栏与设置页移除“当前播放”UI
+- [x] App 验签通过：`codesign --verify --deep --strict`
+- [x] DMG 验签通过：`codesign --verify --verbose=4`
+- [x] Notary 公证通过（Submission ID: `d425cb46-b9aa-416a-b014-e8348644b380`，状态 `Accepted`）
+- [x] Stapler 通过：`xcrun stapler validate`（App/DMG）
+- [x] DMG SHA256：`d61a09a9747d1dfaf333295ca14e14291095aad0383035a33ffc3a4e27d4d55e`
+- [x] ZIP SHA256：`5aa91983bf4bd26f0dec8f86aaf35bd8a6e294cf61a926bdda855915da108191`
 - [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
 
 ### 权限复用专项（已验收项）

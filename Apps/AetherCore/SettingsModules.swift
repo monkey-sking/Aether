@@ -154,49 +154,22 @@ struct InputSettingsView: View {
         return Array((recommended.isEmpty ? commands : recommended).prefix(12))
     }
 
-    private var voiceLexiconSections: [VoiceLexiconSection] {
+    private var commandAliasSections: [VoiceLexiconSection] {
         [
             VoiceLexiconSection(
-                title: isChinese ? "点击与编辑" : "Clicks & Editing",
-                subtitle: isChinese
-                    ? "最常用的鼠标点击和基础编辑动作。"
-                    : "Basic pointer clicks and editing actions.",
-                presets: [.clickLeft, .clickRight, .doubleClick, .undo, .paste]
+                title: isChinese ? "基础控制" : "Core Controls",
+                subtitle: isChinese ? "鼠标点击、滚动、拖拽与常用编辑动作。" : "Pointer clicks, scrolling, dragging, and common editing actions.",
+                presets: [.clickLeft, .clickRight, .doubleClick, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .dragStart, .dragEnd, .undo, .paste]
             ),
             VoiceLexiconSection(
-                title: isChinese ? "媒体控制" : "Media Control",
-                subtitle: isChinese
-                    ? "通过系统 Now Playing 控制播放、暂停和切歌。"
-                    : "Control playback and track navigation through system Now Playing.",
-                presets: [.mediaPlayPause, .mediaPrevious, .mediaNext]
+                title: isChinese ? "媒体与面板" : "Media & Panels",
+                subtitle: isChinese ? "播放控制和快捷键面板显示控制。" : "Playback controls and shortcut panel visibility.",
+                presets: [.mediaPlayPause, .mediaPrevious, .mediaNext, .showShortcutPanel, .hideShortcutPanel]
             ),
             VoiceLexiconSection(
-                title: isChinese ? "头控指针" : "Pointer Control",
-                subtitle: isChinese
-                    ? "控制头控模式、拖拽和回中。"
-                    : "Control pointer mode, dragging, and recentering.",
-                presets: [.startPointer, .stopPointer, .recenter, .dragStart, .dragEnd]
-            ),
-            VoiceLexiconSection(
-                title: isChinese ? "滚动与浏览" : "Scrolling",
-                subtitle: isChinese
-                    ? "页面浏览时最常用的上下滚动和跳转。"
-                    : "Scrolling and quick jumps for page navigation.",
-                presets: [.scrollUp, .scrollDown, .scrollTop, .scrollBottom]
-            ),
-            VoiceLexiconSection(
-                title: isChinese ? "快捷键面板" : "Shortcut Panel",
-                subtitle: isChinese
-                    ? "显示或关闭当前 App 快捷键总览面板。"
-                    : "Show or hide the current-app shortcuts panel.",
-                presets: [.showShortcutPanel, .hideShortcutPanel]
-            ),
-            VoiceLexiconSection(
-                title: isChinese ? "连接与设备" : "Connection",
-                subtitle: isChinese
-                    ? "适合放到高级场景里的设备连接控制。"
-                    : "Device connection actions used in advanced flows.",
-                presets: [.lockConnection, .unlockConnection]
+                title: isChinese ? "指针与连接" : "Pointer & Connection",
+                subtitle: isChinese ? "头控启停、回中校准与耳机连接锁定。" : "Pointer tracking, recentering, and headset connection lock.",
+                presets: [.startPointer, .stopPointer, .recenter, .lockConnection, .unlockConnection]
             )
         ]
     }
@@ -271,14 +244,14 @@ struct InputSettingsView: View {
                                         .foregroundColor(.secondary)
                                 }
                                 Spacer()
-                                LanguageStatusTag(
-                                    title: isFollowingSystemSpeechLocale
-                                        ? (Locale.current.identifier.hasPrefix("zh")
+                                if isFollowingSystemSpeechLocale {
+                                    LanguageStatusTag(
+                                        title: Locale.current.identifier.hasPrefix("zh")
                                             ? "跟随系统 · \(effectiveSpeechLocaleDisplayName)"
-                                            : "System · \(effectiveSpeechLocaleDisplayName)")
-                                        : effectiveSpeechLocaleDisplayName,
-                                    tint: .blue
-                                )
+                                            : "System · \(effectiveSpeechLocaleDisplayName)",
+                                        tint: .blue
+                                    )
+                                }
                             }
 
                             VoiceLanguageChipPicker(
@@ -572,21 +545,37 @@ struct InputSettingsView: View {
 
                         Divider()
 
-                        VStack(alignment: .leading, spacing: 16) {
-                            ForEach(voiceLexiconSections) { section in
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label(
+                                isChinese ? "控制命令别名" : "Control Command Aliases",
+                                systemImage: "command"
+                            )
+                            .font(.headline)
+
+                            Text(
+                                isChinese
+                                    ? "下面这些是内置控制命令。你可以按语言改成自己更习惯的说法，留空则使用默认词库。"
+                                    : "These are built-in control commands. Customize phrases per language, or leave blank to use defaults."
+                            )
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                            ForEach(commandAliasSections) { aliasSection in
                                 VStack(alignment: .leading, spacing: 10) {
-                                    Text(section.title)
-                                        .font(.headline)
-                                    Text(section.subtitle)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(aliasSection.title)
+                                            .font(.subheadline.weight(.semibold))
+                                        Text(aliasSection.subtitle)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
 
                                     VStack(spacing: 12) {
-                                        ForEach(section.presets) { preset in
+                                        ForEach(aliasSection.presets) { preset in
                                             VoiceLexiconEditorRow(
-                                                title: preset.editorTitle(locale: .current),
-                                                subtitle: preset.editorDescription(locale: .current),
-                                                example: preset.editorExample(locale: .current),
+                                                title: preset.editorTitle(),
+                                                subtitle: preset.editorDescription(),
+                                                example: preset.editorExample(),
                                                 text: Binding(
                                                     get: { appState.commandOverrideText(for: preset, localeIdentifier: resolvedCommandLocaleID) },
                                                     set: { appState.updateCommandOverrideText($0, for: preset, localeIdentifier: resolvedCommandLocaleID) }
@@ -601,6 +590,7 @@ struct InputSettingsView: View {
                                 }
                             }
                         }
+
                     }
                 }
                 }
@@ -848,124 +838,6 @@ private struct HeadsetShortcutMappingCard: View {
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
         .cornerRadius(10)
-    }
-
-    @ViewBuilder
-    private func statusRow(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundColor(.secondary)
-            Text(value)
-                .font(.caption)
-                .foregroundColor(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
-private struct NowPlayingControlCard: View {
-    @EnvironmentObject private var appState: AppState
-
-    private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
-    }
-
-    private var statusText: String {
-        guard !appState.nowPlayingAppName.isEmpty || !appState.nowPlayingTitle.isEmpty else {
-            return isChinese ? "当前没有系统级 Now Playing 来源" : "No active system Now Playing source"
-        }
-        return appState.nowPlayingStatus == "Playing"
-            ? (isChinese ? "播放中" : "Playing")
-            : (isChinese ? "已暂停" : "Paused")
-    }
-
-    private var subtitleText: String {
-        if !appState.nowPlayingArtist.isEmpty {
-            return appState.nowPlayingArtist
-        }
-        if !appState.nowPlayingAlbum.isEmpty {
-            return appState.nowPlayingAlbum
-        }
-        return appState.nowPlayingBundleIdentifier
-    }
-
-    var body: some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "play.rectangle.fill")
-                        .foregroundColor(.secondary)
-                        .frame(width: 18)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(isChinese ? "系统 Now Playing" : "System Now Playing")
-                            .font(.headline)
-                        Text(
-                            isChinese
-                                ? "读取系统当前播放来源，并通过 Aether 发送播放 / 暂停 / 上一首 / 下一首到当前媒体 App。"
-                                : "Reads the current system Now Playing source and sends play/pause, previous, and next controls through Aether."
-                        )
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    statusRow(
-                        title: isChinese ? "当前应用" : "Current App",
-                        value: appState.nowPlayingAppName.isEmpty
-                            ? (isChinese ? "未检测到" : "Not Detected")
-                            : appState.nowPlayingAppName
-                    )
-                    statusRow(
-                        title: isChinese ? "播放内容" : "Now Playing",
-                        value: appState.nowPlayingTitle.isEmpty
-                            ? (isChinese ? "没有可读取的标题" : "No title available")
-                            : appState.nowPlayingTitle
-                    )
-                    statusRow(
-                        title: isChinese ? "状态" : "Status",
-                        value: statusText + (subtitleText.isEmpty ? "" : " · \(subtitleText)")
-                    )
-                }
-                .padding(12)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                HStack(spacing: 10) {
-                    Button {
-                        appState.skipNowPlayingBackward()
-                    } label: {
-                        Label(isChinese ? "上一首" : "Previous", systemImage: "backward.fill")
-                    }
-
-                    Button {
-                        appState.toggleNowPlayingPlayback()
-                    } label: {
-                        Label(appState.nowPlayingStatus == "Playing"
-                              ? (isChinese ? "暂停" : "Pause")
-                              : (isChinese ? "播放" : "Play"),
-                              systemImage: appState.nowPlayingStatus == "Playing" ? "pause.fill" : "play.fill")
-                    }
-
-                    Button {
-                        appState.skipNowPlayingForward()
-                    } label: {
-                        Label(isChinese ? "下一首" : "Next", systemImage: "forward.fill")
-                    }
-
-                    Spacer()
-
-                    Button(isChinese ? "刷新" : "Refresh") {
-                        appState.refreshNowPlaying()
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        }
     }
 
     @ViewBuilder
@@ -1987,7 +1859,6 @@ struct ShortcutsSettingsView: View {
                 HotkeySettingsSection()
             }
 
-            NowPlayingControlCard()
             HeadsetShortcutMappingCard()
         }
     }
