@@ -240,6 +240,10 @@ final class VoiceService: ObservableObject {
         manager.setVoiceLanguageTermsOverrides(overrides)
     }
 
+    func syncHUDState() {
+        manager.syncHUDState()
+    }
+
     func setAccessibilityTrusted(_ trusted: Bool) {
         manager.updateAccessibilityTrusted(trusted)
     }
@@ -809,6 +813,7 @@ class AppState: ObservableObject {
                 voiceService.setAlwaysListeningEnabled(requiresContinuousSession)
                 voiceService.setDirectCommandEnabled(voiceActivationMode == .handsFree)
                 voiceService.setWakeWordEnabled(voiceActivationMode == .wakeWord)
+                voiceService.syncHUDState()
                 return
             }
             if !speechAuthorizedNow {
@@ -829,6 +834,7 @@ class AppState: ObservableObject {
                 voiceService.setAlwaysListeningEnabled(requiresContinuousSession)
                 voiceService.setDirectCommandEnabled(voiceActivationMode == .handsFree)
                 voiceService.setWakeWordEnabled(voiceActivationMode == .wakeWord)
+                voiceService.syncHUDState()
                 return
             }
         }
@@ -844,6 +850,7 @@ class AppState: ObservableObject {
         voiceService.setAlwaysListeningEnabled(requiresContinuousSession)
         voiceService.setDirectCommandEnabled(voiceActivationMode == .handsFree)
         voiceService.setWakeWordEnabled(voiceActivationMode == .wakeWord)
+        voiceService.syncHUDState()
     }
     
 
@@ -1175,6 +1182,8 @@ class AppState: ObservableObject {
 
     
     init() {
+        CurrentAppShortcutPanelManager.shared.appState = self
+
         driverService.$state
             .receive(on: DispatchQueue.main)
             .sink { [weak self] newState in
@@ -1538,6 +1547,27 @@ class AppState: ObservableObject {
         nowPlayingService.previousTrack()
     }
 
+    func recordShortcutPanelCurrentAppShortcut(_ command: FrontmostAppCommand) {
+        recordVoiceUsageEvent(
+            kind: .control,
+            action: shortcutPanelActionTitle(command.title),
+            content: nil,
+            appName: command.appName,
+            bundleIdentifier: command.bundleIdentifier
+        )
+    }
+
+    func recordShortcutPanelGlobalShortcut(_ action: HotkeyAction) {
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.7fei.Aether"
+        recordVoiceUsageEvent(
+            kind: .control,
+            action: shortcutPanelActionTitle(action.label),
+            content: nil,
+            appName: String(localized: "app.project_title"),
+            bundleIdentifier: bundleIdentifier
+        )
+    }
+
     private func applyVoiceIntent(_ intent: VoiceIntent) {
         switch intent {
         case .clickLeft:
@@ -1692,6 +1722,10 @@ class AppState: ObservableObject {
             text = String(text.prefix(280)) + "…"
         }
         return text
+    }
+
+    private func shortcutPanelActionTitle(_ base: String) -> String {
+        Locale.current.identifier.hasPrefix("zh") ? "快捷面板 · \(base)" : "Shortcut Panel · \(base)"
     }
 
     private func voiceIntentActionTitle(_ intent: VoiceIntent) -> String {
@@ -1935,9 +1969,10 @@ class AppState: ObservableObject {
     }
 
     func showMainWindow() {
-        // Main window is now the Settings window
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         NSApp.activate(ignoringOtherApps: true)
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "AetherMainWindow" }) {
+            window.makeKeyAndOrderFront(nil)
+        }
     }
 }
 
@@ -1946,6 +1981,7 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
     static let shared = CurrentAppShortcutPanelManager()
 
     @Published private(set) var isVisible: Bool = false
+    weak var appState: AppState?
 
     private var panel: NSPanel?
     private var globalEventMonitors: [Any] = []
@@ -2551,12 +2587,14 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private func triggerCurrentAppShortcut(_ command: FrontmostAppCommand) {
+        CurrentAppShortcutPanelManager.shared.appState?.recordShortcutPanelCurrentAppShortcut(command)
         CurrentAppShortcutPanelManager.shared.hideAndRun(targetPID: command.processIdentifier) {
             AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: command.processIdentifier)
         }
     }
 
     private func triggerGlobalShortcut(_ entry: AetherGlobalShortcutPanelEntry) {
+        CurrentAppShortcutPanelManager.shared.appState?.recordShortcutPanelGlobalShortcut(entry.action)
         if entry.action == .toggleShortcutPanel {
             CurrentAppShortcutPanelManager.shared.hide()
             return

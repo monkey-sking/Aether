@@ -101,15 +101,6 @@ struct AetherMainView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                WindowTitleToolbarContent(
-                    sectionTitle: panelTitle(currentPanel),
-                    sectionSubtitle: panelSubtitle(currentPanel),
-                    symbolName: panelSymbol(currentPanel)
-                )
-            }
-        }
         .background(
             StandardWindowConfigurator(
                 title: "Aether",
@@ -148,19 +139,6 @@ struct AetherMainView: View {
         }
     }
 
-    private func panelSubtitle(_ panel: Panel) -> String {
-        switch panel {
-        case .overview:
-            return localeText(zh: "系统总览与快速控制", en: "Overview and quick controls")
-        case .voiceBasics, .voiceTerms, .voiceLexicon, .voiceAppControls, .voiceInsights:
-            return localeText(zh: "语音配置", en: "Voice configuration")
-        case .pointer:
-            return localeText(zh: "指针与校准", en: "Pointer and calibration")
-        case .shortcuts:
-            return localeText(zh: "全局快捷键", en: "Global shortcuts")
-        }
-    }
-
     private func panelSymbol(_ panel: Panel) -> String {
         switch panel {
         case .overview:
@@ -179,32 +157,6 @@ struct AetherMainView: View {
             return "viewfinder"
         case .shortcuts:
             return "keyboard"
-        }
-    }
-}
-
-private struct WindowTitleToolbarContent: View {
-    let sectionTitle: String
-    let sectionSubtitle: String
-    let symbolName: String
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbolName)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 28, height: 28)
-                .background(Color.secondary.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(sectionTitle)
-                    .font(.system(size: 13, weight: .semibold))
-                Text(sectionSubtitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
         }
     }
 }
@@ -229,11 +181,15 @@ private struct StandardWindowConfigurator: NSViewRepresentable {
 
     private func applyConfiguration(for window: NSWindow?) {
         guard let window else { return }
+        window.identifier = NSUserInterfaceItemIdentifier("AetherMainWindow")
         window.title = title
         window.subtitle = subtitle
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
-        window.toolbarStyle = .unifiedCompact
+        window.toolbarStyle = .unified
+        if #available(macOS 11.0, *) {
+            window.titlebarSeparatorStyle = .automatic
+        }
     }
 }
 

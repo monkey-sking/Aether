@@ -30,7 +30,6 @@ final class HUDManager {
     private var lastInputInteractionPoint: CGPoint?
     private var lastInputInteractionAt: Date = .distantPast
     private var typingSuppressedUntil: Date = .distantPast
-    
     private var hudWindow: NSPanel?
     private var hideTask: DispatchWorkItem?
     private var pendingRepositionWorkItem: DispatchWorkItem?
@@ -950,6 +949,7 @@ final class HUDManager {
                 self.requestReposition()
             }
             .store(in: &cancellables)
+
     }
 
     private func requestReposition(immediate: Bool = false) {
@@ -1006,7 +1006,7 @@ final class HUDManager {
         // [Ghost Keyboard Fix] Accessing mode from state should be main-thread safe enough here
         // If hidden, DO NOT move or update content (prevents "Ghost Keyboard" when fading out)
         if state.mode == .hidden { return }
-        
+
         guard let panel = hudWindow else { return }
 
         if shouldSuppressHUDForAetherForegroundWindow() {
@@ -1172,9 +1172,11 @@ final class HUDManager {
             }
         }
         
-        // Click-through: only allow mouse interaction when language toggle is visible
+        // Do not let the HUD steal clicks from other apps. Keep click handling only
+        // when Aether itself is frontmost; otherwise the overlay must be pass-through.
         let interactiveModes: [HUDMode] = [.listening, .command, .dictation]
-        panel.ignoresMouseEvents = !interactiveModes.contains(state.mode)
+        let isAetherFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
+        panel.ignoresMouseEvents = !(interactiveModes.contains(state.mode) && isAetherFrontmost)
         
         // 2. Determine Reference Screen
         let referencePoint = layoutTypingMode ? anchor : mouseLoc

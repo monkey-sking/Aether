@@ -22,10 +22,32 @@ struct HotkeyBinding: Codable, Equatable {
         if let btn = mouseButton {
             parts.append(Self.mouseButtonName(for: btn))
         } else {
-            parts.append(Self.keyName(for: keyCode))
+            let keyName = Self.keyName(for: keyCode)
+            if !Self.isModifierKeyCode(keyCode, alreadyRepresentedBy: flags) {
+                parts.append(keyName)
+            } else if parts.isEmpty {
+                parts.append(keyName)
+            }
         }
         
         return parts.joined()
+    }
+
+    private static func isModifierKeyCode(_ code: Int, alreadyRepresentedBy flags: CGEventFlags) -> Bool {
+        switch code {
+        case kVK_Shift, kVK_RightShift:
+            return flags.contains(.maskShift)
+        case kVK_Control, kVK_RightControl:
+            return flags.contains(.maskControl)
+        case kVK_Option, kVK_RightOption:
+            return flags.contains(.maskAlternate)
+        case kVK_Command, kVK_RightCommand:
+            return flags.contains(.maskCommand)
+        case kVK_CapsLock:
+            return flags.contains(.maskAlphaShift)
+        default:
+            return false
+        }
     }
 
     // Convert keyCode to a readable name
@@ -162,7 +184,7 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
         case .toggleInputControlMode:
             return Locale.current.identifier.hasPrefix("zh") ? "切换输入控制模式" : "Switch input control mode"
         case .toggleLanguage:
-            return Locale.current.identifier.hasPrefix("zh") ? "切换语音语言" : "Switch dictation language"
+            return Locale.current.identifier.hasPrefix("zh") ? "在已启用语音语言之间切换" : "Cycle through enabled dictation languages"
         case .toggleShortcutPanel:
             return Locale.current.identifier.hasPrefix("zh") ? "显示或关闭当前应用快捷键面板" : "Show or hide the current app shortcuts panel"
         }

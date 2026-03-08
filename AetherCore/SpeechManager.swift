@@ -1418,6 +1418,10 @@ final class SpeechManager: ObservableObject {
         DispatchQueue.main.async { self.availableInputDevices = devices; self.refreshContinuousHUD() }
     }
 
+    func syncHUDState() {
+        refreshContinuousHUD(isDictating: isDictating)
+    }
+
     private func setupAudioDeviceListeners() {
         var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
