@@ -897,9 +897,11 @@ final class SpeechManager: ObservableObject {
             intent = .unknown(payload)
         }
 
+        let isExplicitControlMode = recognitionControlMode == .command || routingBias == .forceCommand
         if decision.confidence == .low,
            !typingContext,
-           isCommandIntent(intent) {
+           isCommandIntent(intent),
+           !isExplicitControlMode {
             metrics.lowConfidenceCommandDowngrades += 1
             intent = .unknown(textToRoute)
         }

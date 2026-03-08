@@ -20,6 +20,8 @@ class HeadMotionManager: ObservableObject {
     static let pttUpNotification = Notification.Name("AetherPTTUp")
     static let recognitionControlModeChangedNotification = Notification.Name("AetherRecognitionControlModeChanged")
     private static let recognitionModeOverrideKey = "AetherRecognitionModeOverride"
+    private static let headsetSinglePressActionKey = "AetherHeadsetSinglePressAction"
+    private static let headsetDoublePressActionKey = "AetherHeadsetDoublePressAction"
     private static let headsetTriplePressActionKey = "AetherHeadsetTriplePressAction"
     private static let autoStartTrackingOnHeadsetConnectionKey = "AetherAutoStartTrackingOnHeadsetConnection"
     private static let showPostureGuideBeforeTrackingKey = "AetherShowPostureGuideBeforeTracking"
@@ -48,7 +50,48 @@ class HeadMotionManager: ObservableObject {
         case lookLow    // Bias for Dictation (optional, like reading a script)
     }
 
-    enum HeadsetTriplePressAction: String, CaseIterable, Identifiable, Sendable {
+    enum HeadsetPressKind: String, CaseIterable, Identifiable, Sendable {
+        case single
+        case double
+        case triple
+
+        var id: String { rawValue }
+
+        var zhLabel: String {
+            switch self {
+            case .single:
+                return "单按 / 单捏"
+            case .double:
+                return "双按 / 双捏"
+            case .triple:
+                return "三按 / 三捏"
+            }
+        }
+
+        var enLabel: String {
+            switch self {
+            case .single:
+                return "Single Press"
+            case .double:
+                return "Double Press"
+            case .triple:
+                return "Triple Press"
+            }
+        }
+
+        var eventSource: String {
+            switch self {
+            case .single:
+                return "airpods-single-press"
+            case .double:
+                return "airpods-double-press"
+            case .triple:
+                return "airpods-triple-press"
+            }
+        }
+    }
+
+    enum HeadsetPressAction: String, CaseIterable, Identifiable, Sendable {
         case none
         case toggleLanguage
         case connectionLock
@@ -150,9 +193,23 @@ class HeadMotionManager: ObservableObject {
         }
     }
 
-    @Published var headsetTriplePressAction: HeadsetTriplePressAction = HeadMotionManager.loadHeadsetTriplePressActionFromDefaults() {
+    @Published var headsetSinglePressAction: HeadsetPressAction = HeadMotionManager.loadHeadsetPressActionFromDefaults(for: .single) {
         didSet {
-            HeadMotionManager.saveHeadsetTriplePressAction(headsetTriplePressAction)
+            HeadMotionManager.saveHeadsetPressAction(headsetSinglePressAction, for: .single)
+            updateNowPlayingInfo()
+        }
+    }
+
+    @Published var headsetDoublePressAction: HeadsetPressAction = HeadMotionManager.loadHeadsetPressActionFromDefaults(for: .double) {
+        didSet {
+            HeadMotionManager.saveHeadsetPressAction(headsetDoublePressAction, for: .double)
+            updateNowPlayingInfo()
+        }
+    }
+
+    @Published var headsetTriplePressAction: HeadsetPressAction = HeadMotionManager.loadHeadsetPressActionFromDefaults(for: .triple) {
+        didSet {
+            HeadMotionManager.saveHeadsetPressAction(headsetTriplePressAction, for: .triple)
             updateNowPlayingInfo()
         }
     }
@@ -160,6 +217,15 @@ class HeadMotionManager: ObservableObject {
     @Published var autoStartTrackingOnHeadsetConnection: Bool = UserDefaults.standard.object(forKey: HeadMotionManager.autoStartTrackingOnHeadsetConnectionKey) as? Bool ?? false {
         didSet {
             UserDefaults.standard.set(autoStartTrackingOnHeadsetConnection, forKey: HeadMotionManager.autoStartTrackingOnHeadsetConnectionKey)
+            if !autoStartTrackingOnHeadsetConnection {
+                pendingAutoTrackingStart?.cancel()
+                pendingAutoTrackingStart = nil
+                return
+            }
+            guard lastObservedAirPodSide != .none, !isTracking else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.scheduleAutoTrackingStartAfterConnection()
+            }
         }
     }
 
@@ -291,10 +357,10 @@ class HeadMotionManager: ObservableObject {
         return .pushToTalk
     }
 
-    private static func loadHeadsetTriplePressActionFromDefaults() -> HeadsetTriplePressAction {
-        guard let raw = UserDefaults.standard.string(forKey: headsetTriplePressActionKey),
-              let action = HeadsetTriplePressAction(rawValue: raw) else {
-            return .toggleLanguage
+    private static func loadHeadsetPressActionFromDefaults(for kind: HeadsetPressKind) -> HeadsetPressAction {
+        guard let raw = UserDefaults.standard.string(forKey: headsetPressActionKey(for: kind)),
+              let action = HeadsetPressAction(rawValue: raw) else {
+            return defaultHeadsetPressAction(for: kind)
         }
         return action
     }
@@ -310,8 +376,30 @@ class HeadMotionManager: ObservableObject {
         }
     }
 
-    private static func saveHeadsetTriplePressAction(_ action: HeadsetTriplePressAction) {
-        UserDefaults.standard.set(action.rawValue, forKey: headsetTriplePressActionKey)
+    private static func saveHeadsetPressAction(_ action: HeadsetPressAction, for kind: HeadsetPressKind) {
+        UserDefaults.standard.set(action.rawValue, forKey: headsetPressActionKey(for: kind))
+    }
+
+    private static func headsetPressActionKey(for kind: HeadsetPressKind) -> String {
+        switch kind {
+        case .single:
+            return headsetSinglePressActionKey
+        case .double:
+            return headsetDoublePressActionKey
+        case .triple:
+            return headsetTriplePressActionKey
+        }
+    }
+
+    private static func defaultHeadsetPressAction(for kind: HeadsetPressKind) -> HeadsetPressAction {
+        switch kind {
+        case .single:
+            return .toggleInputControlMode
+        case .double:
+            return .toggleTracking
+        case .triple:
+            return .toggleLanguage
+        }
     }
     
     
@@ -795,8 +883,8 @@ class HeadMotionManager: ObservableObject {
         var nowPlayingInfo = [String: Any]()
         nowPlayingInfo[MPMediaItemPropertyTitle] = isChinese ? "Aether 耳机按钮映射" : "Aether Headset Mapping"
         nowPlayingInfo[MPMediaItemPropertyArtist] = isChinese
-            ? "单按: 切模式  ·  双按: 头控  ·  三按: \(headsetTriplePressAction.label)"
-            : "Single: Mode  ·  Double: Tracking  ·  Triple: \(headsetTriplePressAction.label)"
+            ? "单按: \(headsetSinglePressAction.label)  ·  双按: \(headsetDoublePressAction.label)  ·  三按: \(headsetTriplePressAction.label)"
+            : "Single: \(headsetSinglePressAction.label)  ·  Double: \(headsetDoublePressAction.label)  ·  Triple: \(headsetTriplePressAction.label)"
         nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = 0.0
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
         
@@ -882,23 +970,17 @@ class HeadMotionManager: ObservableObject {
                log: log, type: .info, source, persist ? "yes" : "no", isCommandMode ? "command" : "dictation")
     }
 
-    private enum HeadsetRemoteActionKind {
-        case singlePress
-        case doublePress
-        case triplePress
-    }
-
     @MainActor
-    private func shouldHandleHeadsetRemoteAction(kind: HeadsetRemoteActionKind) -> Bool {
+    private func shouldHandleHeadsetRemoteAction(kind: HeadsetPressKind) -> Bool {
         let now = Date()
         switch kind {
-        case .singlePress:
+        case .single:
             guard now.timeIntervalSince(lastHeadsetSinglePressAt) >= headsetRemoteActionDebounce else { return false }
             lastHeadsetSinglePressAt = now
-        case .doublePress:
+        case .double:
             guard now.timeIntervalSince(lastHeadsetDoublePressAt) >= headsetRemoteActionDebounce else { return false }
             lastHeadsetDoublePressAt = now
-        case .triplePress:
+        case .triple:
             guard now.timeIntervalSince(lastHeadsetTriplePressAt) >= headsetRemoteActionDebounce else { return false }
             lastHeadsetTriplePressAt = now
         }
@@ -907,39 +989,40 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     private func handleHeadsetSinglePress(origin: String) {
-        noteHeadsetRemoteEvent(
-            display: Locale.current.identifier.hasPrefix("zh") ? "耳机单按" : "Headset Single Press"
-        )
-        guard shouldHandleHeadsetRemoteAction(kind: .singlePress) else { return }
-        performHeadsetAction(.toggleInputControlMode, source: origin)
+        guard shouldHandleHeadsetRemoteAction(kind: .single) else { return }
+        performConfiguredHeadsetAction(kind: .single, source: origin)
     }
 
     @MainActor
     private func handleHeadsetDoublePress() {
-        noteHeadsetRemoteEvent(
-            display: Locale.current.identifier.hasPrefix("zh") ? "耳机双按" : "Headset Double Press"
-        )
-        guard shouldHandleHeadsetRemoteAction(kind: .doublePress) else { return }
-        performHeadsetAction(.toggleTracking, source: "airpods-double-press")
+        guard shouldHandleHeadsetRemoteAction(kind: .double) else { return }
+        performConfiguredHeadsetAction(kind: .double, source: HeadsetPressKind.double.eventSource)
     }
 
     @MainActor
     private func handleHeadsetTriplePress() {
+        guard shouldHandleHeadsetRemoteAction(kind: .triple) else { return }
+        performConfiguredHeadsetAction(kind: .triple, source: HeadsetPressKind.triple.eventSource)
+    }
+
+    @MainActor
+    private func performConfiguredHeadsetAction(kind: HeadsetPressKind, source: String) {
         let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let configuredAction = headsetPressAction(for: kind)
+        let pressLabel = isChinese ? kind.zhLabel : kind.enLabel
         noteHeadsetRemoteEvent(
             display: isChinese
-                ? "耳机三按 · \(headsetTriplePressAction.label)"
-                : "Headset Triple Press · \(headsetTriplePressAction.label)"
+                ? "耳机\(kind.zhLabel) · \(configuredAction.label)"
+                : "Headset \(pressLabel) · \(configuredAction.label)"
         )
-        guard shouldHandleHeadsetRemoteAction(kind: .triplePress) else { return }
-        guard let action = headsetTriplePressAction.hotkeyAction else {
+        guard let action = configuredAction.hotkeyAction else {
             HUDManager.shared.showTemporary(
-                message: isChinese ? "耳机三按未设置动作" : "No triple-press action assigned",
+                message: isChinese ? "\(kind.zhLabel)未设置动作" : "No action assigned for \(pressLabel.lowercased())",
                 duration: 0.8
             )
             return
         }
-        performHeadsetAction(action, source: "airpods-triple-press")
+        performHeadsetAction(action, source: source)
     }
 
     @MainActor
@@ -962,9 +1045,20 @@ class HeadMotionManager: ObservableObject {
             NotificationCenter.default.post(name: .toggleShortcutPanel, object: nil)
         case .pushToTalk:
             HUDManager.shared.showTemporary(
-                message: isChinese ? "耳机三按不支持按住说话" : "Triple press cannot be Push To Talk",
+                message: isChinese ? "耳机按钮不支持按住说话" : "Headset buttons cannot be Push To Talk",
                 duration: 0.8
             )
+        }
+    }
+
+    private func headsetPressAction(for kind: HeadsetPressKind) -> HeadsetPressAction {
+        switch kind {
+        case .single:
+            return headsetSinglePressAction
+        case .double:
+            return headsetDoublePressAction
+        case .triple:
+            return headsetTriplePressAction
         }
     }
 
