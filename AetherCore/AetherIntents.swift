@@ -44,7 +44,7 @@ struct AetherShortcuts: AppShortcutsProvider {
             intent: ToggleConnectionLockIntent(),
             phrases: [
                 "Toggle AirPods lock with \(.applicationName)",
-                "用\(.applicationName)切换AirPods锁定",
+                "用\(.applicationName)切换耳机连接锁定",
             ],
             shortTitle: "Toggle AirPods Lock",
             systemImageName: "airpodspro"
@@ -53,7 +53,7 @@ struct AetherShortcuts: AppShortcutsProvider {
             intent: LockConnectionIntent(),
             phrases: [
                 "Lock AirPods with \(.applicationName)",
-                "用\(.applicationName)锁定AirPods",
+                "用\(.applicationName)锁定耳机连接",
             ],
             shortTitle: "Lock AirPods",
             systemImageName: "lock.fill"
@@ -62,7 +62,7 @@ struct AetherShortcuts: AppShortcutsProvider {
             intent: UnlockConnectionIntent(),
             phrases: [
                 "Unlock AirPods with \(.applicationName)",
-                "用\(.applicationName)解锁AirPods",
+                "用\(.applicationName)解除耳机连接锁定",
             ],
             shortTitle: "Unlock AirPods",
             systemImageName: "lock.open.fill"

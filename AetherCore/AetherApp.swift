@@ -1581,17 +1581,22 @@ class AppState: ObservableObject {
     }
 
     private func applyVoiceIntent(_ intent: VoiceIntent) {
+        GlobalLogger.lifecycle.info("[VoiceIntent] execute \(voiceIntentActionTitle(intent))")
         switch intent {
         case .clickLeft:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=clickLeft")
             motionService.clickLeft()
             recordVoiceControl(intent)
         case .clickRight:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=clickRight")
             motionService.clickRight()
             recordVoiceControl(intent)
         case .doubleClick:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=doubleClick")
             motionService.doubleClick()
             recordVoiceControl(intent)
         case .mediaPlayPause:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=mediaPlayPause")
             nowPlayingService.togglePlayPause()
             recordVoiceControl(
                 intent,
@@ -1599,6 +1604,7 @@ class AppState: ObservableObject {
                 bundleIdentifier: nowPlayingBundleIdentifier.isEmpty ? nil : nowPlayingBundleIdentifier
             )
         case .mediaPrevious:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=mediaPrevious")
             nowPlayingService.previousTrack()
             recordVoiceControl(
                 intent,
@@ -1606,6 +1612,7 @@ class AppState: ObservableObject {
                 bundleIdentifier: nowPlayingBundleIdentifier.isEmpty ? nil : nowPlayingBundleIdentifier
             )
         case .mediaNext:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=mediaNext")
             nowPlayingService.nextTrack()
             recordVoiceControl(
                 intent,
@@ -1613,21 +1620,27 @@ class AppState: ObservableObject {
                 bundleIdentifier: nowPlayingBundleIdentifier.isEmpty ? nil : nowPlayingBundleIdentifier
             )
         case .showShortcutPanel:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=showShortcutPanel")
             showShortcutPanel()
             recordVoiceControl(intent)
         case .hideShortcutPanel:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=hideShortcutPanel")
             hideShortcutPanel()
             recordVoiceControl(intent)
         case .startPointer:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=startPointer")
             motionService.startTracking()
             recordVoiceControl(intent)
         case .stopPointer:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=stopPointer")
             motionService.stopTracking()
             recordVoiceControl(intent)
         case .recenter:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=recenter")
             motionService.recenter()
             recordVoiceControl(intent)
         case .frontmostAppCommand(let command):
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=frontmostAppCommand title=\(command.title) shortcut=\(command.shortcut.displayString) pid=\(command.processIdentifier)")
             AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: command.processIdentifier)
             recordVoiceControl(
                 intent,
@@ -1635,33 +1648,43 @@ class AppState: ObservableObject {
                 bundleIdentifier: command.bundleIdentifier
             )
         case .scroll(let dx, let dy):
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=scroll dx=\(dx) dy=\(dy)")
             motionService.scroll(dx: dx, dy: dy)
             recordVoiceControl(intent)
         case .scrollToWeb(let edge):
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=scrollToWeb edge=\(edge)")
             if edge == "top" { motionService.scrollToTop() }
             else { motionService.scrollToBottom() }
             recordVoiceControl(intent)
         case .dragStart:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=dragStart")
             motionService.dragStart()
             recordVoiceControl(intent)
         case .dragEnd:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=dragEnd")
             motionService.dragEnd()
             recordVoiceControl(intent)
         case .undo:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=undo")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
             recordVoiceControl(intent)
         case .paste:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=paste")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
             recordVoiceControl(intent)
         case .lockConnection:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=lockConnection")
             connectionLock.lock()
             recordVoiceControl(intent)
         case .unlockConnection:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=unlockConnection")
             connectionLock.unlock()
             recordVoiceControl(intent)
         case .dictation(let text):
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=dictation text=\(text)")
             recordVoiceDictation(text)
         case .unknown:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=unknown")
             break
         }
     }
@@ -1683,7 +1706,7 @@ class AppState: ObservableObject {
     private func recordVoiceDictation(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
         recordVoiceUsageEvent(
             kind: .dictation,
-            action: Locale.current.identifier.hasPrefix("zh") ? "语音输入" : "Dictation",
+            action: Locale.current.identifier.hasPrefix("zh") ? "输入" : "Dictation",
             content: text,
             appName: appName,
             bundleIdentifier: bundleIdentifier
@@ -1790,7 +1813,7 @@ class AppState: ObservableObject {
         case .unlockConnection:
             return isChinese ? "解锁连接" : "Unlock Connection"
         case .dictation:
-            return isChinese ? "语音输入" : "Dictation"
+            return isChinese ? "输入" : "Dictation"
         case .unknown:
             return isChinese ? "未知命令" : "Unknown Command"
         }
@@ -2134,12 +2157,13 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
               let snapshot = FrontmostAppCommandCatalog.shared.snapshot,
               !snapshot.commands.isEmpty else {
             let width = min(max(visibleFrame.width * 0.54, 820), 980)
-            let height = min(max(globalSectionHeight + 300, 520), visibleFrame.height - 40)
+            let height = min(max(globalSectionHeight + 240, 460), visibleFrame.height - 40)
             return CGSize(width: width, height: height)
         }
 
         let sections = CurrentAppShortcutPanelLayout.makeSections(from: snapshot)
-        let columnCount = max(1, min(sections.count, 3))
+        let totalAppCommandCount = sections.reduce(0) { $0 + $1.commands.count }
+        let columnCount = CurrentAppShortcutPanelLayout.preferredColumnCount(for: sections)
         let cardWidth: CGFloat = 340
         let gridSpacing: CGFloat = 18
         let outerPadding: CGFloat = 52
@@ -2148,7 +2172,7 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
         let footerBreathingRoom: CGFloat = 28
 
         let width = max(
-            760,
+            columnCount == 1 ? 680 : 760,
             CGFloat(columnCount) * cardWidth + CGFloat(max(columnCount - 1, 0)) * gridSpacing + outerPadding
         )
 
@@ -2161,7 +2185,18 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
             groupHeaderHeight + globalSectionHeight +
             gridSpacing +
             groupHeaderHeight + appContentHeight
-        let height = max(560, headerHeight + contentHeight + outerPadding + footerBreathingRoom)
+        let minimumHeight: CGFloat
+        if totalAppCommandCount <= 4 {
+            minimumHeight = 360
+        } else if totalAppCommandCount <= 8 {
+            minimumHeight = 400
+        } else if totalAppCommandCount <= 14 {
+            minimumHeight = 450
+        } else {
+            minimumHeight = 520
+        }
+
+        let height = max(minimumHeight, headerHeight + contentHeight + outerPadding + footerBreathingRoom)
         return CGSize(width: width, height: height)
     }
 
@@ -2204,11 +2239,40 @@ private enum CurrentAppShortcutPanelLayout {
             grouped[title, default: []].append(command)
         }
 
-        return ordered.map { CurrentAppShortcutPanelSection(title: $0, commands: grouped[$0] ?? []) }
+        let prioritizedTitles = ordered.enumerated()
+            .sorted { lhs, rhs in
+                let lhsPriority = sectionPriority(for: lhs.element, appName: snapshot.appName)
+                let rhsPriority = sectionPriority(for: rhs.element, appName: snapshot.appName)
+                if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+
+        return prioritizedTitles.map { title in
+            let commands = (grouped[title] ?? []).enumerated()
+                .sorted { lhs, rhs in
+                    let lhsPriority = commandPriority(for: lhs.element)
+                    let rhsPriority = commandPriority(for: rhs.element)
+                    if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
+
+                    let lhsDepth = lhs.element.menuPath.count
+                    let rhsDepth = rhs.element.menuPath.count
+                    if lhsDepth != rhsDepth { return lhsDepth < rhsDepth }
+
+                    return lhs.offset < rhs.offset
+                }
+                .map(\.element)
+            return CurrentAppShortcutPanelSection(title: title, commands: commands)
+        }
     }
 
-    static func preferredColumnCount(for sectionCount: Int) -> Int {
-        max(1, min(sectionCount, 3))
+    static func preferredColumnCount(for sections: [CurrentAppShortcutPanelSection]) -> Int {
+        let sectionCount = sections.count
+        let totalCommands = sections.reduce(0) { $0 + $1.commands.count }
+        if sectionCount <= 1 { return 1 }
+        if totalCommands <= 10 { return 1 }
+        if sectionCount == 2 && totalCommands <= 14 { return 1 }
+        return max(1, min(sectionCount, 2))
     }
 
     static func estimatedHeight(for section: CurrentAppShortcutPanelSection) -> CGFloat {
@@ -2235,9 +2299,16 @@ private enum CurrentAppShortcutPanelLayout {
 
         for section in sections {
             let estimated = estimatedHeight(for: section)
-            let targetIndex = heights.enumerated().min(by: { $0.element < $1.element })?.offset ?? 0
-            columns[targetIndex].append(section)
-            heights[targetIndex] += estimated + spacing
+            let targetColumn = heights.enumerated()
+                .min { lhs, rhs in
+                    if lhs.element == rhs.element { return lhs.offset < rhs.offset }
+                    return lhs.element < rhs.element
+                }?
+                .offset ?? 0
+
+            let spacingHeight = columns[targetColumn].isEmpty ? CGFloat(0) : spacing
+            columns[targetColumn].append(section)
+            heights[targetColumn] += spacingHeight + estimated
         }
 
         return columns.filter { !$0.isEmpty }
@@ -2256,6 +2327,91 @@ private enum CurrentAppShortcutPanelLayout {
                 }
             }
             .max() ?? 0
+    }
+
+    private static func sectionPriority(for title: String, appName: String) -> Int {
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedAppName = appName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        if normalized == normalizedAppName { return 900 }
+
+        switch normalized {
+        case "file", "文件":
+            return 100
+        case "tab", "标签", "标签页":
+            return 105
+        case "edit", "编辑":
+            return 110
+        case "selection", "选择":
+            return 120
+        case "view", "视图":
+            return 130
+        case "history", "历史记录", "历史":
+            return 135
+        case "bookmarks", "书签":
+            return 138
+        case "go", "navigate", "跳转", "导航":
+            return 140
+        case "run", "运行":
+            return 150
+        case "source control", "git", "源代码管理", "源码管理", "版本控制":
+            return 155
+        case "tools", "工具":
+            return 160
+        case "window", "窗口":
+            return 170
+        case "terminal", "终端":
+            return 180
+        case "help", "帮助":
+            return 950
+        default:
+            return 500
+        }
+    }
+
+    private static func commandPriority(for command: FrontmostAppCommand) -> Int {
+        let normalizedTitle = command.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedPath = command.menuPath.joined(separator: " ").lowercased()
+        let haystack = "\(normalizedPath) \(normalizedTitle)"
+
+        if matchesAny(in: haystack, terms: ["command palette", "命令面板", "show commands", "find action", "执行动作"]) {
+            return 100
+        }
+        if matchesAny(in: haystack, terms: ["quick open", "快速打开", "open file", "打开文件", "go to file", "文件"]) {
+            return 110
+        }
+        if matchesAny(in: haystack, terms: ["search", "find", "查找", "搜索"]) {
+            return 120
+        }
+        if matchesAny(in: haystack, terms: ["new tab", "新建标签", "next tab", "previous tab", "close tab", "标签"]) {
+            return 130
+        }
+        if matchesAny(in: haystack, terms: ["reload", "refresh", "刷新"]) {
+            return 140
+        }
+        if matchesAny(in: haystack, terms: ["new window", "close window", "窗口"]) {
+            return 150
+        }
+        if matchesAny(in: haystack, terms: ["new ", "open ", "新建", "打开"]) {
+            return 160
+        }
+        if matchesAny(in: haystack, terms: ["save", "保存"]) {
+            return 170
+        }
+        if matchesAny(in: haystack, terms: ["undo", "redo", "撤销", "重做", "copy", "paste", "剪切", "复制", "粘贴"]) {
+            return 180
+        }
+        if matchesAny(in: haystack, terms: ["split", "terminal", "run", "debug", "运行", "调试", "终端"]) {
+            return 190
+        }
+        if command.shortcut.displayString.isEmpty {
+            return 400
+        }
+        return 250
+    }
+
+    private static func matchesAny(in value: String, terms: [String]) -> Bool {
+        terms.contains { value.contains($0) }
     }
 }
 
@@ -2278,7 +2434,16 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private var globalShortcuts: [AetherGlobalShortcutPanelEntry] {
-        HotkeyAction.allCases.filter {
+        let preferredOrder: [HotkeyAction] = [
+            .toggleInputControlMode,
+            .pushToTalk,
+            .toggleTracking,
+            .toggleLanguage,
+            .toggleShortcutPanel,
+            .connectionLock
+        ]
+
+        return preferredOrder.filter {
             $0 != .pushToTalk || CurrentAppShortcutPanelManager.shared.appState?.voiceActivationMode == .pushToTalk
         }.map {
             AetherGlobalShortcutPanelEntry(action: $0, binding: hotkeyManager.binding(for: $0))
@@ -2324,7 +2489,7 @@ private struct CurrentAppShortcutPanelView: View {
     private var sectionColumns: [[CurrentAppShortcutPanelSection]] {
         CurrentAppShortcutPanelLayout.makeColumns(
             from: filteredSections,
-            columnCount: CurrentAppShortcutPanelLayout.preferredColumnCount(for: filteredSections.count),
+            columnCount: CurrentAppShortcutPanelLayout.preferredColumnCount(for: filteredSections),
             spacing: 18
         )
     }
@@ -2465,79 +2630,87 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 14) {
-            Group {
-                if let appIcon {
-                    Image(nsImage: appIcon)
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    Image(systemName: "command.square.fill")
-                        .resizable()
-                        .scaledToFit()
-                        .padding(8)
-                        .foregroundColor(.accentColor)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 14) {
+                Group {
+                    if let appIcon {
+                        Image(nsImage: appIcon)
+                            .resizable()
+                            .scaledToFit()
+                    } else {
+                        Image(systemName: "command.square.fill")
+                            .resizable()
+                            .scaledToFit()
+                            .padding(8)
+                            .foregroundColor(.accentColor)
+                    }
                 }
-            }
-            .frame(width: 42, height: 42)
-            .background(chromeBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(snapshot?.appName ?? (isChinese ? "当前应用快捷键" : "Current App Shortcuts"))
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                Text(
-                    isChinese
-                        ? "按顶层菜单分组展示可触发快捷键，并补充浏览器、编辑器、终端等常见默认快捷键。语音命中或直接点击条目，都会发送对应组合键。"
-                        : "Shortcut commands grouped by top-level menu, with common browser, editor, and terminal defaults filled in when useful. Voice matches and direct clicks both send the corresponding key combo."
-                )
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            }
-
-            Spacer(minLength: 20)
-
-            Text("\(totalVisibleShortcutCount) \(isChinese ? "条快捷键" : "shortcuts")")
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.accentColor.opacity(0.12))
-                .foregroundColor(.accentColor)
-                .clipShape(Capsule())
-
-            Text(isChinese ? "可点击触发" : "Clickable")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(chromeBackground)
-                .foregroundColor(.secondary)
-                .clipShape(Capsule())
-
-            TextField(isChinese ? "搜索快捷键" : "Search shortcuts", text: $searchText)
-                .textFieldStyle(.plain)
-                .font(.subheadline)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .frame(width: 240)
+                .frame(width: 42, height: 42)
                 .background(chromeBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .focused($isSearchFieldFocused)
 
-            Button(String(localized: "generic.refresh")) {
-                _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(snapshot?.appName ?? (isChinese ? "当前应用快捷键" : "Current App Shortcuts"))
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                    Text(
+                        isChinese
+                            ? "按顶层菜单分组展示可触发快捷键，并补充浏览器、编辑器、终端等常见默认快捷键。语音命中或直接点击条目，都会发送对应组合键。"
+                            : "Shortcut commands grouped by top-level menu, with common browser, editor, and terminal defaults filled in when useful. Voice matches and direct clicks both send the corresponding key combo."
+                    )
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.bordered)
 
-            Button {
-                CurrentAppShortcutPanelManager.shared.hide()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.headline.weight(.semibold))
-                    .frame(width: 30, height: 30)
+            HStack(alignment: .center, spacing: 12) {
+                Text("\(totalVisibleShortcutCount) \(isChinese ? "条快捷键" : "shortcuts")")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.accentColor.opacity(0.12))
+                    .foregroundColor(.accentColor)
+                    .clipShape(Capsule())
+
+                Text(isChinese ? "可点击触发" : "Clickable")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(chromeBackground)
+                    .foregroundColor(.secondary)
+                    .clipShape(Capsule())
+
+                Spacer(minLength: 12)
+
+                TextField(isChinese ? "搜索快捷键" : "Search shortcuts", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.subheadline)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .frame(width: 240)
+                    .background(chromeBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .focused($isSearchFieldFocused)
+
+                Button(String(localized: "generic.refresh")) {
+                    _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    CurrentAppShortcutPanelManager.shared.hide()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.borderless)
+                .background(chromeBackground)
+                .clipShape(Circle())
             }
-            .buttonStyle(.borderless)
-            .background(chromeBackground)
-            .clipShape(Circle())
         }
     }
 

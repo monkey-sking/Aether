@@ -84,7 +84,18 @@ final class RecognitionSession {
         }
 
         isRunning = true
-        os_log("RecognitionSession started (locale=%{public}@)", log: log, type: .info, locale.identifier)
+        os_log(
+            "RecognitionSession started (locale=%{public}@ taskHint=%{public}@ preferOnDevice=%{public}@ supportsOnDevice=%{public}@ autoPunctuation=%{public}@ contextualCount=%{public}d prebuffered=%{public}d)",
+            log: log,
+            type: .info,
+            locale.identifier,
+            String(describing: taskHint),
+            String(preferOnDevice),
+            String(rec.supportsOnDeviceRecognition),
+            String(autoPunctuation),
+            contextualStrings.count,
+            prebuffered.count
+        )
     }
 
     /// Append a buffer from the audio tap to the active recognition request.

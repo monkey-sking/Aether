@@ -68,7 +68,7 @@ enum VoiceSettingsSection: Hashable {
         case .appControls:
             return isChinese ? "查看前台 App 可直接触发的快捷键。" : "Review shortcuts available for the frontmost app."
         case .insights:
-            return isChinese ? "按 App 查看语音输入与控制使用记录。" : "Per-app voice dictation and control activity history."
+            return isChinese ? "按 App 查看输入与控制使用记录。" : "Per-app voice dictation and control activity history."
         }
     }
 }
@@ -957,7 +957,7 @@ private struct HeadsetShortcutMappingCard: View {
         let currentAction = action(for: kind)
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(isChinese ? kind.zhLabel : kind.enLabel)
+                Text(kind.label)
                     .font(.subheadline.weight(.semibold))
                 Text(detail)
                     .font(.caption)
@@ -1078,13 +1078,13 @@ private extension VoiceCommandPreset {
         case .mediaNext:
             return isChinese ? "切换到下一首或下一段媒体内容。" : "Skips to the next track or chapter."
         case .showShortcutPanel:
-            return isChinese ? "展开当前 App 的快捷键总览浮层。" : "Shows the shortcut overlay for the frontmost app."
+            return isChinese ? "展开当前 App 的快捷键面板。" : "Shows the shortcut overlay for the frontmost app."
         case .hideShortcutPanel:
-            return isChinese ? "关闭当前 App 的快捷键总览浮层。" : "Closes the shortcut overlay for the frontmost app."
+            return isChinese ? "关闭当前 App 的快捷键面板。" : "Closes the shortcut overlay for the frontmost app."
         case .startPointer:
-            return isChinese ? "开始用头部控制鼠标移动。" : "Starts moving the pointer with head motion."
+            return isChinese ? "开启头控，开始控制指针移动。" : "Starts moving the pointer with head motion."
         case .stopPointer:
-            return isChinese ? "停止头部控制，只保留语音。" : "Stops head-driven pointer movement."
+            return isChinese ? "停止头控，只保留语音。" : "Stops head-driven pointer movement."
         case .recenter:
             return isChinese ? "把当前头部姿态设为新的中心位置。" : "Sets the current head pose as the new neutral center."
         case .scrollUp:
@@ -1130,9 +1130,9 @@ private extension VoiceCommandPreset {
         case .hideShortcutPanel:
             return isChinese ? "例如：关闭快捷键、收起面板" : "Example: hide shortcuts, close panel"
         case .startPointer:
-            return isChinese ? "例如：开启头控、开始控制鼠标" : "Example: enable pointer, start cursor control"
+            return isChinese ? "例如：开启头控、开始控制指针" : "Example: enable pointer, start cursor control"
         case .stopPointer:
-            return isChinese ? "例如：关闭头控、停止控制鼠标" : "Example: stop pointer, disable cursor control"
+            return isChinese ? "例如：关闭头控、停止控制指针" : "Example: stop pointer, disable cursor control"
         case .recenter:
             return isChinese ? "例如：回中、重新校准" : "Example: recenter, recalibrate"
         case .scrollUp:
@@ -1270,7 +1270,7 @@ private struct VoiceUsageInsightsCard: View {
                         .font(.headline)
                         Text(
                             isChinese
-                                ? "默认关闭。开启后仅在本机记录“在哪个 App 进行了语音输入/控制”，用于优化词库和命令配置。"
+                                ? "默认关闭。开启后仅在本机记录“在哪个 App 进行了输入/控制”，用于优化词库和命令配置。"
                                 : "Off by default. When enabled, Aether stores local per-app dictation/control usage to help tune lexicon and commands."
                         )
                         .font(.caption)
@@ -1300,7 +1300,7 @@ private struct VoiceUsageInsightsCard: View {
                             value: "\(summary.total)"
                         )
                         VoiceUsageSummaryBadge(
-                            title: isChinese ? "语音输入" : "Dictation",
+                            title: isChinese ? "输入" : "Dictation",
                             value: "\(summary.dictationCount)"
                         )
                         VoiceUsageSummaryBadge(
@@ -1310,7 +1310,7 @@ private struct VoiceUsageInsightsCard: View {
                     }
 
                     if summary.total == 0 {
-                        Text(isChinese ? "暂无记录。先试一次语音输入或语音控制。" : "No usage yet. Try dictation or a voice control action first.")
+                        Text(isChinese ? "暂无记录。先试一次输入或语音控制。" : "No usage yet. Try dictation or a voice control action first.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     } else {
@@ -2051,7 +2051,7 @@ struct HeadsetSettingsView: View {
 
                         Text(
                             isChinese
-                                ? "低频高级功能。需要时可手动锁定当前耳机连接，减少 AirPods 在多设备间误切换。"
+                                ? "低频高级功能。需要时可手动锁定当前耳机连接，减少耳机在多设备间误切换。"
                                 : "Low-frequency advanced control. Lock the current headset connection when you need to prevent unwanted device switching."
                         )
                         .font(.caption)

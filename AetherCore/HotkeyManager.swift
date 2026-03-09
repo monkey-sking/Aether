@@ -101,7 +101,7 @@ struct HotkeyBinding: Codable, Equatable {
         case kVK_F10: return "F10"
         case kVK_F11: return "F11"
         case kVK_F12: return "F12"
-        case kVK_Space:  return "Space"
+        case kVK_Space:  return String(localized: "hotkey.key.space")
         case kVK_Return: return "⏎"
         case kVK_Tab:    return "⇥"
         case kVK_Delete: return "⌫"
@@ -140,10 +140,10 @@ struct HotkeyBinding: Codable, Equatable {
     /// Human-readable mouse button name
     static func mouseButtonName(for button: Int) -> String {
         switch button {
-        case 2:  return "Middle Click"
-        case 3:  return "Mouse Back"
-        case 4:  return "Mouse Forward"
-        default: return "Mouse \(button)"
+        case 2:  return String(localized: "hotkey.mouse.middle_click")
+        case 3:  return String(localized: "hotkey.mouse.back")
+        case 4:  return String(localized: "hotkey.mouse.forward")
+        default: return String(format: String(localized: "hotkey.mouse.generic_fmt"), button)
         }
     }
 }
@@ -176,17 +176,17 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
     var helperText: String {
         switch self {
         case .pushToTalk:
-            return Locale.current.identifier.hasPrefix("zh") ? "语音按住说话" : "Hold to speak"
+            return String(localized: "hotkey.helper.push_to_talk")
         case .toggleTracking:
-            return Locale.current.identifier.hasPrefix("zh") ? "启动或停止头控" : "Start or stop pointer tracking"
+            return String(localized: "hotkey.helper.toggle_tracking")
         case .connectionLock:
-            return Locale.current.identifier.hasPrefix("zh") ? "切换连接锁定" : "Toggle connection lock"
+            return String(localized: "hotkey.helper.connection_lock")
         case .toggleInputControlMode:
-            return Locale.current.identifier.hasPrefix("zh") ? "切换输入控制模式" : "Switch input control mode"
+            return String(localized: "hotkey.helper.toggle_input_control_mode")
         case .toggleLanguage:
-            return Locale.current.identifier.hasPrefix("zh") ? "在已启用语音语言之间切换" : "Cycle through enabled dictation languages"
+            return String(localized: "hotkey.helper.toggle_language")
         case .toggleShortcutPanel:
-            return Locale.current.identifier.hasPrefix("zh") ? "显示或关闭当前应用快捷键面板" : "Show or hide the current app shortcuts panel"
+            return String(localized: "hotkey.helper.toggle_shortcut_panel")
         }
     }
 

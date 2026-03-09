@@ -903,11 +903,11 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
         case .hideShortcutPanel:
             return isChinese ? "关闭快捷键面板" : "Hide Shortcuts Panel"
         case .startPointer:
-            return isChinese ? "开始指针" : "Start Pointer"
+            return isChinese ? "开启头控" : "Start Pointer"
         case .stopPointer:
-            return isChinese ? "停止指针" : "Stop Pointer"
+            return isChinese ? "停止头控" : "Stop Pointer"
         case .recenter:
-            return isChinese ? "回中 / 校准" : "Recenter"
+            return isChinese ? "头控回中" : "Recenter"
         case .scrollUp:
             return isChinese ? "向上滚动" : "Scroll Up"
         case .scrollDown:

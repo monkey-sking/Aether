@@ -569,23 +569,7 @@ final class HUDManager {
     func lastKnownTypingState() -> Bool {
         let now = Date()
         let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        let explicitTypingClickReentry: Bool = {
-            guard let point = lastMouseDownPoint else { return false }
-            guard now.timeIntervalSince(lastMouseDownAt) < 1.2 else { return false }
-            if let r = detector.currentUpdate.inputRect,
-               !isProbablyWholeWindowRect(r),
-               (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
-               r.insetBy(dx: -8, dy: -8).contains(point) {
-                return true
-            }
-            if let r = axFocusedElementRectThrottled(),
-               !isProbablyWholeWindowRect(r),
-               (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
-               r.insetBy(dx: -8, dy: -8).contains(point) {
-                return true
-            }
-            return false
-        }()
+        let explicitTypingClickReentry = hasRecentExplicitTypingClickReentry(at: now)
 
         if Date() < typingSuppressedUntil, !explicitTypingClickReentry {
             return false
@@ -702,6 +686,28 @@ final class HUDManager {
         let b = (bundleID ?? "").lowercased()
         if b.contains("codex") { return true }
         if b.contains("antigravity") { return true }
+        return false
+    }
+
+    func hasRecentExplicitTypingClickReentry() -> Bool {
+        hasRecentExplicitTypingClickReentry(at: Date())
+    }
+
+    private func hasRecentExplicitTypingClickReentry(at now: Date) -> Bool {
+        guard let point = lastMouseDownPoint else { return false }
+        guard now.timeIntervalSince(lastMouseDownAt) < 1.2 else { return false }
+        if let r = detector.currentUpdate.inputRect,
+           !isProbablyWholeWindowRect(r),
+           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+           r.insetBy(dx: -8, dy: -8).contains(point) {
+            return true
+        }
+        if let r = axFocusedElementRectThrottled(),
+           !isProbablyWholeWindowRect(r),
+           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+           r.insetBy(dx: -8, dy: -8).contains(point) {
+            return true
+        }
         return false
     }
 
