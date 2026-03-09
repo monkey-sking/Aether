@@ -280,7 +280,11 @@ final class HUDManager {
     private var lastGoodTypingRectAt: Date = .distantPast
     private var lastInputInteractionPoint: CGPoint?
     private var lastInputInteractionAt: Date = .distantPast
+    private var lastMouseDownPoint: CGPoint?
+    private var lastMouseDownAt: Date = .distantPast
     private var typingSuppressedUntil: Date = .distantPast
+    private var requiresExplicitTypingReentry: Bool = false
+    private var explicitTypingReentryBundleID: String?
     private var hudWindow: NSPanel?
     private var hideTask: DispatchWorkItem?
     private var languageIndicatorHideTask: DispatchWorkItem?
@@ -502,6 +506,8 @@ final class HUDManager {
         lastAXFocusDebugCheckAt = .distantPast
         lastGoodTypingRect = nil
         lastGoodTypingRectAt = .distantPast
+        requiresExplicitTypingReentry = false
+        explicitTypingReentryBundleID = nil
 
         guard trusted, state.mode != .hidden else { return }
         _ = source
@@ -513,6 +519,9 @@ final class HUDManager {
             DispatchQueue.main.async { self.handleGlobalMouseDown(at: point) }
             return
         }
+
+        lastMouseDownPoint = point
+        lastMouseDownAt = Date()
 
         let activeInputRect: CGRect? = {
             if let r = detector.currentUpdate.inputRect, !isProbablyWholeWindowRect(r), (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
@@ -526,12 +535,16 @@ final class HUDManager {
 
         if let activeInputRect, activeInputRect.insetBy(dx: -8, dy: -8).contains(point) {
             typingSuppressedUntil = .distantPast
+            requiresExplicitTypingReentry = false
+            explicitTypingReentryBundleID = nil
             lastInputInteractionPoint = point
             lastInputInteractionAt = Date()
             return
         }
 
-        typingSuppressedUntil = Date().addingTimeInterval(0.35)
+        typingSuppressedUntil = Date().addingTimeInterval(0.8)
+        requiresExplicitTypingReentry = true
+        explicitTypingReentryBundleID = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         lastAXTypingEvaluationAt = .distantPast
         cachedAXTypingEvaluation = .unavailable
         lastAXCaretRectCheckAt = .distantPast
@@ -554,46 +567,104 @@ final class HUDManager {
 
     // Replacement for HotkeyFeedbackHUD.typingContextSnapshot()
     func lastKnownTypingState() -> Bool {
-        if Date() < typingSuppressedUntil {
+        let now = Date()
+        let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let explicitTypingClickReentry: Bool = {
+            guard let point = lastMouseDownPoint else { return false }
+            guard now.timeIntervalSince(lastMouseDownAt) < 1.2 else { return false }
+            if let r = detector.currentUpdate.inputRect,
+               !isProbablyWholeWindowRect(r),
+               (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+               r.insetBy(dx: -8, dy: -8).contains(point) {
+                return true
+            }
+            if let r = axFocusedElementRectThrottled(),
+               !isProbablyWholeWindowRect(r),
+               (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+               r.insetBy(dx: -8, dy: -8).contains(point) {
+                return true
+            }
+            return false
+        }()
+
+        if Date() < typingSuppressedUntil, !explicitTypingClickReentry {
             return false
         }
+
+        if requiresExplicitTypingReentry {
+            if explicitTypingClickReentry {
+                requiresExplicitTypingReentry = false
+                explicitTypingReentryBundleID = nil
+            } else if let lockedBundle = explicitTypingReentryBundleID,
+               let frontBundle,
+               lockedBundle != frontBundle {
+                requiresExplicitTypingReentry = false
+                explicitTypingReentryBundleID = nil
+            } else {
+                return false
+            }
+        }
+
         // Prefer caret/sticky (fast, high confidence), but fall back to AX focused element editability.
         // This fixes cases where the caret rect is not obtainable (some apps / web views),
         // but the focus is clearly in a text input.
         if detector.currentUpdate.caretRect != nil {
+            requiresExplicitTypingReentry = false
+            explicitTypingReentryBundleID = nil
             return true
         }
         // Sticky can linger in "weird" apps; only treat it as typing if we still have a recent caret rect.
         if detector.currentUpdate.isSticky, detector.recentCaretRect() != nil {
+            requiresExplicitTypingReentry = false
+            explicitTypingReentryBundleID = nil
             return true
         }
 
-        let now = Date()
         let axEvaluation = axTypingEvaluationThrottled(now: now)
         let axEditableLikely = axEvaluation.editableLikely
 
-        let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-
         // Geometry-first fallback (works better for browser/webview inputs where AX role is often AXWebArea/AXGroup).
         if axCaretRectThrottled() != nil, axEditableLikely || axEvaluation.insertionContextAvailable {
+            requiresExplicitTypingReentry = false
+            explicitTypingReentryBundleID = nil
             return true
         }
         if let r = detector.currentUpdate.inputRect, isTypingBoxSizedRect(r), !isProbablyWholeWindowRect(r) {
+            requiresExplicitTypingReentry = false
+            explicitTypingReentryBundleID = nil
             return true
         }
         if let r = axFocusedElementRectThrottled(),
            !isProbablyWholeWindowRect(r) {
             let insertionAvailable = axEvaluation.insertionContextAvailable
-            if insertionAvailable, (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) { return true }
+            if insertionAvailable, (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+                requiresExplicitTypingReentry = false
+                explicitTypingReentryBundleID = nil
+                return true
+            }
             if axEditableLikely {
-                if isTypingBoxSizedRect(r) { return true }
-                if isWeirdWebTypingApp(bundleID: frontBundle), isWebInputSizedRect(r) { return true }
+                if isTypingBoxSizedRect(r) {
+                    requiresExplicitTypingReentry = false
+                    explicitTypingReentryBundleID = nil
+                    return true
+                }
+                if isWeirdWebTypingApp(bundleID: frontBundle), isWebInputSizedRect(r) {
+                    requiresExplicitTypingReentry = false
+                    explicitTypingReentryBundleID = nil
+                    return true
+                }
             }
         }
 
         if isWeirdWebTypingApp(bundleID: frontBundle),
            axEvaluation.looselyEditableForWeb {
+            requiresExplicitTypingReentry = false
+            explicitTypingReentryBundleID = nil
             return true
+        }
+        if axEditableLikely {
+            requiresExplicitTypingReentry = false
+            explicitTypingReentryBundleID = nil
         }
         return axEditableLikely
     }
