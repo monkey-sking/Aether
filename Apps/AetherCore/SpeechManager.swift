@@ -1479,6 +1479,10 @@ final class SpeechManager: ObservableObject {
 
         let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
         let mode: HUDMode; var message = ""
+        let shouldShowProcessingDots = isStopping && (
+            controlMode == .dictation ||
+            (controlMode == .auto && sessionTypingMode)
+        )
         if isWakeGated && !isAwake && !isStopping && !isDictating {
             clearHUDOverride()
             clearUnarmedWakePreview()
@@ -1487,7 +1491,7 @@ final class SpeechManager: ObservableObject {
         }
         else if shouldCollapseHandsFreeHUDToStandby { mode = .standby }
         else if isDictating { mode = .dictation }
-        else if isStopping, sessionTypingMode { mode = .processing }
+        else if shouldShowProcessingDots { mode = .processing }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
         else { mode = .listening }
         HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon())
