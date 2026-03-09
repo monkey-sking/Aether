@@ -306,6 +306,7 @@
 
 /* Menu bar (fallback) */
 "menu.toggle_input_control_mode" = "Toggle Input/Control Mode";
+"menu.show_shortcut_panel" = "Show Shortcut Panel";
 "menu.hide_shortcut_panel" = "Hide Shortcut Panel";
 
 /* Hotkey helper text (fallback) */

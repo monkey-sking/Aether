@@ -102,3 +102,41 @@ final class DictationSafetyTests: XCTestCase {
         XCTAssertTrue(guardState.shouldExecute(sessionGeneration: 8, utteranceID: 42))
     }
 }
+
+final class SpeechManagerTypingModeTests: XCTestCase {
+    func testAutoModeDropsStaleTypingStateWithoutLiveEditableContext() {
+        let resolved = SpeechManager.resolvedUtteranceTypingMode(
+            recognitionControlMode: .auto,
+            sessionTypingMode: true,
+            liveTyping: false,
+            canType: true,
+            hasStreamedDictation: false
+        )
+
+        XCTAssertFalse(resolved)
+    }
+
+    func testAutoModeKeepsTypingStickyAfterStreamingStarts() {
+        let resolved = SpeechManager.resolvedUtteranceTypingMode(
+            recognitionControlMode: .auto,
+            sessionTypingMode: true,
+            liveTyping: false,
+            canType: true,
+            hasStreamedDictation: true
+        )
+
+        XCTAssertTrue(resolved)
+    }
+
+    func testAutoModeUsesLiveEditableContextImmediately() {
+        let resolved = SpeechManager.resolvedUtteranceTypingMode(
+            recognitionControlMode: .auto,
+            sessionTypingMode: false,
+            liveTyping: true,
+            canType: true,
+            hasStreamedDictation: false
+        )
+
+        XCTAssertTrue(resolved)
+    }
+}

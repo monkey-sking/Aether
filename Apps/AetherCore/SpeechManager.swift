@@ -332,6 +332,26 @@ final class SpeechManager: ObservableObject {
     // MARK: - Computed Properties (preserved)
     private typealias RecognitionControlMode = HeadMotionManager.RecognitionControlMode
 
+    static func resolvedUtteranceTypingMode(
+        recognitionControlMode: HeadMotionManager.RecognitionControlMode,
+        sessionTypingMode: Bool,
+        liveTyping: Bool,
+        canType: Bool,
+        hasStreamedDictation: Bool
+    ) -> Bool {
+        switch recognitionControlMode {
+        case .command:
+            return false
+        case .dictation:
+            return canType
+        case .auto:
+            guard canType else { return false }
+            // Only keep a sticky typing state if this utterance has already injected text.
+            // This prevents a stale input-state snapshot from hijacking a visible control-mode utterance.
+            return liveTyping || (sessionTypingMode && hasStreamedDictation)
+        }
+    }
+
     private var recognitionControlMode: RecognitionControlMode {
         HeadMotionManager.shared.effectiveRecognitionControlMode
     }
@@ -768,14 +788,22 @@ final class SpeechManager: ObservableObject {
 
         let liveTyping = throttledTypingMode()
         let canType = isAwake || isDirectCommandEnabled || !isAlwaysListeningEnabled
-        switch recognitionControlMode {
-        case .command:
-            sessionTypingMode = false
-        case .dictation:
-            sessionTypingMode = canType
-        case .auto:
-            sessionTypingMode = (sessionTypingMode || liveTyping) && canType
+        let hasStreamedDictation = !dictationHandler.screenTypedText.isEmpty
+        let nextTypingMode = Self.resolvedUtteranceTypingMode(
+            recognitionControlMode: recognitionControlMode,
+            sessionTypingMode: sessionTypingMode,
+            liveTyping: liveTyping,
+            canType: canType,
+            hasStreamedDictation: hasStreamedDictation
+        )
+        if recognitionControlMode == .auto,
+           sessionTypingMode,
+           !nextTypingMode,
+           !liveTyping,
+           !hasStreamedDictation {
+            GlobalLogger.speech.info("[TypingMode] cleared stale auto typing state before routing partials")
         }
+        sessionTypingMode = nextTypingMode
         isDictating = sessionTypingMode
 
         if text.count > 2 && isAwake { lastWakeTime = Date() }
@@ -1093,15 +1121,14 @@ final class SpeechManager: ObservableObject {
             }
         }
 
-        let typingContext: Bool
-        switch recognitionControlMode {
-        case .command:
-            typingContext = false
-        case .dictation:
-            typingContext = true
-        case .auto:
-            typingContext = sessionTypingMode || isTypingMode
-        }
+        let liveTyping = throttledTypingMode()
+        let typingContext = Self.resolvedUtteranceTypingMode(
+            recognitionControlMode: recognitionControlMode,
+            sessionTypingMode: sessionTypingMode,
+            liveTyping: liveTyping,
+            canType: true,
+            hasStreamedDictation: !dictationHandler.screenTypedText.isEmpty
+        )
         if typingContext != sessionTypingMode { sessionTypingMode = typingContext; isDictating = typingContext }
 
         let motion = HeadMotionManager.shared
