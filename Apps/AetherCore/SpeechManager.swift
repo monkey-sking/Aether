@@ -16,6 +16,13 @@ struct AudioInputDevice: Identifiable, Hashable {
     static let defaultSystem = AudioInputDevice(id: 0, name: String(localized: "settings.default_device"), uid: "SystemDefault", iconName: "mic.slash")
 }
 
+enum SpeechLanguageMode: String, CaseIterable, Identifiable {
+    case single
+    case bilingual
+
+    var id: String { rawValue }
+}
+
 struct UtteranceExecutionGuard {
     private var seenOrder: [String] = []
     private var seenSet: Set<String> = []
@@ -117,9 +124,121 @@ final class SpeechManager: ObservableObject {
     // MARK: - Internal State
     var onIntent: ((VoiceIntent) -> Void)?
     var llmProvider: LLMProvider?
+    private let speechLocaleStorageKey = "speechLocaleIdentifier"
+    private let speechLanguageModeStorageKey = "speechLanguageMode"
+    private let speechPrimaryLocaleStorageKey = "speechPrimaryLocaleIdentifier"
+    private let speechSecondaryLocaleStorageKey = "speechSecondaryLocaleIdentifier"
+    private let speechFollowsSystemStorageKey = "speechFollowsSystemLanguage"
+    private let supportedSpeechLocaleIdentifiers = ["zh-CN", "en-US", "ja-JP", "ko-KR", "fr-FR", "de-DE", "es-ES"]
+
+    var speechLanguageMode: SpeechLanguageMode {
+        get {
+            if let raw = UserDefaults.standard.string(forKey: speechLanguageModeStorageKey),
+               let mode = SpeechLanguageMode(rawValue: raw) {
+                return mode
+            }
+            return .single
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: speechLanguageModeStorageKey)
+            if newValue == .bilingual, primaryLocaleIdentifier == secondaryLocaleIdentifier {
+                secondaryLocaleIdentifier = defaultSecondaryLocaleIdentifier(for: primaryLocaleIdentifier)
+            }
+            refreshLocale()
+        }
+    }
+
+    var followsSystemLanguage: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: speechFollowsSystemStorageKey) != nil {
+                return UserDefaults.standard.bool(forKey: speechFollowsSystemStorageKey)
+            }
+            let legacy = UserDefaults.standard.string(forKey: speechLocaleStorageKey)
+            return legacy == nil || legacy == "system" || legacy?.isEmpty == true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: speechFollowsSystemStorageKey)
+            if newValue {
+                UserDefaults.standard.removeObject(forKey: speechLocaleStorageKey)
+            } else {
+                UserDefaults.standard.set(primaryLocaleIdentifier, forKey: speechLocaleStorageKey)
+            }
+            refreshLocale()
+        }
+    }
+
+    var primaryLocaleIdentifier: String {
+        get {
+            if let stored = UserDefaults.standard.string(forKey: speechPrimaryLocaleStorageKey) {
+                return normalizedSupportedLocaleIdentifier(stored)
+            }
+            if let legacy = UserDefaults.standard.string(forKey: speechLocaleStorageKey),
+               !legacy.isEmpty,
+               legacy != "system" {
+                return normalizedSupportedLocaleIdentifier(legacy)
+            }
+            return normalizedSupportedLocaleIdentifier(Locale.current.identifier)
+        }
+        set {
+            let normalized = normalizedSupportedLocaleIdentifier(newValue)
+            UserDefaults.standard.set(normalized, forKey: speechPrimaryLocaleStorageKey)
+            if !followsSystemLanguage || speechLanguageMode == .bilingual {
+                UserDefaults.standard.set(normalized, forKey: speechLocaleStorageKey)
+            }
+            if normalized == secondaryLocaleIdentifier {
+                UserDefaults.standard.set(defaultSecondaryLocaleIdentifier(for: normalized), forKey: speechSecondaryLocaleStorageKey)
+            }
+            refreshLocale()
+        }
+    }
+
+    var secondaryLocaleIdentifier: String {
+        get {
+            if let stored = UserDefaults.standard.string(forKey: speechSecondaryLocaleStorageKey),
+               !stored.isEmpty {
+                let normalized = normalizedSupportedLocaleIdentifier(stored)
+                if normalized != primaryLocaleIdentifier {
+                    return normalized
+                }
+            }
+            let legacy = lastNonEnglishLocaleIdentifier
+            if !legacy.isEmpty {
+                let normalized = normalizedSupportedLocaleIdentifier(legacy)
+                if normalized != primaryLocaleIdentifier {
+                    return normalized
+                }
+            }
+            return defaultSecondaryLocaleIdentifier(for: primaryLocaleIdentifier)
+        }
+        set {
+            let normalized = normalizedSupportedLocaleIdentifier(newValue)
+            let resolved = normalized == primaryLocaleIdentifier
+                ? defaultSecondaryLocaleIdentifier(for: primaryLocaleIdentifier)
+                : normalized
+            UserDefaults.standard.set(resolved, forKey: speechSecondaryLocaleStorageKey)
+            refreshLocale()
+        }
+    }
+
+    var effectiveLocaleIdentifier: String {
+        activeLocale.identifier
+    }
+
     var explicitLocaleIdentifier: String? {
-        get { UserDefaults.standard.string(forKey: "speechLocaleIdentifier") }
-        set { UserDefaults.standard.set(newValue, forKey: "speechLocaleIdentifier"); refreshLocale() }
+        get {
+            if speechLanguageMode == .single, followsSystemLanguage { return nil }
+            return primaryLocaleIdentifier
+        }
+        set {
+            speechLanguageMode = .single
+            if let newValue, !newValue.isEmpty, newValue != "system" {
+                UserDefaults.standard.set(false, forKey: speechFollowsSystemStorageKey)
+                primaryLocaleIdentifier = normalizedSupportedLocaleIdentifier(newValue)
+            } else {
+                UserDefaults.standard.set(true, forKey: speechFollowsSystemStorageKey)
+                refreshLocale()
+            }
+        }
     }
     var lastNonEnglishLocaleIdentifier: String {
         get { UserDefaults.standard.string(forKey: "lastNonEnglishLocaleIdentifier") ?? "zh-CN" }
@@ -149,6 +268,7 @@ final class SpeechManager: ObservableObject {
     private var lastTypingCheckAt: Date = .distantPast
     private var lastChangeAt: Date?
     private var lastStableText: String = ""
+    private var lastHandsFreeHUDActivityAt: Date = Date()
     private var continuousTimer: Timer?
     private var stopTimer: Timer?
     private var finalizationWorkItem: DispatchWorkItem?
@@ -184,6 +304,8 @@ final class SpeechManager: ObservableObject {
         let raw = UserDefaults.standard.object(forKey: "pttAudioCaptureGracePeriod") as? Double ?? 8.0
         return min(max(raw, 1.5), 20.0)
     }
+
+    private var handsFreeHUDCollapseDelay: TimeInterval { 8.0 }
 
     private struct RuntimeSpeechMetrics {
         var sessions: Int = 0
@@ -335,6 +457,7 @@ final class SpeechManager: ObservableObject {
 
     @objc private func handleAirPodsChange() { refreshContinuousHUD() }
     @objc private func handleRecognitionControlModeChanged() {
+        noteHandsFreeHUDActivity()
         switch recognitionControlMode {
         case .command:
             sessionTypingMode = false
@@ -356,26 +479,84 @@ final class SpeechManager: ObservableObject {
     }
 
     // MARK: - Locale
-    private func refreshLocale() {
-        if let id = explicitLocaleIdentifier, !id.isEmpty, id != "system" {
-            activeLocale = Locale(identifier: id)
-            if !id.starts(with: "en") { lastNonEnglishLocaleIdentifier = id }
-        } else {
-            activeLocale = Locale.current
-            let sysId = activeLocale.identifier
-            if !sysId.starts(with: "en") { lastNonEnglishLocaleIdentifier = sysId }
+    private func normalizedSupportedLocaleIdentifier(_ raw: String) -> String {
+        let candidate = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if supportedSpeechLocaleIdentifiers.contains(candidate) {
+            return candidate
         }
-        os_log("Locale refreshed: %{public}@", log: log, type: .info, activeLocale.identifier)
+        if candidate.hasPrefix("zh") { return "zh-CN" }
+        if candidate.hasPrefix("ja") { return "ja-JP" }
+        if candidate.hasPrefix("ko") { return "ko-KR" }
+        if candidate.hasPrefix("fr") { return "fr-FR" }
+        if candidate.hasPrefix("de") { return "de-DE" }
+        if candidate.hasPrefix("es") { return "es-ES" }
+        return "en-US"
+    }
+
+    private func defaultSecondaryLocaleIdentifier(for primary: String) -> String {
+        let fallback = primary == "en-US" ? "zh-CN" : "en-US"
+        if fallback != primary { return fallback }
+        return supportedSpeechLocaleIdentifiers.first(where: { $0 != primary }) ?? "en-US"
+    }
+
+    private func localeDisplayName(for identifier: String) -> String {
+        switch identifier {
+        case "zh-CN": return "中文 (简体)"
+        case "en-US": return "English (US)"
+        case "ja-JP": return "日本語"
+        case "ko-KR": return "한국어"
+        case "fr-FR": return "Français"
+        case "de-DE": return "Deutsch"
+        case "es-ES": return "Español"
+        default:
+            return Locale.current.localizedString(forIdentifier: identifier) ?? identifier
+        }
+    }
+
+    private func refreshLocale() {
+        let resolvedPrimary: String
+        if speechLanguageMode == .single, followsSystemLanguage {
+            resolvedPrimary = normalizedSupportedLocaleIdentifier(Locale.current.identifier)
+        } else {
+            resolvedPrimary = primaryLocaleIdentifier
+        }
+        activeLocale = Locale(identifier: resolvedPrimary)
+        if !resolvedPrimary.starts(with: "en") {
+            lastNonEnglishLocaleIdentifier = resolvedPrimary
+        }
+        os_log(
+            "Locale refreshed: mode=%{public}@ primary=%{public}@ secondary=%{public}@ effective=%{public}@",
+            log: log,
+            type: .info,
+            speechLanguageMode.rawValue,
+            primaryLocaleIdentifier,
+            secondaryLocaleIdentifier,
+            activeLocale.identifier
+        )
     }
 
     @objc func toggleLanguage() {
-        if activeLocale.identifier.starts(with: "en") {
-            explicitLocaleIdentifier = lastNonEnglishLocaleIdentifier
-        } else {
-            lastNonEnglishLocaleIdentifier = activeLocale.identifier
-            explicitLocaleIdentifier = "en-US"
+        if speechLanguageMode != .bilingual {
+            HUDManager.shared.showTemporary(
+                message: activeLocale.identifier.starts(with: "zh")
+                    ? "固定语言模式下无法切换；请先开启双语模式"
+                    : "Language switching is available in Bilingual mode only",
+                recognitionControlMode: hudRecognitionControlMode,
+                icon: "globe",
+                duration: 1.0
+            )
+            return
         }
-        status = "Language: \(activeLocale.identifier)"
+        let previousPrimary = primaryLocaleIdentifier
+        let previousSecondary = secondaryLocaleIdentifier
+        UserDefaults.standard.set(previousSecondary, forKey: speechPrimaryLocaleStorageKey)
+        UserDefaults.standard.set(previousPrimary, forKey: speechSecondaryLocaleStorageKey)
+        UserDefaults.standard.set(false, forKey: speechFollowsSystemStorageKey)
+        UserDefaults.standard.set(previousSecondary, forKey: speechLocaleStorageKey)
+        refreshLocale()
+        status = activeLocale.identifier.starts(with: "zh")
+            ? "双语主语言：\(localeDisplayName(for: previousSecondary))"
+            : "Primary language: \(localeDisplayName(for: previousSecondary))"
         let hud = HUDManager.shared
         hud.update(
             mode: hud.state.mode,
@@ -419,6 +600,19 @@ final class SpeechManager: ObservableObject {
     }
 
     private func setStatus(_ key: String) { self.status = NSLocalizedString(key, comment: "") }
+
+    private func noteHandsFreeHUDActivity(at date: Date = Date()) {
+        guard isAlwaysListeningEnabled, isDirectCommandEnabled else { return }
+        lastHandsFreeHUDActivityAt = date
+    }
+
+    private var shouldCollapseHandsFreeHUDToStandby: Bool {
+        guard isAlwaysListeningEnabled, isDirectCommandEnabled, !isWakeWordEnabled else { return false }
+        guard !isStopping, !isDictating, !isUtteranceActive else { return false }
+        guard lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard lastChangeAt == nil else { return false }
+        return Date().timeIntervalSince(lastHandsFreeHUDActivityAt) >= handsFreeHUDCollapseDelay
+    }
 
     // MARK: - State Sync
     private func syncRecognitionState() {
@@ -497,6 +691,7 @@ final class SpeechManager: ObservableObject {
 
         lastTranscript = ""; lastError = ""
         status = NSLocalizedString("speech.listening", comment: "") + " (\(activeLocale.identifier.starts(with: "zh") ? "中" : "En"))"
+        noteHandsFreeHUDActivity()
         startMicProgressUI(durationSec: maxRecordingSegmentSeconds(), generation: gen)
         refreshContinuousHUD(isDictating: isDictating)
     }
@@ -533,6 +728,7 @@ final class SpeechManager: ObservableObject {
         if text != prev {
             lastTranscript = text; lastChangeAt = now
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                noteHandsFreeHUDActivity(at: now)
                 if activeUtteranceID == 0 { activeUtteranceID = nextUtteranceID; nextUtteranceID += 1 }
                 eosDetector.noteUtteranceStarted()
                 eosDetector.noteTranscriptChanged()
@@ -775,6 +971,9 @@ final class SpeechManager: ObservableObject {
         if isWakeGated && !currentlyAwake {
             if micProgressTimer != nil || HUDManager.shared.state.isMicProgressVisible { stopMicProgressUI(keepVisible: false) }
         }
+        if shouldCollapseHandsFreeHUDToStandby != (HUDManager.shared.state.mode == .standby) {
+            refreshContinuousHUD()
+        }
 
         // Health check
         if !recognitionSession.isRunning || !audioCapture.isRunning {
@@ -815,6 +1014,7 @@ final class SpeechManager: ObservableObject {
     private func handleTranscript(_ transcript: String, utteranceID: Int? = nil) {
         let rawTrimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawTrimmed.isEmpty else { return }
+        noteHandsFreeHUDActivity()
 
         var textToRoute = rawTrimmed
         var wakeWordDetected = false
@@ -1285,6 +1485,7 @@ final class SpeechManager: ObservableObject {
             HUDManager.shared.hide()
             return
         }
+        else if shouldCollapseHandsFreeHUDToStandby { mode = .standby }
         else if isDictating { mode = .dictation }
         else if isStopping, sessionTypingMode { mode = .processing }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
