@@ -140,6 +140,42 @@ final class VoiceService: ObservableObject {
         }
     }
 
+    var speechLanguageMode: SpeechLanguageMode {
+        get { manager.speechLanguageMode }
+        set {
+            objectWillChange.send()
+            manager.speechLanguageMode = newValue
+        }
+    }
+
+    var followsSystemLanguage: Bool {
+        get { manager.followsSystemLanguage }
+        set {
+            objectWillChange.send()
+            manager.followsSystemLanguage = newValue
+        }
+    }
+
+    var primaryLocaleIdentifier: String {
+        get { manager.primaryLocaleIdentifier }
+        set {
+            objectWillChange.send()
+            manager.primaryLocaleIdentifier = newValue
+        }
+    }
+
+    var secondaryLocaleIdentifier: String {
+        get { manager.secondaryLocaleIdentifier }
+        set {
+            objectWillChange.send()
+            manager.secondaryLocaleIdentifier = newValue
+        }
+    }
+
+    var effectiveLocaleIdentifier: String {
+        manager.effectiveLocaleIdentifier
+    }
+
     private let manager: SpeechManager
     private var cancellables = Set<AnyCancellable>()
 

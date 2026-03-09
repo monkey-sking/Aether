@@ -102,17 +102,50 @@ struct InputSettingsView: View {
         )
     }
 
-    private var speechLanguageSelection: Binding<String> {
+    private var speechLanguageModeSelection: Binding<SpeechLanguageMode> {
         Binding(
-            get: { appState.voiceService.explicitLocaleIdentifier ?? "system" },
+            get: { appState.voiceService.speechLanguageMode },
+            set: { appState.voiceService.speechLanguageMode = $0 }
+        )
+    }
+
+    private var singleSpeechLanguageSelection: Binding<String> {
+        Binding(
+            get: {
+                appState.voiceService.followsSystemLanguage
+                    ? "system"
+                    : appState.voiceService.primaryLocaleIdentifier
+            },
             set: { newValue in
-                appState.voiceService.explicitLocaleIdentifier = (newValue == "system") ? nil : newValue
+                if newValue == "system" {
+                    appState.voiceService.followsSystemLanguage = true
+                } else {
+                    appState.voiceService.followsSystemLanguage = false
+                    appState.voiceService.primaryLocaleIdentifier = newValue
+                }
             }
         )
     }
 
+    private var bilingualPrimarySelection: Binding<String> {
+        Binding(
+            get: { appState.voiceService.primaryLocaleIdentifier },
+            set: {
+                appState.voiceService.followsSystemLanguage = false
+                appState.voiceService.primaryLocaleIdentifier = $0
+            }
+        )
+    }
+
+    private var bilingualSecondarySelection: Binding<String> {
+        Binding(
+            get: { appState.voiceService.secondaryLocaleIdentifier },
+            set: { appState.voiceService.secondaryLocaleIdentifier = $0 }
+        )
+    }
+
     private var effectiveSpeechLocaleID: String {
-        normalizedCommandLocaleIdentifier(appState.voiceService.explicitLocaleIdentifier ?? Locale.current.identifier)
+        normalizedCommandLocaleIdentifier(appState.voiceService.effectiveLocaleIdentifier)
     }
 
     private var effectiveSpeechLocaleDisplayName: String {
@@ -120,7 +153,7 @@ struct InputSettingsView: View {
     }
 
     private var isFollowingSystemSpeechLocale: Bool {
-        appState.voiceService.explicitLocaleIdentifier == nil
+        appState.voiceService.speechLanguageMode == .single && appState.voiceService.followsSystemLanguage
     }
 
     private var speechLanguageOptions: [VoiceLanguageOption] {
@@ -129,13 +162,21 @@ struct InputSettingsView: View {
         ] + supportedVoiceLocaleIDs.map { VoiceLanguageOption(id: $0, title: localeTitle(for: $0)) }
     }
 
+    private var bilingualLanguageOptions: [VoiceLanguageOption] {
+        supportedVoiceLocaleIDs.map { VoiceLanguageOption(id: $0, title: localeTitle(for: $0)) }
+    }
+
+    private var bilingualSecondaryOptions: [VoiceLanguageOption] {
+        bilingualLanguageOptions.filter { $0.id != appState.voiceService.primaryLocaleIdentifier }
+    }
+
     private var lexiconLanguageOptions: [VoiceLanguageOption] {
         supportedVoiceLocaleIDs.map { VoiceLanguageOption(id: $0, title: localeTitle(for: $0)) }
     }
 
     private var resolvedCommandLocaleID: String {
         let preferred = commandLocaleID.isEmpty
-            ? (appState.voiceService.explicitLocaleIdentifier ?? Locale.current.identifier)
+            ? appState.voiceService.effectiveLocaleIdentifier
             : commandLocaleID
         return normalizedCommandLocaleIdentifier(preferred)
     }
@@ -238,26 +279,69 @@ struct InputSettingsView: View {
                                     Label(L10n.settingsSpeechLanguage, systemImage: "globe")
                                         .font(.body)
                                     Text(Locale.current.identifier.hasPrefix("zh")
-                                         ? "影响语音识别和默认命令词库。"
-                                         : "This controls speech recognition and the default command lexicon.")
+                                         ? "固定语言最稳；双语模式用于两种语言之间快速切换和词库管理。"
+                                         : "Single language is the most stable. Bilingual mode is for fast switching and per-language lexicon setup.")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
                                 Spacer()
-                                if isFollowingSystemSpeechLocale {
+                                if appState.voiceService.speechLanguageMode == .single, isFollowingSystemSpeechLocale {
                                     LanguageStatusTag(
                                         title: Locale.current.identifier.hasPrefix("zh")
                                             ? "跟随系统 · \(effectiveSpeechLocaleDisplayName)"
                                             : "System · \(effectiveSpeechLocaleDisplayName)",
                                         tint: .blue
                                     )
+                                } else if appState.voiceService.speechLanguageMode == .bilingual {
+                                    LanguageStatusTag(
+                                        title: Locale.current.identifier.hasPrefix("zh")
+                                            ? "主：\(localeTitle(for: appState.voiceService.primaryLocaleIdentifier)) · 副：\(localeTitle(for: appState.voiceService.secondaryLocaleIdentifier))"
+                                            : "Primary: \(localeTitle(for: appState.voiceService.primaryLocaleIdentifier)) · Secondary: \(localeTitle(for: appState.voiceService.secondaryLocaleIdentifier))",
+                                        tint: .blue
+                                    )
                                 }
                             }
 
-                            VoiceLanguageChipPicker(
-                                options: speechLanguageOptions,
-                                selection: speechLanguageSelection
-                            )
+                            HStack(spacing: 10) {
+                                languageModeButton(.single, title: isChinese ? "固定语言" : "Single")
+                                languageModeButton(.bilingual, title: isChinese ? "双语模式" : "Bilingual")
+                            }
+
+                            if appState.voiceService.speechLanguageMode == .single {
+                                VoiceLanguageChipPicker(
+                                    options: speechLanguageOptions,
+                                    selection: singleSpeechLanguageSelection
+                                )
+                            } else {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(isChinese ? "主语言" : "Primary Language")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundColor(.secondary)
+                                        VoiceLanguageChipPicker(
+                                            options: bilingualLanguageOptions,
+                                            selection: bilingualPrimarySelection
+                                        )
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(isChinese ? "次语言" : "Secondary Language")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundColor(.secondary)
+                                        VoiceLanguageChipPicker(
+                                            options: bilingualSecondaryOptions,
+                                            selection: bilingualSecondarySelection
+                                        )
+                                    }
+
+                                    Text(isChinese
+                                         ? "双语模式下，快捷切换会交换主语言和次语言；当前识别优先使用主语言。"
+                                         : "In Bilingual mode, the toggle swaps primary and secondary languages. Recognition currently prioritizes the primary language.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
                         }
                     }
                 }
@@ -655,7 +739,7 @@ struct InputSettingsView: View {
         }
         .onAppear {
             if commandLocaleID.isEmpty {
-                let preferred = appState.voiceService.explicitLocaleIdentifier ?? Locale.current.identifier
+                let preferred = appState.voiceService.effectiveLocaleIdentifier
                 commandLocaleID = normalizedCommandLocaleIdentifier(preferred)
             }
             _ = frontmostAppCommandCatalog.refresh(force: true)
@@ -676,6 +760,38 @@ struct InputSettingsView: View {
         }
     }
     
+    @ViewBuilder
+    private func languageModeButton(_ mode: SpeechLanguageMode, title: String) -> some View {
+        Button {
+            speechLanguageModeSelection.wrappedValue = mode
+            if mode == .single {
+                commandLocaleID = normalizedCommandLocaleIdentifier(appState.voiceService.effectiveLocaleIdentifier)
+            }
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(appState.voiceService.speechLanguageMode == mode ? .accentColor : .primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    appState.voiceService.speechLanguageMode == mode
+                        ? Color.accentColor.opacity(0.14)
+                        : Color(nsColor: .controlBackgroundColor).opacity(0.72)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(
+                            appState.voiceService.speechLanguageMode == mode
+                                ? Color.accentColor.opacity(0.35)
+                                : Color.black.opacity(0.05),
+                            lineWidth: 1
+                        )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
     @ViewBuilder
     private func activationModeRow(
         mode: AppState.VoiceActivationMode,
