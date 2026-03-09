@@ -1669,138 +1669,14 @@ final class SpeechManager: ObservableObject {
         }
 
         if HUDManager.shared.lastKnownTypingState() { return true }
-        func isAXEditable(_ el: AXUIElement) -> Bool {
-            var v: CFTypeRef?; guard AXUIElementCopyAttributeValue(el, "AXEditable" as CFString, &v) == .success else { return false }
-            return (v as? Bool) == true || (v as? NSNumber)?.boolValue == true
-        }
-        func hasInsertionCtx(_ el: AXUIElement) -> Bool {
-            var v: CFTypeRef?
-            var hasInsertion = false
-            if AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute as CFString, &v) == .success,
-               let raw = v,
-               CFGetTypeID(raw) == AXValueGetTypeID() {
-                let ax = raw as! AXValue
-                if AXValueGetType(ax) == .cfRange {
-                    var range = CFRange()
-                    if AXValueGetValue(ax, .cfRange, &range) {
-                        if range.length == 0 { hasInsertion = true }
-                    } else {
-                        hasInsertion = true
-                    }
-                } else {
-                    hasInsertion = true
-                }
-            }
-            if AXUIElementCopyAttributeValue(el, "AXSelectedTextMarkerRange" as CFString, &v) == .success { hasInsertion = true }
-            guard hasInsertion else { return false }
-
-            var rr: CFTypeRef?
-            let role = (AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &rr) == .success)
-                ? (rr as? String ?? "")
-                : ""
-            if ["AXWebArea", "AXGroup", "AXScrollArea", "AXSplitGroup", "AXStaticText"].contains(role) {
-                if HUDManager.shared.lastKnownTypingState() { return true }
-                guard let r = axRect(el),
-                      isInputLikeRect(r),
-                      !isLikelyWholeWindowRect(r) else {
-                    return false
-                }
-            }
-            return true
-        }
-        func appKitRect(fromAX rect: CGRect) -> CGRect? {
-            let desktopMaxY = NSScreen.screens.map(\.frame.maxY).max() ?? 0
-            guard desktopMaxY > 0 else { return nil }
-            return CGRect(
-                x: rect.origin.x,
-                y: desktopMaxY - rect.origin.y - rect.size.height,
-                width: rect.size.width,
-                height: rect.size.height
-            )
-        }
-        func axRect(_ el: AXUIElement) -> CGRect? {
-            var pr: CFTypeRef?
-            var sr: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(el, kAXPositionAttribute as CFString, &pr) == .success,
-                  AXUIElementCopyAttributeValue(el, kAXSizeAttribute as CFString, &sr) == .success,
-                  let pr,
-                  let sr,
-                  CFGetTypeID(pr) == AXValueGetTypeID(),
-                  CFGetTypeID(sr) == AXValueGetTypeID() else { return nil }
-            let pv = pr as! AXValue
-            let sv = sr as! AXValue
-            guard AXValueGetType(pv) == .cgPoint, AXValueGetType(sv) == .cgSize else { return nil }
-            var p = CGPoint.zero
-            var s = CGSize.zero
-            guard AXValueGetValue(pv, .cgPoint, &p),
-                  AXValueGetValue(sv, .cgSize, &s) else { return nil }
-            return appKitRect(fromAX: CGRect(origin: p, size: s))
-        }
-        func isInputLikeRect(_ r: CGRect) -> Bool {
-            guard r.width > 0, r.height > 0 else { return false }
-            guard r.height >= 18, r.height <= 220 else { return false }
-            return r.width >= 56
-        }
-        func isLikelyWholeWindowRect(_ r: CGRect) -> Bool {
-            let screens = NSScreen.screens
-            let screen = screens.first(where: { $0.frame.intersects(r) }) ??
-                screens.first(where: { $0.visibleFrame.intersects(r) }) ??
-                NSScreen.main ??
-                screens.first
-            let visible = screen?.visibleFrame ?? .zero
-            guard visible.width > 0, visible.height > 0 else { return false }
-            let area = r.width * r.height
-            let visibleArea = visible.width * visible.height
-            if visibleArea > 0, area > visibleArea * 0.22 { return true }
-            if r.height > 280 { return true }
-            if r.width > visible.width * 0.92, r.height > 60 { return true }
-            return r.width > visible.width * 0.65 && r.height > visible.height * 0.45
-        }
-        func hasEditableChild(_ el: AXUIElement, depth: Int = 4) -> Bool {
-            if depth <= 0 { return false }
-            var cr: CFTypeRef?; guard AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &cr) == .success, let ch = cr as? [AXUIElement] else { return false }
-            let direct = [kAXTextFieldRole as String, "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
-            let cond = [kAXTextAreaRole as String, "AXWebArea", "AXStaticText"]
-            for c in ch {
-                var rr: CFTypeRef?; let role = (AXUIElementCopyAttributeValue(c, kAXRoleAttribute as CFString, &rr) == .success) ? (rr as? String ?? "") : ""
-                if direct.contains(role) { return true }
-                if cond.contains(role), (isAXEditable(c) || hasInsertionCtx(c)) { return true }
-                if hasInsertionCtx(c) { return true }
-                if hasEditableChild(c, depth: depth - 1) { return true }
-            }
-            return false
-        }
-        let sw = AXUIElementCreateSystemWide(); var fe: AnyObject?
-        if AXUIElementCopyAttributeValue(sw, kAXFocusedUIElementAttribute as CFString, &fe) == .success, let er = fe {
-            let ax = er as! AXUIElement; var rr: AnyObject?; var role = ""
-            if AXUIElementCopyAttributeValue(ax, kAXRoleAttribute as CFString, &rr) == .success, let v = rr as? String { role = v }
-            var pid: pid_t = 0; AXUIElementGetPid(ax, &pid)
-            if let app = NSRunningApplication(processIdentifier: pid), let bid = app.bundleIdentifier {
-                let appName = app.localizedName?.lowercased() ?? ""
-                if bid.contains("apple.siri") || bid == "com.apple.Spotlight" || appName.contains("siri") { return true }
-                let terminals = ["com.apple.Terminal","com.googlecode.iterm2","com.github.wez.wezterm","dev.warp.Warp-Stable"]
-                let direct = [kAXTextFieldRole as String, "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
-                let cond = [kAXTextAreaRole as String, "AXWebArea", "AXStaticText"]
-                let editable = isAXEditable(ax); let hasIns = hasInsertionCtx(ax)
-                if direct.contains(role) { return true }
-                if cond.contains(role) {
-                    if role == "AXWebArea" { return editable || hasIns }
-                    if role == kAXTextAreaRole as String { return hasIns }
-                    return editable || hasIns
-                }
-                if ["AXGroup","AXScrollArea","AXSplitGroup","AXRadioButton","AXButton"].contains(role) {
-                    if hasIns { return true }
-                    if let r = axRect(ax), isInputLikeRect(r), !isLikelyWholeWindowRect(r), hasEditableChild(ax) { return true }
-                }
-                if terminals.contains(bid) { return editable || hasIns }
-                if editable || hasIns {
-                    if role == "AXWebArea" { return editable && hasIns }
-                    if role == kAXTextAreaRole as String { return hasIns }
-                    return true
-                }
+        if let app = NSWorkspace.shared.frontmostApplication,
+           let bid = app.bundleIdentifier {
+            let appName = app.localizedName?.lowercased() ?? ""
+            if bid.contains("apple.siri") || bid == "com.apple.Spotlight" || appName.contains("siri") {
+                return true
             }
         }
-        return HUDManager.shared.lastKnownTypingState()
+        return HUDManager.shared.currentAXTypingEvaluation().editableLikely
     }
 
     private func throttledTypingMode(interval: TimeInterval = 0.12) -> Bool {

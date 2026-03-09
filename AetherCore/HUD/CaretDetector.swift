@@ -276,10 +276,15 @@ final class CaretDetector: ObservableObject {
         for notif in notifications {
             AXObserverAddNotification(obs, appElement, notif, refcon)
         }
-        
+
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .defaultMode)
+        var hydratedFocus: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &hydratedFocus)
         self.axObserver = obs
         self.observedPid = pid
+        DispatchQueue.main.async { [weak self] in
+            self?.recalcCaret()
+        }
     }
     
     private func teardownAXObserver() {
@@ -442,6 +447,8 @@ final class CaretDetector: ObservableObject {
             let collapsedInsertionContext = hasCollapsedInsertionContext(element)
             var isEditable = ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea"].contains(role)
             let axEditable = readAXBool(element, attribute: "AXEditable")
+            let hasSettableValue = valueAttributeIsSettable(element)
+            let hasEditableAncestor = editableAncestor(for: element) != nil
             let hasStrongContainerInsertionEvidence: Bool = {
                 guard collapsedInsertionContext else { return false }
                 if self.extractRectFromElement(element) != nil { return true }
@@ -451,8 +458,8 @@ final class CaretDetector: ObservableObject {
             if role == "AXWebArea" || role == "AXGroup" || role == "AXScrollArea" || role == "AXSplitGroup" {
                 // Browser/web containers are frequently focused even when not typing.
                 // Only keep them editable when AX gives stronger evidence than a stale collapsed range.
-                isEditable = (axEditable == true) || hasStrongContainerInsertionEvidence
-            } else if axEditable == true {
+                isEditable = (axEditable == true) || hasSettableValue || hasEditableAncestor || hasStrongContainerInsertionEvidence
+            } else if axEditable == true || hasSettableValue || hasEditableAncestor {
                 isEditable = true
             }
              
@@ -861,6 +868,46 @@ final class CaretDetector: ObservableObject {
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
         if let b = value as? Bool { return b }
         if let n = value as? NSNumber { return n.boolValue }
+        return nil
+    }
+
+    private func valueAttributeIsSettable(_ element: AXUIElement) -> Bool {
+        var settable = DarwinBoolean(false)
+        let result = AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable)
+        return result == .success && settable.boolValue
+    }
+
+    private func editableAncestor(for element: AXUIElement, depth: Int = 6) -> AXUIElement? {
+        for attribute in ["AXEditableAncestor", "AXHighestEditableAncestor"] {
+            var value: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+               let value,
+               CFGetTypeID(value) == AXUIElementGetTypeID() {
+                return (value as! AXUIElement)
+            }
+        }
+
+        var current = element
+        for _ in 0..<depth {
+            var parentValue: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parentValue) == .success,
+                  let parentValue,
+                  CFGetTypeID(parentValue) == AXUIElementGetTypeID() else {
+                break
+            }
+            let parent = parentValue as! AXUIElement
+            var roleValue: CFTypeRef?
+            let role = (AXUIElementCopyAttributeValue(parent, kAXRoleAttribute as CFString, &roleValue) == .success)
+                ? (roleValue as? String ?? "")
+                : ""
+            if readAXBool(parent, attribute: "AXEditable") == true ||
+                valueAttributeIsSettable(parent) ||
+                hasCollapsedInsertionContext(parent) ||
+                ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea"].contains(role) {
+                return parent
+            }
+            current = parent
+        }
         return nil
     }
 

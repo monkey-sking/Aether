@@ -1,6 +1,243 @@
 import SwiftUI
 import AppKit
 import Combine
+import ApplicationServices
+
+struct AXFocusedTypingEvaluation {
+    let editableLikely: Bool
+    let insertionContextAvailable: Bool
+    let looselyEditableForWeb: Bool
+    let role: String
+    let hasEditableAttribute: Bool
+    let hasSettableValue: Bool
+    let hasEditableAncestor: Bool
+
+    static let unavailable = AXFocusedTypingEvaluation(
+        editableLikely: false,
+        insertionContextAvailable: false,
+        looselyEditableForWeb: false,
+        role: "",
+        hasEditableAttribute: false,
+        hasSettableValue: false,
+        hasEditableAncestor: false
+    )
+}
+
+enum AXFocusedTypingContextDetector {
+    static func evaluate(
+        focusedRect: CGRect?,
+        caretRect: CGRect?,
+        frontmostBundleID: String?,
+        isWholeWindowRect: (CGRect) -> Bool,
+        isTypingBoxSizedRect: (CGRect) -> Bool,
+        isWebInputSizedRect: (CGRect) -> Bool
+    ) -> AXFocusedTypingEvaluation {
+        guard let element = focusedElement() else { return .unavailable }
+
+        let role = stringAttr(element, kAXRoleAttribute as CFString) ?? ""
+        let hasEditableAttribute = boolAttr(element, "AXEditable" as CFString) == true
+        let hasSettableValue = valueAttributeIsSettable(element)
+        let hasEditableAncestor = editableAncestor(for: element) != nil
+        let hasInsertionContextOnFocus = hasInsertionContext(element)
+        let focusedRectLooksLikeInput = {
+            guard let focusedRect, !isWholeWindowRect(focusedRect) else { return false }
+            return isTypingBoxSizedRect(focusedRect) || isWebInputSizedRect(focusedRect)
+        }()
+        let hasStrongInsertionEvidenceOnFocus = hasInsertionContextOnFocus && (caretRect != nil || focusedRectLooksLikeInput)
+        let editableEvidence = hasEditableAttribute || hasSettableValue || hasEditableAncestor
+
+        let insertionContextAvailable = {
+            guard hasInsertionContextOnFocus else { return false }
+            if containerLikeRoles.contains(role) {
+                if caretRect != nil { return true }
+                return focusedRectLooksLikeInput
+            }
+            return true
+        }()
+
+        let editableLikely: Bool = {
+            if directEditableRoles.contains(role) { return true }
+            if role == kAXTextAreaRole as String {
+                return hasInsertionContextOnFocus || hasEditableAncestor || hasSettableValue
+            }
+            if role == "AXWebArea" {
+                if hasStrongInsertionEvidenceOnFocus { return true }
+                if editableEvidence && focusedRectLooksLikeInput { return true }
+                if isWeirdWebTypingApp(bundleID: frontmostBundleID),
+                   focusedRectLooksLikeInput,
+                   (insertionContextAvailable || editableEvidence) {
+                    return true
+                }
+                return false
+            }
+            if groupLikeRoles.contains(role) {
+                if hasStrongInsertionEvidenceOnFocus { return true }
+                if focusedRectLooksLikeInput && (hasEditableAncestor || hasEditableDescendant(element)) { return true }
+                if editableEvidence && focusedRectLooksLikeInput { return true }
+                return false
+            }
+            if hasInsertionContextOnFocus {
+                if role == "AXStaticText" {
+                    return hasStrongInsertionEvidenceOnFocus || hasEditableAncestor
+                }
+                return true
+            }
+            return editableEvidence
+        }()
+
+        let looselyEditableForWeb: Bool = {
+            if directEditableRoles.contains(role) || role == kAXTextAreaRole as String { return true }
+            guard containerLikeRoles.contains(role),
+                  focusedRectLooksLikeInput else {
+                return false
+            }
+            return insertionContextAvailable || editableEvidence
+        }()
+
+        return AXFocusedTypingEvaluation(
+            editableLikely: editableLikely,
+            insertionContextAvailable: insertionContextAvailable,
+            looselyEditableForWeb: looselyEditableForWeb,
+            role: role,
+            hasEditableAttribute: hasEditableAttribute,
+            hasSettableValue: hasSettableValue,
+            hasEditableAncestor: hasEditableAncestor
+        )
+    }
+
+    private static let directEditableRoles: Set<String> = [
+        kAXTextFieldRole as String,
+        "AXSearchField",
+        "AXComboBox",
+        "AXHTMLTextInput"
+    ]
+
+    private static let groupLikeRoles: Set<String> = [
+        "AXGroup",
+        "AXScrollArea",
+        "AXSplitGroup",
+        "AXRadioButton",
+        "AXButton"
+    ]
+
+    private static let containerLikeRoles: Set<String> = groupLikeRoles.union([
+        "AXWebArea",
+        "AXStaticText"
+    ])
+
+    private static func focusedElement() -> AXUIElement? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
+              let focusedElement else {
+            return nil
+        }
+        return (focusedElement as! AXUIElement)
+    }
+
+    private static func boolAttr(_ element: AXUIElement, _ name: CFString) -> Bool? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name, &value) == .success else { return nil }
+        if let b = value as? Bool { return b }
+        if let n = value as? NSNumber { return n.boolValue }
+        return nil
+    }
+
+    private static func stringAttr(_ element: AXUIElement, _ name: CFString) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name, &value) == .success else { return nil }
+        return value as? String
+    }
+
+    private static func uiElementAttr(_ element: AXUIElement, _ name: CFString) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name, &value) == .success,
+              let value,
+              CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        return (value as! AXUIElement)
+    }
+
+    private static func valueAttributeIsSettable(_ element: AXUIElement) -> Bool {
+        var settable = DarwinBoolean(false)
+        let result = AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable)
+        return result == .success && settable.boolValue
+    }
+
+    private static func hasInsertionContext(_ element: AXUIElement) -> Bool {
+        var selectedRangeValue: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success,
+           let selectedRangeValue,
+           CFGetTypeID(selectedRangeValue) == AXValueGetTypeID() {
+            let ax = selectedRangeValue as! AXValue
+            if AXValueGetType(ax) == .cfRange {
+                var range = CFRange()
+                if AXValueGetValue(ax, .cfRange, &range) {
+                    if range.length == 0 { return true }
+                } else {
+                    return true
+                }
+            } else {
+                return true
+            }
+        }
+
+        var markerRangeValue: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRangeValue) == .success
+    }
+
+    private static func hasEditableDescendant(_ element: AXUIElement, depth: Int = 4) -> Bool {
+        if depth <= 0 { return false }
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let children = childrenRef as? [AXUIElement] else {
+            return false
+        }
+
+        let conditionalRoles = [kAXTextAreaRole as String, "AXWebArea", "AXStaticText"]
+        for child in children {
+            let childRole = stringAttr(child, kAXRoleAttribute as CFString) ?? ""
+            if directEditableRoles.contains(childRole) { return true }
+            if conditionalRoles.contains(childRole),
+               (boolAttr(child, "AXEditable" as CFString) == true || valueAttributeIsSettable(child) || hasInsertionContext(child)) {
+                return true
+            }
+            if editableAncestor(for: child) != nil { return true }
+            if hasInsertionContext(child) { return true }
+            if hasEditableDescendant(child, depth: depth - 1) { return true }
+        }
+        return false
+    }
+
+    private static func editableAncestor(for element: AXUIElement, depth: Int = 6) -> AXUIElement? {
+        for attr in ["AXEditableAncestor", "AXHighestEditableAncestor"] {
+            if let ancestor = uiElementAttr(element, attr as CFString) {
+                return ancestor
+            }
+        }
+
+        var current = element
+        for _ in 0..<depth {
+            guard let parent = uiElementAttr(current, kAXParentAttribute as CFString) else { break }
+            let role = stringAttr(parent, kAXRoleAttribute as CFString) ?? ""
+            if boolAttr(parent, "AXEditable" as CFString) == true ||
+                valueAttributeIsSettable(parent) ||
+                hasInsertionContext(parent) ||
+                directEditableRoles.contains(role) ||
+                role == kAXTextAreaRole as String {
+                return parent
+            }
+            current = parent
+        }
+        return nil
+    }
+
+    private static func isWeirdWebTypingApp(bundleID: String?) -> Bool {
+        let bundle = (bundleID ?? "").lowercased()
+        return bundle.contains("codex") || bundle.contains("antigravity")
+    }
+}
 
 final class HUDManager {
     static let shared = HUDManager()
@@ -20,8 +257,8 @@ final class HUDManager {
     
     let state = HUDState()
     private let detector = CaretDetector()
-    private var lastAXTypingCheckAt: Date = .distantPast
-    private var cachedAXTypingState: Bool = false
+    private var lastAXTypingEvaluationAt: Date = .distantPast
+    private var cachedAXTypingEvaluation: AXFocusedTypingEvaluation = .unavailable
     private var lastAXFocusRectCheckAt: Date = .distantPast
     private var cachedAXFocusRect: CGRect?
     private var lastAXCaretRectCheckAt: Date = .distantPast
@@ -257,7 +494,8 @@ final class HUDManager {
         }
 
         detector.handleAccessibilityTrustChange(trusted: trusted)
-        lastAXTypingCheckAt = .distantPast
+        lastAXTypingEvaluationAt = .distantPast
+        cachedAXTypingEvaluation = .unavailable
         lastAXFocusRectCheckAt = .distantPast
         lastAXCaretRectCheckAt = .distantPast
         lastAXEstimatedCaretCheckAt = .distantPast
@@ -294,8 +532,8 @@ final class HUDManager {
         }
 
         typingSuppressedUntil = Date().addingTimeInterval(0.35)
-        lastAXTypingCheckAt = .distantPast
-        cachedAXTypingState = false
+        lastAXTypingEvaluationAt = .distantPast
+        cachedAXTypingEvaluation = .unavailable
         lastAXCaretRectCheckAt = .distantPast
         cachedAXCaretRect = nil
         lastAXEstimatedCaretCheckAt = .distantPast
@@ -331,20 +569,13 @@ final class HUDManager {
         }
 
         let now = Date()
-        let axEditableLikely: Bool
-        if now.timeIntervalSince(lastAXTypingCheckAt) < 0.12 {
-            axEditableLikely = cachedAXTypingState
-        } else {
-            lastAXTypingCheckAt = now
-            let v = isAXFocusedElementEditable()
-            cachedAXTypingState = v
-            axEditableLikely = v
-        }
+        let axEvaluation = axTypingEvaluationThrottled(now: now)
+        let axEditableLikely = axEvaluation.editableLikely
 
         let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
 
         // Geometry-first fallback (works better for browser/webview inputs where AX role is often AXWebArea/AXGroup).
-        if axCaretRectThrottled() != nil, axEditableLikely || isAXFocusedElementInsertionContextAvailable() {
+        if axCaretRectThrottled() != nil, axEditableLikely || axEvaluation.insertionContextAvailable {
             return true
         }
         if let r = detector.currentUpdate.inputRect, isTypingBoxSizedRect(r), !isProbablyWholeWindowRect(r) {
@@ -352,7 +583,7 @@ final class HUDManager {
         }
         if let r = axFocusedElementRectThrottled(),
            !isProbablyWholeWindowRect(r) {
-            let insertionAvailable = isAXFocusedElementInsertionContextAvailable()
+            let insertionAvailable = axEvaluation.insertionContextAvailable
             if insertionAvailable, (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) { return true }
             if axEditableLikely {
                 if isTypingBoxSizedRect(r) { return true }
@@ -361,10 +592,14 @@ final class HUDManager {
         }
 
         if isWeirdWebTypingApp(bundleID: frontBundle),
-           isAXFocusedElementLooselyEditableForWeb() {
+           axEvaluation.looselyEditableForWeb {
             return true
         }
         return axEditableLikely
+    }
+
+    func currentAXTypingEvaluation() -> AXFocusedTypingEvaluation {
+        axTypingEvaluationThrottled(now: Date())
     }
 
     private func shouldUseBrowserPointerFollowFastPath(now: Date) -> Bool {
@@ -385,193 +620,11 @@ final class HUDManager {
     }
 
     private func isAXFocusedElementEditable() -> Bool {
-        let systemWide = AXUIElementCreateSystemWide()
-        var focusedElement: AnyObject?
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
-              let focusedElement else {
-            return false
-        }
-
-        let element = focusedElement as! AXUIElement
-
-        func boolAttr(_ name: CFString) -> Bool? {
-            var value: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(element, name, &value) == .success else { return nil }
-            if let b = value as? Bool { return b }
-            if let n = value as? NSNumber { return n.boolValue }
-            return nil
-        }
-
-        func boolAttr(_ e: AXUIElement, _ name: CFString) -> Bool? {
-            var value: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(e, name, &value) == .success else { return nil }
-            if let b = value as? Bool { return b }
-            if let n = value as? NSNumber { return n.boolValue }
-            return nil
-        }
-
-        var roleRef: CFTypeRef?
-        let role = (AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success)
-            ? (roleRef as? String ?? "")
-            : ""
-
-        let directEditableRoles: Set<String> = [kAXTextFieldRole as String, kAXTextAreaRole as String, "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
-
-        // Prefer explicit editability.
-        // This avoids false positives where a non-editable AXWebArea still exposes a selected range.
-        let editable = boolAttr("AXEditable" as CFString) == true
-        if editable { return true }
-
-        let hasCollapsedSelectedRange: Bool = {
-            var v: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &v) == .success,
-                  let raw = v,
-                  CFGetTypeID(raw) == AXValueGetTypeID() else { return false }
-            let ax = raw as! AXValue
-            guard AXValueGetType(ax) == .cfRange else { return true }
-            var range = CFRange()
-            guard AXValueGetValue(ax, .cfRange, &range) else { return true }
-            return range.length == 0
-        }()
-        let hasMarkerRange: Bool = {
-            var v: CFTypeRef?
-            return AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &v) == .success
-        }()
-        let hasInsertionContextOnFocus = hasCollapsedSelectedRange || hasMarkerRange
-        let focusedRectLooksLikeInput: Bool = {
-            guard let r = axFocusedElementRectThrottled(),
-                  !isProbablyWholeWindowRect(r) else {
-                return false
-            }
-            return isTypingBoxSizedRect(r) || isWebInputSizedRect(r)
-        }()
-        let hasStrongInsertionEvidenceOnFocus: Bool = {
-            guard hasInsertionContextOnFocus else { return false }
-            if axCaretRectThrottled() != nil { return true }
-            return focusedRectLooksLikeInput
-        }()
-
-        func hasInsertionContext(_ e: AXUIElement) -> Bool {
-            var selectedRangeValue: CFTypeRef?
-            if AXUIElementCopyAttributeValue(e, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success,
-               let selectedRangeValue,
-               CFGetTypeID(selectedRangeValue) == AXValueGetTypeID() {
-                let ax = selectedRangeValue as! AXValue
-                if AXValueGetType(ax) == .cfRange {
-                    var range = CFRange()
-                    if AXValueGetValue(ax, .cfRange, &range) {
-                        if range.length == 0 { return true }
-                    } else {
-                        return true
-                    }
-                } else {
-                    return true
-                }
-            }
-            var markerRangeValue: CFTypeRef?
-            if AXUIElementCopyAttributeValue(e, "AXSelectedTextMarkerRange" as CFString, &markerRangeValue) == .success {
-                return true
-            }
-            return false
-        }
-
-        func hasEditableDescendant(_ e: AXUIElement, depth: Int = 4) -> Bool {
-            if depth <= 0 { return false }
-            var childrenRef: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(e, kAXChildrenAttribute as CFString, &childrenRef) == .success,
-                  let children = childrenRef as? [AXUIElement] else {
-                return false
-            }
-
-            let directRoles = [kAXTextFieldRole as String, "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
-            let conditionalRoles = [kAXTextAreaRole as String, "AXWebArea", "AXStaticText"]
-            for child in children {
-                var roleRef: CFTypeRef?
-                let childRole = (AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleRef) == .success) ? (roleRef as? String ?? "") : ""
-                if directRoles.contains(childRole) { return true }
-                if conditionalRoles.contains(childRole),
-                   (boolAttr(child, "AXEditable" as CFString) == true || hasInsertionContext(child)) {
-                    return true
-                }
-                if hasInsertionContext(child) { return true }
-                if hasEditableDescendant(child, depth: depth - 1) { return true }
-            }
-            return false
-        }
-
-        // Role-based fallback: treat common input roles as typing context.
-        if directEditableRoles.contains(role) { return true }
-
-        if role == "AXGroup" || role == "AXScrollArea" || role == "AXSplitGroup" || role == "AXRadioButton" || role == "AXButton" {
-            if hasStrongInsertionEvidenceOnFocus { return true }
-            if focusedRectLooksLikeInput, hasEditableDescendant(element) { return true }
-            return false
-        }
-
-        // WebArea is extremely common as a focused element in web UIs even when not in a text box.
-        if role == "AXWebArea" {
-            if editable { return true }
-            if hasStrongInsertionEvidenceOnFocus { return true }
-            if isWeirdWebTypingApp(bundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier),
-               focusedRectLooksLikeInput {
-                return true
-            }
-            return false
-        }
-
-        if role == kAXTextAreaRole as String {
-            return hasInsertionContextOnFocus
-        }
-
-        // As a last resort, accept insertion-context attributes for non-WebArea elements.
-        if hasInsertionContextOnFocus {
-            if role == "AXStaticText" {
-                return hasStrongInsertionEvidenceOnFocus
-            }
-            return true
-        }
-
-        return false
+        axTypingEvaluationThrottled(now: Date()).editableLikely
     }
 
     private func isAXFocusedElementLooselyEditableForWeb() -> Bool {
-        let systemWide = AXUIElementCreateSystemWide()
-        var focusedElement: AnyObject?
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
-              let focusedElement else {
-            return false
-        }
-        let element = focusedElement as! AXUIElement
-
-        func boolAttr(_ name: CFString) -> Bool {
-            var value: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(element, name, &value) == .success else { return false }
-            if let b = value as? Bool { return b }
-            if let n = value as? NSNumber { return n.boolValue }
-            return false
-        }
-
-        var roleRef: CFTypeRef?
-        let role = (AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success)
-            ? (roleRef as? String ?? "")
-            : ""
-
-        if ["AXTextField", "AXSearchField", "AXComboBox", "AXHTMLTextInput", "AXTextArea"].contains(role) {
-            return true
-        }
-        if role == "AXWebArea" || role == "AXGroup" || role == "AXScrollArea" || role == "AXSplitGroup" || role == "AXStaticText" {
-            guard let r = axFocusedElementRectThrottled(),
-                  isWebInputSizedRect(r),
-                  !isProbablyWholeWindowRect(r) else {
-                // Prevent "always typing" false positives on large AXWebArea containers,
-                // which can pin control mode away from the mouse.
-                return false
-            }
-            if boolAttr("AXEditable" as CFString) { return true }
-            if isAXFocusedElementInsertionContextAvailable() { return true }
-            return false
-        }
-        return false
+        axTypingEvaluationThrottled(now: Date()).looselyEditableForWeb
     }
 
     private func isWeirdWebTypingApp(bundleID: String?) -> Bool {
@@ -582,50 +635,30 @@ final class HUDManager {
     }
 
     private func isAXFocusedElementInsertionContextAvailable() -> Bool {
-        let systemWide = AXUIElementCreateSystemWide()
-        var focusedElement: AnyObject?
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
-              let focusedElement else {
-            return false
-        }
-        let element = focusedElement as! AXUIElement
-        var roleRef: CFTypeRef?
-        let role = (AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success)
-            ? (roleRef as? String ?? "")
-            : ""
+        axTypingEvaluationThrottled(now: Date()).insertionContextAvailable
+    }
 
-        var hasInsertionContext = false
-        var selectedRangeRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeRef) == .success,
-           let selectedRangeRef,
-           CFGetTypeID(selectedRangeRef) == AXValueGetTypeID() {
-            let ax = selectedRangeRef as! AXValue
-            if AXValueGetType(ax) == .cfRange {
-                var range = CFRange()
-                if AXValueGetValue(ax, .cfRange, &range) {
-                    if range.length == 0 { hasInsertionContext = true }
-                } else {
-                    hasInsertionContext = true
-                }
-            } else {
-                hasInsertionContext = true
+    private func axTypingEvaluationThrottled(now: Date) -> AXFocusedTypingEvaluation {
+        if now.timeIntervalSince(lastAXTypingEvaluationAt) < 0.12 {
+            return cachedAXTypingEvaluation
+        }
+        lastAXTypingEvaluationAt = now
+        let evaluation = AXFocusedTypingContextDetector.evaluate(
+            focusedRect: axFocusedElementRectThrottled(),
+            caretRect: axCaretRectThrottled(),
+            frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+            isWholeWindowRect: { [weak self] rect in
+                self?.isProbablyWholeWindowRect(rect) ?? true
+            },
+            isTypingBoxSizedRect: { [weak self] rect in
+                self?.isTypingBoxSizedRect(rect) ?? false
+            },
+            isWebInputSizedRect: { [weak self] rect in
+                self?.isWebInputSizedRect(rect) ?? false
             }
-        }
-        var markerRangeRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRangeRef) == .success {
-            hasInsertionContext = true
-        }
-        guard hasInsertionContext else { return false }
-
-        if ["AXWebArea", "AXGroup", "AXScrollArea", "AXSplitGroup", "AXStaticText"].contains(role) {
-            if axCaretRectThrottled() != nil { return true }
-            guard let r = axFocusedElementRectThrottled(),
-                  !isProbablyWholeWindowRect(r) else {
-                return false
-            }
-            return isTypingBoxSizedRect(r) || isWebInputSizedRect(r)
-        }
-        return true
+        )
+        cachedAXTypingEvaluation = evaluation
+        return evaluation
     }
 
     private func appKitRectFromAX(_ axRect: CGRect) -> CGRect? {
@@ -1456,12 +1489,7 @@ final class HUDManager {
               let front = app.bundleIdentifier?.lowercased() else {
             return false
         }
-        let isMediaCapableApp =
-            front.contains("quicktime") ||
-            front.contains("tv") ||
-            front.contains("vlc") ||
-            front.contains("iina") ||
-            front.contains("movist") ||
+        let isBrowserApp =
             front.contains("safari") ||
             front.contains("chrome") ||
             front.contains("chromium") ||
@@ -1469,6 +1497,13 @@ final class HUDManager {
             front.contains("arc") ||
             front.contains("firefox") ||
             front.contains("edge")
+        let isMediaCapableApp =
+            front.contains("quicktime") ||
+            front.contains("tv") ||
+            front.contains("vlc") ||
+            front.contains("iina") ||
+            front.contains("movist") ||
+            isBrowserApp
         guard isMediaCapableApp else { return false }
 
         // Never suppress while user is in typing context.
@@ -1487,9 +1522,11 @@ final class HUDManager {
             return cachedFullscreenSuppressionResult
         }
         lastFullscreenSuppressionCheckAt = now
-        cachedFullscreenSuppressionBundleID = front
+	        cachedFullscreenSuppressionBundleID = front
 
-        let result = isFrontmostFocusedWindowLikelyFullscreen(app: app, on: screen)
+        let result =
+            isFrontmostFocusedWindowLikelyFullscreen(app: app, on: screen) &&
+            (!isBrowserApp || browserIsLikelyCurrentPlaybackSource(frontBundleID: front))
         cachedFullscreenSuppressionResult = result
         return result
     }
@@ -1553,6 +1590,15 @@ final class HUDManager {
             abs(windowRect.maxY - screenRect.maxY) <= tolerance
 
         return coversScreen
+    }
+
+    private func browserIsLikelyCurrentPlaybackSource(frontBundleID: String) -> Bool {
+        let nowPlayingBundle: String = MainActor.assumeIsolated {
+            CurrentAppShortcutPanelManager.shared.appState?.nowPlayingBundleIdentifier ?? ""
+        }
+        let normalized = nowPlayingBundle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return false }
+        return normalized == frontBundleID
     }
     
     private func hideForHiddenCursor() {
