@@ -48,10 +48,32 @@ struct AetherMenuBar: Scene {
         return appState.voiceStatus
     }
 
+    private var statusAccentColor: Color {
+        if needsAttention { return .orange }
+        if appState.isMotionTracking { return .green }
+        return .secondary
+    }
+
     var body: some Scene {
         MenuBarExtra {
-            Text(statusTitle)
-            Text(statusSubtitle)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(statusAccentColor)
+                        .frame(width: 8, height: 8)
+                    Text("Aether")
+                        .font(.headline.weight(.semibold))
+                }
+
+                Text(statusTitle)
+                    .font(.subheadline.weight(.medium))
+
+                Text(statusSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 4)
 
             if appState.driverState == .needsUserApproval {
                 Button(String(localized: "menu.approve_driver")) {
@@ -89,7 +111,7 @@ struct AetherMenuBar: Scene {
                 appState.toggleMotionTracking()
             }
 
-            Button(isChinese ? "切换输入 / 控制模式" : "Toggle Input / Control Mode") {
+            Button(String(localized: "menu.toggle_input_control_mode")) {
                 appState.toggleRecognitionInputControlMode()
             }
 
@@ -99,7 +121,7 @@ struct AetherMenuBar: Scene {
 
             Button(
                 CurrentAppShortcutPanelManager.shared.isVisible
-                    ? (isChinese ? "隐藏快捷键面板" : "Hide Shortcut Panel")
+                    ? String(localized: "menu.hide_shortcut_panel")
                     : String(
                         format: NSLocalizedString("menu.shortcut_panel_fmt", comment: ""),
                         HotkeyManager.shared.binding(for: .toggleShortcutPanel).displayString

@@ -26,10 +26,6 @@ struct AetherMainView: View {
         case shortcuts
     }
 
-    private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
-    }
-
     private var currentPanel: Panel {
         selection ?? .overview
     }
@@ -42,7 +38,7 @@ struct AetherMainView: View {
                         panelLabel(.overview)
                     }
                 } header: {
-                    Text(localeText(zh: "工作区", en: "Workspace"))
+                    Text("main.section.workspace")
                 }
 
                 Section {
@@ -62,7 +58,7 @@ struct AetherMainView: View {
                         panelLabel(.voiceInsights)
                     }
                 } header: {
-                    Text(localeText(zh: "语音", en: "Voice"))
+                    Text("main.section.voice")
                 }
 
                 Section {
@@ -76,7 +72,7 @@ struct AetherMainView: View {
                         panelLabel(.shortcuts)
                     }
                 } header: {
-                    Text(localeText(zh: "其他控制", en: "Other Controls"))
+                    Text("main.section.controls")
                 }
 
             }
@@ -115,10 +111,6 @@ struct AetherMainView: View {
         )
     }
 
-    private func localeText(zh: String, en: String) -> String {
-        Locale.current.identifier.hasPrefix("zh") ? zh : en
-    }
-
     @ViewBuilder
     private func panelLabel(_ panel: Panel) -> some View {
         Label(panelTitle(panel), systemImage: panelSymbol(panel))
@@ -127,23 +119,23 @@ struct AetherMainView: View {
     private func panelTitle(_ panel: Panel) -> String {
         switch panel {
         case .overview:
-            return localeText(zh: "总览", en: "Overview")
+            return String(localized: "main.panel.overview")
         case .voiceBasics:
-            return localeText(zh: "基础", en: "Basics")
+            return String(localized: "main.panel.basics")
         case .voiceTerms:
-            return localeText(zh: "术语纠错", en: "Term Corrections")
+            return String(localized: "main.panel.term_corrections")
         case .voiceLexicon:
-            return localeText(zh: "词库", en: "Lexicon")
+            return String(localized: "main.panel.lexicon")
         case .voiceAppControls:
-            return localeText(zh: "当前应用", en: "Current App")
+            return String(localized: "main.panel.current_app")
         case .voiceInsights:
-            return localeText(zh: "统计", en: "Insights")
+            return String(localized: "main.panel.insights")
         case .pointer:
-            return localeText(zh: "指针", en: "Pointer")
+            return String(localized: "main.panel.pointer")
         case .headset:
-            return localeText(zh: "耳机按钮", en: "Headset Buttons")
+            return String(localized: "main.panel.headset_buttons")
         case .shortcuts:
-            return localeText(zh: "快捷键", en: "Shortcuts")
+            return String(localized: "main.panel.shortcuts")
         }
     }
 
@@ -240,37 +232,39 @@ private struct OverviewDashboardView: View {
         )
     }
 
-    private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
-    }
-
     private var setupItems: [OverviewSetupItem] {
         [
             OverviewSetupItem(
                 id: "accessibility",
                 icon: "hand.raised.fill",
-                title: isChinese ? "辅助功能" : "Accessibility",
-                detail: appState.accessibilityTrusted ? (isChinese ? "已允许控制系统输入" : "Allowed to control system input") : (isChinese ? "未授权，头控和快捷键会受限" : "Required for pointer control and global shortcuts"),
+                title: String(localized: "permissions.accessibility"),
+                detail: appState.accessibilityTrusted
+                    ? String(localized: "main.permission.accessibility.detail.ready")
+                    : String(localized: "main.permission.accessibility.detail.missing"),
                 isReady: appState.accessibilityTrusted,
-                actionTitle: appState.accessibilityTrusted ? nil : (isChinese ? "去开启" : "Enable"),
+                actionTitle: appState.accessibilityTrusted ? nil : String(localized: "main.action.enable"),
                 action: appState.accessibilityTrusted ? nil : { appState.requestAccessibilityGuided() }
             ),
             OverviewSetupItem(
                 id: "microphone",
                 icon: "mic.fill",
-                title: isChinese ? "麦克风" : "Microphone",
-                detail: appState.microphoneAuthorized ? (isChinese ? "可以开始语音输入" : "Ready for voice capture") : (isChinese ? "未授权，无法监听语音" : "Required for voice capture"),
+                title: String(localized: "permissions.microphone"),
+                detail: appState.microphoneAuthorized
+                    ? String(localized: "main.permission.microphone.detail.ready")
+                    : String(localized: "main.permission.microphone.detail.missing"),
                 isReady: appState.microphoneAuthorized,
-                actionTitle: appState.microphoneAuthorized ? nil : (isChinese ? "去开启" : "Enable"),
+                actionTitle: appState.microphoneAuthorized ? nil : String(localized: "main.action.enable"),
                 action: appState.microphoneAuthorized ? nil : { appState.requestMicrophoneGuided() }
             ),
             OverviewSetupItem(
                 id: "speech",
                 icon: "waveform",
-                title: isChinese ? "语音识别" : "Speech Recognition",
-                detail: appState.speechAuthorized ? (isChinese ? "识别引擎已可用" : "Recognition engine is available") : (isChinese ? "未授权，无法转写语音" : "Required for dictation and commands"),
+                title: String(localized: "permissions.speech"),
+                detail: appState.speechAuthorized
+                    ? String(localized: "main.permission.speech.detail.ready")
+                    : String(localized: "main.permission.speech.detail.missing"),
                 isReady: appState.speechAuthorized,
-                actionTitle: appState.speechAuthorized ? nil : (isChinese ? "去开启" : "Enable"),
+                actionTitle: appState.speechAuthorized ? nil : String(localized: "main.action.enable"),
                 action: appState.speechAuthorized ? nil : { appState.requestSpeechGuided() }
             )
         ]
@@ -286,22 +280,17 @@ private struct OverviewDashboardView: View {
 
     private var overviewSubtitle: String {
         if blockingIssuesCount == 0 {
-            return isChinese
-                ? "核心权限已经就绪，这里保留你最常用的控制和运行状态。"
-                : "Core permissions are ready. This page keeps the controls and runtime state you use most."
+            return String(localized: "main.overview.subtitle.ready")
         }
-        return isChinese
-            ? "还差 \(blockingIssuesCount) 项设置完成即可更稳定地使用 Aether。"
-            : "\(blockingIssuesCount) setup item(s) still need attention before Aether is fully ready."
+        return String(format: String(localized: "main.overview.subtitle.pending_fmt"), blockingIssuesCount)
     }
 
     var body: some View {
         SettingsPage(
-            title: isChinese ? "总览" : "Overview",
+            title: String(localized: "main.overview.title"),
             subtitle: overviewSubtitle
         ) {
             OverviewReadinessCard(
-                isChinese: isChinese,
                 setupItems: setupItems,
                 showDriverApproval: appState.driverState == .needsUserApproval,
                 openPrivacyAndSecurity: appState.openPrivacyAndSecurityPane,
@@ -313,10 +302,9 @@ private struct OverviewDashboardView: View {
             LazyVGrid(columns: columns, spacing: 16) {
                 GlassCard {
                     PointerControlTile(
-                        isChinese: isChinese,
                         subtitle: headManager.isTracking
-                            ? (isChinese ? "AirPods 头控正在运行" : "AirPods tracking is running")
-                            : (isChinese ? "开启后可使用头部控制指针" : "Start tracking to move the pointer"),
+                            ? String(localized: "main.pointer.subtitle.active")
+                            : String(localized: "main.pointer.subtitle.idle"),
                         isOn: trackingBinding,
                         autoStartOnConnect: autoStartTrackingBinding,
                         showPostureGuide: postureGuideBinding
@@ -325,7 +313,6 @@ private struct OverviewDashboardView: View {
 
                 GlassCard {
                     VoiceModeTile(
-                        isChinese: isChinese,
                         mode: $appState.voiceActivationMode
                     )
                 }
@@ -341,7 +328,6 @@ private struct OverviewDashboardView: View {
 }
 
 private struct OverviewReadinessCard: View {
-    let isChinese: Bool
     let setupItems: [OverviewSetupItem]
     let showDriverApproval: Bool
     let openPrivacyAndSecurity: () -> Void
@@ -358,17 +344,15 @@ private struct OverviewReadinessCard: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(isChinese ? "准备情况" : "Readiness")
+                        Text("main.readiness.title")
                             .font(.headline)
-                        Text(isChinese
-                             ? "先把必需权限拉齐，再去调语音和指针体验。"
-                             : "Make the required permissions green first, then tune voice and pointer behavior.")
+                        Text("main.readiness.subtitle")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     Spacer()
                     OverviewStateTag(
-                        title: "\(readyCount)/\(setupItems.count) \(isChinese ? "已完成" : "Ready")",
+                        title: String(format: String(localized: "main.readiness.ready_count_fmt"), readyCount, setupItems.count),
                         tint: readyCount == setupItems.count ? .green : .orange
                     )
                     if canCollapse {
@@ -381,11 +365,7 @@ private struct OverviewReadinessCard: View {
                 }
 
                 if isCollapsed {
-                    Text(
-                        isChinese
-                            ? "核心权限都已就绪。需要时可展开查看详情。"
-                            : "All core permissions are ready. Expand if you need details."
-                    )
+                    Text("main.readiness.collapsed")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 2)
@@ -427,16 +407,16 @@ private struct OverviewReadinessCard: View {
                                     .foregroundColor(.orange)
 
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(isChinese ? "驱动审批" : "Driver Approval")
+                                    Text("main.driver_approval.title")
                                         .font(.subheadline.weight(.medium))
-                                    Text(isChinese ? "系统扩展还需要在“隐私与安全性”里允许。" : "The system extension still needs approval in Privacy & Security.")
+                                    Text("main.driver_approval.detail")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
 
                                 Spacer()
 
-                                Button(isChinese ? "打开设置" : "Open Settings", action: openPrivacyAndSecurity)
+                                Button(String(localized: "main.action.open_settings"), action: openPrivacyAndSecurity)
                                     .controlSize(.small)
                             }
                             .padding(12)
@@ -486,7 +466,6 @@ private struct OverviewToggleTile: View {
 }
 
 private struct PointerControlTile: View {
-    let isChinese: Bool
     let subtitle: String
     @Binding var isOn: Bool
     @Binding var autoStartOnConnect: Bool
@@ -505,10 +484,11 @@ private struct PointerControlTile: View {
                 Spacer()
                 Toggle("", isOn: $isOn)
                     .labelsHidden()
+                    .toggleStyle(.switch)
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(isChinese ? "头控指针" : "Pointer Control")
+                Text("main.pointer.title")
                     .font(.headline)
                 Text(subtitle)
                     .font(.caption)
@@ -516,24 +496,22 @@ private struct PointerControlTile: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            VStack(spacing: 8) {
+            VStack(spacing: 10) {
                 inlineToggle(
-                    title: isChinese ? "连接耳机后自动开启" : "Auto-start when headset connects",
+                    title: String(localized: "main.pointer.auto_start.title"),
+                    subtitle: String(localized: "main.pointer.auto_start.subtitle"),
                     isOn: $autoStartOnConnect
                 )
                 inlineToggle(
-                    title: isChinese ? "显示姿态引导" : "Show posture guide",
+                    title: String(localized: "main.pointer.posture_guide.title"),
+                    subtitle: String(localized: "main.pointer.posture_guide.subtitle"),
                     isOn: $showPostureGuide
                 )
                 .disabled(!autoStartOnConnect)
                 .opacity(autoStartOnConnect ? 1 : 0.55)
             }
 
-            Text(
-                isChinese
-                    ? "仅支持带头部姿态传感器的耳机；不支持的设备连接后不会自动开启。"
-                    : "Auto-start only works with head-motion-capable headsets."
-            )
+            Text("main.pointer.footnote")
             .font(.caption2)
             .foregroundColor(.secondary)
         }
@@ -541,24 +519,30 @@ private struct PointerControlTile: View {
     }
 
     @ViewBuilder
-    private func inlineToggle(title: String, isOn: Binding<Bool>) -> some View {
+    private func inlineToggle(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
         HStack(spacing: 10) {
-            Text(title)
-                .font(.caption.weight(.medium))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Spacer()
             Toggle("", isOn: isOn)
                 .labelsHidden()
+                .toggleStyle(.switch)
                 .controlSize(.small)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
         .cornerRadius(10)
     }
 }
 
 private struct VoiceModeTile: View {
-    let isChinese: Bool
     @Binding var mode: AppState.VoiceActivationMode
 
     var body: some View {
@@ -572,59 +556,50 @@ private struct VoiceModeTile: View {
                         .foregroundColor(.blue)
                 }
                 Spacer()
-                OverviewStateTag(
-                    title: label(for: mode),
-                    tint: mode == .handsFree ? .green : .blue
-                )
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(isChinese ? "语音唤起" : "Voice Activation")
+                Text("main.voice_activation.title")
                     .font(.headline)
-                Text(isChinese ? "在这里切换最常用的输入方式。" : "Switch between the voice modes you use most.")
+                Text("main.voice_activation.subtitle")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
 
-            HStack(spacing: 8) {
+            Picker("", selection: $mode) {
                 ForEach(AppState.VoiceActivationMode.allCases, id: \.self) { item in
-                    Button {
-                        mode = item
-                    } label: {
-                        Text(shortLabel(for: item))
-                            .font(.caption.weight(.medium))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(mode == item ? Color.accentColor.opacity(0.16) : Color(nsColor: .controlBackgroundColor))
-                            .foregroundColor(mode == item ? .accentColor : .primary)
-                            .cornerRadius(10)
-                    }
-                    .buttonStyle(.plain)
+                    Text(shortLabel(for: item)).tag(item)
                 }
             }
+            .pickerStyle(.segmented)
+
+            Text(selectedModeDescription)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, minHeight: 148, alignment: .topLeading)
-    }
-
-    private func label(for mode: AppState.VoiceActivationMode) -> String {
-        switch mode {
-        case .pushToTalk:
-            return isChinese ? "按住说话" : "Push to Talk"
-        case .wakeWord:
-            return isChinese ? "唤醒词" : "Wake Word"
-        case .handsFree:
-            return isChinese ? "免提常驻" : "Hands-Free"
-        }
     }
 
     private func shortLabel(for mode: AppState.VoiceActivationMode) -> String {
         switch mode {
         case .pushToTalk:
-            return isChinese ? "按住说话" : "PTT"
+            return String(localized: "main.voice_mode.push_to_talk.short")
         case .wakeWord:
-            return isChinese ? "唤醒词" : "Wake"
+            return String(localized: "main.voice_mode.wake_word.short")
         case .handsFree:
-            return isChinese ? "免提" : "Hands-Free"
+            return String(localized: "main.voice_mode.hands_free.short")
+        }
+    }
+
+    private var selectedModeDescription: String {
+        switch mode {
+        case .pushToTalk:
+            return String(localized: "main.voice_mode.push_to_talk.detail")
+        case .wakeWord:
+            return String(localized: "main.voice_mode.wake_word.detail")
+        case .handsFree:
+            return String(localized: "main.voice_mode.hands_free.detail")
         }
     }
 }

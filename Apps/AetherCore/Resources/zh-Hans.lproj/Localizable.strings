@@ -20,7 +20,7 @@
 
 /* Rows */
 "row.virtual_hid" = "虚拟 HID";
-"row.airpods_matrix" = "AirPods 矩阵";
+"row.airpods_matrix" = "耳机姿态";
 "row.voice" = "语音";
 "row.lid_sensor" = "合盖传感器";
 
@@ -52,7 +52,7 @@
 "control.hud_auto_hide" = "HUD 自动隐藏";
 "control.hud_auto_hide_hint" = "只影响一次性提示；常驻监听 HUD 不受这里控制。";
 "control.push_to_talk_hint" = "按住 ⌥Space 说话；常驻监听时说“ Aether … ”触发。";
-"control.toggle_tracking_hint" = "切换追踪";
+"control.toggle_tracking_hint" = "切换头控";
 
 /* Actions */
 "action.activate_perception" = "激活感知";
@@ -63,7 +63,7 @@
 /* Onboarding */
 "onboarding.setup_required" = "需要设置";
 "onboarding.accessibility" = "开启辅助功能以允许全局热键与输入自动化。";
-"onboarding.microphone" = "授予麦克风权限以使用语音输入。";
+"onboarding.microphone" = "授予麦克风权限以使用输入与语音控制。";
 "onboarding.speech" = "授予语音识别权限以使用转写。";
 
 /* Menu bar */
@@ -71,8 +71,8 @@
 "menu.voice" = "语音";
 "menu.driver" = "驱动";
 "menu.status.setup_attention" = "需要处理设置";
-"menu.status.voice_pointer_ready" = "语音和指针已就绪";
-"menu.status.pointer_active" = "指针控制已开启";
+"menu.status.voice_pointer_ready" = "语音和头控已就绪";
+"menu.status.pointer_active" = "头控已开启";
 "menu.status.ready" = "Aether 已待命";
 "menu.status.accessibility_missing" = "辅助功能未授权";
 "menu.status.microphone_missing" = "麦克风未授权";
@@ -86,25 +86,25 @@
 "menu.more_controls" = "更多控制";
 "menu.shortcut_panel_fmt" = "快捷键面板 (%@)";
 "menu.activate_driver" = "激活驱动";
-"menu.start_pointer" = "启动指针";
-"menu.stop_pointer" = "停止指针";
-"menu.recenter_pointer" = "指针回中";
+"menu.start_pointer" = "开启头控";
+"menu.stop_pointer" = "停止头控";
+"menu.recenter_pointer" = "头控回中";
 "menu.show_window" = "显示窗口";
 "menu.quit" = "退出";
 
 /* Driver errors */
 "driver.error.need_accessibility" = "请先授予辅助功能权限";
-"driver.error.airpods_not_connected" = "请先连接 AirPods";
+"driver.error.airpods_not_connected" = "请先连接支持姿态的耳机";
 
-"driver.error.start_tracking_first" = "请先开启姿态矩阵以确保 AirPods 已连接并有数据传输。";
-"motion.error.airpods_not_detected" = "未检测到 AirPods，请确保已连接到此 Mac 并重试。";
+"driver.error.start_tracking_first" = "请先开启姿态矩阵以确保耳机已连接并有数据传输。";
+"motion.error.airpods_not_detected" = "未检测到支持姿态的耳机，请确保已连接到此 Mac 并重试。";
 "motion.error.connection_timeout" = "连接超时。5秒内未检测到姿态数据。";
-"motion.error.airpods_disconnected" = "AirPods 已断开连接或切换到其他设备。";
+"motion.error.airpods_disconnected" = "耳机已断开连接或切换到其他设备。";
 "motion.error.connection_lost" = "连接丢失。5秒内未收到数据。";
 
 /* Hotkeys */
 "hotkey.section_title" = "快捷键";
-"hotkey.toggle_tracking" = "切换追踪";
+"hotkey.toggle_tracking" = "切换头控";
 "hotkey.connection_lock" = "连接锁定";
 "hotkey.toggle_input_control_mode" = "切换输入/控制模式";
 "hotkey.toggle_language" = "切换语言";
@@ -118,7 +118,7 @@
 "control.show_dock_icon" = "显示 Dock 图标";
 "control.tilt_scroll" = "头部倾斜滚动";
 "control.debug_mode" = "调试模式";
-"control.toggle_tracking_fmt %@" = "切换追踪: %@";
+"control.toggle_tracking_fmt %@" = "切换头控: %@";
 
 "section.quick_start" = "快速开始";
 "section.runtime_status" = "运行状态";
@@ -130,9 +130,9 @@
 "voice.yes" = "是";
 "voice.no" = "否";
 
-"menu.start_pointer_fmt %@" = "启动指针 (%@)";
-"menu.stop_pointer_fmt %@" = "停止指针 (%@)";
-"menu.airpods_lock_fmt %@" = "🔒 AirPods Lock (%@)";
+"menu.start_pointer_fmt %@" = "开启头控 (%@)";
+"menu.stop_pointer_fmt %@" = "停止头控 (%@)";
+"menu.airpods_lock_fmt %@" = "🔒 连接锁定 (%@)";
 
 /* Speech Status */
 "speech.listening" = "正在聆听...";
@@ -178,12 +178,12 @@
 "viz.velocity" = "角速度";
 
 /* Settings Modules */
-"settings.voice_input" = "语音输入";
+"settings.voice_input" = "输入";
 "settings.wakeword_sensitivity" = "唤醒词灵敏度";
 "settings.advanced_processing" = "语音处理";
 "settings.smarter_dictation" = "AI 逻辑增强";
-"settings.command_mode" = "指令模式";
-"settings.dictation_mode" = "听写模式";
+"settings.command_mode" = "控制模式";
+"settings.dictation_mode" = "输入模式";
 "settings.microphone" = "麦克风";
 "settings.no_microphone" = "未检测到麦克风";
 
@@ -257,3 +257,114 @@
 "voice_lexicon.exported" = "已导出";
 "voice_lexicon.import_failed" = "导入失败";
 "voice_lexicon.export_failed" = "导出失败";
+
+/* Main window */
+"main.section.workspace" = "工作区";
+"main.section.voice" = "语音";
+"main.section.controls" = "其他控制";
+"main.panel.overview" = "总览";
+"main.panel.basics" = "基础";
+"main.panel.term_corrections" = "术语纠错";
+"main.panel.lexicon" = "词库";
+"main.panel.current_app" = "当前应用";
+"main.panel.insights" = "统计";
+"main.panel.pointer" = "指针";
+"main.panel.headset_buttons" = "耳机按钮";
+"main.panel.shortcuts" = "快捷键";
+"main.overview.title" = "总览";
+"main.overview.subtitle.ready" = "核心权限已经就绪，这里保留你最常用的控制和运行状态。";
+"main.overview.subtitle.pending_fmt" = "还差 %d 项设置完成即可更稳定地使用 Aether。";
+"main.readiness.title" = "准备情况";
+"main.readiness.subtitle" = "先把必需权限拉齐，再去调语音和指针体验。";
+"main.readiness.ready_count_fmt" = "%d/%d 已完成";
+"main.readiness.collapsed" = "核心权限都已就绪。需要时可展开查看详情。";
+"main.permission.accessibility.detail.ready" = "已允许控制系统输入";
+"main.permission.accessibility.detail.missing" = "未授权，头控和快捷键会受限";
+"main.permission.microphone.detail.ready" = "可以开始输入";
+"main.permission.microphone.detail.missing" = "未授权，无法监听语音";
+"main.permission.speech.detail.ready" = "识别引擎已可用";
+"main.permission.speech.detail.missing" = "未授权，无法转写语音";
+"main.action.enable" = "去开启";
+"main.driver_approval.title" = "驱动审批";
+"main.driver_approval.detail" = "系统扩展还需要在“隐私与安全性”里允许。";
+"main.action.open_settings" = "打开设置";
+"main.pointer.title" = "头控指针";
+"main.pointer.subtitle.active" = "头控正在运行";
+"main.pointer.subtitle.idle" = "开启后可使用头控控制指针";
+"main.pointer.auto_start.title" = "连接耳机后自动开启";
+"main.pointer.auto_start.subtitle" = "检测到兼容耳机后自动开启头控";
+"main.pointer.posture_guide.title" = "显示姿态引导";
+"main.pointer.posture_guide.subtitle" = "自动开启前先提示调整姿态";
+"main.pointer.footnote" = "仅支持带头部姿态传感器的耳机；不支持的设备连接后不会自动开启。";
+"main.voice_activation.title" = "语音唤起";
+"main.voice_activation.subtitle" = "在这里切换最常用的输入方式。";
+"main.voice_mode.push_to_talk.short" = "按住说话";
+"main.voice_mode.wake_word.short" = "唤醒词";
+"main.voice_mode.hands_free.short" = "免提";
+"main.voice_mode.push_to_talk.detail" = "按住快捷键时开始识别，松开后结束。";
+"main.voice_mode.wake_word.detail" = "先说唤醒词，再说后面的输入或控制内容。";
+"main.voice_mode.hands_free.detail" = "常驻监听，空闲时自动收起成小绿点。";
+
+/* Menu bar */
+"menu.toggle_input_control_mode" = "切换输入/控制模式";
+"menu.hide_shortcut_panel" = "隐藏快捷键面板";
+
+/* Hotkey helper text */
+"hotkey.helper.push_to_talk" = "语音按住说话";
+"hotkey.helper.toggle_tracking" = "开启或停止头控";
+"hotkey.helper.connection_lock" = "切换耳机连接锁定";
+"hotkey.helper.toggle_input_control_mode" = "切换输入/控制模式";
+"hotkey.helper.toggle_language" = "在已启用语音语言之间切换";
+"hotkey.helper.toggle_shortcut_panel" = "显示或关闭当前应用快捷键面板";
+"hotkey.key.space" = "空格";
+"hotkey.mouse.middle_click" = "中键点击";
+"hotkey.mouse.back" = "鼠标后退";
+"hotkey.mouse.forward" = "鼠标前进";
+"hotkey.mouse.generic_fmt" = "鼠标 %d";
+
+/* Headset & motion */
+"headset.press.single" = "单按 / 单捏";
+"headset.press.double" = "双按 / 双捏";
+"headset.press.triple" = "三按 / 三捏";
+"headset.action.none" = "无动作";
+"headset.action.none.detail" = "三按后不执行额外动作。";
+"headset.status.no_data" = "暂无数据";
+"headset.status.no_compatible" = "未连接支持姿态的耳机";
+"headset.status.calibrating" = "校准中...";
+"headset.status.connecting" = "连接中...";
+"headset.status.tracking" = "追踪中...";
+"headset.status.away" = "离开屏幕";
+"headset.status.disconnected" = "已断开连接";
+"headset.status.signal_lost" = "信号丢失";
+"headset.status.connection_failed" = "连接失败";
+"headset.status.stopped" = "已停止";
+"headset.status.error_fmt" = "耳机错误：%@";
+"headset.hud.no_compatible" = "未检测到支持姿态的耳机";
+"headset.hud.posture_guide" = "请坐正并看向屏幕，准备启动头控";
+"headset.hud.unsupported" = "当前耳机不支持头部姿态，未自动开启头控";
+"headset.now_playing.title" = "Aether 耳机按钮映射";
+"headset.now_playing.artist_fmt" = "单按: %@  ·  双按: %@  ·  三按: %@";
+"headset.hud.no_input_fallback" = "未检测到输入框，已切换到控制模式";
+"headset.hud.switched_control" = "已切换到控制模式";
+"headset.hud.switched_input" = "已切换到输入模式";
+"headset.event.action_fmt" = "耳机%@ · %@";
+"headset.hud.no_action_assigned_fmt" = "%@未设置动作";
+"headset.hud.connection_lock" = "切换耳机连接锁定";
+"headset.hud.push_to_talk_unsupported" = "耳机按钮不支持按住说话";
+"headset.hud.stop_tracking" = "停止头控";
+"headset.hud.start_tracking" = "开启头控";
+"headset.hud.exit_input_mode" = "已退出输入模式";
+"headset.remote.disabled" = "耳机遥控未启用";
+"headset.remote.stream_connected" = "媒体遥控已注册，耳机姿态数据流已连接";
+"headset.remote.waiting" = "媒体遥控已注册，等待系统把单按 / 双按 / 三按事件转发给 Aether";
+"headset.remote.unregistered" = "耳机遥控未注册";
+"headset.event.single" = "耳机单按";
+"headset.event.single_end" = "耳机单按结束";
+"headset.event.single_toggle" = "耳机单按切换";
+"headset.hud.disconnected" = "耳机已断开连接";
+"headset.hud.connection_lost" = "连接已丢失";
+"headset.hud.connection_timeout" = "连接超时";
+"headset.hud.scroll_top" = "滚动到顶部";
+"headset.hud.scroll_bottom" = "滚动到底部";
+"headset.hud.drag_start" = "开始拖拽";
+"headset.hud.drag_drop" = "结束拖拽";

@@ -57,25 +57,14 @@ class HeadMotionManager: ObservableObject {
 
         var id: String { rawValue }
 
-        var zhLabel: String {
+        var label: String {
             switch self {
             case .single:
-                return "单按 / 单捏"
+                return String(localized: "headset.press.single")
             case .double:
-                return "双按 / 双捏"
+                return String(localized: "headset.press.double")
             case .triple:
-                return "三按 / 三捏"
-            }
-        }
-
-        var enLabel: String {
-            switch self {
-            case .single:
-                return "Single Press"
-            case .double:
-                return "Double Press"
-            case .triple:
-                return "Triple Press"
+                return String(localized: "headset.press.triple")
             }
         }
 
@@ -121,7 +110,7 @@ class HeadMotionManager: ObservableObject {
         var label: String {
             switch self {
             case .none:
-                return Locale.current.identifier.hasPrefix("zh") ? "无动作" : "No Action"
+                return String(localized: "headset.action.none")
             case .toggleLanguage, .connectionLock, .toggleShortcutPanel, .toggleInputControlMode, .toggleTracking:
                 return hotkeyAction?.label ?? rawValue
             }
@@ -130,7 +119,7 @@ class HeadMotionManager: ObservableObject {
         var helperText: String {
             switch self {
             case .none:
-                return Locale.current.identifier.hasPrefix("zh") ? "三按后不执行额外动作。" : "Do nothing on triple press."
+                return String(localized: "headset.action.none.detail")
             case .toggleLanguage, .connectionLock, .toggleShortcutPanel, .toggleInputControlMode, .toggleTracking:
                 return hotkeyAction?.helperText ?? ""
             }
@@ -167,7 +156,7 @@ class HeadMotionManager: ObservableObject {
     private let log = GlobalLogger.motion
     
     @Published var isTracking: Bool = false
-    @Published var attitudeText: String = "No Data"
+    @Published var attitudeText: String = String(localized: "headset.status.no_data")
     @Published private(set) var isHeadsetRemoteRegistered: Bool = false
     @Published private(set) var headsetRemoteStatusText: String = ""
     @Published private(set) var lastHeadsetRemoteEventText: String = ""
@@ -243,7 +232,7 @@ class HeadMotionManager: ObservableObject {
     private let precisionZoneRadius: CGFloat = 44
     
     // Dynamic Range Calibration
-    @Published var calibrationStatus: String = "Normal"
+    @Published var calibrationStatus: String = String(localized: "calibration.normal")
     
     // Real-time Data for UI Visualization
     @Published var currentHeadYaw: Double = 0.0
@@ -421,9 +410,9 @@ class HeadMotionManager: ObservableObject {
         // If it returns false, AirPods are definitely not connected
         if !motionManager.isDeviceMotionAvailable {
             let msg = String(localized: "motion.error.airpods_not_detected")
-            attitudeText = "AirPods not connected"
+            attitudeText = String(localized: "headset.status.no_compatible")
             os_log("Cannot start tracking: AirPods not available", log: log, type: .error)
-            HUDManager.shared.showTemporary(message: "❌ No AirPods Detected")
+            HUDManager.shared.showTemporary(message: "❌ \(String(localized: "headset.hud.no_compatible"))")
             onError?(msg)
             return // BLOCK tracking if AirPods not available
         }
@@ -437,7 +426,7 @@ class HeadMotionManager: ObservableObject {
         }
         self.desktopFrame = aggregate
         
-        self.calibrationStatus = "Calibrating..."
+        self.calibrationStatus = String(localized: "headset.status.calibrating")
         self.isCalibrated = false
         self.isAirPodsStreamActive = false
         self.refreshHeadsetRemoteStatus()
@@ -447,7 +436,7 @@ class HeadMotionManager: ObservableObject {
         
         // Start connection timeout timer (5 seconds)
         DispatchQueue.main.async {
-            self.attitudeText = "Connecting..."
+            self.attitudeText = String(localized: "headset.status.connecting")
         }
         
         connectionTimer?.invalidate()
@@ -459,7 +448,12 @@ class HeadMotionManager: ObservableObject {
             guard let self = self else { return }
             
             if let error = error {
-                DispatchQueue.main.async { self.attitudeText = "AirPods Error: \(error.localizedDescription)" }
+                DispatchQueue.main.async {
+                    self.attitudeText = String(
+                        format: String(localized: "headset.status.error_fmt"),
+                        error.localizedDescription
+                    )
+                }
                 self.stopTrackingInternal() // Clean up
                 return
             }
@@ -483,7 +477,7 @@ class HeadMotionManager: ObservableObject {
                 self.lastDataTime = Date()
                 
                 DispatchQueue.main.async {
-                    self.attitudeText = "Tracking..."
+                    self.attitudeText = String(localized: "headset.status.tracking")
                 }
             }
             // -------------------------------------
@@ -531,7 +525,8 @@ class HeadMotionManager: ObservableObject {
             // Only move cursor if looking at screen
             guard self.isLookingAtScreen else {
                  DispatchQueue.main.async {
-                     if self.attitudeText != "Away" { self.attitudeText = "Away" }
+                     let away = String(localized: "headset.status.away")
+                     if self.attitudeText != away { self.attitudeText = away }
                  }
                  return 
             }
@@ -616,13 +611,13 @@ class HeadMotionManager: ObservableObject {
         os_log("Aether: Connection Timeout - No data received", log: log, type: .error)
         
         let msg = String(localized: "motion.error.connection_timeout")
-        HUDManager.shared.showTemporary(message: "❌ Connection Timeout")
+        HUDManager.shared.showTemporary(message: "❌ \(String(localized: "headset.hud.connection_timeout"))")
         onError?(msg)
         
         stopTrackingInternal()
         
         DispatchQueue.main.async {
-            self.attitudeText = "Connection Failed"
+            self.attitudeText = String(localized: "headset.status.connection_failed")
         }
     }
     
@@ -641,7 +636,7 @@ class HeadMotionManager: ObservableObject {
         DispatchQueue.main.async {
             // Don't overwrite "Connection Failed" if that was the reason
             if self.isTracking {
-                self.attitudeText = "Stopped"
+                self.attitudeText = String(localized: "headset.status.stopped")
             }
             self.isTracking = false
         }
@@ -685,24 +680,24 @@ class HeadMotionManager: ObservableObject {
 
     func scrollToTop() {
         AutomationOutputs.shared.scroll(dx: 0, dy: -100000)
-        HUDManager.shared.showTemporary(message: "⬆️ Scroll Top")
+        HUDManager.shared.showTemporary(message: "⬆️ \(String(localized: "headset.hud.scroll_top"))")
     }
 
     func scrollToBottom() {
         AutomationOutputs.shared.scroll(dx: 0, dy: 100000)
-        HUDManager.shared.showTemporary(message: "⬇️ Scroll Bottom")
+        HUDManager.shared.showTemporary(message: "⬇️ \(String(localized: "headset.hud.scroll_bottom"))")
     }
 
     func dragStart() {
         // Use current cursor location (nil) to avoid coordinate flipping issues
         AutomationOutputs.shared.drag(start: true, at: nil)
-        HUDManager.shared.showTemporary(message: "✊ Drag Start")
+        HUDManager.shared.showTemporary(message: "✊ \(String(localized: "headset.hud.drag_start"))")
     }
 
     func dragEnd() {
         // Use current cursor location (nil) to avoid coordinate flipping issues
         AutomationOutputs.shared.drag(start: false, at: nil)
-        HUDManager.shared.showTemporary(message: "🖐 Drag Drop")
+        HUDManager.shared.showTemporary(message: "🖐 \(String(localized: "headset.hud.drag_drop"))")
     }
 
     func recenter() {
@@ -710,12 +705,12 @@ class HeadMotionManager: ObservableObject {
         // Force re-calibration on next motion sample.
         isCalibrated = false
         isCalibratingRange = true
-        calibrationStatus = "Calibrating..."
+        calibrationStatus = String(localized: "headset.status.calibrating")
     }
     
     func finishCalibration() {
         isCalibratingRange = false
-        calibrationStatus = "Normal"
+        calibrationStatus = String(localized: "calibration.normal")
         os_log("Aether: Calibration Finished", log: log)
     }
     
@@ -765,11 +760,10 @@ class HeadMotionManager: ObservableObject {
 
         pendingAutoTrackingStart?.cancel()
 
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
         let baseDelay: TimeInterval = showPostureGuideBeforeTracking ? 1.2 : 0.35
         if showPostureGuideBeforeTracking {
             HUDManager.shared.showTemporary(
-                message: isChinese ? "请坐正并看向屏幕，准备启动头控" : "Sit upright and look at the screen to start tracking",
+                message: String(localized: "headset.hud.posture_guide"),
                 duration: baseDelay
             )
         }
@@ -777,10 +771,9 @@ class HeadMotionManager: ObservableObject {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             guard self.autoStartTrackingOnHeadsetConnection, !self.isTracking, self.lastObservedAirPodSide != .none else { return }
-            let isChinese = Locale.current.identifier.hasPrefix("zh")
             guard self.motionManager.isDeviceMotionAvailable else {
                 HUDManager.shared.showTemporary(
-                    message: isChinese ? "当前耳机不支持头部姿态，未自动开启头控" : "This headset does not support head motion tracking",
+                    message: String(localized: "headset.hud.unsupported"),
                     duration: 0.95
                 )
                 return
@@ -879,12 +872,14 @@ class HeadMotionManager: ObservableObject {
             return
         }
 
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
         var nowPlayingInfo = [String: Any]()
-        nowPlayingInfo[MPMediaItemPropertyTitle] = isChinese ? "Aether 耳机按钮映射" : "Aether Headset Mapping"
-        nowPlayingInfo[MPMediaItemPropertyArtist] = isChinese
-            ? "单按: \(headsetSinglePressAction.label)  ·  双按: \(headsetDoublePressAction.label)  ·  三按: \(headsetTriplePressAction.label)"
-            : "Single: \(headsetSinglePressAction.label)  ·  Double: \(headsetDoublePressAction.label)  ·  Triple: \(headsetTriplePressAction.label)"
+        nowPlayingInfo[MPMediaItemPropertyTitle] = String(localized: "headset.now_playing.title")
+        nowPlayingInfo[MPMediaItemPropertyArtist] = String(
+            format: String(localized: "headset.now_playing.artist_fmt"),
+            headsetSinglePressAction.label,
+            headsetDoublePressAction.label,
+            headsetTriplePressAction.label
+        )
         nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = 0.0
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
         
@@ -930,8 +925,7 @@ class HeadMotionManager: ObservableObject {
         // Guard: dictation mode requires an actual text-input focus.
         // Control mode can always work without text field focus.
         if nextMode == .dictation && !currentlyTyping {
-            let isChinese = Locale.current.identifier.hasPrefix("zh")
-            let message = isChinese ? "未检测到输入框，已切换到控制模式" : "No input field. Switched to Control Mode"
+            let message = String(localized: "headset.hud.no_input_fallback")
             transientRecognitionControlMode = nil
             transientModeAnchorTypingState = nil
             transientModeObservedTypingState = nil
@@ -955,11 +949,10 @@ class HeadMotionManager: ObservableObject {
         transientModeObservedTypingState = currentlyTyping
         transientModeObservedAt = Date()
 
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
         let isCommandMode = nextMode == .command
         let message = isCommandMode
-            ? (isChinese ? "已切换到控制模式" : "Switched to Control Mode")
-            : (isChinese ? "已切换到输入模式" : "Switched to Dictation Mode")
+            ? String(localized: "headset.hud.switched_control")
+            : String(localized: "headset.hud.switched_input")
         postRecognitionControlModeChanged(source: source)
         HUDManager.shared.showTemporary(
             message: message,
@@ -1007,17 +1000,13 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     private func performConfiguredHeadsetAction(kind: HeadsetPressKind, source: String) {
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
         let configuredAction = headsetPressAction(for: kind)
-        let pressLabel = isChinese ? kind.zhLabel : kind.enLabel
         noteHeadsetRemoteEvent(
-            display: isChinese
-                ? "耳机\(kind.zhLabel) · \(configuredAction.label)"
-                : "Headset \(pressLabel) · \(configuredAction.label)"
+            display: String(format: String(localized: "headset.event.action_fmt"), kind.label, configuredAction.label)
         )
         guard let action = configuredAction.hotkeyAction else {
             HUDManager.shared.showTemporary(
-                message: isChinese ? "\(kind.zhLabel)未设置动作" : "No action assigned for \(pressLabel.lowercased())",
+                message: String(format: String(localized: "headset.hud.no_action_assigned_fmt"), kind.label),
                 duration: 0.8
             )
             return
@@ -1027,13 +1016,12 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     private func performHeadsetAction(_ action: HotkeyAction, source: String) {
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
         switch action {
         case .toggleTracking:
             performTrackingToggle(source: source)
         case .connectionLock:
             HUDManager.shared.showTemporary(
-                message: isChinese ? "🔒 切换耳机连接锁定" : "🔒 Toggle Connection Lock",
+                message: "🔒 \(String(localized: "headset.hud.connection_lock"))",
                 duration: 0.8
             )
             NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
@@ -1045,7 +1033,7 @@ class HeadMotionManager: ObservableObject {
             NotificationCenter.default.post(name: .toggleShortcutPanel, object: nil)
         case .pushToTalk:
             HUDManager.shared.showTemporary(
-                message: isChinese ? "耳机按钮不支持按住说话" : "Headset buttons cannot be Push To Talk",
+                message: String(localized: "headset.hud.push_to_talk_unsupported"),
                 duration: 0.8
             )
         }
@@ -1064,14 +1052,13 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     private func performTrackingToggle(source: String) {
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
         if isTracking {
             GlobalLogger.input.info("Tracking Toggle (\(source)): Stop Tracking")
-            HUDManager.shared.showTemporary(message: isChinese ? "⏹ 停止追踪" : "⏹ Stop Tracking", duration: 0.8)
+            HUDManager.shared.showTemporary(message: "⏹ \(String(localized: "headset.hud.stop_tracking"))", duration: 0.8)
             stopTracking()
         } else {
             GlobalLogger.input.info("Tracking Toggle (\(source)): Start Tracking")
-            HUDManager.shared.showTemporary(message: isChinese ? "▶️ 启动追踪" : "▶️ Start Tracking", duration: 0.8)
+            HUDManager.shared.showTemporary(message: "▶️ \(String(localized: "headset.hud.start_tracking"))", duration: 0.8)
             startTracking()
         }
     }
@@ -1097,8 +1084,7 @@ class HeadMotionManager: ObservableObject {
         transientModeObservedTypingState = currentlyTyping
         transientModeObservedAt = Date()
 
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
-        let message = isChinese ? "已退出输入模式" : "Exited Dictation Mode"
+        let message = String(localized: "headset.hud.exit_input_mode")
         postRecognitionControlModeChanged(source: source)
         HUDManager.shared.showTemporary(
             message: message,
@@ -1169,24 +1155,17 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func refreshHeadsetRemoteStatus() {
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
         if !shouldEnableAirPodsModeSwitch {
-            headsetRemoteStatusText = isChinese ? "耳机遥控未启用" : "Headset remote disabled"
+            headsetRemoteStatusText = String(localized: "headset.remote.disabled")
             return
         }
 
         if isAirPodsStreamActive {
-            headsetRemoteStatusText = isChinese
-                ? "媒体遥控已注册，AirPods 数据流已连接"
-                : "Media remote registered, AirPods motion stream connected"
+            headsetRemoteStatusText = String(localized: "headset.remote.stream_connected")
         } else if isHeadsetRemoteRegistered {
-            headsetRemoteStatusText = isChinese
-                ? "媒体遥控已注册，等待系统把单按 / 双按 / 三按事件转发给 Aether"
-                : "Media remote registered and waiting for macOS to route single, double, or triple press events to Aether"
+            headsetRemoteStatusText = String(localized: "headset.remote.waiting")
         } else {
-            headsetRemoteStatusText = isChinese
-                ? "耳机遥控未注册"
-                : "Headset remote not registered"
+            headsetRemoteStatusText = String(localized: "headset.remote.unregistered")
         }
     }
 
@@ -1199,7 +1178,7 @@ class HeadMotionManager: ObservableObject {
     private func beginAirPodsPTT(source: PTTSource, origin: String) -> MPRemoteCommandHandlerStatus {
         guard voiceActivationMode == .pushToTalk, isPTTEnabled else { return .commandFailed }
         noteHeadsetRemoteEvent(
-            display: Locale.current.identifier.hasPrefix("zh") ? "耳机单按" : "Headset Single Press"
+            display: String(localized: "headset.event.single")
         )
         beginPTT(from: source, origin: origin)
         return .success
@@ -1208,7 +1187,7 @@ class HeadMotionManager: ObservableObject {
     private func endAirPodsPTT(source: PTTSource, origin: String) -> MPRemoteCommandHandlerStatus {
         guard voiceActivationMode == .pushToTalk else { return .commandFailed }
         noteHeadsetRemoteEvent(
-            display: Locale.current.identifier.hasPrefix("zh") ? "耳机单按结束" : "Headset Single Press End"
+            display: String(localized: "headset.event.single_end")
         )
         endPTT(from: source, origin: origin)
         return .success
@@ -1217,7 +1196,7 @@ class HeadMotionManager: ObservableObject {
     private func toggleAirPodsPTT(origin: String) -> MPRemoteCommandHandlerStatus {
         guard voiceActivationMode == .pushToTalk, isPTTEnabled else { return .commandFailed }
         noteHeadsetRemoteEvent(
-            display: Locale.current.identifier.hasPrefix("zh") ? "耳机单按切换" : "Headset Single Press Toggle"
+            display: String(localized: "headset.event.single_toggle")
         )
         if activePTTSources.contains(.airPodsToggle) {
             endPTT(from: .airPodsToggle, origin: origin)
@@ -1361,9 +1340,23 @@ class HeadMotionManager: ObservableObject {
                         GlobalLogger.input.info("Hotkey: Toggle Language (flagsChanged)")
                         NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
                         return Unmanaged.passUnretained(event)
-                    case .toggleTracking, .connectionLock, .toggleInputControlMode, .toggleShortcutPanel, .pushToTalk:
+                    case .pushToTalk:
+                        guard manager.isPTTEnabled else { return Unmanaged.passUnretained(event) }
+                        let source = PTTSource.keyboard(Int(keyCode))
+                        if !manager.activePTTSources.contains(source) {
+                            GlobalLogger.input.info("Hotkey: PTT DOWN Detected (flagsChanged)")
+                            manager.beginPTT(from: source, origin: "keyboard-flagsChanged")
+                        }
+                        return nil
+                    case .toggleTracking, .connectionLock, .toggleInputControlMode, .toggleShortcutPanel:
                         break
                     }
+                }
+                let source = PTTSource.keyboard(Int(keyCode))
+                if manager.activePTTSources.contains(source) {
+                    GlobalLogger.input.info("Hotkey: PTT UP Detected (flagsChanged)")
+                    manager.endPTT(from: source, origin: "keyboard-flagsChanged")
+                    return nil
                 }
             }
 
@@ -1393,21 +1386,20 @@ class HeadMotionManager: ObservableObject {
                 if let action = HotkeyManager.shared.matchKeyDown(keyCode: keyCode, flags: flags) {
                     switch action {
                     case .toggleTracking:
-                        let isChinese = Locale.current.identifier.hasPrefix("zh")
                         if manager.isTracking {
                             GlobalLogger.input.info("Hotkey: Stop Tracking")
-                            HUDManager.shared.showTemporary(message: isChinese ? "⏹ 停止追踪" : "⏹ Stop Tracking")
+                            HUDManager.shared.showTemporary(message: "⏹ \(String(localized: "headset.hud.stop_tracking"))")
                             DispatchQueue.main.async { manager.stopTracking() }
                         } else {
                             GlobalLogger.input.info("Hotkey: Start Tracking")
-                            HUDManager.shared.showTemporary(message: isChinese ? "▶️ 启动追踪" : "▶️ Start Tracking")
+                            HUDManager.shared.showTemporary(message: "▶️ \(String(localized: "headset.hud.start_tracking"))")
                             DispatchQueue.main.async { manager.startTracking() }
                         }
                         return nil
 
                     case .connectionLock:
                         GlobalLogger.input.info("Hotkey: Toggle Connection Lock")
-                        HUDManager.shared.showTemporary(message: "🔒 Connection Lock")
+                        HUDManager.shared.showTemporary(message: "🔒 \(String(localized: "headset.hud.connection_lock"))")
                         NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
                         return nil
 
@@ -1457,6 +1449,8 @@ class HeadMotionManager: ObservableObject {
             
             if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
                 DispatchQueue.main.async {
+                    guard manager.transientRecognitionControlMode != nil else { return }
+                    guard HUDManager.shared.hasRecentExplicitTypingClickReentry() else { return }
                     manager.clearTransientRecognitionControlMode(source: "mouse-input-refocus")
                 }
             }
@@ -1468,21 +1462,20 @@ class HeadMotionManager: ObservableObject {
                 if let action = HotkeyManager.shared.matchMouseDown(button: btn, flags: flags) {
                     switch action {
                     case .toggleTracking:
-                        let isChinese = Locale.current.identifier.hasPrefix("zh")
                         if manager.isTracking {
                             GlobalLogger.input.info("Mouse Hotkey: Stop Tracking")
-                            HUDManager.shared.showTemporary(message: isChinese ? "⏹ 停止追踪" : "⏹ Stop Tracking")
+                            HUDManager.shared.showTemporary(message: "⏹ \(String(localized: "headset.hud.stop_tracking"))")
                             DispatchQueue.main.async { manager.stopTracking() }
                         } else {
                             GlobalLogger.input.info("Mouse Hotkey: Start Tracking")
-                            HUDManager.shared.showTemporary(message: isChinese ? "▶️ 启动追踪" : "▶️ Start Tracking")
+                            HUDManager.shared.showTemporary(message: "▶️ \(String(localized: "headset.hud.start_tracking"))")
                             DispatchQueue.main.async { manager.startTracking() }
                         }
                         return nil
                         
                     case .connectionLock:
                         GlobalLogger.input.info("Mouse Hotkey: Toggle Connection Lock")
-                        HUDManager.shared.showTemporary(message: "🔒 Connection Lock")
+                        HUDManager.shared.showTemporary(message: "🔒 \(String(localized: "headset.hud.connection_lock"))")
                         NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
                         return nil
 
@@ -1600,10 +1593,10 @@ class HeadMotionManager: ObservableObject {
             if !self.motionManager.isDeviceMotionAvailable {
                 os_log("Monitor: AirPods capability lost (Switched device?)", log: self.log, type: .error)
                 let msg = String(localized: "motion.error.airpods_disconnected") // "AirPods disconnected or switched to another device."
-                HUDManager.shared.showTemporary(message: "⚠️ AirPods Disconnected")
+                HUDManager.shared.showTemporary(message: "⚠️ \(String(localized: "headset.hud.disconnected"))")
                 self.onError?(msg)
                 self.stopTrackingInternal()
-                DispatchQueue.main.async { self.attitudeText = "Disconnected" }
+                DispatchQueue.main.async { self.attitudeText = String(localized: "headset.status.disconnected") }
                 return
             }
             
@@ -1611,10 +1604,10 @@ class HeadMotionManager: ObservableObject {
             if let lastTime = self.lastDataTime, Date().timeIntervalSince(lastTime) > 5.0 {
                 os_log("Monitor: No data for 5s (Signal lost)", log: self.log, type: .error)
                 let msg = String(localized: "motion.error.connection_lost") // "Connection lost. No data received."
-                HUDManager.shared.showTemporary(message: "⚠️ Connection Lost")
+                HUDManager.shared.showTemporary(message: "⚠️ \(String(localized: "headset.hud.connection_lost"))")
                 self.onError?(msg)
                 self.stopTrackingInternal()
-                DispatchQueue.main.async { self.attitudeText = "Signal Lost" }
+                DispatchQueue.main.async { self.attitudeText = String(localized: "headset.status.signal_lost") }
                 return
             }
         }
@@ -1662,6 +1655,12 @@ class HeadMotionManager: ObservableObject {
         guard now.timeIntervalSince(transientModeObservedAt) >= 0.45 else { return }
         guard currentlyTyping != anchor else { return }
 
+        if transientRecognitionControlMode == .command,
+           currentlyTyping,
+           !HUDManager.shared.hasRecentExplicitTypingClickReentry() {
+            return
+        }
+
         transientRecognitionControlMode = nil
         transientModeAnchorTypingState = nil
         transientModeObservedTypingState = nil
@@ -1675,13 +1674,16 @@ class HeadMotionManager: ObservableObject {
     private func clearTransientRecognitionControlMode(source: String) {
         guard transientRecognitionControlMode != nil else { return }
         guard persistentRecognitionControlMode == .auto else { return }
+        let priorMode = effectiveRecognitionControlMode.rawValue
         transientRecognitionControlMode = nil
         transientModeAnchorTypingState = nil
         transientModeObservedTypingState = nil
         transientModeObservedAt = .distantPast
         postRecognitionControlModeChanged(source: source)
-        os_log("Recognition Mode transient override cleared (%{public}@)",
-               log: log, type: .info, source)
+        os_log("Recognition Mode transient override cleared (%{public}@): prior=%{public}@ typing=%{public}@ explicitReentry=%{public}@",
+               log: log, type: .info, source, priorMode,
+               String(HUDManager.shared.lastKnownTypingState()),
+               String(HUDManager.shared.hasRecentExplicitTypingClickReentry()))
     }
 
 }
