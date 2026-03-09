@@ -254,6 +254,7 @@ final class SpeechManager: ObservableObject {
     private var activeUtteranceID: Int = 0
     private var nextUtteranceID: Int = 1
     private var sessionTypingMode: Bool = false
+    private var shouldShowProcessingDotsDuringStop: Bool = false
     private var sessionTargetPID: pid_t?
     private var sessionTargetBundleID: String?
     private var sessionTargetElementFingerprint: String?
@@ -805,6 +806,7 @@ final class SpeechManager: ObservableObject {
         if isStandby { return }
         os_log("EOS detected, finalizing", log: log, type: .info)
         isStopping = true
+        shouldShowProcessingDotsDuringStop = shouldUseProcessingDotsForCurrentMode()
         refreshContinuousHUD(isDictating: false)
         stopAndFinalize(keepHUDVisible: true)
     }
@@ -816,6 +818,7 @@ final class SpeechManager: ObservableObject {
         let shouldContinue = isPTTHeld || isAlwaysListeningEnabled
         os_log("Segment timeout. shouldContinue=%d", log: log, type: .info, shouldContinue)
         isStopping = true
+        shouldShowProcessingDotsDuringStop = shouldUseProcessingDotsForCurrentMode()
         refreshContinuousHUD(isDictating: false)
         stopMicProgressUI(keepVisible: shouldContinue)
         stopAndFinalize(keepHUDVisible: shouldContinue)
@@ -843,7 +846,9 @@ final class SpeechManager: ObservableObject {
         isPTTHeld = false
         guard !isAlwaysListeningEnabled else { return }
         guard recognitionSession.isRunning else { isStopping = false; HUDManager.shared.hide(); return }
-        isStopping = true; refreshContinuousHUD()
+        isStopping = true
+        shouldShowProcessingDotsDuringStop = shouldUseProcessingDotsForCurrentMode()
+        refreshContinuousHUD()
         stopTimer?.invalidate()
         stopTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
             Task { @MainActor in self?.stopAndFinalize() }
@@ -924,14 +929,14 @@ final class SpeechManager: ObservableObject {
         recognitionSession.cancel()
         eosDetector.stop()
         stopTimer?.invalidate(); stopTimer = nil
-        isStopping = false; isDictating = false; sessionTypingMode = false
+        isStopping = false; isDictating = false; sessionTypingMode = false; shouldShowProcessingDotsDuringStop = false
         activeUtteranceID = 0; sessionTargetPID = nil; sessionTargetBundleID = nil
         sessionTargetElementFingerprint = nil; didLogSessionTargetMismatch = false
         isUtteranceActive = false
     }
 
     private func resetHUDTransientState() {
-        isStopping = false; isDictating = false; sessionTypingMode = false
+        isStopping = false; isDictating = false; sessionTypingMode = false; shouldShowProcessingDotsDuringStop = false
         activeUtteranceID = 0; sessionTargetPID = nil; sessionTargetBundleID = nil
         sessionTargetElementFingerprint = nil; didLogSessionTargetMismatch = false
         isUtteranceActive = false; lastTranscript = ""; lastChangeAt = nil; lastStableText = ""
@@ -1479,10 +1484,7 @@ final class SpeechManager: ObservableObject {
 
         let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
         let mode: HUDMode; var message = ""
-        let shouldShowProcessingDots = isStopping && (
-            controlMode == .dictation ||
-            (controlMode == .auto && sessionTypingMode)
-        )
+        let shouldShowProcessingDots = isStopping && shouldShowProcessingDotsDuringStop
         if isWakeGated && !isAwake && !isStopping && !isDictating {
             clearHUDOverride()
             clearUnarmedWakePreview()
@@ -1495,6 +1497,17 @@ final class SpeechManager: ObservableObject {
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
         else { mode = .listening }
         HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon())
+    }
+
+    private func shouldUseProcessingDotsForCurrentMode() -> Bool {
+        switch hudRecognitionControlMode {
+        case .dictation:
+            return true
+        case .command:
+            return false
+        case .auto:
+            return sessionTypingMode
+        }
     }
 
     private func showPTTUnavailableHUD() {
