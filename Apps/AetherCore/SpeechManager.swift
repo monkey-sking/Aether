@@ -352,6 +352,23 @@ final class SpeechManager: ObservableObject {
         }
     }
 
+    static func reconcileTypingContextWithVisibleHUD(
+        recognitionControlMode: HeadMotionManager.RecognitionControlMode,
+        computedTypingContext: Bool,
+        hasStreamedDictation: Bool,
+        hudRecognitionControlMode: HUDRecognitionControlMode,
+        hudTypingContext: Bool
+    ) -> Bool {
+        guard recognitionControlMode == .auto else { return computedTypingContext }
+        guard computedTypingContext else { return false }
+        guard !hasStreamedDictation else { return true }
+
+        // If the visible HUD is already in control semantics, trust that over a stale typing snapshot.
+        if hudRecognitionControlMode == .command { return false }
+        if hudRecognitionControlMode == .auto, !hudTypingContext { return false }
+        return true
+    }
+
     private var recognitionControlMode: RecognitionControlMode {
         HeadMotionManager.shared.effectiveRecognitionControlMode
     }
@@ -792,12 +809,20 @@ final class SpeechManager: ObservableObject {
         let liveTyping = throttledTypingMode()
         let canType = isAwake || isDirectCommandEnabled || !isAlwaysListeningEnabled
         let hasStreamedDictation = !dictationHandler.screenTypedText.isEmpty
-        let nextTypingMode = Self.resolvedUtteranceTypingMode(
+        let computedTypingMode = Self.resolvedUtteranceTypingMode(
             recognitionControlMode: recognitionControlMode,
             sessionTypingMode: sessionTypingMode,
             liveTyping: liveTyping,
             canType: canType,
             hasStreamedDictation: hasStreamedDictation
+        )
+        let hudState = HUDManager.shared.state
+        let nextTypingMode = Self.reconcileTypingContextWithVisibleHUD(
+            recognitionControlMode: recognitionControlMode,
+            computedTypingContext: computedTypingMode,
+            hasStreamedDictation: hasStreamedDictation,
+            hudRecognitionControlMode: hudState.recognitionControlMode,
+            hudTypingContext: hudState.isTypingContext
         )
         if recognitionControlMode == .auto,
            sessionTypingMode,
@@ -805,6 +830,12 @@ final class SpeechManager: ObservableObject {
            !liveTyping,
            !hasStreamedDictation {
             GlobalLogger.speech.info("[TypingMode] cleared stale auto typing state before routing partials")
+        }
+        if recognitionControlMode == .auto,
+           computedTypingMode,
+           !nextTypingMode,
+           !hasStreamedDictation {
+            GlobalLogger.speech.info("[TypingMode] HUD control state overrode stale typing context before partial injection")
         }
         sessionTypingMode = nextTypingMode
         isDictating = sessionTypingMode
@@ -1135,14 +1166,29 @@ final class SpeechManager: ObservableObject {
         }
 
         let liveTyping = throttledTypingMode()
-        let typingContext = Self.resolvedUtteranceTypingMode(
+        let hasStreamedDictation = !dictationHandler.screenTypedText.isEmpty
+        let computedTypingContext = Self.resolvedUtteranceTypingMode(
             recognitionControlMode: recognitionControlMode,
             sessionTypingMode: sessionTypingMode,
             liveTyping: liveTyping,
             canType: true,
-            hasStreamedDictation: !dictationHandler.screenTypedText.isEmpty
+            hasStreamedDictation: hasStreamedDictation
+        )
+        let hudState = HUDManager.shared.state
+        let typingContext = Self.reconcileTypingContextWithVisibleHUD(
+            recognitionControlMode: recognitionControlMode,
+            computedTypingContext: computedTypingContext,
+            hasStreamedDictation: hasStreamedDictation,
+            hudRecognitionControlMode: hudState.recognitionControlMode,
+            hudTypingContext: hudState.isTypingContext
         )
         if typingContext != sessionTypingMode { sessionTypingMode = typingContext; isDictating = typingContext }
+        if recognitionControlMode == .auto,
+           computedTypingContext,
+           !typingContext,
+           !hasStreamedDictation {
+            GlobalLogger.speech.info("[TypingMode] HUD control state overrode stale typing context before final routing")
+        }
 
         let motion = HeadMotionManager.shared
         let posture = motion.currentPostureBias
