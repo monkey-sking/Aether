@@ -1635,10 +1635,10 @@ final class HUDManager {
 
         let result =
             (isFrontmostFocusedWindowLikelyFullscreen(app: app, on: screen) || isMediaCapableApp) &&
-            !CGCursorIsVisible() // Fullscreen video always hides the cursor
+            now.timeIntervalSince(lastPointerMoveAt) > 1.2 // Proven logic: 1.2s inactivity in fullscreen
         
-        os_log("Fullscreen Suppression: app=%{public}@, immersive=%d, cursorVisible=%d, result=%d",
-               log: log, type: .info, front, isImmersive ? 1 : 0, CGCursorIsVisible() ? 1 : 0, result ? 1 : 0)
+        os_log("Fullscreen Suppression: app=%{public}@, immersive=%d, inactivity=%.1f, result=%d",
+               log: log, type: .info, front, isImmersive ? 1 : 0, now.timeIntervalSince(lastPointerMoveAt), result ? 1 : 0)
         
         cachedFullscreenSuppressionResult = result
         return result
@@ -1675,6 +1675,24 @@ final class HUDManager {
                 if AXUIElementCopyAttributeValue(win, "AXFullScreen" as CFString, &fs) == .success {
                     if let b = fs as? Bool, b { return true }
                     if let n = fs as? NSNumber, n.boolValue { return true }
+                }
+            }
+        }
+        
+        // Fallback: CGWindowList check (Handles cases where AX attributes are missing or slow)
+        let frontPid = app.processIdentifier
+        let options = CGWindowListOption(arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements)
+        if let windowInfos = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] {
+            for info in windowInfos {
+                guard let ownerPid = info[kCGWindowOwnerPID as String] as? pid_t, ownerPid == frontPid else { continue }
+                guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
+                guard let boundsValue = info[kCGWindowBounds as String] else { continue }
+                let boundsDict = boundsValue as! CFDictionary
+                guard let bounds = CGRect(dictionaryRepresentation: boundsDict) else { continue }
+                
+                // If it covers more than 95% of the screen, it's likely fullscreen video
+                if bounds.width >= screen.frame.width * 0.95 && bounds.height >= screen.frame.height * 0.95 {
+                    return true
                 }
             }
         }
