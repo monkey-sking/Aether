@@ -316,7 +316,7 @@ final class HUDManager {
         
         // Prevent App Nap during detection to ensure the timer runs accurately
         if appNapActivityToken == nil {
-            appNapActivityToken = NSProcessInfo.processInfo.beginActivity(
+            appNapActivityToken = ProcessInfo.processInfo.beginActivity(
                 options: [.userInitiated, .latencyCritical],
                 reason: "Aether HUD Fullscreen Video Detection"
             )
