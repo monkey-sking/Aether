@@ -2,6 +2,9 @@ import SwiftUI
 import AppKit
 import Combine
 import ApplicationServices
+import OSLog
+
+fileprivate let log = OSLog(subsystem: "com.7fei.Aether", category: "HUDManager")
 
 /* Private CoreGraphics API to check cursor visibility */
 @_silgen_name("CGCursorIsVisible")
@@ -1615,6 +1618,10 @@ final class HUDManager {
         let result =
             (isFrontmostFocusedWindowLikelyFullscreen(app: app, on: screen) || isMediaCapableApp) &&
             !CGCursorIsVisible() // Fullscreen video always hides the cursor
+        
+        os_log("Fullscreen Suppression: app=%{public}@, immersive=%d, cursorVisible=%d, result=%d",
+               log: log, type: .info, front, isImmersive ? 1 : 0, CGCursorIsVisible() ? 1 : 0, result ? 1 : 0)
+        
         cachedFullscreenSuppressionResult = result
         return result
     }
