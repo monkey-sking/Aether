@@ -1262,6 +1262,10 @@ final class HUDManager {
             hideForHiddenCursor()
             return
         }
+        // Restore alpha if returning from fullscreen suppression
+        if hudWindow?.alphaValue ?? 1 < 0.9, state.mode != .hidden {
+            hudWindow?.alphaValue = 1.0
+        }
         
         let update = detector.currentUpdate
         let mouseLoc = currentCursorLocation()
@@ -1612,7 +1616,8 @@ final class HUDManager {
     // --- Fullscreen Video Logic ---
     
     private func shouldSuppressHUDForFullscreenVideo() -> Bool {
-        // Keep this feature enabled by default, but with strict checks to avoid browser false positives.
+        // Restore the historically stable model from 3a5db83:
+        // fullscreen window + cursor-hidden idle threshold.
         guard UserDefaults.standard.object(forKey: "suppressHUDInFullscreenVideo") as? Bool ?? true else {
             return false
         }
@@ -1621,28 +1626,10 @@ final class HUDManager {
             os_log("Fullscreen Suppression: No frontmost app", log: log, type: .default)
             return false
         }
-        // Relaxed check: We'll log but not return early for media app, 
-        // because the geometric/Space check is robust enough anyway.
-        let isBrowserApp =
-            front.contains("safari") ||
-            front.contains("chrome") ||
-            front.contains("chromium") ||
-            front.contains("brave") ||
-            front.contains("arc") ||
-            front.contains("firefox") ||
-            front.contains("edge")
-        let isMediaCapableApp =
-            front.contains("quicktime") ||
-            front.contains("tv") ||
-            front.contains("vlc") ||
-            front.contains("iina") ||
-            front.contains("movist") ||
-            isBrowserApp
-        
         // Never suppress while user is in typing context.
-        if state.isTypingContext { 
+        if state.isTypingContext {
             os_log("Fullscreen Suppression: Bailed due to Typing Context", log: log, type: .default)
-            return false 
+            return false
         }
 
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(currentCursorLocation()) }) ?? NSScreen.main else {
@@ -1650,29 +1637,23 @@ final class HUDManager {
             return false
         }
 
-        let isImmersive = screen.frame.size == screen.visibleFrame.size
-        // os_log("Fullscreen Suppression: isImmersive=%d", log: log, type: .default, isImmersive ? 1 : 0)
-        
         let now = Date()
         if front == cachedFullscreenSuppressionBundleID,
            now.timeIntervalSince(lastFullscreenSuppressionCheckAt) < 0.22 {
             return cachedFullscreenSuppressionResult
         }
         lastFullscreenSuppressionCheckAt = now
-	        cachedFullscreenSuppressionBundleID = front
+        cachedFullscreenSuppressionBundleID = front
 
         let isFullscreenByWindow = isFrontmostFocusedWindowLikelyFullscreen(app: app, on: screen)
-        
-        // Synchronize with cursor visibility: 
-        // Hide if (Cursor is hidden AND at least 0.5s idle) OR (Long idle 3.0s as fallback)
+
         let inactivity = now.timeIntervalSince(lastPointerMoveAt)
         let cursorHidden = !CGCursorIsVisible()
-        
         let result = isFullscreenByWindow && ((cursorHidden && inactivity > 0.5) || inactivity > 3.0)
-        
+
         os_log("Fullscreen Suppression: app=%{public}@, isFS=%d, inactivity=%.1f, cursorHidden=%d, result=%d",
                log: log, type: .default, front, isFullscreenByWindow ? 1 : 0, inactivity, cursorHidden ? 1 : 0, result ? 1 : 0)
-        
+
         cachedFullscreenSuppressionResult = result
         return result
     }
@@ -1792,20 +1773,18 @@ final class HUDManager {
         return coversScreen
     }
 
-    private func browserIsLikelyCurrentPlaybackSource(frontBundleID: String) -> Bool {
-        let nowPlayingBundle: String = MainActor.assumeIsolated {
-            CurrentAppShortcutPanelManager.shared.appState?.nowPlayingBundleIdentifier ?? ""
-        }
-        let normalized = nowPlayingBundle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty else { return false }
-        return normalized == frontBundleID
-    }
-    
     private func hideForHiddenCursor() {
-        if hudWindow?.isVisible == true {
-            hudWindow?.alphaValue = 0
-            hudWindow?.orderOut(nil)
-        }
+        guard let panel = hudWindow, panel.isVisible == true else { return }
+        // Already fading or hidden
+        guard panel.alphaValue > 0.05 else { return }
+        // Animate fade-out to visually sync with cursor disappearance
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            guard let self, panel.alphaValue <= 0.05 else { return }
+            self.hudWindow?.orderOut(nil)
+        })
     }
     
     private enum BindingPosition {
