@@ -1613,9 +1613,8 @@ final class HUDManager {
 	        cachedFullscreenSuppressionBundleID = front
 
         let result =
-            isFrontmostFocusedWindowLikelyFullscreen(app: app, on: screen) &&
-            (!isBrowserApp || browserIsLikelyCurrentPlaybackSource(frontBundleID: front)) &&
-            !CGCursorIsVisible() // Fullscreen video usually hides the cursor
+            (isFrontmostFocusedWindowLikelyFullscreen(app: app, on: screen) || isMediaCapableApp) &&
+            !CGCursorIsVisible() // Fullscreen video always hides the cursor
         cachedFullscreenSuppressionResult = result
         return result
     }
@@ -1634,11 +1633,25 @@ final class HUDManager {
         }
 
         let windowAX = focusedWindowRef as! AXUIElement
-
+        
+        // Check for AXFullScreen directly
         var fullscreenRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(windowAX, "AXFullScreen" as CFString, &fullscreenRef) == .success {
             if let b = fullscreenRef as? Bool, b { return true }
             if let n = fullscreenRef as? NSNumber, n.boolValue { return true }
+        }
+        
+        // Also check if any window of this app is fullscreen (for browsers with separate video windows)
+        var windowList: CFTypeRef?
+        if AXUIElementCopyAttributeValue(appAX, kAXWindowsAttribute as CFString, &windowList) == .success,
+           let windows = windowList as? [AXUIElement] {
+            for win in windows {
+                var fs: CFTypeRef?
+                if AXUIElementCopyAttributeValue(win, "AXFullScreen" as CFString, &fs) == .success {
+                    if let b = fs as? Bool, b { return true }
+                    if let n = fs as? NSNumber, n.boolValue { return true }
+                }
+            }
         }
 
         func cgPoint(_ e: AXUIElement, _ key: CFString) -> CGPoint? {
