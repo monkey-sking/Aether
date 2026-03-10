@@ -1127,7 +1127,7 @@ final class VoiceCommandRouter {
         }
 
         // --- 5. Default Fallback ---
-        if isForceCommand {
+        if isForceCommand || bias == .commandPreferred {
             return VoiceCommandDecision(intent: .unknown(trimmed), confidence: .low, reason: "forced-command-no-match")
         }
         return VoiceCommandDecision(intent: .dictation(trimmed), confidence: .low, reason: "fallback-dictation")
@@ -1252,11 +1252,12 @@ final class VoiceCommandRouter {
         localeIdentifier: String,
         overrides: [VoiceCommandOverrideConfig]
     ) -> [String] {
+        let defaults = defaultAliases(for: preset, localeIdentifier: localeIdentifier)
         if let override = overrideEntry(for: preset, localeIdentifier: localeIdentifier, overrides: overrides),
            !override.aliases.isEmpty {
-            return uniqueAliases(override.aliases)
+            return uniqueAliases(override.aliases + defaults)
         }
-        return defaultAliases(for: preset, localeIdentifier: localeIdentifier)
+        return defaults
     }
 
     func contextualStrings(for localeIdentifier: String) -> [String] {

@@ -1443,16 +1443,16 @@ class AppState: ObservableObject {
         }
     }
 
-    func showShortcutPanel() {
-        CurrentAppShortcutPanelManager.shared.show()
+    func showShortcutPanel(activateApp: Bool = true, focusSearchField: Bool = true) {
+        CurrentAppShortcutPanelManager.shared.show(activateApp: activateApp, focusSearchField: focusSearchField)
     }
 
     func hideShortcutPanel() {
         CurrentAppShortcutPanelManager.shared.hide()
     }
 
-    func toggleShortcutPanel() {
-        CurrentAppShortcutPanelManager.shared.toggle()
+    func toggleShortcutPanel(activateApp: Bool = true, focusSearchField: Bool = true) {
+        CurrentAppShortcutPanelManager.shared.toggle(activateApp: activateApp, focusSearchField: focusSearchField)
     }
 
     func toggleRecognitionInputControlMode() {
@@ -1537,7 +1537,7 @@ class AppState: ObservableObject {
             )
         case .showShortcutPanel:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=showShortcutPanel")
-            showShortcutPanel()
+            showShortcutPanel(activateApp: false, focusSearchField: false)
             recordVoiceControl(intent)
         case .hideShortcutPanel:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=hideShortcutPanel")
@@ -1932,6 +1932,7 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
     static let shared = CurrentAppShortcutPanelManager()
 
     @Published private(set) var isVisible: Bool = false
+    @Published private(set) var shouldFocusSearchField: Bool = true
     weak var appState: AppState?
 
     private var panel: NSPanel?
@@ -1946,25 +1947,33 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
         )
     }
 
-    func show() {
+    func show(activateApp: Bool = true, focusSearchField: Bool = true) {
         _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
         ensurePanel()
         updatePanelFrame()
+        shouldFocusSearchField = focusSearchField
+        panel?.hidesOnDeactivate = activateApp
         panel?.alphaValue = 1.0
-        NSApp.activate(ignoringOtherApps: true)
-        panel?.makeKeyAndOrderFront(nil)
+        if activateApp {
+            NSApp.activate(ignoringOtherApps: true)
+            panel?.makeKeyAndOrderFront(nil)
+        } else {
+            panel?.orderFrontRegardless()
+        }
         installDismissMonitorsIfNeeded()
         isVisible = true
     }
 
     func hide() {
         panel?.orderOut(nil)
+        panel?.hidesOnDeactivate = true
         uninstallDismissMonitors()
+        shouldFocusSearchField = false
         isVisible = false
     }
 
-    func toggle() {
-        isVisible ? hide() : show()
+    func toggle(activateApp: Bool = true, focusSearchField: Bool = true) {
+        isVisible ? hide() : show(activateApp: activateApp, focusSearchField: focusSearchField)
     }
 
     func hideAndRun(targetPID: pid_t? = nil, action: @escaping @MainActor () -> Void) {
@@ -2342,6 +2351,7 @@ private enum CurrentAppShortcutPanelLayout {
 private struct CurrentAppShortcutPanelView: View {
     @StateObject private var catalog = FrontmostAppCommandCatalog.shared
     @StateObject private var hotkeyManager = HotkeyManager.shared
+    @StateObject private var panelManager = CurrentAppShortcutPanelManager.shared
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var isSearchFieldFocused: Bool
     @State private var isPanelFocused: Bool = true
@@ -2552,9 +2562,10 @@ private struct CurrentAppShortcutPanelView: View {
         }
         .opacity(isPanelFocused ? 1.0 : 0.9)
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                isSearchFieldFocused = true
-            }
+            updateSearchFieldFocus(shouldFocus: panelManager.shouldFocusSearchField)
+        }
+        .onChange(of: panelManager.shouldFocusSearchField) { _, shouldFocus in
+            updateSearchFieldFocus(shouldFocus: shouldFocus)
         }
         .onHover { isHovering in
             if isHovering {
@@ -2758,6 +2769,16 @@ private struct CurrentAppShortcutPanelView: View {
                     duration: 0.9
                 )
             }
+        }
+    }
+
+    private func updateSearchFieldFocus(shouldFocus: Bool) {
+        guard shouldFocus else {
+            isSearchFieldFocused = false
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            isSearchFieldFocused = true
         }
     }
 }
