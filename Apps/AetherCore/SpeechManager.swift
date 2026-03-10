@@ -480,9 +480,11 @@ final class SpeechManager: ObservableObject {
     @objc private func handleRecognitionControlModeChanged(_ note: Notification) {
         let source = note.userInfo?["source"] as? String ?? "unknown"
         noteHandsFreeHUDActivity()
+        resetTypingStateCache()
         switch recognitionControlMode {
         case .command:
             sessionTypingMode = false
+            dictationHandler.reset(targetPID: nil)
         case .dictation:
             sessionTypingMode = true
         case .auto:
@@ -658,6 +660,7 @@ final class SpeechManager: ObservableObject {
         cancelDeferredAudioStop()
         isStopping = false
         activeUtteranceID = 0
+        resetTypingStateCache()
 
         stopTimer?.invalidate(); stopTimer = nil
         recognitionSession.cancel()
@@ -922,7 +925,7 @@ final class SpeechManager: ObservableObject {
     }
 
     // MARK: - Stop & Finalize
-    func stopAndFinalize(keepHUDVisible: Bool = false) {
+    func stopAndFinalize(keepHUDVisible: Bool = false, discardTranscript: Bool = false) {
         if !keepHUDVisible { clearHUDOverride() }
         stopMicProgressUI(keepVisible: keepHUDVisible)
         eosDetector.stop()
@@ -940,15 +943,20 @@ final class SpeechManager: ObservableObject {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self, self.sessionGeneration == genToFinalize else { return }
             self.recognitionSession.cancel()
-            let textToUse = self.lastTranscript.isEmpty ? fallbackTranscript : self.lastTranscript
-            self.handleTranscript(textToUse, utteranceID: self.activeUtteranceID)
+            let textToUse = discardTranscript ? "" : (self.lastTranscript.isEmpty ? fallbackTranscript : self.lastTranscript)
+            if discardTranscript {
+                self.resetHUDTransientState()
+            } else {
+                self.handleTranscript(textToUse, utteranceID: self.activeUtteranceID)
+            }
             self.isStopping = false
             self.shouldShowProcessingDotsDuringStop = false
             os_log(
-                "Stop finalize complete: keepHUDVisible=%{public}@ transcriptEmpty=%{public}@ status=%{public}@",
+                "Stop finalize complete: keepHUDVisible=%{public}@ discardTranscript=%{public}@ transcriptEmpty=%{public}@ status=%{public}@",
                 log: self.log,
                 type: .info,
                 String(keepHUDVisible),
+                String(discardTranscript),
                 String(textToUse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
                 self.status
             )
@@ -1004,6 +1012,7 @@ final class SpeechManager: ObservableObject {
 
     func setVoiceLanguageTermsOverrides(_ overrides: [VoiceLanguageTermsOverrideConfig]) {
         wakeWordDetector.overrides = overrides
+        commandRouter.languageTermsOverrides = overrides
     }
 
     private func cleanup() {
@@ -1014,6 +1023,8 @@ final class SpeechManager: ObservableObject {
         activeUtteranceID = 0; sessionTargetPID = nil; sessionTargetBundleID = nil
         sessionTargetElementFingerprint = nil; didLogSessionTargetMismatch = false
         isUtteranceActive = false
+        dictationHandler.reset(targetPID: nil)
+        resetTypingStateCache()
     }
 
     private func resetHUDTransientState() {
@@ -1021,6 +1032,8 @@ final class SpeechManager: ObservableObject {
         activeUtteranceID = 0; sessionTargetPID = nil; sessionTargetBundleID = nil
         sessionTargetElementFingerprint = nil; didLogSessionTargetMismatch = false
         isUtteranceActive = false; lastTranscript = ""; lastChangeAt = nil; lastStableText = ""
+        dictationHandler.reset(targetPID: nil)
+        resetTypingStateCache()
     }
 
     // MARK: - Continuous Mode
@@ -1749,13 +1762,17 @@ final class SpeechManager: ObservableObject {
         let elapsed = Date().timeIntervalSince(lastEngineRestartAt)
         if elapsed < engineRestartMinInterval { scheduleEngineRestart(reason: "\(reason)-throttled", debounce: engineRestartMinInterval - elapsed); return }
         metrics.engineRestarts += 1
-        stopAndFinalize()
+        stopAndFinalize(discardTranscript: Self.shouldDiscardTranscriptOnEngineRestart(reason: reason))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self else { return }
             if self.isAlwaysListeningEnabled { self.startOnce() }
             self.lastEngineRestartAt = Date()
             self.maybeLogRuntimeMetrics(force: false)
         }
+    }
+
+    static func shouldDiscardTranscriptOnEngineRestart(reason: String) -> Bool {
+        reason == "input-device-selection" || reason == "default-input-device-changed"
     }
 
     // MARK: - Device Management
@@ -1866,6 +1883,11 @@ final class SpeechManager: ObservableObject {
         let now = Date()
         if now.timeIntervalSince(lastTypingCheckAt) < interval { return cachedTypingMode }
         cachedTypingMode = isTypingMode; lastTypingCheckAt = now; return cachedTypingMode
+    }
+
+    private func resetTypingStateCache() {
+        cachedTypingMode = false
+        lastTypingCheckAt = .distantPast
     }
 
     // MARK: - Focus Snapshots

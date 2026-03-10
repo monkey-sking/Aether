@@ -16,16 +16,11 @@ SKIP_NOTARIZE="${SKIP_NOTARIZE:-0}"
 UNIVERSAL_BUILD="${AETHER_UNIVERSAL:-1}"
 
 APP_ENTITLEMENTS="${PROJECT_ROOT}/Apps/AetherCore/AetherCore.entitlements"
-DRIVER_ENTITLEMENTS="${PROJECT_ROOT}/Drivers/AetherDriver/AetherDriver.entitlements"
-APP_PROFILE_PLIST="${BUILD_DIR}/app_profile.plist"
-DRIVER_PROFILE_PLIST="${BUILD_DIR}/driver_profile.plist"
 APP_SIGN_ENTITLEMENTS="${BUILD_DIR}/app-sign.entitlements"
-DRIVER_SIGN_ENTITLEMENTS="${BUILD_DIR}/driver-sign.entitlements"
 HOST_ARCH="$(uname -m)"
 if [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" == "1" ]]; then
   HOST_ARCH="arm64"
 fi
-FULL_FEATURE_DISTRIBUTION=0
 
 log() { echo "[release] $*"; }
 err() { echo "[release] ERROR: $*" >&2; exit 1; }
@@ -34,24 +29,6 @@ find_signing_identity() {
   if [[ -n "$SIGNING_IDENTITY" ]]; then
     echo "$SIGNING_IDENTITY"
     return
-  fi
-
-  if [[ -n "${APP_PROVISION_PROFILE:-}" && -f "${APP_PROVISION_PROFILE}" ]]; then
-    mkdir -p "${BUILD_DIR}"
-    local profile_cert_b64 profile_cert_der profile_sha1 matched
-    profile_cert_b64="$(security cms -D -i "${APP_PROVISION_PROFILE}" | plutil -extract DeveloperCertificates.0 raw -o - - 2>/dev/null || true)"
-    if [[ -n "${profile_cert_b64}" ]]; then
-      profile_cert_der="${BUILD_DIR}/profile_cert.der"
-      echo "${profile_cert_b64}" | base64 -D > "${profile_cert_der}" 2>/dev/null || true
-      if [[ -f "${profile_cert_der}" ]]; then
-        profile_sha1="$(openssl x509 -inform der -in "${profile_cert_der}" -noout -fingerprint -sha1 2>/dev/null | awk -F= '{print $2}' | tr -d ':')"
-        matched="$(security find-identity -v -p codesigning | awk -v sha="${profile_sha1}" '$2 == sha {print $2; exit}' || true)"
-        if [[ -n "${matched}" ]]; then
-          echo "${matched}"
-          return
-        fi
-      fi
-    fi
   fi
 
   local line
@@ -75,75 +52,12 @@ build_unsigned() {
   [[ -d "$APP_PATH" ]] || err "Build succeeded but app not found: ${APP_PATH}"
 }
 
-configure_distribution_mode() {
-  if [[ -n "${APP_PROVISION_PROFILE:-}" && -f "${APP_PROVISION_PROFILE}" && -n "${DRIVER_PROVISION_PROFILE:-}" && -f "${DRIVER_PROVISION_PROFILE}" ]]; then
-    FULL_FEATURE_DISTRIBUTION=1
-    log "Distribution mode: full-feature package with embedded app + driver profiles."
-  else
-    FULL_FEATURE_DISTRIBUTION=0
-    log "Distribution mode: compatibility package without system extension payload."
-  fi
-}
-
-embed_profiles_if_provided() {
-  [[ "$FULL_FEATURE_DISTRIBUTION" == "1" ]] || return 0
-
-  local dext
-  dext="$(find "${APP_PATH}/Contents/Library/SystemExtensions" -name "*.dext" -type d | head -n 1 || true)"
-  [[ -n "$dext" ]] || err "SystemExtension (.dext) not found in app bundle."
-
-  log "Embedding app provisioning profile..."
-  cp "${APP_PROVISION_PROFILE}" "${APP_PATH}/Contents/embedded.provisionprofile"
-
-  log "Embedding driver provisioning profile..."
-  cp "${DRIVER_PROVISION_PROFILE}" "${dext}/embedded.provisionprofile"
-
-  security cms -D -i "${APP_PROVISION_PROFILE}" > "${APP_PROFILE_PLIST}"
-  security cms -D -i "${DRIVER_PROVISION_PROFILE}" > "${DRIVER_PROFILE_PLIST}"
-}
-
-prepare_sign_entitlements() {
-  local base_entitlements="$1"
-  local profile_plist="$2"
-  local output_entitlements="$3"
-
-  cp "${base_entitlements}" "${output_entitlements}"
-
-  local app_id team_id
-  app_id="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "${profile_plist}" 2>/dev/null || true)"
-  team_id="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.team-identifier" "${profile_plist}" 2>/dev/null || true)"
-
-  [[ -n "${app_id}" ]] || err "Missing com.apple.application-identifier in ${profile_plist}"
-  [[ -n "${team_id}" ]] || err "Missing com.apple.developer.team-identifier in ${profile_plist}"
-
-  /usr/libexec/PlistBuddy -c "Delete :com.apple.application-identifier" "${output_entitlements}" >/dev/null 2>&1 || true
-  /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string ${app_id}" "${output_entitlements}"
-
-  /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.team-identifier" "${output_entitlements}" >/dev/null 2>&1 || true
-  /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string ${team_id}" "${output_entitlements}"
-
-  /usr/libexec/PlistBuddy -c "Delete :keychain-access-groups" "${output_entitlements}" >/dev/null 2>&1 || true
-  if /usr/libexec/PlistBuddy -c "Print :Entitlements:keychain-access-groups:0" "${profile_plist}" >/dev/null 2>&1; then
-    local group idx=0
-    /usr/libexec/PlistBuddy -c "Add :keychain-access-groups array" "${output_entitlements}"
-    while true; do
-      group="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:keychain-access-groups:${idx}" "${profile_plist}" 2>/dev/null || true)"
-      [[ -n "${group}" ]] || break
-      /usr/libexec/PlistBuddy -c "Add :keychain-access-groups:${idx} string ${group}" "${output_entitlements}"
-      idx=$((idx + 1))
-    done
-  fi
-}
-
-prepare_compatibility_bundle() {
-  [[ "$FULL_FEATURE_DISTRIBUTION" == "0" ]] || return 0
-
-  log "Preparing compatibility bundle..."
+prepare_release_bundle() {
+  log "Preparing app bundle..."
   rm -f "${APP_PATH}/Contents/embedded.provisionprofile"
   rm -rf "${APP_PATH}/Contents/Library/SystemExtensions"
 
   cp "${APP_ENTITLEMENTS}" "${APP_SIGN_ENTITLEMENTS}"
-  /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.system-extension.install" "${APP_SIGN_ENTITLEMENTS}" >/dev/null 2>&1 || true
 }
 
 sign_app_bundle() {
@@ -163,15 +77,6 @@ sign_app_bundle() {
   if [[ -d "${APP_PATH}/Contents/PlugIns" ]]; then
     find "${APP_PATH}/Contents/PlugIns" -type d -name "*.xpc" | while read -r item; do
       codesign --force --options runtime --timestamp --sign "$identity" "$item"
-    done
-  fi
-
-  if [[ -d "${APP_PATH}/Contents/Library/SystemExtensions" ]]; then
-    find "${APP_PATH}/Contents/Library/SystemExtensions" -type d -name "*.dext" | while read -r item; do
-      [[ -n "${DRIVER_SIGN_ENTITLEMENTS:-}" && -f "${DRIVER_SIGN_ENTITLEMENTS}" ]] || err "Driver signing entitlements are missing for system extension signing."
-      codesign --force --options runtime --timestamp \
-        --entitlements "${DRIVER_SIGN_ENTITLEMENTS}" \
-        --sign "$identity" "$item"
     done
   fi
 
@@ -227,15 +132,8 @@ main() {
   cd "$PROJECT_ROOT"
   local identity
   identity="$(find_signing_identity)"
-  configure_distribution_mode
   build_unsigned
-  embed_profiles_if_provided
-  if [[ "$FULL_FEATURE_DISTRIBUTION" == "1" ]]; then
-    prepare_sign_entitlements "${APP_ENTITLEMENTS}" "${APP_PROFILE_PLIST}" "${APP_SIGN_ENTITLEMENTS}"
-    prepare_sign_entitlements "${DRIVER_ENTITLEMENTS}" "${DRIVER_PROFILE_PLIST}" "${DRIVER_SIGN_ENTITLEMENTS}"
-  else
-    prepare_compatibility_bundle
-  fi
+  prepare_release_bundle
   sign_app_bundle "$identity"
   package_outputs
   sign_dmg "$identity"

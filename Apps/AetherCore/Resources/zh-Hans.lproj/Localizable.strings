@@ -15,7 +15,6 @@
 "status.pointer_output" = "指针输出";
 "status.text_output" = "文本输出";
 "status.mode" = "模式";
-"status.mode.driver_only" = "仅驱动";
 "status.mode.auto" = "自动";
 
 /* Rows */
@@ -35,14 +34,8 @@
 "permissions.open_pane" = "打开设置";
 "permissions.recheck" = "重新检测";
 
-/* System extension */
-"system_extension.needs_approval" = "系统扩展需要在“隐私与安全性”中批准。";
-"system_extension.open_privacy_security" = "打开“隐私与安全性”";
-"system_extension.missing_entitlement_hint" = "请用 Xcode 选择你的 Team 签名后运行，然后再点“激活”。";
-
 /* Controls */
 "control.dwell_click" = "悬停点击";
-"control.force_driver_only" = "强制仅驱动";
 "control.always_listening" = "常驻监听";
 "control.always_listening_wake_window" = "常驻监听活跃时长";
 "control.always_listening_wake_window_hint" = "在这个时长内可直接下指令，超时后需要再次唤醒词。";
@@ -69,7 +62,6 @@
 /* Menu bar */
 "menu.pointer" = "指针";
 "menu.voice" = "语音";
-"menu.driver" = "驱动";
 "menu.status.setup_attention" = "需要处理设置";
 "menu.status.voice_pointer_ready" = "语音和头控已就绪";
 "menu.status.pointer_active" = "头控已开启";
@@ -77,8 +69,6 @@
 "menu.status.accessibility_missing" = "辅助功能未授权";
 "menu.status.microphone_missing" = "麦克风未授权";
 "menu.status.speech_missing" = "语音识别未授权";
-"menu.status.driver_approval_needed" = "驱动还需要系统批准";
-"menu.approve_driver" = "批准驱动";
 "menu.enable_accessibility" = "开启辅助功能权限";
 "menu.enable_microphone" = "开启麦克风权限";
 "menu.enable_speech" = "开启语音识别权限";
@@ -88,7 +78,6 @@
 "menu.shortcut_panel_fmt" = "快捷键面板 (%@)";
 "menu.show_shortcut_panel" = "显示快捷键面板";
 "menu.shortcut_panel" = "快捷键面板";
-"menu.activate_driver" = "激活驱动";
 "menu.start_pointer" = "开启头控";
 "menu.stop_pointer" = "停止头控";
 "menu.recenter_pointer" = "头控回中";
@@ -214,7 +203,6 @@
 "settings.tilt_scroll_subtitle" = "头部倾斜滚动内容";
 "settings.calibration" = "校准";
 "settings.current_status" = "当前状态:";
-"settings.driver_status" = "驱动状态";
 "action.recenter_matrix" = "重置中心校准";
 "status.active" = "活跃";
 "status.disabled" = "已禁用";
@@ -226,7 +214,7 @@
 "settings.page.pointer.title" = "指针";
 "settings.page.pointer.subtitle" = "集中调整头控启停、点击方式与校准状态。";
 "settings.page.advanced.title" = "高级";
-"settings.page.advanced.subtitle" = "查看驱动、权限和应用级行为设置。";
+"settings.page.advanced.subtitle" = "查看运行状态、权限和应用级行为设置。";
 "settings.page.shortcuts.title" = "快捷键";
 "settings.page.shortcuts.subtitle" = "统一管理按住说话、头控和连接锁等全局快捷键。";
 
@@ -288,8 +276,6 @@
 "main.permission.speech.detail.ready" = "识别引擎已可用";
 "main.permission.speech.detail.missing" = "未授权，无法转写语音";
 "main.action.enable" = "去开启";
-"main.driver_approval.title" = "驱动审批";
-"main.driver_approval.detail" = "系统扩展还需要在“隐私与安全性”里允许。";
 "main.action.open_settings" = "打开设置";
 "main.pointer.title" = "头控指针";
 "main.pointer.subtitle.active" = "头控正在运行";

@@ -27,15 +27,8 @@
 		AE74E51F2F2C901000000002 /* VizComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE74E51F2F2C901000000012 /* VizComponents.swift */; };
 		AE74E51F2F2C901000000003 /* SettingsModules.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE74E51F2F2C901000000013 /* SettingsModules.swift */; };
 		AF27301915050EBF13D31017 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E59E8BF63FEEE1FD8873BE4A /* Foundation.framework */; };
-		AF2B10D1455B4EFF8F37A4D5 /* SystemExtensionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A9A84BC1346415DA5476B8F /* SystemExtensionManager.swift */; };
 		B536C893C35B916AD9A8D4BE /* LLMProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2FFF0B546D7CEAD686E5CE /* LLMProviders.swift */; };
 		BFF1C8786B9E21D1ADBCA003 /* PermissionsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8567D0FA10ABB5C4430600CE /* PermissionsManager.swift */; };
-		C0DEF00D0BADC0FFEE0000B1 /* AetherDriver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE0000A1 /* AetherDriver.cpp */; };
-		C0DEF00D0BADC0FFEE0000B2 /* AetherUserClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE0000A2 /* AetherUserClient.cpp */; };
-		C0DEF00D0BADC0FFEE0000B3 /* AetherDriver.iig in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE0000A7 /* AetherDriver.iig */; };
-		C0DEF00D0BADC0FFEE0000B4 /* AetherUserClient.iig in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE0000A8 /* AetherUserClient.iig */; };
-		C0DEF00D0BADC0FFEE0000B5 /* DriverKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE0000A9 /* DriverKit.framework */; };
-		C0DEF00D0BADC0FFEE0000B6 /* HIDDriverKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE0000AA /* HIDDriverKit.framework */; };
 		C0DEF00D0BADC0FFEE111111 /* L10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE111112 /* L10n.swift */; };
 		C0DEF00D0BADC0FFEE222221 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE222222 /* Localizable.strings */; };
 		C0DEF00D0BADC0FFEE222223 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE222224 /* Localizable.strings */; };
@@ -46,7 +39,6 @@
 		C0DEF00D0BADC0FFEE440001 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE440002 /* HotkeyManager.swift */; };
 		C0DEF00D0BADC0FFEE440003 /* KeyRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE440004 /* KeyRecorderView.swift */; };
 		C0DEF00D0BADC0FFEE654321 /* AutomationOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE123456 /* AutomationOutput.swift */; };
-		C0DEF00D0BADC0FFEE777777 /* DriverClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE888888 /* DriverClient.swift */; };
 		C5578CA8C4E0CB8132E13F00 /* EOSDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D1E12D2F82BB5E4EAEB90D /* EOSDetector.swift */; };
 		C92C3F90B1616F0A4BD361F2 /* AirPodsDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A6E69406F013C80C167F40 /* AirPodsDetector.swift */; };
 		D6005F733C008EA04C26BBEA /* SpeechManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9C8E1A62B942CEEB23DF83 /* SpeechManager.swift */; };
@@ -62,19 +54,11 @@
 			remoteGlobalIDString = B9C56A042F2BA1FE00EEEB9E;
 			remoteInfo = Aether;
 		};
-		C0DEF00D0BADC0FFEE0000P1 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = B9C569FD2F2BA1FE00EEEB9E /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = C0DEF00D0BADC0FFEE0000D1;
-			remoteInfo = AetherDriver;
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		053CF960D5E89CB16A8AD09A /* MenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/MenuBar.swift; sourceTree = "<group>"; };
 		0A2FFF0B546D7CEAD686E5CE /* LLMProviders.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LLMProviders.swift; path = ../Apps/AetherCore/Speech/LLMProviders.swift; sourceTree = "<group>"; };
-		0A9A84BC1346415DA5476B8F /* SystemExtensionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/SystemExtensionManager.swift; sourceTree = "<group>"; };
 		1BE0C0C41DAF3037CAB2EB06 /* DictationHandler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DictationHandler.swift; path = ../Apps/AetherCore/Speech/DictationHandler.swift; sourceTree = "<group>"; };
 		1D863E78A6DBBC070343227B /* VoiceCommandRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VoiceCommandRouter.swift; path = ../Apps/AetherCore/Speech/VoiceCommandRouter.swift; sourceTree = "<group>"; };
 		2D7C64E195EDD6F1BC8660FB /* RecognitionSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RecognitionSession.swift; path = ../Apps/AetherCore/Speech/RecognitionSession.swift; sourceTree = "<group>"; };
@@ -92,15 +76,6 @@
 		B9C56A052F2BA1FE00EEEB9E /* Aether.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Aether.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BAE13A5808AC6A480FF02900 /* VoiceCommandRouterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceCommandRouterTests.swift; sourceTree = "<group>"; };
 		C0B82E67FF1F975D6855D2D7 /* AetherTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AetherTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		C0DEF00D0BADC0FFEE0000A1 /* AetherDriver.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Drivers/AetherDriver/AetherDriver.cpp; sourceTree = "<group>"; };
-		C0DEF00D0BADC0FFEE0000A2 /* AetherUserClient.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Drivers/AetherDriver/AetherUserClient.cpp; sourceTree = "<group>"; };
-		C0DEF00D0BADC0FFEE0000A5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Drivers/AetherDriver/Info.plist; sourceTree = "<group>"; };
-		C0DEF00D0BADC0FFEE0000A6 /* AetherDriver.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Drivers/AetherDriver/AetherDriver.entitlements; sourceTree = "<group>"; };
-		C0DEF00D0BADC0FFEE0000A7 /* AetherDriver.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.iig; path = Drivers/AetherDriver/AetherDriver.iig; sourceTree = "<group>"; };
-		C0DEF00D0BADC0FFEE0000A8 /* AetherUserClient.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.iig; path = Drivers/AetherDriver/AetherUserClient.iig; sourceTree = "<group>"; };
-		C0DEF00D0BADC0FFEE0000A9 /* DriverKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DriverKit.framework; path = System/DriverKit/System/Library/Frameworks/DriverKit.framework; sourceTree = SDKROOT; };
-		C0DEF00D0BADC0FFEE0000AA /* HIDDriverKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HIDDriverKit.framework; path = System/DriverKit/System/Library/Frameworks/HIDDriverKit.framework; sourceTree = SDKROOT; };
-		C0DEF00D0BADC0FFEE0000D2 /* com.7fei.Aether.AetherDriver.dext */ = {isa = PBXFileReference; explicitFileType = "wrapper.driver-extension"; includeInIndex = 0; path = com.7fei.Aether.AetherDriver.dext; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0DEF00D0BADC0FFEE111112 /* L10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/L10n.swift; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE123456 /* AutomationOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/AutomationOutput.swift; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE222222 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Apps/AetherCore/Resources/en.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -111,7 +86,6 @@
 		C0DEF00D0BADC0FFEE330004 /* AetherIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/AetherIntents.swift; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE440002 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HotkeyManager.swift; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE440004 /* KeyRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/KeyRecorderView.swift; sourceTree = "<group>"; };
-		C0DEF00D0BADC0FFEE888888 /* DriverClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/DriverClient.swift; sourceTree = "<group>"; };
 		D1D1E12D2F82BB5E4EAEB90D /* EOSDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EOSDetector.swift; path = ../Apps/AetherCore/Speech/EOSDetector.swift; sourceTree = "<group>"; };
 		D4B04B778B904E9EBE08B8F1 /* CaretDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HUD/CaretDetector.swift; sourceTree = "<group>"; };
 		D5837AE8FD6964FF43A98002 /* AudioCaptureSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AudioCaptureSession.swift; path = ../Apps/AetherCore/Speech/AudioCaptureSession.swift; sourceTree = "<group>"; };
@@ -138,15 +112,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		C0DEF00D0BADC0FFEE0000C2 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				C0DEF00D0BADC0FFEE0000B5 /* DriverKit.framework in Frameworks */,
-				C0DEF00D0BADC0FFEE0000B6 /* HIDDriverKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -205,12 +170,10 @@
 				AE74E51F2F2C901000000013 /* SettingsModules.swift */,
 				C0DEF00D0BADC0FFEE111112 /* L10n.swift */,
 				C0DEF00D0BADC0FFEE123456 /* AutomationOutput.swift */,
-				C0DEF00D0BADC0FFEE888888 /* DriverClient.swift */,
 				6FAA72967637433DB33B061E /* HeadMotionManager.swift */,
 				FF9C8E1A62B942CEEB23DF83 /* SpeechManager.swift */,
 				8567D0FA10ABB5C4430600CE /* PermissionsManager.swift */,
 				053CF960D5E89CB16A8AD09A /* MenuBar.swift */,
-				0A9A84BC1346415DA5476B8F /* SystemExtensionManager.swift */,
 				C0DEF00D0BADC0FFEE330002 /* ConnectionLockService.swift */,
 				C0DEF00D0BADC0FFEE330004 /* AetherIntents.swift */,
 				C0DEF00D0BADC0FFEE440002 /* HotkeyManager.swift */,
@@ -220,8 +183,6 @@
 				C0DEF00D0BADC0FFEE222224 /* Localizable.strings */,
 				C0DEF00D0BADC0FFEE222226 /* InfoPlist.strings */,
 				C0DEF00D0BADC0FFEE222228 /* InfoPlist.strings */,
-				C0DEF00D0BADC0FFEE0000A9 /* DriverKit.framework */,
-				C0DEF00D0BADC0FFEE0000AA /* HIDDriverKit.framework */,
 				DD149F2C14A14BBD874C58F7 /* HUDState.swift */,
 				EDD62DBE56B946A9A7724D7D /* HUDView.swift */,
 				FFA7BC5466FA47C190921F7C /* HUDManager.swift */,
@@ -237,7 +198,6 @@
 			children = (
 				B9C56A062F2BA1FE00EEEB9E /* Products */,
 				B9211FBD2F2C809E00230452 /* Recovered References */,
-				C0DEF00D0BADC0FFEE0000F1 /* Drivers */,
 				0DCF953418C6411D4E34CB14 /* Frameworks */,
 				AD32D3A6621F171397C467EE /* AetherTests */,
 			);
@@ -247,23 +207,9 @@
 			isa = PBXGroup;
 			children = (
 				B9C56A052F2BA1FE00EEEB9E /* Aether.app */,
-				C0DEF00D0BADC0FFEE0000D2 /* com.7fei.Aether.AetherDriver.dext */,
 				C0B82E67FF1F975D6855D2D7 /* AetherTests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		C0DEF00D0BADC0FFEE0000F1 /* Drivers */ = {
-			isa = PBXGroup;
-			children = (
-				C0DEF00D0BADC0FFEE0000A1 /* AetherDriver.cpp */,
-				C0DEF00D0BADC0FFEE0000A2 /* AetherUserClient.cpp */,
-				C0DEF00D0BADC0FFEE0000A7 /* AetherDriver.iig */,
-				C0DEF00D0BADC0FFEE0000A8 /* AetherUserClient.iig */,
-				C0DEF00D0BADC0FFEE0000A5 /* Info.plist */,
-				C0DEF00D0BADC0FFEE0000A6 /* AetherDriver.entitlements */,
-			);
-			name = Drivers;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -276,34 +222,16 @@
 				808118FAD979468AB88E6DFB /* Sources */,
 				C0DEF00D0BADC0FFEE0000D4 /* Audit i18n */,
 				89F3A59993EE4011B3D19E00 /* Frameworks */,
-				C0DEF00D0BADC0FFEE0000D3 /* Embed AetherDriver */,
 				6092F97D2ED54E5F903E0FF5 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				C0DEF00D0BADC0FFEE0000TD /* PBXTargetDependency */,
 			);
 			name = Aether;
 			productName = Aether;
 			productReference = B9C56A052F2BA1FE00EEEB9E /* Aether.app */;
 			productType = "com.apple.product-type.application";
-		};
-		C0DEF00D0BADC0FFEE0000D1 /* AetherDriver */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = C0DEF00D0BADC0FFEE0000E3 /* Build configuration list for PBXNativeTarget "AetherDriver" */;
-			buildPhases = (
-				C0DEF00D0BADC0FFEE0000C1 /* Sources */,
-				C0DEF00D0BADC0FFEE0000C2 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = AetherDriver;
-			productName = AetherDriver;
-			productReference = C0DEF00D0BADC0FFEE0000D2 /* com.7fei.Aether.AetherDriver.dext */;
-			productType = "com.apple.product-type.driver-extension";
 		};
 		CBFE2A6C3AE91E277A2569B6 /* AetherTests */ = {
 			isa = PBXNativeTarget;
@@ -353,7 +281,6 @@
 			projectRoot = "";
 			targets = (
 				B9C56A042F2BA1FE00EEEB9E /* Aether */,
-				C0DEF00D0BADC0FFEE0000D1 /* AetherDriver */,
 				CBFE2A6C3AE91E277A2569B6 /* AetherTests */,
 			);
 		};
@@ -382,21 +309,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		C0DEF00D0BADC0FFEE0000D3 /* Embed AetherDriver */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Embed AetherDriver";
-			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/SystemExtensions/com.7fei.Aether.AetherDriver.dext",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -e\n\nSYSTEM_EXT_DIR=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/SystemExtensions\"\nmkdir -p \"$SYSTEM_EXT_DIR\"\n\nDRIVER_DEXT_1=\"$BUILD_DIR/${CONFIGURATION}-driverkit/com.7fei.Aether.AetherDriver.dext\"\nDRIVER_DEXT_2=\"$BUILT_PRODUCTS_DIR/com.7fei.Aether.AetherDriver.dext\"\n\nif [ -d \"$DRIVER_DEXT_1\" ]; then\n  ditto \"$DRIVER_DEXT_1\" \"$SYSTEM_EXT_DIR/com.7fei.Aether.AetherDriver.dext\"\nelif [ -d \"$DRIVER_DEXT_2\" ]; then\n  ditto \"$DRIVER_DEXT_2\" \"$SYSTEM_EXT_DIR/com.7fei.Aether.AetherDriver.dext\"\nelse\n  echo \"warning: com.7fei.Aether.AetherDriver.dext not found at $DRIVER_DEXT_1 or $DRIVER_DEXT_2\"\nfi\n";
-		};
 		C0DEF00D0BADC0FFEE0000D4 /* Audit i18n */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -425,12 +337,10 @@
 				AE74E51F2F2C901000000003 /* SettingsModules.swift in Sources */,
 				C0DEF00D0BADC0FFEE111111 /* L10n.swift in Sources */,
 				C0DEF00D0BADC0FFEE654321 /* AutomationOutput.swift in Sources */,
-				C0DEF00D0BADC0FFEE777777 /* DriverClient.swift in Sources */,
 				296C7A8991A64B1CBECDFBF5 /* HeadMotionManager.swift in Sources */,
 				D6005F733C008EA04C26BBEA /* SpeechManager.swift in Sources */,
 				BFF1C8786B9E21D1ADBCA003 /* PermissionsManager.swift in Sources */,
 				31A804FB9F879E0F7F149B12 /* MenuBar.swift in Sources */,
-				AF2B10D1455B4EFF8F37A4D5 /* SystemExtensionManager.swift in Sources */,
 				C0DEF00D0BADC0FFEE330001 /* ConnectionLockService.swift in Sources */,
 				C0DEF00D0BADC0FFEE330003 /* AetherIntents.swift in Sources */,
 				C0DEF00D0BADC0FFEE440001 /* HotkeyManager.swift in Sources */,
@@ -462,25 +372,9 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		C0DEF00D0BADC0FFEE0000C1 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				C0DEF00D0BADC0FFEE0000B3 /* AetherDriver.iig in Sources */,
-				C0DEF00D0BADC0FFEE0000B4 /* AetherUserClient.iig in Sources */,
-				C0DEF00D0BADC0FFEE0000B1 /* AetherDriver.cpp in Sources */,
-				C0DEF00D0BADC0FFEE0000B2 /* AetherUserClient.cpp in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		C0DEF00D0BADC0FFEE0000TD /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = C0DEF00D0BADC0FFEE0000D1 /* AetherDriver */;
-			targetProxy = C0DEF00D0BADC0FFEE0000P1 /* PBXContainerItemProxy */;
-		};
 		DB952CF00C36851766BF4C94 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = Aether;
@@ -600,88 +494,6 @@
 			};
 			name = Release;
 		};
-		C0DEF00D0BADC0FFEE0000E1 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				AD_HOC_CODE_SIGNING_ALLOWED = YES;
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = (
-					arm64,
-					x86_64,
-				);
-				CLANG_COVERAGE_MAPPING = NO;
-				CLANG_ENABLE_CODE_COVERAGE = NO;
-				CLANG_PROFILE_INSTR_GENERATE = NO;
-				CODE_SIGN_ENTITLEMENTS = Drivers/AetherDriver/AetherDriver.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 4Z7654KAZZ;
-				ENABLE_CODE_COVERAGE = NO;
-				ENABLE_TESTABILITY = NO;
-				GENERATE_PROFILING_CODE = NO;
-				INFOPLIST_FILE = Drivers/AetherDriver/Info.plist;
-				LLVM_LTO = NO;
-				MARKETING_VERSION = 1.0;
-				ONLY_ACTIVE_ARCH = YES;
-				OTHER_CFLAGS = " -fno-profile-instr-generate";
-				OTHER_CPLUSPLUSFLAGS = (
-					"-fno-profile-instr-generate",
-					"-fno-profile-instr-generate",
-				);
-				OTHER_LDFLAGS = (
-					"-fno-profile-instr-generate",
-					"-fno-profile-instr-generate",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.7fei.Aether.AetherDriver;
-				PRODUCT_NAME = com.7fei.Aether.AetherDriver;
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				SDKROOT = driverkit;
-				SUPPORTED_PLATFORMS = driverkit;
-			};
-			name = Debug;
-		};
-		C0DEF00D0BADC0FFEE0000E2 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				AD_HOC_CODE_SIGNING_ALLOWED = YES;
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = (
-					arm64,
-					x86_64,
-				);
-				CLANG_COVERAGE_MAPPING = NO;
-				CLANG_ENABLE_CODE_COVERAGE = NO;
-				CLANG_PROFILE_INSTR_GENERATE = NO;
-				CODE_SIGN_ENTITLEMENTS = Drivers/AetherDriver/AetherDriver.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 4Z7654KAZZ;
-				ENABLE_CODE_COVERAGE = NO;
-				ENABLE_TESTABILITY = NO;
-				GENERATE_PROFILING_CODE = NO;
-				INFOPLIST_FILE = Drivers/AetherDriver/Info.plist;
-				LLVM_LTO = NO;
-				MARKETING_VERSION = 1.0;
-				ONLY_ACTIVE_ARCH = YES;
-				OTHER_CFLAGS = " -fno-profile-instr-generate";
-				OTHER_CPLUSPLUSFLAGS = (
-					"-fno-profile-instr-generate",
-					"-fno-profile-instr-generate",
-				);
-				OTHER_LDFLAGS = (
-					"-fno-profile-instr-generate",
-					"-fno-profile-instr-generate",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.7fei.Aether.AetherDriver;
-				PRODUCT_NAME = com.7fei.Aether.AetherDriver;
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				SDKROOT = driverkit;
-				SUPPORTED_PLATFORMS = driverkit;
-			};
-			name = Release;
-		};
 		C749A930A8853EDF8AD983B2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -726,15 +538,6 @@
 			buildConfigurations = (
 				219E9EA2109E4728BE3C3F76 /* Debug */,
 				6476ACA70787434B8D3AE1BD /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		C0DEF00D0BADC0FFEE0000E3 /* Build configuration list for PBXNativeTarget "AetherDriver" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				C0DEF00D0BADC0FFEE0000E1 /* Debug */,
-				C0DEF00D0BADC0FFEE0000E2 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

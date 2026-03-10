@@ -8,15 +8,10 @@ struct AetherMenuBar: Scene {
         Locale.current.identifier.hasPrefix("zh")
     }
 
-    private var driverReady: Bool {
-        appState.driverStatus.contains("Connected") || appState.driverStatus.contains("Ready")
-    }
-
     private var needsAttention: Bool {
         !appState.accessibilityTrusted ||
         !appState.microphoneAuthorized ||
-        !appState.speechAuthorized ||
-        appState.driverState == .needsUserApproval
+        !appState.speechAuthorized
     }
 
     private var statusTitle: String {
@@ -41,9 +36,6 @@ struct AetherMenuBar: Scene {
         }
         if !appState.speechAuthorized {
             return String(localized: "menu.status.speech_missing")
-        }
-        if appState.driverState == .needsUserApproval {
-            return String(localized: "menu.status.driver_approval_needed")
         }
         return appState.voiceStatus
     }
@@ -75,16 +67,6 @@ struct AetherMenuBar: Scene {
             Text("Aether")
 
             Label(statusSummary, systemImage: statusSymbolName)
-
-            if appState.driverState == .needsUserApproval {
-                Button(String(localized: "menu.approve_driver")) {
-                    appState.openPrivacyAndSecurityPane()
-                }
-            } else if !driverReady && appState.isMotionTracking {
-                Button(String(localized: "menu.activate_driver")) {
-                    appState.activateDriver()
-                }
-            }
 
             if !appState.accessibilityTrusted {
                 Button(String(localized: "menu.enable_accessibility")) {

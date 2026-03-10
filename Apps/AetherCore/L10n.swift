@@ -17,7 +17,6 @@ enum L10n {
     static let pointerOutput: LocalizedStringKey = "status.pointer_output"
     static let textOutput: LocalizedStringKey = "status.text_output"
     static let mode: LocalizedStringKey = "status.mode"
-    static let modeDriverOnly: LocalizedStringKey = "status.mode.driver_only"
     static let modeAuto: LocalizedStringKey = "status.mode.auto"
 
     // Rows
@@ -37,12 +36,7 @@ enum L10n {
     static let openPane: LocalizedStringKey = "permissions.open_pane"
     static let recheck: LocalizedStringKey = "permissions.recheck"
 
-    // System extension
-    static let systemExtensionNeedsApproval: LocalizedStringKey = "system_extension.needs_approval"
-    static let openPrivacyAndSecurity: LocalizedStringKey = "system_extension.open_privacy_security"
-
     // Controls
-    static let forceDriverOnly: LocalizedStringKey = "control.force_driver_only"
     static let alwaysListening: LocalizedStringKey = "control.always_listening"
     static let alwaysListeningWakeWindow: LocalizedStringKey = "control.always_listening_wake_window"
     static let triggerSources: LocalizedStringKey = "control.trigger_sources"
@@ -88,8 +82,6 @@ enum L10n {
     // Menu bar
     static let menuPointer: LocalizedStringKey = "menu.pointer"
     static let menuVoice: LocalizedStringKey = "menu.voice"
-    static let menuDriver: LocalizedStringKey = "menu.driver"
-    static let menuActivateDriver: LocalizedStringKey = "menu.activate_driver"
     static let menuStartPointer: LocalizedStringKey = "menu.start_pointer"
     static let menuStopPointer: LocalizedStringKey = "menu.stop_pointer"
     static let menuRecenterPointer: LocalizedStringKey = "menu.recenter_pointer"
@@ -183,7 +175,6 @@ enum L10n {
     static let settingsAutoPunctuation: LocalizedStringKey = "settings.auto_punctuation"
     static let settingsCalibration: LocalizedStringKey = "settings.calibration"
     static let settingsCurrentStatus: LocalizedStringKey = "settings.current_status"
-    static let settingsDriverStatus: LocalizedStringKey = "settings.driver_status"
     static let actionRecenterMatrix: LocalizedStringKey = "action.recenter_matrix"
     static let statusActive: LocalizedStringKey = "status.active"
     static let statusDisabled: LocalizedStringKey = "status.disabled"

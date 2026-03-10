@@ -15,7 +15,6 @@
 "status.pointer_output" = "Pointer Output";
 "status.text_output" = "Text Output";
 "status.mode" = "Mode";
-"status.mode.driver_only" = "Driver Only";
 "status.mode.auto" = "Auto";
 
 /* Rows */
@@ -35,11 +34,6 @@
 "permissions.open_pane" = "Open Pane";
 "permissions.recheck" = "Recheck";
 
-/* System extension */
-"system_extension.needs_approval" = "System Extension needs approval in Privacy & Security.";
-"system_extension.open_privacy_security" = "Open Privacy & Security";
-"system_extension.missing_entitlement_hint" = "Please sign with your Team in Xcode and run, then click Activate.";
-
 /* Driver errors */
 "driver.error.need_accessibility" = "Please grant Accessibility permission first";
 "driver.error.airpods_not_connected" = "Please connect AirPods first";
@@ -51,7 +45,6 @@
 
 /* Controls */
 "control.dwell_click" = "Dwell Click";
-"control.force_driver_only" = "Force Driver Only";
 "control.always_listening" = "Always Listening";
 "control.always_listening_wake_window" = "Always-listening Active Window";
 "control.always_listening_wake_window_hint" = "Within this window, commands can run directly without saying the wake word again.";
@@ -78,7 +71,6 @@
 /* Menu bar */
 "menu.pointer" = "Pointer";
 "menu.voice" = "Voice";
-"menu.driver" = "Driver";
 "menu.status.setup_attention" = "Setup Needs Attention";
 "menu.status.voice_pointer_ready" = "Voice and Pointer Ready";
 "menu.status.pointer_active" = "Pointer Control Active";
@@ -86,8 +78,6 @@
 "menu.status.accessibility_missing" = "Accessibility permission is missing";
 "menu.status.microphone_missing" = "Microphone permission is missing";
 "menu.status.speech_missing" = "Speech Recognition permission is missing";
-"menu.status.driver_approval_needed" = "The driver still needs system approval";
-"menu.approve_driver" = "Approve Driver";
 "menu.enable_accessibility" = "Enable Accessibility";
 "menu.enable_microphone" = "Enable Microphone";
 "menu.enable_speech" = "Enable Speech Recognition";
@@ -96,7 +86,6 @@
 "menu.more_controls" = "More Controls";
 "menu.shortcut_panel_fmt" = "Shortcuts Panel (%@)";
 "menu.shortcut_panel" = "Shortcuts Panel";
-"menu.activate_driver" = "Activate Driver";
 "menu.start_pointer" = "Start Pointer";
 "menu.stop_pointer" = "Stop Pointer";
 "menu.recenter_pointer" = "Recenter Pointer";
@@ -212,7 +201,6 @@
 "settings.tilt_scroll_subtitle" = "Head tilt scrolls content";
 "settings.calibration" = "Calibration";
 "settings.current_status" = "Current Status:";
-"settings.driver_status" = "Driver Status";
 "action.recenter_matrix" = "Recenter Matrix";
 "status.active" = "Active";
 "status.disabled" = "Disabled";
@@ -224,7 +212,7 @@
 "settings.page.pointer.title" = "Pointer";
 "settings.page.pointer.subtitle" = "Adjust tracking, click behavior, and calibration in one place.";
 "settings.page.advanced.title" = "Advanced";
-"settings.page.advanced.subtitle" = "Review driver state, permissions, and app-level behavior.";
+"settings.page.advanced.subtitle" = "Review runtime state, permissions, and app-level behavior.";
 "settings.page.shortcuts.title" = "Shortcuts";
 "settings.page.shortcuts.subtitle" = "Manage Push to Talk, pointer control, connection lock, and other global shortcuts.";
 
@@ -286,8 +274,6 @@
 "main.permission.speech.detail.ready" = "Recognition engine is available";
 "main.permission.speech.detail.missing" = "Required for dictation and commands";
 "main.action.enable" = "Enable";
-"main.driver_approval.title" = "Driver Approval";
-"main.driver_approval.detail" = "The system extension still needs approval in Privacy & Security.";
 "main.action.open_settings" = "Open Settings";
 "main.pointer.title" = "Pointer Control";
 "main.pointer.subtitle.active" = "Head tracking is running";

@@ -33,10 +33,16 @@ final class VoiceCommandRouterTests: XCTestCase {
     func testScrollingAndDragging() {
         XCTAssertEqual(router.route(transcript: "向上"), .scroll(0, -300))
         XCTAssertEqual(router.route(transcript: "向下"), .scroll(0, 300))
+        XCTAssertEqual(router.route(transcript: "向下滚动"), .scroll(0, 300))
         XCTAssertEqual(router.route(transcript: "到底"), .scrollToWeb("bottom"))
         XCTAssertEqual(router.route(transcript: "到顶"), .scrollToWeb("top"))
         XCTAssertEqual(router.route(transcript: "拖"), .dragStart)
         XCTAssertEqual(router.route(transcript: "放"), .dragEnd)
+    }
+
+    func testShortcutPanelAliases() {
+        XCTAssertEqual(router.route(transcript: "显示面板"), .showShortcutPanel)
+        XCTAssertEqual(router.route(transcript: "关闭面板"), .hideShortcutPanel)
     }
 
     func testPinyinFallback() {
@@ -53,7 +59,7 @@ final class VoiceCommandRouterTests: XCTestCase {
     func testDictationParsing() {
         // Basic dictation fallback
         XCTAssertEqual(router.route(transcript: "今天天气不错"), .dictation("今天天气不错"))
-        
+
         // Force dictation keyword "输入"
         XCTAssertEqual(router.route(transcript: "输入你好"), .dictation("你好"))
         XCTAssertEqual(router.route(transcript: "写一段代码"), .dictation("一段代码"))
@@ -64,6 +70,15 @@ final class VoiceCommandRouterTests: XCTestCase {
         XCTAssertEqual(
             router.route(transcript: "点击", bias: .dictationPreferred),
             .dictation("点击")
+        )
+
+        XCTAssertEqual(
+            router.route(transcript: "向下滚动", bias: .dictationPreferred),
+            .scroll(0, 300)
+        )
+        XCTAssertEqual(
+            router.route(transcript: "显示面板", bias: .dictationPreferred),
+            .showShortcutPanel
         )
 
         // "指令点击" in typing mode should bypass dictation and trigger command
@@ -103,7 +118,17 @@ final class DictationSafetyTests: XCTestCase {
     }
 }
 
+@MainActor
 final class SpeechManagerTypingModeTests: XCTestCase {
+    func testEngineRestartDiscardsTranscriptForMicrophoneSwitch() {
+        XCTAssertTrue(SpeechManager.shouldDiscardTranscriptOnEngineRestart(reason: "input-device-selection"))
+        XCTAssertTrue(SpeechManager.shouldDiscardTranscriptOnEngineRestart(reason: "default-input-device-changed"))
+    }
+
+    func testEngineRestartKeepsTranscriptForNonDeviceReasons() {
+        XCTAssertFalse(SpeechManager.shouldDiscardTranscriptOnEngineRestart(reason: "continuous-health-check-engine-down"))
+    }
+
     func testAutoModeDropsStaleTypingStateWithoutLiveEditableContext() {
         let resolved = SpeechManager.resolvedUtteranceTypingMode(
             recognitionControlMode: .auto,

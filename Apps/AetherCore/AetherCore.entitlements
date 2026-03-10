@@ -8,7 +8,5 @@
     <true/>
     <key>com.apple.security.personal-information.speech-recognition</key>
     <true/>
-    <key>com.apple.developer.system-extension.install</key>
-    <true/>
 </dict>
 </plist>

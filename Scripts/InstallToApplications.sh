@@ -9,29 +9,9 @@ ALLOW_UNSIGNED_INSTALL="${AETHER_ALLOW_UNSIGNED_INSTALL:-0}"
 SRC_APP="${1:-}"
 DEST_APP="/Applications/${APP_NAME}.app"
 
-has_embedded_extension() {
-  local app="$1"
-  [[ -d "$app/Contents/Library/SystemExtensions" ]] || return 1
-  /usr/bin/find "$app/Contents/Library/SystemExtensions" -maxdepth 1 -type d -name "*.dext" -print -quit >/dev/null 2>&1
-}
-
 codesign_ok() {
   local path="$1"
   /usr/bin/codesign --verify --deep --strict "$path" >/dev/null 2>&1
-}
-
-has_host_entitlement() {
-  local app="$1"
-  local tmp
-  tmp="$(mktemp /tmp/aether_entitlements.XXXXXX.plist)"
-  if /usr/bin/codesign -d --entitlements :- "$app" >"$tmp" 2>/dev/null; then
-    if /usr/bin/grep -q "com.apple.developer.system-extension.install" "$tmp"; then
-      rm -f "$tmp"
-      return 0
-    fi
-  fi
-  rm -f "$tmp"
-  return 1
 }
 
 pick_best() {
@@ -54,8 +34,6 @@ pick_best() {
     m="$(/usr/bin/stat -f %m "$p" 2>/dev/null || echo 0)"
 
     if codesign_ok "$p"; then score=$((score + 10)); fi
-    if has_host_entitlement "$p"; then score=$((score + 20)); fi
-    if has_embedded_extension "$p"; then score=$((score + 5)); fi
 
     # Prefer newer if scores tie.
     if [[ "$score" -gt "$best_score" || ( "$score" -eq "$best_score" && "$m" -gt "$best_m" ) ]]; then
@@ -115,8 +93,8 @@ else
 fi
 
 echo ""
-echo "Entitlements check (must include system-extension.install=true):"
-/usr/bin/codesign -d --entitlements :- "$DEST_APP" 2>/dev/null | /usr/bin/grep -n "system-extension.install" || true
+echo "Entitlements check:"
+/usr/bin/codesign -d --entitlements :- "$DEST_APP" 2>/dev/null | /usr/bin/grep -n "audio-input\\|speech-recognition" || true
 
 echo ""
 echo "Done. Launch with:"

@@ -282,6 +282,7 @@ class HeadMotionManager: ObservableObject {
     private var baseYaw: Double = 0
     private var basePitch: Double = 0
     private var isCalibrated: Bool = false
+    private var isDragging: Bool = false
     
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -470,6 +471,9 @@ class HeadMotionManager: ObservableObject {
                 self.connectionTimer?.invalidate()
                 self.connectionTimer = nil
                 self.isTracking = true
+                Task { @MainActor in
+                    ConnectionLockService.shared.setTrackingLockEnabled(true)
+                }
                 self.updateNowPlayingInfo()
                 os_log("Aether: Connection Established (First Data Received)", log: self.log)
                 
@@ -630,6 +634,15 @@ class HeadMotionManager: ObservableObject {
     private func stopTrackingInternal() {
         connectionTimer?.invalidate()
         connectionTimer = nil
+
+        if isDragging {
+            AutomationOutputs.shared.drag(start: false, at: nil)
+            isDragging = false
+        }
+
+        Task { @MainActor in
+            ConnectionLockService.shared.setTrackingLockEnabled(false)
+        }
         
         motionManager.stopDeviceMotionUpdates()
         
@@ -689,12 +702,16 @@ class HeadMotionManager: ObservableObject {
     }
 
     func dragStart() {
+        guard !isDragging else { return }
+        isDragging = true
         // Use current cursor location (nil) to avoid coordinate flipping issues
         AutomationOutputs.shared.drag(start: true, at: nil)
         HUDManager.shared.showTemporary(message: "✊ \(String(localized: "headset.hud.drag_start"))")
     }
 
     func dragEnd() {
+        guard isDragging else { return }
+        isDragging = false
         // Use current cursor location (nil) to avoid coordinate flipping issues
         AutomationOutputs.shared.drag(start: false, at: nil)
         HUDManager.shared.showTemporary(message: "🖐 \(String(localized: "headset.hud.drag_drop"))")
@@ -747,6 +764,13 @@ class HeadMotionManager: ObservableObject {
         if !isConnected {
             pendingAutoTrackingStart?.cancel()
             pendingAutoTrackingStart = nil
+            if isTracking {
+                let msg = String(localized: "motion.error.airpods_disconnected")
+                HUDManager.shared.showTemporary(message: "⚠️ \(String(localized: "headset.hud.disconnected"))")
+                onError?(msg)
+                stopTrackingInternal()
+                attitudeText = String(localized: "headset.status.disconnected")
+            }
             return
         }
 

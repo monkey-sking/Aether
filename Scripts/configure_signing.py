@@ -10,11 +10,6 @@ with open(file_path, 'r') as f:
 # Profile Name: Aether Development
 # Profile UUID: 8a7bc5e4-ebc2-49c5-a72c-f4c5e12168cd
 
-# Configuration for Aether Driver
-# Bundle ID: com.7fei.Aether.AetherDriver
-# Profile Name: AetherDriver Development
-# Profile UUID: 7c053baa-49a3-4fb9-8d9d-856ab3461abc
-
 def update_build_settings(content, bundle_id, profile_name, profile_uuid):
     # This regex looks for a buildSettings dict containing the specific bundle ID
     # It captures the content of the buildSettings to be replaced
@@ -54,10 +49,7 @@ def update_build_settings(content, bundle_id, profile_name, profile_uuid):
     return pattern.sub(replacer, content)
 
 # Update Aether Core
-content = update_build_settings(content, "com.7fei.Aether", "Aether DevelopmentAether Development", "8a7bc5e4-ebc2-49c5-a72c-f4c5e12168cd")
-
-# Update Aether Driver
-content = update_build_settings(content, "com.7fei.Aether.AetherDriver", "AetherDriver Development", "7c053baa-49a3-4fb9-8d9d-856ab3461abc")
+content = update_build_settings(content, "com.7fei.Aether", "Aether Development", "8a7bc5e4-ebc2-49c5-a72c-f4c5e12168cd")
 
 with open(file_path, 'w') as f:
     f.write(content)
