@@ -301,11 +301,29 @@ final class HUDManager {
     private var activeTemporaryToken: UUID?
     private var activeTemporaryFallbackSnapshot: HUDPresentationSnapshot?
     private var cancellables = Set<AnyCancellable>()
+    private var backgroundFullscreenCheckTimer: Timer?
     
     private init() {
         setupSubscriptions()
         setupPostureObservation()
         detector.start()
+        startBackgroundFullscreenCheck()
+    }
+
+    private func startBackgroundFullscreenCheck() {
+        backgroundFullscreenCheckTimer?.invalidate()
+        // Check every 1.5 seconds to ensure we hide the HUD if the user goes fullscreen 
+        // and stops moving the mouse.
+        backgroundFullscreenCheckTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            self?.checkFullscreenSuppressionLocally()
+        }
+    }
+
+    private func checkFullscreenSuppressionLocally() {
+        guard state.mode != .hidden else { return }
+        // If we are already hidden due to fullscreen, this will keep it hidden.
+        // If we are visible and should be suppressed (e.g. mouse just disappeared), this will trigger it.
+        requestReposition()
     }
     
     private func setupPostureObservation() {
