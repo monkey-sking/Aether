@@ -45,7 +45,8 @@
 "control.hud_auto_hide" = "HUD 自动隐藏";
 "control.hud_auto_hide_hint" = "只影响一次性提示；常驻监听 HUD 不受这里控制。";
 "control.push_to_talk_hint" = "按住 ⌥Space 说话；常驻监听时说“ Aether … ”触发。";
-"control.toggle_tracking_hint" = "切换头控";
+"control.toggle_tracking" = "切换追踪";
+"control.toggle_tracking_hint" = "切换追踪：⌥T 或使用语音指令";
 
 /* Actions */
 "action.activate_perception" = "激活感知";
@@ -64,7 +65,9 @@
 "menu.voice" = "语音";
 "menu.status.setup_attention" = "需要处理设置";
 "menu.status.voice_pointer_ready" = "语音和头控已就绪";
+"voice.status.idle" = "待命";
 "menu.status.pointer_active" = "头控已开启";
+"Aether" = "Aether";
 "menu.status.ready" = "Aether 已待命";
 "menu.status.accessibility_missing" = "辅助功能未授权";
 "menu.status.microphone_missing" = "麦克风未授权";
@@ -127,7 +130,7 @@
 "menu.airpods_lock_fmt %@" = "🔒 连接锁定 (%@)";
 
 /* Speech Status */
-"speech.listening" = "正在聆听...";
+"speech.listening" = "待命中...";
 "speech.waiting_command" = "等待操作指令…";
 "speech.waiting_wakeword" = "等待唤醒词…";
 "speech.idle" = "空闲";
@@ -137,6 +140,17 @@
 "speech.typed" = "上屏";
 "speech.undo" = "撤销";
 "speech.done" = "完成";
+
+/* HUD 提示与错误 */
+"speech.no_matching_command" = "未匹配到控制命令";
+"speech.no_editable_field" = "未检测到可输入文本框";
+"speech.undo_done" = "已撤销";
+"speech.pasted_cmdv" = "已粘贴 (Cmd+V)";
+"speech.bilingual_switch_unsupported" = "仅双语模式支持切换";
+"speech.no_mic_detected" = "未检测到麦克风";
+"speech.need_mic_permission" = "请先授予麦克风权限";
+"speech.need_recognition_permission" = "请先授予语音识别权限";
+"speech.lang_indicator" = "中";
 
 /* Dashboard & Settings (New) */
 "settings.tab.overview" = "概览";
@@ -189,7 +203,7 @@
 "settings.activation.always_warning" = "注意：此模式耗电量较高。";
 "settings.activation.hands_free" = "直接指令 (免唤醒)";
 "settings.activation.push_to_talk" = "按键说话 (PTT)";
-"settings.activation.wake_word" = "唤醒词 (\"Hey Aether\")";
+"settings.activation.wake_word" = "唤醒词 (Hey Aether)";
 "settings.activation.gaze_wake" = "注视唤醒 (看屏幕)";
 "settings.activation.keep_awake" = "保持唤醒时长";
 
@@ -199,6 +213,7 @@
 "settings.feedback_sound" = "反馈音效";
 "settings.auto_punctuation" = "自动标点";
 "settings.gestures_clicks" = "手势与点击";
+"settings.dictation.refinement_hint" = "开启 AI 驱动的听写内容自动润色与纠错。";
 "settings.dwell_click_subtitle" = "悬停自动点击";
 "settings.tilt_scroll_subtitle" = "头部倾斜滚动内容";
 "settings.calibration" = "校准";
@@ -252,7 +267,7 @@
 /* Main window */
 "main.section.workspace" = "工作区";
 "main.section.voice" = "语音";
-"main.section.controls" = "其他控制";
+"main.section.controls" = "控制";
 "main.panel.overview" = "总览";
 "main.panel.basics" = "基础";
 "main.panel.term_corrections" = "术语纠错";
@@ -307,6 +322,7 @@
 "hotkey.helper.toggle_language" = "在已启用语音语言之间切换";
 "hotkey.helper.toggle_shortcut_panel" = "显示或关闭当前应用快捷键面板";
 "hotkey.key.space" = "空格";
+"hotkey.key.unknown_fmt" = "按键 (%d)";
 "hotkey.mouse.middle_click" = "中键点击";
 "hotkey.mouse.back" = "鼠标后退";
 "hotkey.mouse.forward" = "鼠标前进";
@@ -358,3 +374,112 @@
 "headset.hud.scroll_bottom" = "滚动到底部";
 "headset.hud.drag_start" = "开始拖拽";
 "headset.hud.drag_drop" = "结束拖拽";
+
+/* Settings Modules (Refined) */
+"settings.section.basics.title" = "基础";
+"settings.section.basics.page_title" = "语音基础";
+"settings.section.basics.subtitle" = "麦克风、识别语言和触发方式。";
+
+"settings.section.term_corrections.title" = "术语纠错";
+"settings.section.term_corrections.page_title" = "术语纠错";
+"settings.section.term_corrections.subtitle" = "听写润色、识别纠错和按 App 的术语替换规则。";
+
+"settings.section.lexicon.title" = "词库";
+"settings.section.lexicon.page_title" = "语音词库";
+"settings.section.lexicon.subtitle" = "唤醒词和命令别名。";
+
+"settings.section.app_controls.title" = "当前应用";
+"settings.section.app_controls.page_title" = "当前应用控制";
+"settings.section.app_controls.subtitle" = "查看前台 App 可直接触发的快捷键。";
+
+"settings.section.insights.title" = "统计";
+"settings.section.insights.page_title" = "语音统计";
+"settings.section.insights.subtitle" = "按 App 查看输入与控制使用记录。";
+
+"settings.voice.language_hint" = "固定语言最稳；双语模式用于两种语言之间快速切换和词库管理。";
+"settings.voice.mode_single" = "固定语言";
+"settings.voice.mode_bilingual" = "双语模式";
+"settings.voice.primary_lang" = "主语言";
+"settings.voice.secondary_lang" = "次语言";
+"settings.voice.bilingual_hint" = "双语模式下，快捷切换会交换主语言和次语言；当前识别优先使用主语言。";
+"settings.voice.bilingual_lang_status_fmt" = "主：%1$@ · 副：%2$@";
+"settings.voice.system_lang_status_fmt" = "跟随系统 · %@";
+"settings.voice.permission_required" = "当前模式需要语音权限";
+"settings.voice.open_mic_permission" = "去开启麦克风权限";
+"settings.voice.open_speech_permission" = "去开启语音识别权限";
+"settings.voice.ptt_status_hint_fmt" = "当前按键为 %@。如需修改，请到“快捷键”页面统一设置。";
+
+"lexicon.editing_language.hint" = "按语言编辑唤醒词和命令别名。";
+"lexicon.section.core_controls.title" = "基础控制";
+"lexicon.section.core_controls.subtitle" = "鼠标点击、滚动、拖拽与常用编辑动作。";
+"lexicon.section.media_panels.title" = "媒体与面板";
+"lexicon.section.media_panels.subtitle" = "播放控制和快捷键面板显示控制。";
+"lexicon.section.pointer_control.title" = "指针控制";
+"lexicon.section.pointer_control.subtitle" = "头控启停与回中操作。";
+"lexicon.wake_words.subtitle" = "先叫醒 Aether，再说后面的命令。适合免提常驻。";
+"lexicon.wake_words.example" = "例如：Aether、阿瑟、嘿 Aether";
+"lexicon.command_aliases.title" = "控制命令别名";
+"lexicon.command_aliases.subtitle" = "下面这些是内置控制命令。你可以按语言改成自己更习惯的说法，留空则使用默认词库。";
+
+"panels.shortcuts.current_app" = "当前 App";
+"panels.shortcuts.current_app.description" = "这里展示前台 App 菜单暴露出的快捷键，并补充浏览器、编辑器、终端等常见默认快捷键。语音命中后会直接触发对应组合键。";
+"panels.shortcuts.no_accessibility" = "需要先开启辅助功能权限，才能读取当前应用菜单和快捷键。";
+"panels.shortcuts.loaded_count_fmt" = "已读取 %d 条快捷键。下面是推荐用于语音控制的高频项，浏览器、编辑器和终端常用快捷键也会补进来。";
+"panels.shortcuts.no_matches" = "没有匹配的快捷键";
+"panels.shortcuts.no_readable" = "当前 App 暂无可读快捷键，或者还没有切到目标应用。";
+"panels.shortcuts.global" = "Aether 全局";
+"panels.shortcuts.search_placeholder" = "搜索快捷键";
+"panels.shortcuts.hold_to_talk_hint" = "按住说话请继续使用快捷键";
+
+/* Intent Actions */
+"intent.click_left" = "左键点击";
+"intent.click_right" = "右键点击";
+"intent.double_click" = "双击";
+"intent.media_play_pause" = "播放或暂停";
+"intent.media_previous" = "上一首";
+"intent.media_next" = "下一首";
+"intent.show_shortcut_panel" = "显示快捷键面板";
+"intent.hide_shortcut_panel" = "关闭快捷键面板";
+"intent.start_pointer" = "开启头控";
+"intent.stop_pointer" = "关闭头控";
+"intent.recenter" = "回中校准";
+"intent.scroll" = "滚动";
+"intent.scroll_down" = "向下滚动";
+"intent.scroll_up" = "向上滚动";
+"intent.scroll_top" = "滚动到顶部";
+"intent.scroll_bottom" = "滚动到底部";
+"intent.drag_start" = "开始拖拽";
+"intent.drag_end" = "结束拖拽";
+"intent.undo" = "撤销";
+"intent.paste" = "粘贴";
+"intent.lock_connection" = "锁定连接";
+"intent.unlock_connection" = "解锁连接";
+"intent.dictation" = "输入";
+"intent.unknown" = "未知命令";
+
+/* Permission Status */
+"status.permission.authorized" = "系统状态：已授权";
+"status.permission.unauthorized" = "系统状态：未授权";
+"status.permission.denied" = "系统状态：已拒绝";
+"status.permission.restricted" = "系统状态：受限";
+"status.permission.not_determined" = "系统状态：未决定";
+"status.permission.unknown" = "系统状态：未知";
+
+/* UI Strings - Settings & Panels */
+"settings.term_correction.title" = "上下文术语纠错";
+"settings.term_correction.description" = "支持通用组与自定义分组。每组可独立启停、绑定 App、编辑词条规则。";
+"settings.term_correction.rule_format" = "规则格式：`原词=>目标词` 或 `原词=>目标词=>cmd`";
+"settings.term_correction.add_group" = "添加分组";
+"settings.term_correction.edit_group" = "编辑分组";
+"settings.term_correction.effective_apps" = "生效 App";
+"settings.term_correction.entry_rules" = "词条规则";
+"settings.term_correction.entry_rules_hint" = "每行一条：`原词=>目标词`；可选 `=>cmd` 仅控制模式生效，`=>dict` 仅输入模式生效。";
+"settings.term_correction.no_apps_to_add" = "无可添加的运行中应用";
+"settings.term_correction.running_apps" = "运行中应用";
+"settings.term_correction.select_app_manually" = "手动选择应用…";
+"settings.term_correction.add_app" = "添加程序";
+"settings.term_correction.edit" = "编辑";
+"settings.term_correction.done" = "完成";
+
+"panels.shortcuts.count_fmt" = "%d 条快捷键";
+"panels.shortcuts.clickable_hint" = "可点击触发";

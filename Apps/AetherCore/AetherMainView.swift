@@ -38,7 +38,7 @@ struct AetherMainView: View {
                         panelLabel(.overview)
                     }
                 } header: {
-                    SidebarSectionHeader(title: "main.section.workspace")
+                    SidebarSectionHeader(title: LocalizedStringKey("main.section.workspace"))
                 }
 
                 Section {
@@ -58,7 +58,7 @@ struct AetherMainView: View {
                         panelLabel(.voiceInsights)
                     }
                 } header: {
-                    SidebarSectionHeader(title: "main.section.voice")
+                    SidebarSectionHeader(title: LocalizedStringKey("main.section.voice"))
                 }
 
                 Section {
@@ -72,7 +72,7 @@ struct AetherMainView: View {
                         panelLabel(.shortcuts)
                     }
                 } header: {
-                    SidebarSectionHeader(title: "main.section.controls")
+                    SidebarSectionHeader(title: LocalizedStringKey("main.section.controls"))
                 }
 
             }
@@ -344,9 +344,9 @@ private struct OverviewReadinessCard: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("main.readiness.title")
+                        Text(LocalizedStringKey("main.readiness.title"))
                             .font(.headline)
-                        Text("main.readiness.subtitle")
+                        Text(LocalizedStringKey("main.readiness.subtitle"))
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -365,7 +365,7 @@ private struct OverviewReadinessCard: View {
                 }
 
                 if isCollapsed {
-                    Text("main.readiness.collapsed")
+                    Text(LocalizedStringKey("main.readiness.collapsed"))
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 2)
@@ -478,7 +478,7 @@ private struct PointerControlTile: View {
                 .opacity(autoStartOnConnect ? 1 : 0.55)
             }
 
-            Text("main.pointer.footnote")
+            Text(LocalizedStringKey("main.pointer.footnote"))
                 .font(AetherUI.captionFont)
                 .foregroundColor(.secondary)
         }

@@ -133,7 +133,7 @@ struct HotkeyBinding: Codable, Equatable {
         case kVK_Option, kVK_RightOption:   return "⌥"
         case kVK_Command, kVK_RightCommand: return "⌘"
         case kVK_CapsLock:                  return "⇪"
-        default: return "Key(\(code))"
+        default: return String(format: String(localized: "hotkey.key.unknown_fmt"), code)
         }
     }
 

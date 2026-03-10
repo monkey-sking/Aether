@@ -635,10 +635,10 @@ final class SpeechManager: ObservableObject {
 
     private func missingVoicePermissionHint() -> (message: String, icon: String)? {
         if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
-            return (activeLocale.identifier.starts(with: "zh") ? "请先授予麦克风权限" : "Grant Microphone permission first.", "mic.slash.fill")
+            return (NSLocalizedString("speech.need_mic_permission", comment: ""), "mic.slash.fill")
         }
         if SFSpeechRecognizer.authorizationStatus() != .authorized {
-            return (activeLocale.identifier.starts(with: "zh") ? "请先授予语音识别权限" : "Grant Speech Recognition permission first.", "waveform.badge.exclamationmark")
+            return (NSLocalizedString("speech.need_recognition_permission", comment: ""), "waveform.badge.exclamationmark")
         }
         return nil
     }
@@ -741,7 +741,8 @@ final class SpeechManager: ObservableObject {
         eosDetector.start()
 
         lastTranscript = ""; lastError = ""
-        status = NSLocalizedString("speech.listening", comment: "") + " (\(activeLocale.identifier.starts(with: "zh") ? "中" : "En"))"
+        let langSuffix = " " + NSLocalizedString("speech.lang_indicator", comment: "")
+        status = NSLocalizedString("speech.listening", comment: "") + langSuffix
         noteHandsFreeHUDActivity()
         startMicProgressUI(durationSec: maxRecordingSegmentSeconds(), generation: gen)
         refreshContinuousHUD(isDictating: isDictating)
@@ -1410,7 +1411,7 @@ final class SpeechManager: ObservableObject {
             GlobalLogger.router.info(
                 "[IntentPipeline] unknown utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) transcript='\(transcript)'"
             )
-            status = activeLocale.identifier.starts(with: "zh") ? "未匹配到控制命令" : "No matching control command"
+            status = NSLocalizedString("speech.no_matching_command", comment: "")
             clearHandledCommandPreview()
             if !job.sessionTypingMode {
                 showUnknownCommandHUD(transcript)
@@ -1437,7 +1438,7 @@ final class SpeechManager: ObservableObject {
 
     private func showMissingInputTargetHUD() {
         HUDManager.shared.showTemporary(
-            message: activeLocale.identifier.starts(with: "zh") ? "未检测到可输入文本框" : "No editable text field detected",
+            message: NSLocalizedString("speech.no_editable_field", comment: ""),
             recognitionControlMode: .command,
             icon: "keyboard.badge.exclamationmark",
             duration: 1.0
@@ -1447,10 +1448,11 @@ final class SpeechManager: ObservableObject {
     private func showUnknownCommandHUD(_ transcript: String) {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let message: String
-        if activeLocale.identifier.starts(with: "zh") {
-            message = trimmed.isEmpty ? "未匹配到控制命令" : "未匹配到控制命令：\(trimmed)"
+        let baseMsg = NSLocalizedString("speech.no_matching_command", comment: "")
+        if trimmed.isEmpty {
+            message = baseMsg
         } else {
-            message = trimmed.isEmpty ? "No matching control command" : "No matching control command: \(trimmed)"
+            message = "\(baseMsg)：\(trimmed)"
         }
         HUDManager.shared.showTemporary(
             message: message,
@@ -1705,7 +1707,7 @@ final class SpeechManager: ObservableObject {
 
         let realHardware = availableInputDevices.filter { $0.id != 0 }
         if realHardware.isEmpty {
-            HUDManager.shared.update(mode: .listening, message: activeLocale.identifier.starts(with: "zh") ? "未检测到麦克风" : "No Microphone Detected", language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon()); return
+            HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon()); return
         }
 
         let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
@@ -1737,7 +1739,7 @@ final class SpeechManager: ObservableObject {
     }
 
     private func showPTTUnavailableHUD() {
-        HUDManager.shared.update(mode: .listening, message: activeLocale.identifier.starts(with: "zh") ? "未检测到麦克风" : "No Microphone Detected", language: activeLocale.identifier, recognitionControlMode: hudRecognitionControlMode, inputDeviceIcon: hudInputIcon())
+        HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: hudRecognitionControlMode, inputDeviceIcon: hudInputIcon())
     }
 
     // MARK: - Mic Progress Ring

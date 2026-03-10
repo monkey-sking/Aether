@@ -64,7 +64,7 @@ struct AetherMenuBar: Scene {
 
     var body: some Scene {
         MenuBarExtra {
-            Text("Aether")
+            Text(LocalizedStringKey("Aether"))
 
             Label(statusSummary, systemImage: statusSymbolName)
 

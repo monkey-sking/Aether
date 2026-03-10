@@ -16,8 +16,8 @@ enum OnboardingStep: Equatable {
 @MainActor
 final class MotionService: ObservableObject {
     @Published private(set) var isTracking: Bool = false
-    @Published private(set) var attitudeText: String = "No Data"
-    @Published private(set) var calibrationStatus: String = "Normal"
+    @Published private(set) var attitudeText: String = String(localized: "headset.status.no_data")
+    @Published private(set) var calibrationStatus: String = String(localized: "calibration.normal")
     @Published private(set) var lastErrorMessage: String = ""
 
     private let manager: HeadMotionManager
@@ -82,7 +82,7 @@ final class MotionService: ObservableObject {
 
 @MainActor
 final class VoiceService: ObservableObject {
-    @Published private(set) var status: String = "Idle"
+    @Published private(set) var status: String = String(localized: "voice.status.idle")
     @Published private(set) var lastTranscript: String = ""
     @Published private(set) var lastError: String = ""
     @Published private(set) var lastWakeTime: Date?
@@ -804,7 +804,7 @@ class AppState: ObservableObject {
         if requiresContinuousSession {
             if !micAuthorizedNow {
                 HUDManager.shared.showTemporary(
-                    message: Locale.current.identifier.starts(with: "zh") ? "请先授予麦克风权限" : "Grant Microphone permission first.",
+                    message: NSLocalizedString("speech.need_mic_permission", comment: ""),
                     icon: "mic.slash.fill"
                 )
                 permissions.requestMicrophone()
@@ -825,7 +825,7 @@ class AppState: ObservableObject {
             }
             if !speechAuthorizedNow {
                 HUDManager.shared.showTemporary(
-                    message: Locale.current.identifier.starts(with: "zh") ? "请先授予语音识别权限" : "Grant Speech Recognition permission first.",
+                    message: NSLocalizedString("speech.need_recognition_permission", comment: ""),
                     icon: "waveform.badge.exclamationmark"
                 )
                 permissions.requestSpeech()
@@ -1680,58 +1680,37 @@ class AppState: ObservableObject {
     }
 
     private func voiceIntentActionTitle(_ intent: VoiceIntent) -> String {
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
         switch intent {
-        case .clickLeft:
-            return isChinese ? "左键点击" : "Left Click"
-        case .clickRight:
-            return isChinese ? "右键点击" : "Right Click"
-        case .doubleClick:
-            return isChinese ? "双击" : "Double Click"
-        case .mediaPlayPause:
-            return isChinese ? "播放或暂停" : "Play or Pause"
-        case .mediaPrevious:
-            return isChinese ? "上一首" : "Previous Track"
-        case .mediaNext:
-            return isChinese ? "下一首" : "Next Track"
-        case .showShortcutPanel:
-            return isChinese ? "显示快捷键面板" : "Show Shortcut Panel"
-        case .hideShortcutPanel:
-            return isChinese ? "关闭快捷键面板" : "Hide Shortcut Panel"
-        case .startPointer:
-            return isChinese ? "开启头控" : "Enable Pointer"
-        case .stopPointer:
-            return isChinese ? "关闭头控" : "Disable Pointer"
-        case .recenter:
-            return isChinese ? "回中校准" : "Recenter"
+        case .clickLeft: return NSLocalizedString("intent.click_left", comment: "")
+        case .clickRight: return NSLocalizedString("intent.click_right", comment: "")
+        case .doubleClick: return NSLocalizedString("intent.double_click", comment: "")
+        case .mediaPlayPause: return NSLocalizedString("intent.media_play_pause", comment: "")
+        case .mediaPrevious: return NSLocalizedString("intent.media_previous", comment: "")
+        case .mediaNext: return NSLocalizedString("intent.media_next", comment: "")
+        case .showShortcutPanel: return NSLocalizedString("intent.show_shortcut_panel", comment: "")
+        case .hideShortcutPanel: return NSLocalizedString("intent.hide_shortcut_panel", comment: "")
+        case .startPointer: return NSLocalizedString("intent.start_pointer", comment: "")
+        case .stopPointer: return NSLocalizedString("intent.stop_pointer", comment: "")
+        case .recenter: return NSLocalizedString("intent.recenter", comment: "")
         case .frontmostAppCommand(let command):
             return "\(command.title) (\(command.shortcut.displayString))"
         case .scroll(_, let dy):
-            if dy == 0 { return isChinese ? "滚动" : "Scroll" }
+            if dy == 0 { return NSLocalizedString("intent.scroll", comment: "") }
             return dy > 0
-                ? (isChinese ? "向下滚动" : "Scroll Down")
-                : (isChinese ? "向上滚动" : "Scroll Up")
+                ? NSLocalizedString("intent.scroll_down", comment: "")
+                : NSLocalizedString("intent.scroll_up", comment: "")
         case .scrollToWeb(let edge):
-            if edge == "top" {
-                return isChinese ? "滚动到顶部" : "Scroll to Top"
-            }
-            return isChinese ? "滚动到底部" : "Scroll to Bottom"
-        case .dragStart:
-            return isChinese ? "开始拖拽" : "Start Drag"
-        case .dragEnd:
-            return isChinese ? "结束拖拽" : "End Drag"
-        case .undo:
-            return isChinese ? "撤销" : "Undo"
-        case .paste:
-            return isChinese ? "粘贴" : "Paste"
-        case .lockConnection:
-            return isChinese ? "锁定连接" : "Lock Connection"
-        case .unlockConnection:
-            return isChinese ? "解锁连接" : "Unlock Connection"
-        case .dictation:
-            return isChinese ? "输入" : "Dictation"
-        case .unknown:
-            return isChinese ? "未知命令" : "Unknown Command"
+            return edge == "top"
+                ? NSLocalizedString("intent.scroll_top", comment: "")
+                : NSLocalizedString("intent.scroll_bottom", comment: "")
+        case .dragStart: return NSLocalizedString("intent.drag_start", comment: "")
+        case .dragEnd: return NSLocalizedString("intent.drag_end", comment: "")
+        case .undo: return NSLocalizedString("intent.undo", comment: "")
+        case .paste: return NSLocalizedString("intent.paste", comment: "")
+        case .lockConnection: return NSLocalizedString("intent.lock_connection", comment: "")
+        case .unlockConnection: return NSLocalizedString("intent.unlock_connection", comment: "")
+        case .dictation: return NSLocalizedString("intent.dictation", comment: "")
+        case .unknown: return NSLocalizedString("intent.unknown", comment: "")
         }
     }
 
@@ -1758,37 +1737,27 @@ class AppState: ObservableObject {
     var accessibilityStatusDetail: String {
         let live = AXIsProcessTrusted()
         return live
-            ? "系统状态：已授权"
-            : "系统状态：未授权"
+            ? NSLocalizedString("status.permission.authorized", comment: "")
+            : NSLocalizedString("status.permission.unauthorized", comment: "")
     }
 
     var microphoneStatusDetail: String {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
-            return "系统状态：已授权 (authorized)"
-        case .denied:
-            return "系统状态：已拒绝 (denied)"
-        case .restricted:
-            return "系统状态：受限 (restricted)"
-        case .notDetermined:
-            return "系统状态：未决定 (notDetermined)"
-        @unknown default:
-            return "系统状态：未知"
+        case .authorized: return NSLocalizedString("status.permission.authorized", comment: "")
+        case .denied: return NSLocalizedString("status.permission.denied", comment: "")
+        case .restricted: return NSLocalizedString("status.permission.restricted", comment: "")
+        case .notDetermined: return NSLocalizedString("status.permission.not_determined", comment: "")
+        @unknown default: return NSLocalizedString("status.permission.unknown", comment: "")
         }
     }
 
     var speechStatusDetail: String {
         switch SFSpeechRecognizer.authorizationStatus() {
-        case .authorized:
-            return "系统状态：已授权 (authorized)"
-        case .denied:
-            return "系统状态：已拒绝 (denied)"
-        case .restricted:
-            return "系统状态：受限 (restricted)"
-        case .notDetermined:
-            return "系统状态：未决定 (notDetermined)"
-        @unknown default:
-            return "系统状态：未知"
+        case .authorized: return NSLocalizedString("status.permission.authorized", comment: "")
+        case .denied: return NSLocalizedString("status.permission.denied", comment: "")
+        case .restricted: return NSLocalizedString("status.permission.restricted", comment: "")
+        case .notDetermined: return NSLocalizedString("status.permission.not_determined", comment: "")
+        @unknown default: return NSLocalizedString("status.permission.unknown", comment: "")
         }
     }
 
@@ -2626,7 +2595,8 @@ private struct CurrentAppShortcutPanelView: View {
             }
 
             HStack(alignment: .center, spacing: 12) {
-                Text("\(totalVisibleShortcutCount) \(isChinese ? "条快捷键" : "shortcuts")")
+                let countStr = String.localizedStringWithFormat(NSLocalizedString("panels.shortcuts.count_fmt", comment: ""), totalVisibleShortcutCount)
+                Text(countStr)
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -2634,7 +2604,7 @@ private struct CurrentAppShortcutPanelView: View {
                     .foregroundColor(.accentColor)
                     .clipShape(Capsule())
 
-                Text(isChinese ? "可点击触发" : "Clickable")
+                Text(LocalizedStringKey("panels.shortcuts.clickable_hint"))
                     .font(.caption.weight(.semibold))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
