@@ -998,6 +998,11 @@ final class VoiceCommandRouter {
         let reason: String
     }
 
+    private enum MatchStage {
+        case exact
+        case fuzzy
+    }
+
     private struct State {
         var overrides: [VoiceCommandOverrideConfig] = []
         var languageTermsOverrides: [VoiceLanguageTermsOverrideConfig] = []
@@ -1113,7 +1118,8 @@ final class VoiceCommandRouter {
             normalized: s,
             raw: commandText,
             localeIdentifier: localeIdentifier,
-            overrides: currentState.overrides
+            overrides: currentState.overrides,
+            stage: .exact
         ) {
             return VoiceCommandDecision(intent: match.preset.intent, confidence: match.confidence, reason: match.reason)
         }
@@ -1121,9 +1127,29 @@ final class VoiceCommandRouter {
         if let appMatch = matchFrontmostAppCommand(
             normalized: s,
             raw: commandText,
-            frontmostAppCommands: currentState.frontmostAppCommands
+            frontmostAppCommands: currentState.frontmostAppCommands,
+            stage: .exact
         ) {
             return VoiceCommandDecision(intent: .frontmostAppCommand(appMatch.command), confidence: appMatch.confidence, reason: appMatch.reason)
+        }
+
+        if let appMatch = matchFrontmostAppCommand(
+            normalized: s,
+            raw: commandText,
+            frontmostAppCommands: currentState.frontmostAppCommands,
+            stage: .fuzzy
+        ) {
+            return VoiceCommandDecision(intent: .frontmostAppCommand(appMatch.command), confidence: appMatch.confidence, reason: appMatch.reason)
+        }
+
+        if let match = matchCommand(
+            normalized: s,
+            raw: commandText,
+            localeIdentifier: localeIdentifier,
+            overrides: currentState.overrides,
+            stage: .fuzzy
+        ) {
+            return VoiceCommandDecision(intent: match.preset.intent, confidence: match.confidence, reason: match.reason)
         }
 
         // --- 5. Default Fallback ---
@@ -1298,16 +1324,20 @@ final class VoiceCommandRouter {
         raw: String,
         localeIdentifier: String,
         overrides: [VoiceCommandOverrideConfig],
+        stage: MatchStage = .fuzzy,
         filter: (VoiceCommandPreset) -> Bool = { _ in true }
     ) -> CommandMatch? {
         let candidates = VoiceCommandPreset.allCases.filter(filter)
 
-        for preset in candidates {
-            for alias in normalizedAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides) {
-                if normalized == alias {
-                    return CommandMatch(preset: preset, confidence: .high, reason: "exact-\(preset.rawValue)")
+        if stage == .exact {
+            for preset in candidates {
+                for alias in normalizedAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides) {
+                    if normalized == alias {
+                        return CommandMatch(preset: preset, confidence: .high, reason: "exact-\(preset.rawValue)")
+                    }
                 }
             }
+            return nil
         }
 
         for preset in candidates {
@@ -1333,14 +1363,18 @@ final class VoiceCommandRouter {
     private func matchFrontmostAppCommand(
         normalized: String,
         raw: String,
-        frontmostAppCommands: [FrontmostAppCommand]
+        frontmostAppCommands: [FrontmostAppCommand],
+        stage: MatchStage = .fuzzy
     ) -> AppCommandMatch? {
-        for command in frontmostAppCommands {
-            for alias in normalizedAppAliases(for: command) {
-                if normalized == alias {
-                    return AppCommandMatch(command: command, confidence: .high, reason: "app-exact-\(command.id)")
+        if stage == .exact {
+            for command in frontmostAppCommands {
+                for alias in normalizedAppAliases(for: command) {
+                    if normalized == alias {
+                        return AppCommandMatch(command: command, confidence: .high, reason: "app-exact-\(command.id)")
+                    }
                 }
             }
+            return nil
         }
 
         for command in frontmostAppCommands {

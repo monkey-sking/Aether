@@ -3,6 +3,10 @@ import AppKit
 import Combine
 import ApplicationServices
 
+/* Private CoreGraphics API to check cursor visibility */
+@_silgen_name("CGCursorIsVisible")
+func CGCursorIsVisible() -> Bool
+
 struct AXFocusedTypingEvaluation {
     let editableLikely: Bool
     let insertionContextAvailable: Bool
@@ -466,6 +470,13 @@ final class HUDManager {
         guard state.mode != .hidden else { return }
         languageIndicatorHideTask?.cancel()
         state.isLanguageIndicatorVisible = true
+
+        // If HUD is hidden or nearly hidden, briefly show it just for the language indicator
+        if hudWindow?.isVisible == false || hudWindow?.alphaValue ?? 0 < 0.1 {
+            hudWindow?.alphaValue = 1.0
+            hudWindow?.orderFront(nil)
+        }
+        
         requestReposition(immediate: true)
 
         let task = DispatchWorkItem { [weak self] in
@@ -1603,7 +1614,8 @@ final class HUDManager {
 
         let result =
             isFrontmostFocusedWindowLikelyFullscreen(app: app, on: screen) &&
-            (!isBrowserApp || browserIsLikelyCurrentPlaybackSource(frontBundleID: front))
+            (!isBrowserApp || browserIsLikelyCurrentPlaybackSource(frontBundleID: front)) &&
+            !CGCursorIsVisible() // Fullscreen video usually hides the cursor
         cachedFullscreenSuppressionResult = result
         return result
     }
