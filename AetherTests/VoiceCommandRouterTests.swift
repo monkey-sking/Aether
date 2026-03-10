@@ -59,6 +59,31 @@ final class VoiceCommandRouterTests: XCTestCase {
         XCTAssertEqual(router.route(transcript: "显示快捷键面板", localeIdentifier: "zh-CN"), .showShortcutPanel)
     }
 
+    func testFrontmostTabCommandsBeatGenericPreviousNextTrackAliases() {
+        let previousTab = FrontmostAppCommand(
+            processIdentifier: 42,
+            bundleIdentifier: "com.google.Chrome",
+            appName: "Chrome",
+            menuPath: ["Window"],
+            title: "Previous Tab",
+            shortcut: HotkeyBinding(keyCode: 33, modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.shift.rawValue)),
+            aliases: ["上一个标签", "选择上一个标签", "切换到上一个标签"]
+        )
+        let nextTab = FrontmostAppCommand(
+            processIdentifier: 42,
+            bundleIdentifier: "com.google.Chrome",
+            appName: "Chrome",
+            menuPath: ["Window"],
+            title: "Next Tab",
+            shortcut: HotkeyBinding(keyCode: 30, modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.shift.rawValue)),
+            aliases: ["下一个标签", "选择下一个标签", "切换到下一个标签"]
+        )
+        router.frontmostAppCommands = [previousTab, nextTab]
+
+        XCTAssertEqual(router.route(transcript: "选择上一个标签"), .frontmostAppCommand(previousTab))
+        XCTAssertEqual(router.route(transcript: "选择下一个标签"), .frontmostAppCommand(nextTab))
+    }
+
     func testPinyinFallback() {
         // "右键" / "邮件" / "有件" (You Jian)
         XCTAssertEqual(router.route(transcript: "邮件"), .clickRight)

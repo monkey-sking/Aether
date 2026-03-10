@@ -2,14 +2,6 @@
 
 ## 未验收（Pending）
 
-### HUD Behavior
-- [ ] 控制模式下识别到控制词（如“点击”“右键”“双击”“滚动”）时，动作会实际执行，而不是只识别到文本但不触发动作
-- [ ] 控制模式命令执行链路具备可追踪日志：至少能看到路由结果、intent 入队/出队、主线程 apply、最终动作执行入口
-    本轮代码已调整：
-    1) `SpeechManager` 新增 `[Route]`、`[IntentPipeline]`、`Stop latch`、`Stop finalize complete` 日志；
-    2) `AppState.applyVoiceIntent` 新增 `[VoiceIntent] action=...` 执行入口日志；
-    3) 后续如再出现“识别到了但没执行”，可直接用日志判断是路由未命中、被降级、主线程未 apply，还是执行入口未触发
-
 ### Browser HUD Performance
 - [ ] 浏览器全屏播放视频时，HUD 应自动隐藏（功能保留）
     本轮代码已调整：在“前台浏览器 + 聚焦窗口全屏”之外，新增“当前系统媒体来源 bundle 必须就是该浏览器”校验，避免普通全屏网页误隐藏
@@ -26,71 +18,30 @@
     2) 新增 `AXEditableAncestor / AXHighestEditableAncestor` 与父链回溯；
     3) `AXObserver` 建立后主动预热焦点树并立即触发一次 caret 重算
 
-### Terminology Consistency
-    本轮代码已调整：
-    1) 中文对外术语统一为 `输入模式 / 控制模式 / 头控 / 快捷键面板 / 耳机连接锁定`；
-    2) 设置说明、命令标签、历史记录、主窗口状态、权限弹窗和耳机相关提示已同步收口；
-    3) 本轮主要收口中文对外文案，底层 key / 枚举名未改
-
 ### Mic Mode
 - [ ] 在控制中心手动切到“语音突出/宽谱”后，APP 会话重启（切输入设备、重启识别）不再自动回到“标准”
-- [ ] PTT 模式连续触发 5 次后，麦克风模式不被强制重置为“标准”
-- [ ] 常驻监听模式（Hands-Free）运行 5 分钟内，麦克风模式保持用户手动选择
     本轮代码已调整：
     1) `AudioCaptureSession.start()` 不再显式 `setVoiceProcessingEnabled(false)`；
     2) `autoVoiceProcessingForSpeakers` 默认关闭（需显式开启才会自动启用 VoiceProcessingIO）
+
+### Headset Tracking & Buttons
+- [ ] 单按 / 双按 / 三按改成其它动作后，系统转发对应耳机事件时应执行新的映射，而不是继续走旧默认逻辑
 
 ### Control Command Corrections
 - [ ] 控制模式术语纠错支持 `=>cmd` 规则，仅在命令语义下生效；输入模式支持 `=>dict`
 
-### HUD Behavior（未验收项）
-- [ ] 控制模式下识别到控制词（如“点击”“右键”“双击”“滚动”）时，动作会实际执行，而不是只识别到文本但不触发动作
-- [ ] 控制模式命令执行链路具备可追踪日志：至少能看到路由结果、intent 入队/出队、主线程 apply、最终动作执行入口
-    本轮代码已调整：
-    1) `SpeechManager` 新增 `[Route]`、`[IntentPipeline]`、`Stop latch`、`Stop finalize complete` 日志；
-    2) `AppState.applyVoiceIntent` 新增 `[VoiceIntent] action=...` 执行入口日志；
-    3) 后续如再出现“识别到了但没执行”，可直接用日志判断是路由未命中、被降级、主线程未 apply，还是执行入口未触发
-
-
-### Browser HUD Performance（未验收项）
-- [ ] 浏览器全屏播放视频时，HUD 应自动隐藏（功能保留）
-    本轮代码已调整：在“前台浏览器 + 聚焦窗口全屏”之外，新增“当前系统媒体来源 bundle 必须就是该浏览器”校验，避免普通全屏网页误隐藏
-- [ ] 退出浏览器全屏视频后，HUD 应自动恢复显示
-    本轮代码已调整：
-    1) HUD 重定位仅在输入态或显式诊断时执行 AX 重查询；
-    2) HUD 锚点追踪写文件默认关闭（`hudAnchorTraceEnabled=false`）；
-    3) 全屏视频抑制恢复默认开启（`suppressHUDInFullscreenVideo=true`），并增加前台进程 + 聚焦窗口全屏 + 当前媒体来源 bundle 校验，避免普通页面误隐藏
-
-### Shortcut Panel Ordering（未验收项）
-    本轮代码已调整：
-    1) 分组排序加入固定优先级，避免完全按菜单原始顺序平铺；
-    2) 分组内增加高频动作优先级，原菜单顺序仅作为同优先级兜底；
-    3) 面板最大列数从 3 列收为 2 列，并改为保序分列，减少扫读时来回跳列
-
-### Terminology Consistency（未验收项）
-    本轮代码已调整：
-    1) 中文对外术语统一为 `输入模式 / 控制模式 / 头控 / 快捷键面板 / 耳机连接锁定`；
-    2) 设置说明、命令标签、历史记录、主窗口状态、权限弹窗和耳机相关提示已同步收口；
-    3) 本轮主要收口中文对外文案，底层 key / 枚举名未改
-
-### Localization Cleanup（未验收项）
-### Mic Mode（未验收项）
-- [ ] 在控制中心手动切到“语音突出/宽谱”后，APP 会话重启（切输入设备、重启识别）不再自动回到“标准”
-    本轮代码已调整：
-    1) `AudioCaptureSession.start()` 不再显式 `setVoiceProcessingEnabled(false)`；
-    2) `autoVoiceProcessingForSpeakers` 默认关闭（需显式开启才会自动启用 VoiceProcessingIO）
-
-### Headset Tracking & Buttons（未验收项）
-- [ ] 单按 / 双按 / 三按改成其它动作后，系统转发对应耳机事件时应执行新的映射，而不是继续走旧默认逻辑
-
-### Control Command Corrections（未验收项）
-- [ ] 控制模式术语纠错支持 `=>cmd` 规则，仅在命令语义下生效；输入模式支持 `=>dict`
 ### 本轮新增功能待验收（2026-03-07）
 - [ ] 语音词库可自定义媒体控制命令别名（播放/暂停、上一首、下一首）
 
 ## 已验收（Passed）
 
 ### 从未验收区整理移入（2026-03-10）
+- [x] 控制模式下识别到控制词（如“点击”“右键”“双击”“滚动”）时，动作会实际执行，而不是只识别到文本但不触发动作
+- [x] 控制模式命令执行链路具备可追踪日志：至少能看到路由结果、intent 入队/出队、主线程 apply、最终动作执行入口
+    本轮代码已调整：
+    1) `SpeechManager` 新增 `[Route]`、`[IntentPipeline]`、`Stop latch`、`Stop finalize complete` 日志；
+    2) `AppState.applyVoiceIntent` 新增 `[VoiceIntent] action=...` 执行入口日志；
+    3) 后续如再出现“识别到了但没执行”，可直接用日志判断是路由未命中、被降级、主线程未 apply，还是执行入口未触发
 - [x] 浏览器普通页面点击空白区域、滚动或切换焦点时，不会因为 `AXWebArea` / `AXGroup` 误判成输入态
 - [x] Web 富文本编辑器（如 `contenteditable` 场景）在焦点落到容器节点时，仍能通过可编辑祖先追溯识别为输入态
 - [x] 前台应用切换或浏览器冷启动后，AX 观察器能立即收到焦点变化，不需要二次点击才能恢复 HUD 跟随/输入态判断

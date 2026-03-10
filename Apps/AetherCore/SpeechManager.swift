@@ -583,8 +583,8 @@ final class SpeechManager: ObservableObject {
         if speechLanguageMode != .bilingual {
             HUDManager.shared.showTemporary(
                 message: activeLocale.identifier.starts(with: "zh")
-                    ? "固定语言模式下无法切换；请先开启双语模式"
-                    : "Language switching is available in Bilingual mode only",
+                    ? "仅双语模式支持切换"
+                    : "Bilingual mode only",
                 recognitionControlMode: hudRecognitionControlMode,
                 icon: "globe",
                 duration: 1.0
