@@ -4,6 +4,15 @@ import Combine
 import ApplicationServices
 import OSLog
 
+@_silgen_name("CGSMainConnectionID")
+func CGSMainConnectionID() -> Int32
+
+@_silgen_name("CGSManagedDisplayGetCurrentSpace")
+func CGSManagedDisplayGetCurrentSpace(_ cid: Int32, _ displayUUID: CFString) -> UInt64
+
+@_silgen_name("CGSCopyManagedDisplaySpaces")
+func CGSCopyManagedDisplaySpaces(_ cid: Int32, _ displayUUID: CFString) -> CFArray
+
 fileprivate let log = OSLog(subsystem: "com.7fei.Aether", category: "HUDManager")
 
 /* Private CoreGraphics API to check cursor visibility */
@@ -1668,13 +1677,25 @@ final class HUDManager {
 
         let windowAX = focusedWindowRef as! AXUIElement
         
-        // Check for AXFullScreen directly
-        var fullscreenRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(windowAX, "AXFullScreen" as CFString, &fullscreenRef) == .success {
-            if let b = fullscreenRef as? Bool, b { return true }
-            if let n = fullscreenRef as? NSNumber, n.boolValue { return true }
-        }
+        // Space-Aware Check: Detect if the current space is a Fullscreen Space (Type 4)
+        // This is the logic used by Aion/ProcessZero.
+        let cid = CGSMainConnectionID()
+        let displayUUID = CGDisplayCreateUUIDFromDisplayID(CGMainDisplayID()).takeRetainedValue()
+        let uuidString = CFUUIDCreateString(nil, displayUUID)!
+        let currentSpaceID = CGSManagedDisplayGetCurrentSpace(cid, uuidString)
         
+        if let allSpaces = CGSCopyManagedDisplaySpaces(cid, uuidString) as? [[String: Any]] {
+            for spaceDict in allSpaces {
+                if let sid = spaceDict["id64"] as? NSNumber, sid.uint64Value == currentSpaceID {
+                    let type = spaceDict["type"] as? Int ?? 0
+                    if type == 4 { // kCGSSpaceFullscreen
+                        os_log("Fullscreen Suppression: Space-Type 4 detected (Dedicated Fullscreen Space)", log: log, type: .info)
+                        return true
+                    }
+                }
+            }
+        }
+
         // Global Geometric Check: Detect any window (including Renderer Helpers) that covers the screen.
         // We use kCGWindowListOptionOnScreenOnly.
         let options = CGWindowListOption(arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements)
