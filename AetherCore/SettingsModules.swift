@@ -8,25 +8,9 @@ enum VoiceSettingsSection: Hashable {
     case appControls
     case insights
 
-    var zhTitle: String {
-        switch self {
-        case .basics: return "基础"
-        case .termCorrections: return "术语纠错"
-        case .lexicon: return "词库"
-        case .appControls: return "当前应用"
-        case .insights: return "统计"
-        }
-    }
+    var zhTitle: String { enTitle } // Deprecated
 
-    var enTitle: String {
-        switch self {
-        case .basics: return "Basics"
-        case .termCorrections: return "Term Corrections"
-        case .lexicon: return "Lexicon"
-        case .appControls: return "Current App"
-        case .insights: return "Insights"
-        }
-    }
+    var enTitle: String { title } // Deprecated
 
     var systemImage: String {
         switch self {
@@ -38,37 +22,47 @@ enum VoiceSettingsSection: Hashable {
         }
     }
 
+    var title: String {
+        switch self {
+        case .basics: return NSLocalizedString("settings.section.basics.title", comment: "")
+        case .termCorrections: return NSLocalizedString("settings.section.term_corrections.title", comment: "")
+        case .lexicon: return NSLocalizedString("settings.section.lexicon.title", comment: "")
+        case .appControls: return NSLocalizedString("settings.section.app_controls.title", comment: "")
+        case .insights: return NSLocalizedString("settings.section.insights.title", comment: "")
+        }
+    }
+
     func title(isChinese: Bool) -> String {
-        isChinese ? zhTitle : enTitle
+        title
     }
 
     func pageTitle(isChinese: Bool) -> String {
         switch self {
         case .basics:
-            return isChinese ? "语音基础" : "Voice Basics"
+            return NSLocalizedString("settings.section.basics.page_title", comment: "")
         case .termCorrections:
-            return isChinese ? "术语纠错" : "Term Corrections"
+            return NSLocalizedString("settings.section.term_corrections.page_title", comment: "")
         case .lexicon:
-            return isChinese ? "语音词库" : "Voice Lexicon"
+            return NSLocalizedString("settings.section.lexicon.page_title", comment: "")
         case .appControls:
-            return isChinese ? "当前应用控制" : "Current App Controls"
+            return NSLocalizedString("settings.section.app_controls.page_title", comment: "")
         case .insights:
-            return isChinese ? "语音统计" : "Voice Insights"
+            return NSLocalizedString("settings.section.insights.page_title", comment: "")
         }
     }
 
     func pageSubtitle(isChinese: Bool) -> String {
         switch self {
         case .basics:
-            return isChinese ? "麦克风、识别语言和触发方式。" : "Microphone, recognition language, and activation modes."
+            return NSLocalizedString("settings.section.basics.subtitle", comment: "")
         case .termCorrections:
-            return isChinese ? "听写润色、识别纠错和按 App 的术语替换规则。" : "Dictation refinement, recognition corrections, and app-specific terminology rules."
+            return NSLocalizedString("settings.section.term_corrections.subtitle", comment: "")
         case .lexicon:
-            return isChinese ? "唤醒词和命令别名。" : "Wake words and command aliases."
+            return NSLocalizedString("settings.section.lexicon.subtitle", comment: "")
         case .appControls:
-            return isChinese ? "查看前台 App 可直接触发的快捷键。" : "Review shortcuts available for the frontmost app."
+            return NSLocalizedString("settings.section.app_controls.subtitle", comment: "")
         case .insights:
-            return isChinese ? "按 App 查看输入与控制使用记录。" : "Per-app voice dictation and control activity history."
+            return NSLocalizedString("settings.section.insights.subtitle", comment: "")
         }
     }
 }
@@ -198,19 +192,19 @@ struct InputSettingsView: View {
     private var commandAliasSections: [VoiceLexiconSection] {
         [
             VoiceLexiconSection(
-                title: isChinese ? "基础控制" : "Core Controls",
-                subtitle: isChinese ? "鼠标点击、滚动、拖拽与常用编辑动作。" : "Pointer clicks, scrolling, dragging, and common editing actions.",
+                title: NSLocalizedString("lexicon.section.core_controls.title", comment: ""),
+                subtitle: NSLocalizedString("lexicon.section.core_controls.subtitle", comment: ""),
                 presets: [.clickLeft, .clickRight, .doubleClick, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .dragStart, .dragEnd, .undo, .paste]
             ),
             VoiceLexiconSection(
-                title: isChinese ? "媒体与面板" : "Media & Panels",
-                subtitle: isChinese ? "播放控制和快捷键面板显示控制。" : "Playback controls and shortcut panel visibility.",
+                title: NSLocalizedString("lexicon.section.media_panels.title", comment: ""),
+                subtitle: NSLocalizedString("lexicon.section.media_panels.subtitle", comment: ""),
                 presets: [.mediaPlayPause, .mediaPrevious, .mediaNext, .showShortcutPanel, .hideShortcutPanel]
             ),
             VoiceLexiconSection(
-                title: isChinese ? "指针控制" : "Pointer Control",
-                subtitle: isChinese ? "头控启停与回中操作。" : "Pointer tracking and recentering commands.",
-                presets: [.startPointer, .stopPointer, .recenter]
+                title: NSLocalizedString("lexicon.section.pointer_control.title", comment: ""),
+                subtitle: NSLocalizedString("lexicon.section.pointer_control.subtitle", comment: ""),
+                presets: [.recenter, .startPointer, .stopPointer]
             )
         ]
     }
@@ -278,33 +272,30 @@ struct InputSettingsView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Label(L10n.settingsSpeechLanguage, systemImage: "globe")
                                         .font(.body)
-                                    Text(Locale.current.identifier.hasPrefix("zh")
-                                         ? "固定语言最稳；双语模式用于两种语言之间快速切换和词库管理。"
-                                         : "Single language is the most stable. Bilingual mode is for fast switching and per-language lexicon setup.")
+                                    Text(NSLocalizedString("settings.voice.language_hint", comment: ""))
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
                                 Spacer()
                                 if appState.voiceService.speechLanguageMode == .single, isFollowingSystemSpeechLocale {
                                     LanguageStatusTag(
-                                        title: Locale.current.identifier.hasPrefix("zh")
-                                            ? "跟随系统 · \(effectiveSpeechLocaleDisplayName)"
-                                            : "System · \(effectiveSpeechLocaleDisplayName)",
+                                        title: String(format: NSLocalizedString("settings.voice.system_lang_status_fmt", comment: ""),
+                                                      effectiveSpeechLocaleDisplayName),
                                         tint: .blue
                                     )
                                 } else if appState.voiceService.speechLanguageMode == .bilingual {
                                     LanguageStatusTag(
-                                        title: Locale.current.identifier.hasPrefix("zh")
-                                            ? "主：\(localeTitle(for: appState.voiceService.primaryLocaleIdentifier)) · 副：\(localeTitle(for: appState.voiceService.secondaryLocaleIdentifier))"
-                                            : "Primary: \(localeTitle(for: appState.voiceService.primaryLocaleIdentifier)) · Secondary: \(localeTitle(for: appState.voiceService.secondaryLocaleIdentifier))",
+                                        title: String(format: NSLocalizedString("settings.voice.bilingual_lang_status_fmt", comment: ""),
+                                                      localeTitle(for: appState.voiceService.primaryLocaleIdentifier),
+                                                      localeTitle(for: appState.voiceService.secondaryLocaleIdentifier)),
                                         tint: .blue
                                     )
                                 }
                             }
 
                             HStack(spacing: 10) {
-                                languageModeButton(.single, title: isChinese ? "固定语言" : "Single")
-                                languageModeButton(.bilingual, title: isChinese ? "双语模式" : "Bilingual")
+                                languageModeButton(.single, title: NSLocalizedString("settings.voice.mode_single", comment: ""))
+                                languageModeButton(.bilingual, title: NSLocalizedString("settings.voice.mode_bilingual", comment: ""))
                             }
 
                             if appState.voiceService.speechLanguageMode == .single {
@@ -315,7 +306,7 @@ struct InputSettingsView: View {
                             } else {
                                 VStack(alignment: .leading, spacing: 12) {
                                     VStack(alignment: .leading, spacing: 6) {
-                                        Text(isChinese ? "主语言" : "Primary Language")
+                                        Text(NSLocalizedString("settings.voice.primary_lang", comment: ""))
                                             .font(.caption.weight(.semibold))
                                             .foregroundColor(.secondary)
                                         VoiceLanguageChipPicker(
@@ -325,7 +316,7 @@ struct InputSettingsView: View {
                                     }
 
                                     VStack(alignment: .leading, spacing: 6) {
-                                        Text(isChinese ? "次语言" : "Secondary Language")
+                                        Text(NSLocalizedString("settings.voice.secondary_lang", comment: ""))
                                             .font(.caption.weight(.semibold))
                                             .foregroundColor(.secondary)
                                         VoiceLanguageChipPicker(
@@ -334,9 +325,7 @@ struct InputSettingsView: View {
                                         )
                                     }
 
-                                    Text(isChinese
-                                         ? "双语模式下，快捷切换会交换主语言和次语言；当前识别优先使用主语言。"
-                                         : "In Bilingual mode, the toggle swaps primary and secondary languages. Recognition currently prioritizes the primary language.")
+                                        Text(NSLocalizedString("settings.voice.bilingual_hint", comment: ""))
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
@@ -385,12 +374,12 @@ struct InputSettingsView: View {
                         if appState.voiceActivationMode != .pushToTalk &&
                             (!appState.microphoneAuthorized || !appState.speechAuthorized) {
                             VStack(alignment: .leading, spacing: 8) {
-                                Label("当前模式需要语音权限", systemImage: "exclamationmark.triangle.fill")
+                                Label(NSLocalizedString("settings.voice.permission_required", comment: ""), systemImage: "exclamationmark.triangle.fill")
                                     .font(.caption.weight(.semibold))
                                     .foregroundColor(.orange)
 
                                 if !appState.microphoneAuthorized {
-                                    Button("去开启麦克风权限") {
+                                    Button(NSLocalizedString("settings.voice.open_mic_permission", comment: "")) {
                                         appState.requestMicrophoneGuided()
                                     }
                                     .buttonStyle(.bordered)
@@ -398,7 +387,7 @@ struct InputSettingsView: View {
                                 }
 
                                 if !appState.speechAuthorized {
-                                    Button("去开启语音识别权限") {
+                                    Button(NSLocalizedString("settings.voice.open_speech_permission", comment: "")) {
                                         appState.requestSpeechGuided()
                                     }
                                     .buttonStyle(.bordered)
@@ -416,9 +405,8 @@ struct InputSettingsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(L10n.activationShortcut)
                                     .font(.body)
-                                Text(Locale.current.identifier.hasPrefix("zh")
-                                     ? "当前按键为 \(appState.voicePTTBinding.displayString)。如需修改，请到“快捷键”页面统一设置。"
-                                     : "Current shortcut: \(appState.voicePTTBinding.displayString). Change it from the Shortcuts page.")
+                                 Text(String(format: NSLocalizedString("settings.voice.ptt_status_hint_fmt", comment: ""),
+                                               appState.voicePTTBinding.displayString))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -442,9 +430,7 @@ struct InputSettingsView: View {
                         Label(L10n.settingsDictationMode, systemImage: "text.quote")
                             .font(.headline)
 
-                        Text(isChinese
-                             ? "对识别结果做后处理和润色，适合放在纠错页统一管理。"
-                             : "Post-process and refine dictation output from one place.")
+                        Text(NSLocalizedString("settings.dictation.refinement_hint", comment: ""))
                             .font(.caption)
                             .foregroundColor(.secondary)
 
@@ -489,22 +475,22 @@ struct InputSettingsView: View {
 
                     GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label(isChinese ? "上下文术语纠错" : "Contextual Term Corrections", systemImage: "text.magnifyingglass")
+                        Label(LocalizedStringKey("settings.term_correction.title"), systemImage: "text.magnifyingglass")
                             .font(.headline)
 
-                        Toggle("上下文术语纠错", isOn: $appState.speechTermCorrectionEnabled)
-                        Text("支持通用组与自定义分组。每组可独立启停、绑定 App、编辑词条规则。")
+                        Toggle(LocalizedStringKey("settings.term_correction.title"), isOn: $appState.speechTermCorrectionEnabled)
+                        Text(LocalizedStringKey("settings.term_correction.description"))
                             .font(.caption)
                             .foregroundColor(.secondary)
                         HStack {
-                            Text("规则格式：`原词=>目标词` 或 `原词=>目标词=>cmd`")
+                            Text(LocalizedStringKey("settings.term_correction.rule_format"))
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                             Spacer()
                             Button {
                                 appState.addSpeechTermGroup()
                             } label: {
-                                Label("添加分组", systemImage: "plus")
+                                Label(LocalizedStringKey("settings.term_correction.add_group"), systemImage: "plus")
                             }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
@@ -538,9 +524,7 @@ struct InputSettingsView: View {
                                 Text(L10n.voiceLexiconEditingLanguage)
                                     .font(.caption.weight(.semibold))
                                     .foregroundColor(.secondary)
-                                Text(Locale.current.identifier.hasPrefix("zh")
-                                     ? "按语言编辑唤醒词和命令别名。"
-                                     : "Edit wake words and command aliases per language.")
+                                Text(NSLocalizedString("lexicon.editing_language.hint", comment: ""))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -599,12 +583,8 @@ struct InputSettingsView: View {
                         VStack(spacing: 12) {
                             VoiceLexiconEditorRow(
                                 title: String(localized: "voice_lexicon.wake_words"),
-                                subtitle: isChinese
-                                    ? "先叫醒 Aether，再说后面的命令。适合免提常驻。"
-                                    : "Say these first to wake Aether before the command.",
-                                example: isChinese
-                                    ? "例如：Aether、阿瑟、嘿 Aether"
-                                    : "Example: Aether, Hey Aether",
+                                subtitle: NSLocalizedString("lexicon.wake_words.subtitle", comment: ""),
+                                example: NSLocalizedString("lexicon.wake_words.example", comment: ""),
                                 text: Binding(
                                     get: { appState.wakeWordOverrideText(for: resolvedCommandLocaleID) },
                                     set: { appState.updateWakeWordOverrideText($0, for: resolvedCommandLocaleID) }
@@ -620,15 +600,13 @@ struct InputSettingsView: View {
 
                         VStack(alignment: .leading, spacing: 12) {
                             Label(
-                                isChinese ? "控制命令别名" : "Control Command Aliases",
+                                NSLocalizedString("lexicon.command_aliases.title", comment: ""),
                                 systemImage: "command"
                             )
                             .font(.headline)
 
                             Text(
-                                isChinese
-                                    ? "下面这些是内置控制命令。你可以按语言改成自己更习惯的说法，留空则使用默认词库。"
-                                    : "These are built-in control commands. Customize phrases per language, or leave blank to use defaults."
+                                NSLocalizedString("lexicon.command_aliases.subtitle", comment: "")
                             )
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -674,14 +652,12 @@ struct InputSettingsView: View {
                         HStack(alignment: .top) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Label(
-                                    Locale.current.identifier.hasPrefix("zh") ? "当前应用控制" : "Current App Controls",
+                                    NSLocalizedString("panels.shortcuts.current_app", comment: ""),
                                     systemImage: "app.badge"
                                 )
                                 .font(.headline)
 
-                                Text(Locale.current.identifier.hasPrefix("zh")
-                                     ? "这里展示前台 App 菜单暴露出的快捷键，并补充浏览器、编辑器、终端等常见默认快捷键。语音命中后会直接触发对应组合键。"
-                                     : "These commands come from the frontmost app's menu shortcuts, with common browser, editor, and terminal defaults filled in when helpful. A matched voice command triggers the corresponding key combo.")
+                                Text(NSLocalizedString("panels.shortcuts.current_app.description", comment: ""))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -722,9 +698,7 @@ struct InputSettingsView: View {
                                 }
                             }
                         } else {
-                            Text(Locale.current.identifier.hasPrefix("zh")
-                                 ? "当前前台 App 没有可读取的菜单快捷键，或者还没有切到目标应用。"
-                                 : "The frontmost app does not expose readable menu shortcuts yet, or there is no target app in focus.")
+                             Text(NSLocalizedString("panels.shortcuts.no_readable", comment: ""))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -1581,7 +1555,7 @@ private struct SpeechTermGroupCard: View {
             Spacer()
             Toggle("", isOn: $group.isEnabled)
                 .disabled(!enabledAll)
-            Button("编辑") { onEdit() }
+            Button(LocalizedStringKey("settings.term_correction.edit")) { onEdit() }
                 .buttonStyle(.borderless)
                 .disabled(!enabledAll)
             Button(action: onDelete) {
@@ -1608,10 +1582,10 @@ private struct SpeechTermGroupEditorSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("编辑分组")
+                Text(LocalizedStringKey("settings.term_correction.edit_group"))
                     .font(.headline)
                 Spacer()
-                Button("完成") { dismiss() }
+                Button(LocalizedStringKey("settings.term_correction.done")) { dismiss() }
             }
 
             TextField("分组名", text: $group.name)
@@ -1626,7 +1600,7 @@ private struct SpeechTermGroupEditorSheet: View {
             if !group.applyToAllApps {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("生效 App")
+                        Text(LocalizedStringKey("settings.term_correction.effective_apps"))
                             .font(.subheadline.weight(.semibold))
                         Spacer()
                         SpeechAppPickerMenu(
@@ -1657,9 +1631,9 @@ private struct SpeechTermGroupEditorSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("词条规则")
+                Text(LocalizedStringKey("settings.term_correction.entry_rules"))
                     .font(.subheadline.weight(.semibold))
-                Text("每行一条：`原词=>目标词`；可选 `=>cmd` 仅控制模式生效，`=>dict` 仅输入模式生效。")
+                Text(LocalizedStringKey("settings.term_correction.entry_rules_hint"))
                     .font(.caption)
                     .foregroundColor(.secondary)
                 TextEditor(text: $group.rulesText)
@@ -1801,9 +1775,9 @@ private struct SpeechAppPickerMenu: View {
     var body: some View {
         Menu {
             if runningCandidates.isEmpty {
-                Text("无可添加的运行中应用")
+                Text(LocalizedStringKey("settings.term_correction.no_apps_to_add"))
             } else {
-                Text("运行中应用")
+                Text(LocalizedStringKey("settings.term_correction.running_apps"))
                 ForEach(runningCandidates) { app in
                     Button {
                         onAdd(app.bundleId)
@@ -1820,11 +1794,11 @@ private struct SpeechAppPickerMenu: View {
                 Divider()
             }
 
-            Button("手动选择应用…") {
+            Button(LocalizedStringKey("settings.term_correction.select_app_manually")) {
                 chooseApplication()
             }
         } label: {
-            Label("添加程序", systemImage: "plus")
+            Label(LocalizedStringKey("settings.term_correction.add_app"), systemImage: "plus")
         }
         .menuStyle(.borderlessButton)
         .fixedSize()

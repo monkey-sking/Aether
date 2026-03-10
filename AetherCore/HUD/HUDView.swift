@@ -111,14 +111,12 @@ struct HUDView: View {
     }
 
     private var displayLanguage: String {
-        if state.language.starts(with: "zh") { return "中" }
-        if state.language.starts(with: "en") { return "En" }
-        if state.language.starts(with: "ja") { return "日" }
-        if state.language.starts(with: "ko") { return "한" }
-        if state.language.starts(with: "fr") { return "Fr" }
-        if state.language.starts(with: "de") { return "De" }
-        if state.language.starts(with: "es") { return "Es" }
-        return String(state.language.prefix(2)).capitalized
+        let localized = NSLocalizedString("speech.lang_indicator", comment: "HUD language indicator")
+        // If the key is not found or matches the key name (default behavior), fallback to prefix
+        if localized == "speech.lang_indicator" || localized.isEmpty {
+            return String(state.language.prefix(2)).capitalized
+        }
+        return localized
     }
 
     private var languageToggle: some View {
