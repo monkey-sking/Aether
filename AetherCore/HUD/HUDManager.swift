@@ -314,6 +314,7 @@ final class HUDManager {
     private var appNapActivityToken: NSObjectProtocol?
     
     private init() {
+        os_log("HUDManager: init started", log: log, type: .default)
         setupSubscriptions()
         setupPostureObservation()
         detector.start()
@@ -325,6 +326,7 @@ final class HUDManager {
         
         // Prevent App Nap during detection to ensure the timer runs accurately
         if appNapActivityToken == nil {
+            os_log("HUDManager: beginning NSActivity to prevent App Nap", log: log, type: .default)
             appNapActivityToken = ProcessInfo.processInfo.beginActivity(
                 options: [.userInitiated, .latencyCritical],
                 reason: "Aether HUD Fullscreen Video Detection"
@@ -332,6 +334,7 @@ final class HUDManager {
         }
 
         // Check every 1.2 seconds (matching the inactivity threshold)
+        os_log("HUDManager: starting 1.2s background timer", log: log, type: .default)
         backgroundFullscreenCheckTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
             self?.checkFullscreenSuppressionLocally()
         }
@@ -1244,6 +1247,7 @@ final class HUDManager {
     private func repositionWindow() {
         // [Ghost Keyboard Fix] Accessing mode from state should be main-thread safe enough here
         // If hidden, DO NOT move or update content (prevents "Ghost Keyboard" when fading out)
+        os_log("HUDManager: repositionWindow called, mode=%{public}@", log: log, type: .default, String(describing: state.mode))
         if state.mode == .hidden { return }
 
         guard let panel = hudWindow else { return }
@@ -1614,8 +1618,11 @@ final class HUDManager {
         }
         guard let app = NSWorkspace.shared.frontmostApplication,
               let front = app.bundleIdentifier?.lowercased() else {
+            os_log("Fullscreen Suppression: No frontmost app", log: log, type: .default)
             return false
         }
+        // Relaxed check: We'll log but not return early for media app, 
+        // because the geometric/Space check is robust enough anyway.
         let isBrowserApp =
             front.contains("safari") ||
             front.contains("chrome") ||
@@ -1631,18 +1638,21 @@ final class HUDManager {
             front.contains("iina") ||
             front.contains("movist") ||
             isBrowserApp
-        guard isMediaCapableApp else { return false }
-
+        
         // Never suppress while user is in typing context.
-        if state.isTypingContext { return false }
+        if state.isTypingContext { 
+            os_log("Fullscreen Suppression: Bailed due to Typing Context", log: log, type: .default)
+            return false 
+        }
 
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(currentCursorLocation()) }) ?? NSScreen.main else {
+            os_log("Fullscreen Suppression: No screen found", log: log, type: .default)
             return false
         }
 
         let isImmersive = screen.frame.size == screen.visibleFrame.size
-        guard isImmersive else { return false }
-
+        // os_log("Fullscreen Suppression: isImmersive=%d", log: log, type: .default, isImmersive ? 1 : 0)
+        
         let now = Date()
         if front == cachedFullscreenSuppressionBundleID,
            now.timeIntervalSince(lastFullscreenSuppressionCheckAt) < 0.22 {
@@ -1651,12 +1661,17 @@ final class HUDManager {
         lastFullscreenSuppressionCheckAt = now
 	        cachedFullscreenSuppressionBundleID = front
 
-        let result =
-            (isFrontmostFocusedWindowLikelyFullscreen(app: app, on: screen) || isMediaCapableApp) &&
-            now.timeIntervalSince(lastPointerMoveAt) > 1.2 // Proven logic: 1.2s inactivity in fullscreen
+        let isFullscreenByWindow = isFrontmostFocusedWindowLikelyFullscreen(app: app, on: screen)
         
-        os_log("Fullscreen Suppression: app=%{public}@, immersive=%d, inactivity=%.1f, result=%d",
-               log: log, type: .info, front, isImmersive ? 1 : 0, now.timeIntervalSince(lastPointerMoveAt), result ? 1 : 0)
+        // Synchronize with cursor visibility: 
+        // Hide if (Cursor is hidden AND at least 0.5s idle) OR (Long idle 3.0s as fallback)
+        let inactivity = now.timeIntervalSince(lastPointerMoveAt)
+        let cursorHidden = !CGCursorIsVisible()
+        
+        let result = isFullscreenByWindow && ((cursorHidden && inactivity > 0.5) || inactivity > 3.0)
+        
+        os_log("Fullscreen Suppression: app=%{public}@, isFS=%d, inactivity=%.1f, cursorHidden=%d, result=%d",
+               log: log, type: .default, front, isFullscreenByWindow ? 1 : 0, inactivity, cursorHidden ? 1 : 0, result ? 1 : 0)
         
         cachedFullscreenSuppressionResult = result
         return result
@@ -1684,12 +1699,15 @@ final class HUDManager {
         let uuidString = CFUUIDCreateString(nil, displayUUID)!
         let currentSpaceID = CGSManagedDisplayGetCurrentSpace(cid, uuidString)
         
+        os_log("Fullscreen Suppression: Checking SpaceID %llu", log: log, type: .default, currentSpaceID)
+        
         if let allSpaces = CGSCopyManagedDisplaySpaces(cid, uuidString) as? [[String: Any]] {
             for spaceDict in allSpaces {
                 if let sid = spaceDict["id64"] as? NSNumber, sid.uint64Value == currentSpaceID {
                     let type = spaceDict["type"] as? Int ?? 0
+                    os_log("Fullscreen Suppression: current space type is %d", log: log, type: .default, type)
                     if type == 4 { // kCGSSpaceFullscreen
-                        os_log("Fullscreen Suppression: Space-Type 4 detected (Dedicated Fullscreen Space)", log: log, type: .info)
+                        os_log("Fullscreen Suppression: Space-Type 4 detected (Dedicated Fullscreen Space)", log: log, type: .default)
                         return true
                     }
                 }
@@ -1697,20 +1715,24 @@ final class HUDManager {
         }
 
         // Global Geometric Check: Detect any window (including Renderer Helpers) that covers the screen.
-        // We use kCGWindowListOptionOnScreenOnly.
         let options = CGWindowListOption(arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements)
         if let windowInfos = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] {
             for info in windowInfos {
-                // Ignore layers meant for background or desktop
-                guard let layer = info[kCGWindowLayer as String] as? Int, layer <= 0 else { continue }
+                // Must be in a high enough layer (usually 0 is normal apps, but fullscreen can be higher)
+                guard let layer = info[kCGWindowLayer as String] as? Int, layer >= 0 else { continue }
                 guard let boundsValue = info[kCGWindowBounds as String] else { continue }
                 let boundsDict = boundsValue as! CFDictionary
                 guard let bounds = CGRect(dictionaryRepresentation: boundsDict) else { continue }
                 
-                // If a window covers >95% of the target screen, it's effectively a fullscreen scenario.
-                // We check if it's opaque (Alpha != 0)
+                // If a window covers >98% of the target screen, it's effectively a fullscreen scenario.
                 if let alpha = info[kCGWindowAlpha as String] as? Double, alpha > 0.5 {
-                    if bounds.width >= screen.frame.width * 0.95 && bounds.height >= screen.frame.height * 0.95 {
+                    let wRatio = bounds.width / screen.frame.width
+                    let hRatio = bounds.height / screen.frame.height
+                    
+                    if wRatio > 0.98 && hRatio > 0.98 {
+                        let owner = info[kCGWindowOwnerName as String] as? String ?? "Unknown"
+                        let name = info[kCGWindowName as String] as? String ?? "-"
+                        os_log("Fullscreen Suppression: Geometric Match - %{public}@ (%{public}@), Layer: %d", log: log, type: .default, owner, name, layer)
                         return true
                     }
                 }
