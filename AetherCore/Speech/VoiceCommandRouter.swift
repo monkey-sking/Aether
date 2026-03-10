@@ -876,7 +876,7 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
 
     var isTypingSafe: Bool {
         switch self {
-        case .undo, .paste:
+        case .showShortcutPanel, .hideShortcutPanel, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .undo, .paste:
             return true
         default:
             return false
@@ -1000,6 +1000,7 @@ final class VoiceCommandRouter {
 
     private struct State {
         var overrides: [VoiceCommandOverrideConfig] = []
+        var languageTermsOverrides: [VoiceLanguageTermsOverrideConfig] = []
         var frontmostAppCommands: [FrontmostAppCommand] = []
     }
 
@@ -1024,6 +1025,15 @@ final class VoiceCommandRouter {
         }
     }
 
+    var languageTermsOverrides: [VoiceLanguageTermsOverrideConfig] {
+        get { stateQueue.sync { state.languageTermsOverrides } }
+        set {
+            stateQueue.sync(flags: .barrier) {
+                state.languageTermsOverrides = newValue
+            }
+        }
+    }
+
     enum RoutingBias {
         case neutral
         case dictationPreferred // Cursor in input field
@@ -1043,11 +1053,30 @@ final class VoiceCommandRouter {
             return VoiceCommandDecision(intent: .unknown(raw), confidence: .low, reason: "empty")
         }
 
+        if let explicitDictation = stripLeadingPrefix(
+            from: trimmed,
+            prefixes: Self.effectiveDictationPrefixes(
+                for: localeIdentifier,
+                overrides: currentState.languageTermsOverrides
+            )
+        ) {
+            return VoiceCommandDecision(intent: .dictation(explicitDictation), confidence: .high, reason: "explicit-dictation-prefix")
+        }
+
+        let explicitCommandPayload = stripLeadingPrefix(
+            from: trimmed,
+            prefixes: Self.effectiveCommandPrefixes(
+                for: localeIdentifier,
+                overrides: currentState.languageTermsOverrides
+            )
+        )
+        let commandText = explicitCommandPayload ?? trimmed
+
         // Normalize for command matching
-        let s = trimmed.lowercased().replacingOccurrences(of: " ", with: "")
+        let s = commandText.lowercased().replacingOccurrences(of: " ", with: "")
         
         os_log("Router: Input [%{public}@] with Bias [%{public}@]. Normalized: [%{public}@]", 
-               log: GlobalLogger.router, type: .debug, trimmed, String(describing: bias), s)
+               log: GlobalLogger.router, type: .debug, commandText, String(describing: bias), s)
 
         // --- 1. Explicit Overrides (Highest Priority) ---
         if bias == .forceDictation {
@@ -1055,7 +1084,7 @@ final class VoiceCommandRouter {
         }
         
         // --- 2. Explicit command forcing ---
-        let isForceCommand = bias == .forceCommand
+        let isForceCommand = bias == .forceCommand || explicitCommandPayload != nil
 
         // --- 3. Smart Routing Logic ---
         // If we are in an input field (dictationPreferred) and NOT explicitly forcing a command,
@@ -1063,7 +1092,7 @@ final class VoiceCommandRouter {
         if bias == .dictationPreferred && !isForceCommand {
             if let safeMatch = matchCommand(
                 normalized: s,
-                raw: trimmed,
+                raw: commandText,
                 localeIdentifier: localeIdentifier,
                 overrides: currentState.overrides,
                 filter: { $0.isTypingSafe }
@@ -1082,7 +1111,7 @@ final class VoiceCommandRouter {
         // --- 4. Local Command Matching (Standard Workflow) ---
         if let match = matchCommand(
             normalized: s,
-            raw: trimmed,
+            raw: commandText,
             localeIdentifier: localeIdentifier,
             overrides: currentState.overrides
         ) {
@@ -1091,7 +1120,7 @@ final class VoiceCommandRouter {
 
         if let appMatch = matchFrontmostAppCommand(
             normalized: s,
-            raw: trimmed,
+            raw: commandText,
             frontmostAppCommands: currentState.frontmostAppCommands
         ) {
             return VoiceCommandDecision(intent: .frontmostAppCommand(appMatch.command), confidence: appMatch.confidence, reason: appMatch.reason)
@@ -1131,10 +1160,10 @@ final class VoiceCommandRouter {
             chinese = ["下一首", "下一个"]
             english = ["next track", "next", "skip track"]
         case .showShortcutPanel:
-            chinese = ["显示快捷键面板", "打开快捷键面板", "显示当前应用快捷键", "打开当前应用快捷键", "显示命令面板"]
+            chinese = ["显示快捷键面板", "打开快捷键面板", "显示当前应用快捷键", "打开当前应用快捷键", "显示命令面板", "显示面板", "打开面板"]
             english = ["show shortcuts panel", "open shortcuts panel", "show app shortcuts", "show current app shortcuts"]
         case .hideShortcutPanel:
-            chinese = ["关闭快捷键面板", "隐藏快捷键面板", "收起快捷键面板", "关闭当前应用快捷键"]
+            chinese = ["关闭快捷键面板", "隐藏快捷键面板", "收起快捷键面板", "关闭当前应用快捷键", "关闭面板", "隐藏面板", "收起面板"]
             english = ["hide shortcuts panel", "close shortcuts panel", "dismiss shortcuts panel", "hide app shortcuts"]
         case .startPointer:
             chinese = ["开始", "继续"]
@@ -1146,16 +1175,16 @@ final class VoiceCommandRouter {
             chinese = ["校准", "居中", "重置"]
             english = ["recenter", "reset"]
         case .scrollUp:
-            chinese = ["向上", "上滚"]
+            chinese = ["向上", "上滚", "向上滚动"]
             english = ["scroll up", "up"]
         case .scrollDown:
-            chinese = ["向下", "下滚"]
+            chinese = ["向下", "下滚", "向下滚动"]
             english = ["scroll down", "down"]
         case .scrollTop:
-            chinese = ["到顶"]
+            chinese = ["到顶", "滚动到顶部"]
             english = ["top", "scroll top"]
         case .scrollBottom:
-            chinese = ["到底"]
+            chinese = ["到底", "滚动到底部"]
             english = ["bottom", "scroll bottom"]
         case .dragStart:
             chinese = ["拖", "抓住"]
@@ -1178,6 +1207,44 @@ final class VoiceCommandRouter {
         }
 
         return uniqueAliases((useChinese ? chinese + english : english) + (useChinese ? [] : chinese))
+    }
+
+    static func defaultCommandPrefixes(for localeIdentifier: String) -> [String] {
+        let locale = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier).lowercased()
+        if locale.hasPrefix("zh") {
+            return ["指令", "命令", "command"]
+        }
+        return ["command", "control", "指令", "命令"]
+    }
+
+    static func defaultDictationPrefixes(for localeIdentifier: String) -> [String] {
+        let locale = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier).lowercased()
+        if locale.hasPrefix("zh") {
+            return ["输入", "写", "打字", "dictate"]
+        }
+        return ["dictate", "type", "input", "输入", "写"]
+    }
+
+    static func effectiveCommandPrefixes(
+        for localeIdentifier: String,
+        overrides: [VoiceLanguageTermsOverrideConfig]
+    ) -> [String] {
+        if let override = languageTermsOverrideEntry(for: localeIdentifier, overrides: overrides),
+           !override.commandPrefixes.isEmpty {
+            return uniqueAliases(override.commandPrefixes)
+        }
+        return defaultCommandPrefixes(for: localeIdentifier)
+    }
+
+    static func effectiveDictationPrefixes(
+        for localeIdentifier: String,
+        overrides: [VoiceLanguageTermsOverrideConfig]
+    ) -> [String] {
+        if let override = languageTermsOverrideEntry(for: localeIdentifier, overrides: overrides),
+           !override.dictationPrefixes.isEmpty {
+            return uniqueAliases(override.dictationPrefixes)
+        }
+        return defaultDictationPrefixes(for: localeIdentifier)
     }
 
     static func effectiveAliases(
@@ -1349,6 +1416,30 @@ final class VoiceCommandRouter {
         let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
         return overrides.first(where: { $0.localeIdentifier == raw && $0.commandID == preset.rawValue }) ??
             overrides.first(where: { $0.localeIdentifier == canonical && $0.commandID == preset.rawValue })
+    }
+
+    private static func languageTermsOverrideEntry(
+        for localeIdentifier: String,
+        overrides: [VoiceLanguageTermsOverrideConfig]
+    ) -> VoiceLanguageTermsOverrideConfig? {
+        let raw = localeIdentifier
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        return overrides.first(where: { $0.localeIdentifier == raw }) ??
+            overrides.first(where: { $0.localeIdentifier == canonical })
+    }
+
+    private func stripLeadingPrefix(from text: String, prefixes: [String]) -> String? {
+        let lowered = text.lowercased()
+        let sortedPrefixes = Self.uniqueAliases(prefixes).sorted { $0.count > $1.count }
+
+        for prefix in sortedPrefixes {
+            let loweredPrefix = prefix.lowercased()
+            guard lowered.hasPrefix(loweredPrefix) else { continue }
+            let remainder = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return remainder.isEmpty ? text : remainder
+        }
+
+        return nil
     }
 
     private func stateSnapshot() -> State {

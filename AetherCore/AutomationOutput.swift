@@ -19,7 +19,6 @@ protocol AutomationOutput {
 final class OutputRouting: ObservableObject {
     static let shared = OutputRouting()
 
-    @Published var forceDriverOnly: Bool = false
     @Published private(set) var pointerOutputPath: String = "Idle"
     @Published private(set) var textOutputPath: String = "CoreGraphics"
 
@@ -45,6 +44,8 @@ final class OutputRouting: ObservableObject {
 }
 
 final class CoreGraphicsAutomationOutput: AutomationOutput {
+    private var isDragging: Bool = false
+
     private func postKeyboardEvent(_ event: CGEvent?, targetPID: pid_t?) {
         guard let event else { return }
         if let targetPID, targetPID > 0 {
@@ -57,8 +58,10 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
     func moveCursor(to point: CGPoint, desktopMaxY: CGFloat) {
         let cgPoint = CGPoint(x: point.x, y: desktopMaxY - point.y)
         CGWarpMouseCursorPosition(cgPoint)
-        if let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: cgPoint, mouseButton: .left) {
-            event.post(tap: .cgSessionEventTap)
+        let mouseType: CGEventType = isDragging ? .leftMouseDragged : .mouseMoved
+        let tap: CGEventTapLocation = isDragging ? .cghidEventTap : .cgSessionEventTap
+        if let event = CGEvent(mouseEventSource: nil, mouseType: mouseType, mouseCursorPosition: cgPoint, mouseButton: .left) {
+            event.post(tap: tap)
         }
     }
 
@@ -205,9 +208,11 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
     }
 
     func drag(start: Bool, at point: CGPoint?) {
+        if start == isDragging {
+            return
+        }
+
         let source = CGEventSource(stateID: .combinedSessionState)
-        // For drag, we just simulate left button down or up at current location
-        
         var loc = point
         if loc == nil {
             loc = CGEvent(source: nil)?.location
@@ -216,11 +221,9 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
 
         let type: CGEventType = start ? .leftMouseDown : .leftMouseUp
         if let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: pos, mouseButton: .left) {
-            // Dragging often requires specific click state, but just Down/Up is usually enough
-            if !start {
-                event.setIntegerValueField(.mouseEventClickState, value: 1) // Click count 1 on release
-            }
+            event.setIntegerValueField(.mouseEventClickState, value: 1)
             event.post(tap: .cghidEventTap)
+            isDragging = start
         }
     }
 
@@ -266,42 +269,13 @@ enum AutomationOutputs {
 
 final class PreferredAutomationOutput: AutomationOutput {
     private let fallback = CoreGraphicsAutomationOutput()
-    private let driver = DriverAutomationOutput()
 
     func moveCursor(to point: CGPoint, desktopMaxY: CGFloat) {
-        if OutputRouting.shared.forceDriverOnly {
-            if driver.moveCursor(to: point) {
-                OutputRouting.shared.setPointerOutputPath("DriverKit")
-            } else {
-                OutputRouting.shared.setPointerOutputPath("DriverKit (Unavailable)")
-            }
-            return
-        }
-
-        if driver.moveCursor(to: point) {
-            OutputRouting.shared.setPointerOutputPath("DriverKit")
-            return
-        }
         fallback.moveCursor(to: point, desktopMaxY: desktopMaxY)
         OutputRouting.shared.setPointerOutputPath("CoreGraphics")
-        driver.resetRelativeOrigin(to: point)
     }
 
     func mouseClick(at point: CGPoint, button: CGMouseButton, clickCount: Int) {
-        if OutputRouting.shared.forceDriverOnly {
-            if button == .left, driver.mouseClick(clickCount: clickCount) {
-                OutputRouting.shared.setPointerOutputPath("DriverKit")
-            } else {
-                OutputRouting.shared.setPointerOutputPath("DriverKit (Unavailable)")
-            }
-            return
-        }
-
-        // Driver MVP: only supports left click.
-        if button == .left, driver.mouseClick(clickCount: clickCount) {
-            OutputRouting.shared.setPointerOutputPath("DriverKit")
-            return
-        }
         fallback.mouseClick(at: point, button: button, clickCount: clickCount)
         OutputRouting.shared.setPointerOutputPath("CoreGraphics")
     }
@@ -336,15 +310,11 @@ final class PreferredAutomationOutput: AutomationOutput {
     }
 
     func scroll(dx: Int, dy: Int) {
-        // Driver not implemented for scroll yet.
         fallback.scroll(dx: dx, dy: dy)
         OutputRouting.shared.setPointerOutputPath("CoreGraphics (Scroll)")
     }
     
     func drag(start: Bool, at point: CGPoint?) {
-        // Driver not implemented for drag (button hold) specifically exposed yet, 
-        // though it has "updateButtonState".
-        // Use fallback for safety for now.
         fallback.drag(start: start, at: point)
         OutputRouting.shared.setPointerOutputPath("CoreGraphics (Drag)")
     }

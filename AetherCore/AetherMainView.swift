@@ -275,7 +275,7 @@ private struct OverviewDashboardView: View {
     }
 
     private var blockingIssuesCount: Int {
-        setupItems.filter { !$0.isReady }.count + (appState.driverState == .needsUserApproval ? 1 : 0)
+        setupItems.filter { !$0.isReady }.count
     }
 
     private var readinessCanCollapse: Bool {
@@ -296,8 +296,6 @@ private struct OverviewDashboardView: View {
         ) {
             OverviewReadinessCard(
                 setupItems: setupItems,
-                showDriverApproval: appState.driverState == .needsUserApproval,
-                openPrivacyAndSecurity: appState.openPrivacyAndSecurityPane,
                 isCollapsed: readinessCanCollapse && !readinessExpanded,
                 canCollapse: readinessCanCollapse,
                 onToggle: { readinessExpanded.toggle() }
@@ -333,8 +331,6 @@ private struct OverviewDashboardView: View {
 
 private struct OverviewReadinessCard: View {
     let setupItems: [OverviewSetupItem]
-    let showDriverApproval: Bool
-    let openPrivacyAndSecurity: () -> Void
     let isCollapsed: Bool
     let canCollapse: Bool
     let onToggle: () -> Void
@@ -404,29 +400,6 @@ private struct OverviewReadinessCard: View {
                             .cornerRadius(12)
                         }
 
-                        if showDriverApproval {
-                            HStack(spacing: 12) {
-                                Image(systemName: "lock.shield.fill")
-                                    .frame(width: 20)
-                                    .foregroundColor(.orange)
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("main.driver_approval.title")
-                                        .font(.subheadline.weight(.medium))
-                                    Text("main.driver_approval.detail")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-
-                                Spacer()
-
-                                Button(String(localized: "main.action.open_settings"), action: openPrivacyAndSecurity)
-                                    .controlSize(.small)
-                            }
-                            .padding(12)
-                            .background(Color.orange.opacity(0.08))
-                            .cornerRadius(12)
-                        }
                     }
                 }
             }

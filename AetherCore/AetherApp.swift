@@ -1,5 +1,4 @@
 import SwiftUI
-import SystemExtensions
 import Combine
 import AVFoundation
 import Speech
@@ -7,37 +6,11 @@ import Carbon
 import UniformTypeIdentifiers
 import IOKit.hidsystem
 
-let kAetherDriverBundleID = "com.7fei.Aether.AetherDriver"
-
 enum OnboardingStep: Equatable {
     case accessibility
     case microphone
     case speech
     case done
-}
-
-@MainActor
-final class DriverService: ObservableObject {
-    @Published private(set) var state: SystemExtensionActivationState = .idle
-
-    private let manager: SystemExtensionManager
-    private var cancellables = Set<AnyCancellable>()
-
-    init(manager: SystemExtensionManager = .shared) {
-        self.manager = manager
-
-        manager.$state
-            .receive(on: DispatchQueue.main)
-            .assign(to: &$state)
-    }
-
-    var statusText: String {
-        manager.statusText
-    }
-
-    func activate(identifier: String) {
-        manager.activate(identifier: identifier)
-    }
 }
 
 @MainActor
@@ -714,8 +687,6 @@ class AppState: ObservableObject {
         return HotkeyBinding(keyCode: keyCode, modifiers: modifiers)
     }
     
-    @Published var driverStatus: String = "Idle"
-    @Published var driverState: SystemExtensionActivationState = .idle
     @Published var isMotionTracking: Bool = false
     @Published var attitudeData: String = "No Data"
     
@@ -1178,7 +1149,6 @@ class AppState: ObservableObject {
         }
     }
     
-    private let driverService = DriverService()
     let motionService = MotionService()
     let voiceService = VoiceService()
     let nowPlayingService = NowPlayingService()
@@ -1196,15 +1166,6 @@ class AppState: ObservableObject {
     init() {
         CurrentAppShortcutPanelManager.shared.appState = self
 
-        driverService.$state
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] newState in
-                guard let self else { return }
-                self.driverState = newState
-                self.driverStatus = self.driverService.statusText
-            }
-            .store(in: &cancellables)
-        
         motionService.$isTracking
             .assign(to: &$isMotionTracking)
             
@@ -1468,51 +1429,6 @@ class AppState: ObservableObject {
         if !microphoneAuthorized { return .microphone }
         if !speechAuthorized { return .speech }
         return .done
-    }
-    
-    func activateDriver() {
-        // Pre-flight Check 1: Permissions
-        // Pre-flight Check 1: Permissions
-        if !accessibilityTrusted {
-            let msg = String(localized: "driver.error.need_accessibility")
-            driverStatus = msg
-            GlobalLogger.lifecycle.info("Driver activation blocked: Accessibility not trusted")
-            
-            let alert = NSAlert()
-            alert.messageText = String(localized: "Activation Failed")
-            alert.informativeText = msg
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return
-        }
-        
-        // Pre-flight Check 2: Motion Tracking Active (proves AirPods are connected)
-        // This is the most reliable way to ensure AirPods are actually connected and working
-        // Pre-flight Check 2: Motion Tracking Active (proves AirPods are connected)
-        // This is the most reliable way to ensure AirPods are actually connected and working
-        if !isMotionTracking {
-            let msg = String(localized: "driver.error.start_tracking_first")
-            driverStatus = msg
-            GlobalLogger.lifecycle.info("Driver activation blocked: Motion tracking not started")
-            
-            let alert = NSAlert()
-            alert.messageText = String(localized: "Activation Failed")
-            alert.informativeText = msg
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return
-        }
-        
-        GlobalLogger.lifecycle.info("Pre-flight checks passed, activating driver")
-        driverService.activate(identifier: kAetherDriverBundleID)
-    }
-
-    func openPrivacyAndSecurityPane() {
-        // Best-effort: the system extension approval UI lives under Privacy & Security.
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security") else { return }
-        NSWorkspace.shared.open(url)
     }
     
     func finishCalibration() {
