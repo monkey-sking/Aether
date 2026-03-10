@@ -2,6 +2,88 @@ import SwiftUI
 
 // MARK: - Shared UI Components
 
+enum AetherUI {
+    static let cardCornerRadius: CGFloat = 22
+    static let dashboardTileMinHeight: CGFloat = 214
+    static let sidebarIconSize: CGFloat = 18
+    static let sidebarIconFrame: CGFloat = 22
+
+    static let pageTitleFont = Font.system(size: 28, weight: .bold, design: .rounded)
+    static let sectionHeaderFont = Font.system(size: 13, weight: .semibold, design: .rounded)
+    static let sidebarItemFont = Font.system(size: 17, weight: .semibold, design: .rounded)
+    static let cardTitleFont = Font.system(size: 17, weight: .semibold, design: .rounded)
+    static let bodyFont = Font.system(size: 14, weight: .medium, design: .default)
+    static let captionFont = Font.system(size: 12, weight: .medium, design: .default)
+    static let captionStrongFont = Font.system(size: 12, weight: .semibold, design: .rounded)
+    static let menuBrandFont = Font.system(size: 15, weight: .semibold, design: .rounded)
+    static let menuHeadlineFont = Font.system(size: 14, weight: .semibold, design: .rounded)
+}
+
+struct SidebarSectionHeader: View {
+    let title: LocalizedStringKey
+
+    var body: some View {
+        Text(title)
+            .font(AetherUI.sectionHeaderFont)
+            .foregroundStyle(.secondary)
+            .textCase(nil)
+            .tracking(0.2)
+    }
+}
+
+struct SidebarItemLabel: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.system(size: AetherUI.sidebarIconSize, weight: .semibold))
+                .frame(width: AetherUI.sidebarIconFrame, alignment: .center)
+                .foregroundStyle(.primary)
+
+            Text(title)
+                .font(AetherUI.sidebarItemFont)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+struct DashboardTileHeader: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let iconBackground: Color
+    let iconForeground: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(iconBackground)
+                    .frame(width: 46, height: 46)
+
+                Image(systemName: systemImage)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(iconForeground)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(AetherUI.cardTitleFont)
+                Text(subtitle)
+                    .font(AetherUI.bodyFont)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+        }
+    }
+}
+
 struct ControlCard: View {
     let title: LocalizedStringKey
     let subtitle: LocalizedStringKey
@@ -69,7 +151,7 @@ struct SettingsPage<Content: View>: View {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(AetherUI.pageTitleFont)
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
@@ -176,7 +258,7 @@ struct GlassCard<Content: View>: View {
         content
             .padding(20)
             .background {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                RoundedRectangle(cornerRadius: AetherUI.cardCornerRadius, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -189,7 +271,7 @@ struct GlassCard<Content: View>: View {
                     )
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                RoundedRectangle(cornerRadius: AetherUI.cardCornerRadius, style: .continuous)
                     .stroke(
                         colorScheme == .dark
                             ? Color.white.opacity(0.08)
