@@ -54,33 +54,34 @@ struct AetherMenuBar: Scene {
         return .secondary
     }
 
+    private var statusSymbolName: String {
+        if needsAttention { return "exclamationmark.triangle.fill" }
+        if appState.isMotionTracking { return "viewfinder.circle.fill" }
+        return "waveform.circle.fill"
+    }
+
+    private var statusSummary: String {
+        if needsAttention {
+            return statusSubtitle
+        }
+        if !appState.voiceStatus.isEmpty && appState.voiceStatus != statusTitle {
+            return appState.voiceStatus
+        }
+        return statusTitle
+    }
+
     var body: some Scene {
         MenuBarExtra {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(statusAccentColor)
-                        .frame(width: 8, height: 8)
-                    Text("Aether")
-                        .font(.headline.weight(.semibold))
-                }
+            Text("Aether")
 
-                Text(statusTitle)
-                    .font(.subheadline.weight(.medium))
-
-                Text(statusSubtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.vertical, 4)
+            Label(statusSummary, systemImage: statusSymbolName)
 
             if appState.driverState == .needsUserApproval {
                 Button(String(localized: "menu.approve_driver")) {
                     appState.openPrivacyAndSecurityPane()
                 }
             } else if !driverReady && appState.isMotionTracking {
-                Button(L10n.menuActivateDriver) {
+                Button(String(localized: "menu.activate_driver")) {
                     appState.activateDriver()
                 }
             }
@@ -105,39 +106,32 @@ struct AetherMenuBar: Scene {
 
             Divider()
 
-            Button(appState.isMotionTracking
-                ? L10n.menuStopPointer(HotkeyManager.shared.binding(for: .toggleTracking).displayString)
-                : L10n.menuStartPointer(HotkeyManager.shared.binding(for: .toggleTracking).displayString)) {
+            Button(String(localized: appState.isMotionTracking ? "menu.stop_pointer" : "menu.start_pointer")) {
                 appState.toggleMotionTracking()
             }
 
-            Button(String(localized: "menu.toggle_input_control_mode")) {
+            Button(String(localized: "menu.switch_mode")) {
                 appState.toggleRecognitionInputControlMode()
             }
 
-            Button(L10n.menuRecenterPointer) {
+            Button(String(localized: "menu.recenter_pointer")) {
                 appState.finishCalibration()
             }
 
-            Button(
-                CurrentAppShortcutPanelManager.shared.isVisible
-                    ? String(localized: "menu.hide_shortcut_panel")
-                    : String(
-                        format: NSLocalizedString("menu.shortcut_panel_fmt", comment: ""),
-                        HotkeyManager.shared.binding(for: .toggleShortcutPanel).displayString
-                    )
-            ) {
+            Button(String(localized: "menu.shortcut_panel")) {
                 appState.toggleShortcutPanel()
             }
 
-            Button(String(localized: "menu.open_settings")) {
+            Divider()
+
+            Button(String(localized: "menu.settings_ellipsis")) {
                 GlobalLogger.lifecycle.info("Menu action: show main window")
                 presentMainWindow()
             }
 
             Divider()
 
-            Button(L10n.menuQuit) {
+            Button(String(localized: "menu.quit")) {
                 NSApp.terminate(nil)
             }
         } label: {

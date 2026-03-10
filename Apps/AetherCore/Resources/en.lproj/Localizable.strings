@@ -92,8 +92,11 @@
 "menu.enable_microphone" = "Enable Microphone";
 "menu.enable_speech" = "Enable Speech Recognition";
 "menu.open_settings" = "Open Settings";
+"menu.settings_ellipsis" = "Settings…";
 "menu.more_controls" = "More Controls";
 "menu.shortcut_panel_fmt" = "Shortcuts Panel (%@)";
+"menu.show_shortcut_panel" = "Show Shortcut Panel";
+"menu.shortcut_panel" = "Shortcuts Panel";
 "menu.activate_driver" = "Activate Driver";
 "menu.start_pointer" = "Start Pointer";
 "menu.stop_pointer" = "Stop Pointer";
@@ -306,6 +309,7 @@
 
 /* Menu bar */
 "menu.toggle_input_control_mode" = "Toggle Input/Control Mode";
+"menu.switch_mode" = "Switch Mode";
 "menu.hide_shortcut_panel" = "Hide Shortcut Panel";
 
 /* Hotkey helper text */

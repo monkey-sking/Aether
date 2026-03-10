@@ -2285,10 +2285,18 @@ private enum CurrentAppShortcutPanelLayout {
         return 88 + CGFloat(visibleCommands) * 44
     }
 
+    static func resolvedHeight(
+        for section: CurrentAppShortcutPanelSection,
+        measurements: [String: CGFloat]
+    ) -> CGFloat {
+        measurements[section.id] ?? estimatedHeight(for: section)
+    }
+
     static func makeColumns(
         from sections: [CurrentAppShortcutPanelSection],
         columnCount: Int,
-        spacing: CGFloat
+        spacing: CGFloat,
+        measurements: [String: CGFloat] = [:]
     ) -> [[CurrentAppShortcutPanelSection]] {
         guard columnCount > 1, !sections.isEmpty else {
             return sections.isEmpty ? [] : [sections]
@@ -2298,7 +2306,7 @@ private enum CurrentAppShortcutPanelLayout {
         var heights = Array(repeating: CGFloat(0), count: columnCount)
 
         for section in sections {
-            let estimated = estimatedHeight(for: section)
+            let resolved = resolvedHeight(for: section, measurements: measurements)
             let targetColumn = heights.enumerated()
                 .min { lhs, rhs in
                     if lhs.element == rhs.element { return lhs.offset < rhs.offset }
@@ -2308,7 +2316,7 @@ private enum CurrentAppShortcutPanelLayout {
 
             let spacingHeight = columns[targetColumn].isEmpty ? CGFloat(0) : spacing
             columns[targetColumn].append(section)
-            heights[targetColumn] += spacingHeight + estimated
+            heights[targetColumn] += spacingHeight + resolved
         }
 
         return columns.filter { !$0.isEmpty }
@@ -2423,6 +2431,7 @@ private struct CurrentAppShortcutPanelView: View {
     @State private var isPanelFocused: Bool = true
     @State private var blurWorkItem: DispatchWorkItem?
     @State private var searchText: String = ""
+    @State private var measuredSectionHeights: [String: CGFloat] = [:]
 
     private var snapshot: FrontmostAppCommandSnapshot? {
         catalog.snapshot
@@ -2486,11 +2495,16 @@ private struct CurrentAppShortcutPanelView: View {
         filteredAppShortcutCount + filteredGlobalShortcuts.count
     }
 
+    private var sectionColumnCount: Int {
+        CurrentAppShortcutPanelLayout.preferredColumnCount(for: filteredSections)
+    }
+
     private var sectionColumns: [[CurrentAppShortcutPanelSection]] {
         CurrentAppShortcutPanelLayout.makeColumns(
             from: filteredSections,
-            columnCount: CurrentAppShortcutPanelLayout.preferredColumnCount(for: filteredSections),
-            spacing: 18
+            columnCount: sectionColumnCount,
+            spacing: 18,
+            measurements: measuredSectionHeights
         )
     }
 
@@ -2563,7 +2577,10 @@ private struct CurrentAppShortcutPanelView: View {
                                 ForEach(Array(sectionColumns.enumerated()), id: \.offset) { _, column in
                                     VStack(alignment: .leading, spacing: 18) {
                                         ForEach(column) { section in
-                                            CurrentAppShortcutSectionCard(section: section, onTrigger: triggerCurrentAppShortcut)
+                                            CurrentAppShortcutSectionCard(
+                                                section: section,
+                                                onTrigger: triggerCurrentAppShortcut
+                                            )
                                         }
                                     }
                                     .frame(maxWidth: .infinity, alignment: .top)
@@ -2601,6 +2618,21 @@ private struct CurrentAppShortcutPanelView: View {
                 .scrollIndicators(.hidden)
             }
             .padding(26)
+        }
+        .onPreferenceChange(CurrentAppShortcutSectionHeightPreferenceKey.self) { heights in
+            guard !heights.isEmpty else { return }
+            var next = measuredSectionHeights
+            var changed = false
+            for (id, height) in heights {
+                guard height > 0 else { continue }
+                if abs((next[id] ?? 0) - height) > 1 {
+                    next[id] = height
+                    changed = true
+                }
+            }
+            if changed {
+                measuredSectionHeights = next
+            }
         }
         .opacity(isPanelFocused ? 1.0 : 0.9)
         .onAppear {
@@ -2846,6 +2878,22 @@ private struct CurrentAppShortcutSectionCard: View {
                 .stroke(cardStroke, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: CurrentAppShortcutSectionHeightPreferenceKey.self,
+                    value: [section.id: proxy.size.height]
+                )
+            }
+        )
+    }
+}
+
+private struct CurrentAppShortcutSectionHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGFloat] = [:]
+
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 

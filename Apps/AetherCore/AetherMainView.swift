@@ -38,7 +38,7 @@ struct AetherMainView: View {
                         panelLabel(.overview)
                     }
                 } header: {
-                    Text("main.section.workspace")
+                    SidebarSectionHeader(title: "main.section.workspace")
                 }
 
                 Section {
@@ -58,7 +58,7 @@ struct AetherMainView: View {
                         panelLabel(.voiceInsights)
                     }
                 } header: {
-                    Text("main.section.voice")
+                    SidebarSectionHeader(title: "main.section.voice")
                 }
 
                 Section {
@@ -72,11 +72,12 @@ struct AetherMainView: View {
                         panelLabel(.shortcuts)
                     }
                 } header: {
-                    Text("main.section.controls")
+                    SidebarSectionHeader(title: "main.section.controls")
                 }
 
             }
             .listStyle(.sidebar)
+            .environment(\.defaultMinListRowHeight, 46)
             .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
         } detail: {
             switch selection {
@@ -113,7 +114,10 @@ struct AetherMainView: View {
 
     @ViewBuilder
     private func panelLabel(_ panel: Panel) -> some View {
-        Label(panelTitle(panel), systemImage: panelSymbol(panel))
+        SidebarItemLabel(
+            title: panelTitle(panel),
+            systemImage: panelSymbol(panel)
+        )
     }
 
     private func panelTitle(_ panel: Panel) -> String {
@@ -473,27 +477,17 @@ private struct PointerControlTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                ZStack {
-                    Circle()
-                        .fill(isOn ? Color.green : Color.gray.opacity(0.16))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: "viewfinder")
-                        .foregroundColor(isOn ? .white : .secondary)
-                }
-                Spacer()
+            HStack(alignment: .top, spacing: 16) {
+                DashboardTileHeader(
+                    title: String(localized: "main.pointer.title"),
+                    subtitle: subtitle,
+                    systemImage: "viewfinder",
+                    iconBackground: isOn ? Color.green : Color.gray.opacity(0.16),
+                    iconForeground: isOn ? .white : .secondary
+                )
                 Toggle("", isOn: $isOn)
                     .labelsHidden()
                     .toggleStyle(.switch)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("main.pointer.title")
-                    .font(.headline)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(spacing: 10) {
@@ -512,10 +506,10 @@ private struct PointerControlTile: View {
             }
 
             Text("main.pointer.footnote")
-            .font(.caption2)
-            .foregroundColor(.secondary)
+                .font(AetherUI.captionFont)
+                .foregroundColor(.secondary)
         }
-        .frame(maxWidth: .infinity, minHeight: 172, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: AetherUI.dashboardTileMinHeight, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -523,9 +517,9 @@ private struct PointerControlTile: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.caption.weight(.semibold))
+                    .font(AetherUI.bodyFont)
                 Text(subtitle)
-                    .font(.caption2)
+                    .font(AetherUI.captionFont)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -536,9 +530,9 @@ private struct PointerControlTile: View {
                 .controlSize(.small)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 11)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-        .cornerRadius(10)
+        .cornerRadius(12)
     }
 }
 
@@ -547,24 +541,13 @@ private struct VoiceModeTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                ZStack {
-                    Circle()
-                        .fill(Color.blue.opacity(0.18))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: "waveform.badge.mic")
-                        .foregroundColor(.blue)
-                }
-                Spacer()
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("main.voice_activation.title")
-                    .font(.headline)
-                Text("main.voice_activation.subtitle")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            DashboardTileHeader(
+                title: String(localized: "main.voice_activation.title"),
+                subtitle: String(localized: "main.voice_activation.subtitle"),
+                systemImage: "waveform.badge.mic",
+                iconBackground: Color.blue.opacity(0.18),
+                iconForeground: .blue
+            )
 
             Picker("", selection: $mode) {
                 ForEach(AppState.VoiceActivationMode.allCases, id: \.self) { item in
@@ -574,11 +557,11 @@ private struct VoiceModeTile: View {
             .pickerStyle(.segmented)
 
             Text(selectedModeDescription)
-                .font(.caption2)
+                .font(AetherUI.captionFont)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, minHeight: 148, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: AetherUI.dashboardTileMinHeight, alignment: .topLeading)
     }
 
     private func shortLabel(for mode: AppState.VoiceActivationMode) -> String {
