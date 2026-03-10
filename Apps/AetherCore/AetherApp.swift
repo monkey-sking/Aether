@@ -264,6 +264,8 @@ final class VoiceService: ObservableObject {
 
 @MainActor
 final class NowPlayingService: ObservableObject {
+    static let shared = NowPlayingService()
+
     @Published private(set) var appName: String = ""
     @Published private(set) var bundleIdentifier: String = ""
     @Published private(set) var title: String = ""
@@ -1151,7 +1153,7 @@ class AppState: ObservableObject {
     
     let motionService = MotionService()
     let voiceService = VoiceService()
-    let nowPlayingService = NowPlayingService()
+    let nowPlayingService = NowPlayingService.shared
     private let permissions = PermissionsService()
     let connectionLock = ConnectionLockService.shared
 

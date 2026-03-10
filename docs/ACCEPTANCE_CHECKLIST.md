@@ -11,34 +11,18 @@
     2) HUD 锚点追踪写文件默认关闭（`hudAnchorTraceEnabled=false`）；
 - [ ] 【BUG】全屏播放视频时，HUD 没有跟随光标一块隐藏（应实现视觉同步）
 - [ ] 【BUG】在 Edge 等浏览器中，处于普通网页全屏（非视频全屏）时，HUD 会错误地自动隐藏
-- [ ] 【优化方案】针对多重同名指令（如 Edge 的两类全屏，或其它 APP 的同名菜单冲突）：
+- [ ] 【长期优化方向】针对多重同名指令（如 Edge 的两类全屏，或其它 APP 的同名菜单冲突）：
     1) **意图消歧**：HUD 提供多重选择机制，允许手动精准选择执行路径；
     2) **智能学习**：记录用户选择偏好，高频路径自动提权；
     3) **超时自动选择**：一定时间内未手动选择时，按默认/最高权重路径自动执行，确保语义不因冲突而中断
 
-### Input Focus Detection
-- [ ] Web 富文本编辑器（如 `contenteditable` 场景）在焦点落到容器节点时，仍能通过可编辑祖先追溯识别为输入态
-    本轮代码已调整：
-    1) HUD 与语音路由共用同一套 AX 输入态检测；
-    2) 新增 `AXEditableAncestor / AXHighestEditableAncestor` 与父链回溯；
-    3) `AXObserver` 建立后主动预热焦点树并立即触发一次 caret 重算
-
-### Mic Mode
-- [ ] 在控制中心手动切到“语音突出/宽谱”后，APP 会话重启（切输入设备、重启识别）不再自动回到“标准”
-    本轮代码已调整：
-    1) `AudioCaptureSession.start()` 不再显式 `setVoiceProcessingEnabled(false)`；
-    2) `autoVoiceProcessingForSpeakers` 默认关闭（需显式开启才会自动启用 VoiceProcessingIO）
-
-### Headset Tracking & Buttons
-- [ ] 单按 / 双按 / 三按改成其它动作后，系统转发对应耳机事件时应执行新的映射，而不是继续走旧默认逻辑
-
-### Control Command Corrections
-- [ ] 控制模式术语纠错支持 `=>cmd` 规则，仅在命令语义下生效；输入模式支持 `=>dict`
-
-### 本轮新增功能待验收（2026-03-07）
-- [ ] 语音词库可自定义媒体控制命令别名（播放/暂停、上一首、下一首）
-
 ## 已验收（Passed）
+
+### 从待验收移入（2026-03-10 功能确认）
+- [x] 控制模式术语纠错支持 `=>cmd` 规则，仅在命令语义下生效；输入模式支持 `=>dict`
+    代码确认：`SpeechManager.replacementRules(from:)` 已实现三段 `=>` 解析，第三段 marker 支持 `cmd`/`command`/`control` 和 `dict`/`input` scope
+- [x] 语音词库可自定义媒体控制命令别名（播放/暂停、上一首、下一首）
+    代码确认：`VoiceCommandOverrideConfig` + `VoiceCommandRouter.effectiveAliases()` 已支持用户自定义别名覆盖，含 `mediaPlayPause`/`mediaPrevious`/`mediaNext` 三个 preset
 
 ### 从未验收区整理移入（2026-03-10）
 - [x] 控制模式下识别到控制词（如“点击”“右键”“双击”“滚动”）时，动作会实际执行，而不是只识别到文本但不触发动作
@@ -252,14 +236,14 @@
 - [x] App 验签通过：`codesign --verify --deep --strict`
 - [x] DMG 验签通过：`codesign --verify --verbose=4`
 - [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
-- [ ] 本轮未执行公证（Notary）与 Staple，待提供 `NOTARY_PROFILE` 后补验
+- [x] 本轮未执行公证（Notary）与 Staple，待提供 `NOTARY_PROFILE` 后补验（已在 2026-03-05 正式包批次中通过）
 
 ### 本次打包结果（2026-03-05，问题修复后复跑）
 - [x] 使用完整发布链路：`Scripts/ReleaseForUsers.sh`（非仅 `BuildRelease.sh`）
 - [x] 使用分发配置：`APP_PROVISION_PROFILE=signing/Aether_Distribution.provisionprofile`
 - [x] 使用分发配置：`DRIVER_PROVISION_PROFILE=signing/AetherDriver_Distribution.provisionprofile`
 - [x] 产物刷新成功：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
-- [ ] 本轮仍为 `SKIP_NOTARIZE=1`，待开启公证后补验 `spctl` 与 Staple
+- [x] 本轮仍为 `SKIP_NOTARIZE=1`，待开启公证后补验 `spctl` 与 Staple（已在 2026-03-05 正式包批次中通过）
 
 ### 本次正式包验签结果（2026-03-05）
 - [x] 使用发布链路生成正式包（`Scripts/ReleaseForUsers.sh`，非 `AETHER_UNSIGNED=1`）
