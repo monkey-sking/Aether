@@ -302,6 +302,7 @@ final class HUDManager {
     private var activeTemporaryFallbackSnapshot: HUDPresentationSnapshot?
     private var cancellables = Set<AnyCancellable>()
     private var backgroundFullscreenCheckTimer: Timer?
+    private var appNapActivityToken: NSObjectProtocol?
     
     private init() {
         setupSubscriptions()
@@ -312,9 +313,17 @@ final class HUDManager {
 
     private func startBackgroundFullscreenCheck() {
         backgroundFullscreenCheckTimer?.invalidate()
-        // Check every 1.5 seconds to ensure we hide the HUD if the user goes fullscreen 
-        // and stops moving the mouse.
-        backgroundFullscreenCheckTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+        
+        // Prevent App Nap during detection to ensure the timer runs accurately
+        if appNapActivityToken == nil {
+            appNapActivityToken = NSProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .latencyCritical],
+                reason: "Aether HUD Fullscreen Video Detection"
+            )
+        }
+
+        // Check every 1.2 seconds (matching the inactivity threshold)
+        backgroundFullscreenCheckTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
             self?.checkFullscreenSuppressionLocally()
         }
     }
@@ -1666,7 +1675,28 @@ final class HUDManager {
             if let n = fullscreenRef as? NSNumber, n.boolValue { return true }
         }
         
-        // Also check if any window of this app is fullscreen (for browsers with separate video windows)
+        // Global Geometric Check: Detect any window (including Renderer Helpers) that covers the screen.
+        // We use kCGWindowListOptionOnScreenOnly.
+        let options = CGWindowListOption(arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements)
+        if let windowInfos = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] {
+            for info in windowInfos {
+                // Ignore layers meant for background or desktop
+                guard let layer = info[kCGWindowLayer as String] as? Int, layer <= 0 else { continue }
+                guard let boundsValue = info[kCGWindowBounds as String] else { continue }
+                let boundsDict = boundsValue as! CFDictionary
+                guard let bounds = CGRect(dictionaryRepresentation: boundsDict) else { continue }
+                
+                // If a window covers >95% of the target screen, it's effectively a fullscreen scenario.
+                // We check if it's opaque (Alpha != 0)
+                if let alpha = info[kCGWindowAlpha as String] as? Double, alpha > 0.5 {
+                    if bounds.width >= screen.frame.width * 0.95 && bounds.height >= screen.frame.height * 0.95 {
+                        return true
+                    }
+                }
+            }
+        }
+        
+        // Final fallback: Scan all windows of the current frontmost app for AXFullScreen.
         var windowList: CFTypeRef?
         if AXUIElementCopyAttributeValue(appAX, kAXWindowsAttribute as CFString, &windowList) == .success,
            let windows = windowList as? [AXUIElement] {
@@ -1675,24 +1705,6 @@ final class HUDManager {
                 if AXUIElementCopyAttributeValue(win, "AXFullScreen" as CFString, &fs) == .success {
                     if let b = fs as? Bool, b { return true }
                     if let n = fs as? NSNumber, n.boolValue { return true }
-                }
-            }
-        }
-        
-        // Fallback: CGWindowList check (Handles cases where AX attributes are missing or slow)
-        let frontPid = app.processIdentifier
-        let options = CGWindowListOption(arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements)
-        if let windowInfos = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] {
-            for info in windowInfos {
-                guard let ownerPid = info[kCGWindowOwnerPID as String] as? pid_t, ownerPid == frontPid else { continue }
-                guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
-                guard let boundsValue = info[kCGWindowBounds as String] else { continue }
-                let boundsDict = boundsValue as! CFDictionary
-                guard let bounds = CGRect(dictionaryRepresentation: boundsDict) else { continue }
-                
-                // If it covers more than 95% of the screen, it's likely fullscreen video
-                if bounds.width >= screen.frame.width * 0.95 && bounds.height >= screen.frame.height * 0.95 {
-                    return true
                 }
             }
         }
