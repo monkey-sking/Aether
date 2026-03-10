@@ -938,6 +938,7 @@ final class SpeechManager: ObservableObject {
             if !recognitionSession.isRunning { startOnce() }
             return
         }
+        refreshContinuousHUD()
         if !availableInputDevices.contains(where: { $0.id != 0 }) { showPTTUnavailableHUD() }
         startOnce()
     }
