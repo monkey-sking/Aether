@@ -264,8 +264,8 @@
 ### 最近一次正式发布（2026-03-11）
 - [x] 使用完整发布链路：`env NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh`
 - [x] 本次正式包包含：HUD 待命文案不再尾随“中”等语言缩写、快捷键面板搜索框去除系统焦点角标、指针图标更新、中文标题“应用快捷键”、HUD/菜单去 emoji、快捷键面板中英混入修复、设置侧栏标题对齐、语音词库分组视觉增强、菜单栏去掉版本号。
-- [x] 正式包版本：`202603111529`；Universal 架构：`arm64 + x86_64`
-- [x] 公证已通过（Submission ID: `46cc92e7-be1b-4607-acaa-d0a23bcecc4c`），App / DMG 已完成 Staple
+- [x] 正式包版本：`202603111535`；Universal 架构：`arm64 + x86_64`
+- [x] 公证已通过（Submission ID: `4012b8af-29a7-4121-96a8-dfc2d06fbe9f`），App / DMG 已完成 Staple
 - [x] 产物路径：
   App：`.build/release/Aether.app`
   DMG：`.build/release/Aether_Installer.dmg`
