@@ -108,12 +108,12 @@ struct HUDView: View {
         let isLeft: Bool
         func path(in rect: CGRect) -> Path {
             var path = Path()
-            // Use exact center to ensure no part of the earbud is lost
+            // Reverted to user-confirmed crop values to clean up "other bud" residue while keeping shape
             let mid = rect.width / 2
             if isLeft {
-                path.addRect(CGRect(x: 0, y: 0, width: mid, height: rect.height))
+                path.addRect(CGRect(x: 0, y: 0, width: mid - 1, height: rect.height))
             } else {
-                path.addRect(CGRect(x: mid, y: 0, width: mid, height: rect.height))
+                path.addRect(CGRect(x: mid + 1, y: 0, width: mid + 1, height: rect.height))
             }
             return path
         }
