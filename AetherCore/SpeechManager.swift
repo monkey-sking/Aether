@@ -821,6 +821,8 @@ final class SpeechManager: ObservableObject {
             syncSessionInputTargetFromCurrentFocus(resetDictationStream: dictationHandler.screenTypedText.isEmpty)
         }
 
+        let lockedFocusedSnapshot = currentFocusedInputSnapshot()
+        let lockedTargetMatches = hasLockedFocusedInputTarget(lockedFocusedSnapshot)
         let liveTyping = throttledTypingMode()
         let canType = isAwake || isDirectCommandEnabled || !isAlwaysListeningEnabled
         let hasStreamedDictation = !dictationHandler.screenTypedText.isEmpty
@@ -853,6 +855,27 @@ final class SpeechManager: ObservableObject {
            !nextTypingMode,
            !hasStreamedDictation {
             GlobalLogger.speech.info("[TypingMode] HUD control state overrode stale typing context before partial injection")
+        }
+        if recognitionControlMode == .auto,
+           !liveTyping,
+           lockedTargetMatches,
+           nextTypingMode {
+            let currentPID = lockedFocusedSnapshot?.pid ?? 0
+            let currentBundle = lockedFocusedSnapshot?.bundleID ?? "nil"
+            let targetPID = sessionTargetPID ?? 0
+            let targetBundle = sessionTargetBundleID ?? "nil"
+            GlobalLogger.speech.info(
+                "[TypingMode] holding dictation on locked input target liveTyping=false currentPID=\(currentPID) targetPID=\(targetPID) currentBundle=\(currentBundle) targetBundle=\(targetBundle)"
+            )
+        }
+        if recognitionControlMode == .auto, sessionTypingMode != nextTypingMode {
+            let currentPID = lockedFocusedSnapshot?.pid ?? 0
+            let currentBundle = lockedFocusedSnapshot?.bundleID ?? "nil"
+            let targetPID = sessionTargetPID ?? 0
+            let targetBundle = sessionTargetBundleID ?? "nil"
+            GlobalLogger.speech.info(
+                "[TypingMode] transition \(sessionTypingMode)->\(nextTypingMode) liveTyping=\(liveTyping) computed=\(computedTypingMode) reconciled=\(nextTypingMode) hasStreamed=\(hasStreamedDictation) utteranceActive=\(isUtteranceActive) lockedTarget=\(lockedTargetMatches) currentPID=\(currentPID) targetPID=\(targetPID) currentBundle=\(currentBundle) targetBundle=\(targetBundle)"
+            )
         }
         sessionTypingMode = nextTypingMode
         isDictating = sessionTypingMode
@@ -1950,6 +1973,7 @@ final class SpeechManager: ObservableObject {
         }
 
         if HUDManager.shared.lastKnownTypingState() { return true }
+        if hasLockedFocusedInputTarget() { return true }
         if let app = NSWorkspace.shared.frontmostApplication,
            let bid = app.bundleIdentifier {
             let appName = app.localizedName?.lowercased() ?? ""
@@ -1969,6 +1993,26 @@ final class SpeechManager: ObservableObject {
     private func resetTypingStateCache() {
         cachedTypingMode = false
         lastTypingCheckAt = .distantPast
+    }
+
+    private func hasLockedFocusedInputTarget(_ snapshot: FocusedInputSnapshot? = nil) -> Bool {
+        guard recognitionControlMode == .auto else { return false }
+        guard sessionTargetPID != nil || sessionTargetBundleID != nil || sessionTargetElementFingerprint != nil else {
+            return false
+        }
+        guard let snapshot = snapshot ?? currentFocusedInputSnapshot() else { return false }
+
+        if let targetPID = sessionTargetPID, targetPID > 0, snapshot.pid != targetPID {
+            return false
+        }
+        if let targetBundleID = sessionTargetBundleID, snapshot.bundleID != targetBundleID {
+            return false
+        }
+        if let targetFingerprint = sessionTargetElementFingerprint,
+           snapshot.elementFingerprint != targetFingerprint {
+            return false
+        }
+        return true
     }
 
     // MARK: - Focus Snapshots

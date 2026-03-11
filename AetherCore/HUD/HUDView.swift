@@ -84,14 +84,16 @@ struct HUDView: View {
             let requestedIcon = state.inputDeviceIcon
             if requestedIcon == "airpodspro.left" || requestedIcon == "airpodspro.right" {
                 let isLeft = requestedIcon == "airpodspro.left"
+                // Measured against the actual SwiftUI render path (`font(14) + clip + frame(22)`):
+                // with the user-perspective swap (`!isLeft`), a 4pt compensation centers the clipped bud.
+                let airPodsProHalfOffset: CGFloat = 4.0
                 Image(systemName: "airpodspro")
                     .foregroundColor(.white)
                     .font(.system(size: 14))
                     .shadow(radius: 1)
                     // Swap: We want the other side of the symbol to match user perspective
                     .clipShape(AirPodHalfClip(isLeft: !isLeft))
-                    // Adjusted offset for perfect visual centering in the green ring
-                    .offset(x: isLeft ? 3.5 : -3.5)
+                    .offset(x: isLeft ? -airPodsProHalfOffset : airPodsProHalfOffset)
             } else {
                 Image(systemName: resolvedSymbolName(for: requestedIcon))
                     .foregroundColor(.white)
