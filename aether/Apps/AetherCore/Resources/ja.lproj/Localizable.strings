@@ -1,0 +1,500 @@
+/* Generic */
+"generic.on" = "オン";
+"generic.off" = "オフ";
+"generic.idle" = "待機中";
+"generic.ready" = "準備完了";
+"generic.tracking" = "トラッキング中";
+"generic.select_item" = "項目を選択";
+"generic.refresh" = "更新";
+
+/* App */
+"app.project_title" = "Aether プロジェクト";
+"app.version_fmt" = "Version %@ (%@)";
+
+/* Status */
+"status.perception_network" = "パーセプション・ネットワーク";
+"status.pointer_output" = "ポインター出力";
+"status.text_output" = "テキスト出力";
+"status.mode" = "モード";
+"status.mode.auto" = "自動";
+
+/* Rows */
+"row.virtual_hid" = "仮想HID";
+"row.airpods_matrix" = "AirPods マトリックス";
+"row.voice" = "音声";
+"row.lid_sensor" = "リッドセンサー";
+
+/* Permissions */
+"permissions.title" = "権限";
+"permissions.accessibility" = "アクセシビリティ";
+"permissions.microphone" = "マイク";
+"permissions.speech" = "音声認識";
+"permissions.fix_accessibility" = "アクセシビリティを修復";
+"permissions.fix_microphone" = "マイクを修復";
+"permissions.fix_speech" = "音声認識を修復";
+"permissions.open_pane" = "パネルを開く";
+"permissions.recheck" = "再チェック";
+
+/* Driver errors */
+"driver.error.need_accessibility" = "まずアクセシビリティ権限を許可してください";
+"driver.error.airpods_not_connected" = "先にAirPodsを接続してください";
+"driver.error.start_tracking_first" = "AirPodsが接続され、データが流れていることを確認するために、まずモーションマトリックスを開始してください。";
+"motion.error.airpods_not_detected" = "AirPodsが検出されませんでした。このMacに接続されていることを確認して再度お試しください。";
+"motion.error.connection_timeout" = "接続がタイムアウトしました。5秒以内にモーションデータを受信できませんでした。";
+"motion.error.airpods_disconnected" = "AirPodsが切断されたか、別のデバイスに切り替わりました。";
+"motion.error.connection_lost" = "接続が失われました。5秒間データを受信していません。";
+
+/* Controls */
+"control.dwell_click" = "ドエルクリック";
+"control.always_listening" = "常時リスニング";
+"control.always_listening_wake_window" = "常時リスニング有効ウィンドウ";
+"control.always_listening_wake_window_hint" = "このウィンドウ内では、ウェイクワードを繰り返し言わずにコマンドを直接実行できます。";
+"control.llm_enhance_dictation" = "LLMによるディクテーション強化";
+"control.prefer_inputmethod_caret" = "IMEキャレットエンジンを使用";
+"control.caret_engine_compare" = "AX vs IME ログを記録";
+"control.hud_auto_hide" = "HUDの自動非表示";
+"control.hud_auto_hide_hint" = "ワンショットのヒントにのみ影響します。継続的なリスニングHUDはここでは制御されません。";
+"control.push_to_talk_hint" = "プッシュ・トゥ・トーク：⌥Spaceを長押し。常時リスニング：「Aether...」と話しかけてください";
+"control.toggle_tracking" = "トラッキング切り替え";
+"control.toggle_tracking_hint" = "トラッキング切り替え：⌥T または音声コマンドを使用";
+
+/* Actions */
+"action.activate_perception" = "パーセプショントラッキングを有効にする";
+"action.start_motion_matrix" = "モーションマトリックスを開始";
+"action.stop_motion_matrix" = "モーションマトリックスを停止";
+"action.finish_range_calibration" = "キャリブレーションを完了";
+
+/* Onboarding */
+"onboarding.setup_required" = "セットアップが必要です";
+"onboarding.accessibility" = "グローバルホットキーと入力自動化を許可するために、アクセシビリティを有効にしてください。";
+"onboarding.microphone" = "音声入力を使用するために、マイクへのアクセスを許可してください。";
+"onboarding.speech" = "文字起こしを使用するために、音声認識へのアクセスを許可してください。";
+
+/* Menu bar */
+"menu.pointer" = "ポインター";
+"menu.voice" = "音声";
+"menu.status.setup_attention" = "セットアップの確認が必要です";
+"menu.status.voice_pointer_ready" = "音声とポインターの準備完了";
+"voice.status.idle" = "待機中";
+"menu.status.pointer_active" = "ポインター制御が有効";
+"Aether" = "Aether";
+"menu.status.ready" = "Aether 準備完了";
+"menu.status.accessibility_missing" = "アクセシビリティ権限がありません";
+"menu.status.microphone_missing" = "マイク権限がありません";
+"menu.status.speech_missing" = "音声認識の権限がありません";
+"menu.enable_accessibility" = "アクセシビリティを有効にする";
+"menu.enable_microphone" = "マイクを有効にする";
+"menu.enable_speech" = "音声認識を有効にする";
+"menu.open_settings" = "設定を開く";
+"menu.settings_ellipsis" = "設定…";
+"menu.more_controls" = "詳細コントロール";
+"menu.shortcut_panel_fmt" = "ショートカットパネル (%@)";
+"menu.shortcut_panel" = "ショートカットパネル";
+"menu.start_pointer" = "ポインター制御を開始";
+"menu.stop_pointer" = "ポインター制御を停止";
+"menu.recenter_pointer" = "ポインターを再中心";
+"menu.show_window" = "ウィンドウを表示";
+"menu.quit" = "終了";
+
+/* Hotkeys */
+"hotkey.section_title" = "ホットキー";
+"hotkey.toggle_tracking" = "トラッキングの切り替え";
+"hotkey.connection_lock" = "接続ロック";
+"hotkey.toggle_input_control_mode" = "入力/コントロールモードの切り替え";
+"hotkey.toggle_language" = "言語の切り替え";
+"hotkey.toggle_shortcut_panel" = "ショートカットパネルの切り替え";
+"hotkey.push_to_talk" = "プッシュ・トゥ・トーク";
+"hotkey.press_key" = "キーを押してください…";
+"hotkey.reset_all" = "すべてリセット";
+"hotkey.reset_single" = "デフォルトに戻す";
+
+/* New Features */
+"control.show_dock_icon" = "Dockアイコンを表示";
+"control.tilt_scroll" = "ティルトスクロール";
+"control.debug_mode" = "デバッグモード";
+"control.toggle_tracking_fmt %@" = "トラッキング切り替え: %@";
+
+"section.quick_start" = "クイックスタート";
+"section.runtime_status" = "ランタイムステータス";
+"section.voice_listening" = "音声とリスニング";
+"section.hud_settings" = "HUD設定";
+"section.advanced_settings" = "詳細設定";
+"voice.state_now" = "現在の音声ステータス";
+"voice.wakeword_required_now" = "ウェイクワードが必要";
+"voice.yes" = "はい";
+"voice.no" = "いいえ";
+
+"menu.start_pointer_fmt %@" = "ポインターを開始 (%@)";
+"menu.stop_pointer_fmt %@" = "ポインターを停止 (%@)";
+"menu.airpods_lock_fmt %@" = "AirPods ロック (%@)";
+
+/* Speech Status */
+"speech.listening" = "待機中...";
+"speech.waiting_command" = "コマンド待ち...";
+"speech.waiting_wakeword" = "ウェイクワード待ち...";
+"speech.idle" = "待機";
+"speech.unavailable" = "音声認識を利用できません";
+"speech.error" = "認識エラー";
+"speech.pasted" = "貼り付け";
+"speech.typed" = "入力";
+"speech.undo" = "取り消し";
+"speech.done" = "完了";
+
+/* HUD Hints & Errors */
+"speech.no_matching_command" = "コマンドが見つかりません";
+"speech.no_editable_field" = "入力可能な項目が見つかりません";
+"speech.undo_done" = "取り消しました";
+"speech.pasted_cmdv" = "貼り付けました (Cmd+V)";
+"speech.bilingual_switch_unsupported" = "2ヶ国語モードのみ対応";
+"speech.no_mic_detected" = "マイクが見つかりません";
+"speech.need_mic_permission" = "マイクの使用を許可してください";
+"speech.need_recognition_permission" = "音声認識の使用を許可してください";
+"speech.lang_indicator" = "日";
+
+/* Dashboard & Settings (New) */
+"settings.tab.overview" = "概要";
+"settings.tab.general" = "一般";
+"settings.tab.input" = "入力";
+"settings.tab.feedback" = "フィードバック";
+"settings.tab.advanced" = "詳細";
+
+"settings.header.motion" = "モーションコントロール";
+"settings.header.shortcuts" = "ショートカット";
+
+"dashboard.hint.command" = "「クリック」のように話しかけてください";
+"dashboard.hint.wakeword" = "「エーテル」と呼んで起動します";
+"dashboard.hint.enable" = "ボイスコントロールを有効にして開始";
+
+/* Command Center & Navigation */
+"command.center.title" = "コマンドセンター";
+"command.center.voice_stream" = "音声ストリーム";
+"command.center.motion_matrix" = "モーションマトリックス";
+"status.system.active" = "システム稼働中";
+"status.system.offline" = "システムオフライン";
+"action.recenter" = "再中心";
+"navigation.section.controls" = "コントロール";
+"navigation.item.system" = "システム";
+"navigation.section.configuration" = "構成";
+
+/* Visualization */
+"viz.voice_signal" = "音声信号";
+"viz.last_command" = "最終コマンド";
+"viz.calibration" = "キャリブレーション";
+"viz.velocity" = "ベロシティ";
+
+/* Settings Modules */
+"settings.voice_input" = "音声入力";
+"settings.wakeword_sensitivity" = "ウェイクワード感度";
+"settings.advanced_processing" = "音声処理";
+"settings.smarter_dictation" = "AIロジック強化";
+"settings.command_mode" = "コマンドモード";
+"settings.dictation_mode" = "ディクテーションモード";
+"settings.microphone" = "マイク";
+"settings.no_microphone" = "マイクが見つかりません";
+
+/* Voice Activation */
+"settings.activation.title" = "起動方法";
+"settings.activation_methods" = "起動方法";
+"settings.activation.shortcut" = "ショートカット (プッシュ・トゥ・トーク)";
+"settings.activation.shortcut_hint" = "キーを押してコマンドを話します。";
+"settings.activation.wakeword_hint" = "「エーテル」と呼んで起動します。";
+"settings.activation.always_hint" = "マイクを常に開き、直接コマンドを受け付けます。";
+"settings.activation.always_warning" = "警告：バッテリー使用量が増えます。マイクは常にオンです。";
+"settings.activation.hands_free" = "ハンズフリー";
+"settings.activation.push_to_talk" = "プッシュ・トゥ・トーク";
+"settings.activation.wake_word" = "ウェイクワード (「エーテル」)";
+"settings.activation.gaze_wake" = "ゲイズウェイク (画面を見て起動)";
+"settings.activation.keep_awake" = "起動維持時間";
+
+/* Command Mode */
+"settings.default_device" = "システムデフォルト";
+"settings.command_timeout" = "コマンドタイムアウト";
+"settings.feedback_sound" = "フィードバック音";
+"settings.auto_punctuation" = "自動句読点";
+"settings.gestures_clicks" = "ジェスチャーとクリック";
+"settings.dictation.refinement_hint" = "AIを活用した音声入力内容の自動リファインと修正を有効にします。";
+"settings.dwell_click_subtitle" = "ホバー時に自動クリック";
+"settings.tilt_scroll_subtitle" = "頭の傾きでスクロール";
+"settings.calibration" = "キャリブレーション";
+"settings.current_status" = "現在のステータス:";
+"action.recenter_matrix" = "マトリックスを再中心";
+"status.active" = "有効";
+"status.disabled" = "無効";
+"status.paused" = "一時停止";
+"calibration.normal" = "通常";
+"settings.page.voice.title" = "音声";
+"settings.page.voice.subtitle" = "マイク入力、起動モード、ディクテーション強化、および用語ルールの管理。";
+"current_app_controls.open_panel" = "パネルを開く";
+"settings.page.pointer.title" = "ポインター";
+"settings.page.pointer.subtitle" = "トラッキング、クリック動作、およびキャリブレーションを一括調整。";
+"settings.page.advanced.title" = "詳細";
+"settings.page.advanced.subtitle" = "実行ステータス、権限、およびアプリレベルの動作の確認。";
+"settings.page.shortcuts.title" = "ショートカット";
+"settings.page.shortcuts.subtitle" = "プッシュ・トゥ・トーク、ポインター制御、接続ロック、その他のグローバルショートカットの管理。";
+
+/* Language Selection */
+"settings.speech_language" = "音声言語";
+"language.system" = "システムに従う";
+"language.en_US" = "English (US)";
+"language.zh_CN" = "中文 (简体)";
+"language.ja_JP" = "日本語";
+"language.ko_KR" = "한국어";
+"language.fr_FR" = "Français";
+"language.de_DE" = "Deutsch";
+"language.es_ES" = "Español";
+
+/* Voice Lexicon */
+"voice_lexicon.title" = "音声レキシコン";
+"voice_lexicon.description" = "言語ごとにウェイクワード、強制プレフィックス、およびコマンドエイリアスを設定します。複数のフレーズはカンマまたは改行で区切ります。空欄にするとデフォルト設定が使用されます。";
+"voice_lexicon.editing_language" = "編集中の言語";
+"voice_lexicon.current_target" = "現在のターゲット";
+"voice_lexicon.reset_language" = "この言語をリセット";
+"voice_lexicon.export" = "JSONを書き出し";
+"voice_lexicon.import" = "JSONをインポート";
+"voice_lexicon.wake_words" = "ウェイクワード";
+"voice_lexicon.command_prefixes" = "コマンド強制プレフィックス";
+"voice_lexicon.dictation_prefixes" = "ディクテーション強制プレフィックス";
+"voice_lexicon.leave_empty" = "デフォルトを使用するには空欄にしてください";
+"voice_lexicon.default" = "デフォルト";
+"voice_lexicon.custom" = "カスタム";
+"voice_lexicon.clear" = "クリア";
+"voice_lexicon.imported" = "インポート済み";
+"voice_lexicon.exported" = "書き出し済み";
+"voice_lexicon.import_failed" = "インポート失敗";
+"voice_lexicon.export_failed" = "書き出し失敗";
+
+/* Main window (fallback) */
+"main.section.workspace" = "ワークスペース";
+"main.section.workspace" = "ワークスペース";
+"main.section.voice" = "音声";
+"main.section.controls" = "コントロール";
+
+"main.panel.overview" = "概要";
+"main.panel.basics" = "基本";
+"main.panel.term_corrections" = "用語修正";
+"main.panel.lexicon" = "レキシコン";
+"main.panel.current_app" = "現在のアプリ";
+"main.panel.insights" = "インサイト";
+"main.panel.pointer" = "ポインター";
+"main.panel.headset_buttons" = "ヘッドセットボタン";
+"main.panel.shortcuts" = "ショートカット";
+"main.overview.title" = "概要";
+"main.overview.subtitle.ready" = "コア権限は準備ができています。このページには、最もよく使用するコントロールとランタイムステータスが表示されます。";
+"main.overview.subtitle.pending_fmt" = "Aetherを使用する前に、まだ %d 個のセットアップ項目を確認する必要があります。";
+"main.readiness.title" = "準備状況";
+"main.readiness.subtitle" = "まず必要な権限を緑色にしてから、音声とポインターの動作を調整してください。";
+"main.readiness.ready_count_fmt" = "%d/%d 準備完了";
+"main.readiness.collapsed" = "すべてのコア権限が準備できています。詳細が必要な場合は展開してください。";
+"main.permission.accessibility.detail.ready" = "システム入力の制御が許可されています";
+"main.permission.accessibility.detail.missing" = "ポインター制御とグローバルショートカットに必要です";
+"main.permission.microphone.detail.ready" = "音声キャプチャの準備ができています";
+"main.permission.microphone.detail.missing" = "音声キャプチャに必要です";
+"main.permission.speech.detail.ready" = "認識エンジンが利用可能です";
+"main.permission.speech.detail.missing" = "ディクテーションとコマンドに必要です";
+"main.action.enable" = "有効化";
+"main.action.open_settings" = "設定を開く";
+"main.pointer.title" = "ポインター制御";
+"main.pointer.subtitle.active" = "ヘッドトラッキングが稼働中";
+"main.pointer.subtitle.idle" = "ポインターを制御するにはヘッドトラッキングを開始してください";
+"main.pointer.auto_start.title" = "ヘッドセット接続時に自動開始";
+"main.pointer.auto_start.subtitle" = "互換性のあるヘッドセットが接続されると自動的にヘッドトラッキングを開始します";
+"main.pointer.posture_guide.title" = "姿勢ガイドを表示";
+"main.pointer.posture_guide.subtitle" = "自動開始前に簡単な姿勢確認プロンプトを表示します";
+"main.pointer.footnote" = "自動開始はヘッドモーション対応のヘッドセットでのみ機能します。";
+"main.voice_activation.title" = "音声起動";
+"main.voice_activation.subtitle" = "最もよく使用する音声モードを切り替えます。";
+"main.voice_mode.push_to_talk.short" = "PTT";
+"main.voice_mode.wake_word.short" = "ウェイク";
+"main.voice_mode.hands_free.short" = "ハンズフリー";
+"main.voice_mode.push_to_talk.detail" = "ショートカットが押されている間のみ認識を実行します。";
+"main.voice_mode.wake_word.detail" = "まずウェイクワードを言い、その後にディクテーションまたはコマンドを続けてください。";
+"main.voice_mode.hands_free.detail" = "常にリスニング状態です。アイドル時にはHUDが虚脱します。";
+
+/* Menu bar (fallback) */
+"menu.toggle_input_control_mode" = "入力/コントロールモードを切り替える";
+"menu.switch_mode" = "モードを切り替える";
+"menu.show_shortcut_panel" = "ショートカットパネルを表示";
+"menu.hide_shortcut_panel" = "ショートカットパネルを非表示";
+
+/* Hotkey helper text (fallback) */
+"hotkey.helper.push_to_talk" = "長押しして話す";
+"hotkey.helper.toggle_tracking" = "ヘッドトラッキングを開始または停止";
+"hotkey.helper.connection_lock" = "ヘッドセット接続ロックを切り替える";
+"hotkey.helper.toggle_input_control_mode" = "入力/コントロールモードを切り替える";
+"hotkey.helper.toggle_language" = "有効な音声言語を切り替える";
+"hotkey.helper.toggle_shortcut_panel" = "現在のアプリのショートカットパネルを表示または非表示にする";
+"hotkey.key.space" = "スペース";
+"hotkey.key.unknown_fmt" = "キー (%d)";
+"hotkey.mouse.middle_click" = "マウス中央クリック";
+"hotkey.mouse.back" = "マウス戻る";
+"hotkey.mouse.forward" = "マウス進む";
+"hotkey.mouse.generic_fmt" = "マウス %d";
+
+/* Headset & motion (fallback) */
+"headset.press.single" = "シングルプレス / ピンチ";
+"headset.press.double" = "ダブルプレス / ピンチ";
+"headset.press.triple" = "トリプルプレス / ピンチ";
+"headset.action.none" = "アクションなし";
+"headset.action.none.detail" = "トリプルプレスの後は何もしません。";
+"headset.status.no_data" = "データなし";
+"headset.status.no_compatible" = "互換性のあるヘッドセットが接続されていません";
+"headset.status.calibrating" = "キャリブレーション中...";
+"headset.status.connecting" = "接続中...";
+"headset.status.tracking" = "トラッキング中...";
+"headset.status.away" = "離席中";
+"headset.status.disconnected" = "切断";
+"headset.status.signal_lost" = "信号切断";
+"headset.status.connection_failed" = "接続失敗";
+"headset.status.stopped" = "停止";
+"headset.status.error_fmt" = "ヘッドセットエラー: %@";
+"headset.hud.no_compatible" = "互換性のあるヘッドセットが検出されませんでした";
+"headset.hud.posture_guide" = "直立して画面を見て、ヘッドトラッキングを開始してください";
+"headset.hud.unsupported" = "このヘッドセットはヘッドモーショントラッキングをサポートしていません";
+"headset.now_playing.title" = "Aether ヘッドセットボタン割り当て";
+"headset.now_playing.artist_fmt" = "シングル: %1$@  ·  ダブル: %2$@  ·  トリプル: %3$@";
+"headset.hud.no_input_fallback" = "入力フィールドが検出されませんでした。コントロールモードに切り替えました";
+"headset.hud.switched_control" = "コントロールモードに切り替えました";
+"headset.hud.switched_input" = "入力モードに切り替えました";
+"headset.event.action_fmt" = "ヘッドセット %@ · %@";
+"headset.hud.no_action_assigned_fmt" = "%@ に対して割り当てられたアクションはありません";
+"headset.hud.connection_lock" = "ヘッドセットの接続ロックを切り替える";
+"headset.hud.push_to_talk_unsupported" = "ヘッドセットのボタンはプッシュ・トゥ・トークに設定できません";
+"headset.hud.stop_tracking" = "トラッキングを停止";
+"headset.hud.start_tracking" = "トラッキングを開始";
+"headset.hud.exit_input_mode" = "入力モードを終了";
+"headset.remote.disabled" = "ヘッドセットリモートが無効です";
+"headset.remote.stream_connected" = "メディアリモートが登録され、ヘッドセットのモーションストリームが接続されました";
+"headset.remote.waiting" = "メディアリモートが登録されました。macOSがシングル、ダブル、またはトリプルプレスのイベントをAetherにルーティングするのを待機しています";
+"headset.remote.unregistered" = "ヘッドセットリモートが登録されていません";
+"headset.event.single" = "ヘッドセットシングルプレス";
+"headset.event.single_end" = "ヘッドセットシングルプレスの終了";
+"headset.event.single_toggle" = "ヘッドセットシングルプレスの切り替え";
+"headset.experiment.notice" = "実験機能：一部のデバイスでは macOS がマイクの通知を表示したりイベントを横取りし、単押しがたまに失敗することがあります。";
+"custom_app_rule_editor.title" = "カスタム App ルールを編集";
+"custom_app_rule_editor.done" = "完了";
+"custom_app_rule_editor.enable_rule" = "このルールを有効にする";
+"custom_app_rule_editor.target_app" = "対象 App";
+"custom_app_rule_editor.bundle_id_placeholder" = "Bundle ID（例：com.openai.chatgpt）";
+"custom_app_rule_editor.action_title" = "アクション名";
+"custom_app_rule_editor.action_title_placeholder" = "例：送信";
+"custom_app_rule_editor.voice_aliases" = "音声エイリアス";
+"custom_app_rule_editor.voice_aliases_hint" = "エイリアスはカンマ区切り。空の場合はアクション名を使用します。";
+"custom_app_rule_editor.voice_aliases_placeholder" = "例：送信, 提出, メッセージ送信";
+"custom_app_rule_editor.shortcut" = "ショートカット";
+"custom_app_rule_editor.shortcut_hint" = "下のボタンをクリックして単独キー、特殊キー、または組み合わせキーを押してください。例：F、Return、Tab、Delete。";
+"headset.hud.disconnected" = "ヘッドセットが切断されました";
+"headset.hud.connection_lost" = "接続が失われました";
+"headset.hud.connection_timeout" = "接続タイムアウト";
+"headset.hud.scroll_top" = "一番上へスクロール";
+"headset.hud.scroll_bottom" = "一番下へスクロール";
+"headset.hud.drag_start" = "ドラッグ開始";
+"headset.hud.drag_drop" = "ドラッグ終了";
+
+/* Settings Modules (Refined) */
+"settings.section.basics.title" = "基本設定";
+"settings.section.basics.page_title" = "音声の基本設定";
+"settings.section.basics.subtitle" = "マイク、認識言語、および起動方法の設定。";
+
+"settings.section.term_corrections.title" = "用語修正";
+"settings.section.term_corrections.page_title" = "用語修正";
+"settings.section.term_corrections.subtitle" = "音声認識の修正、ディクテーションの調整、アプリごとの用語置換ルール。";
+
+"settings.section.lexicon.title" = "レキシコン";
+"settings.section.lexicon.page_title" = "音声レキシコン";
+"settings.section.lexicon.subtitle" = "ウェイクワードとコマンドエイリアスの管理。";
+
+"settings.section.app_controls.title" = "現在のアプリ";
+"settings.section.app_controls.page_title" = "現在のアプリのコントロール";
+"settings.section.app_controls.subtitle" = "フォアグラウンドアプリで利用可能なショートカットを確認します。";
+
+"settings.section.insights.title" = "統計";
+"settings.section.insights.page_title" = "音声統計";
+"settings.section.insights.subtitle" = "アプリごとの音声入力とコントロールの使用履歴。";
+
+"settings.voice.language_hint" = "固定言語モードが最も安定しています。2ヶ国語モードは、2つの言語間の素早い切り替えやレキシコン管理に使用します。";
+"settings.voice.mode_single" = "固定言語";
+"settings.voice.mode_bilingual" = "2ヶ国語モード";
+"settings.voice.primary_lang" = "主言語";
+"settings.voice.secondary_lang" = "副言語";
+"settings.voice.bilingual_hint" = "2ヶ国語モードでは、切り替えによって主言語と副言語が入れ替わります。現在の認識は主言語が優先されます。";
+"settings.voice.bilingual_lang_status_fmt" = "主：%1$@ · 副：%2$@";
+"settings.voice.system_lang_status_fmt" = "システムに従う · %@";
+"settings.voice.permission_required" = "このモードには音声認識の権限が必要です";
+"settings.voice.open_mic_permission" = "マイク権限設定を開く";
+"settings.voice.open_speech_permission" = "音声認識権限設定を開く";
+"settings.voice.ptt_status_hint_fmt" = "現在のショートカットは %@ です。「ショートカット」ページで変更できます。";
+
+"lexicon.editing_language.hint" = "言語ごとにウェイクワードとコマンドエイリアスを編集します。";
+"lexicon.section.core_controls.title" = "基本コントロール";
+"lexicon.section.core_controls.subtitle" = "マウスクリック、スクロール、ドラッグ、および一般的な編集アクション。";
+"lexicon.section.media_panels.title" = "メディアとパネル";
+"lexicon.section.media_panels.subtitle" = "再生コントロールとショートカットパネルの表示設定。";
+"lexicon.section.pointer_control.title" = "ポインター制御";
+"lexicon.section.pointer_control.subtitle" = "ヘッドトラッキングの開始/停止と再中心操作。";
+"lexicon.wake_words.subtitle" = "コマンドの前に「Aether」と呼んで起動してください。ハンズフリーモードに最適です。";
+"lexicon.wake_words.example" = "例：Aether、ヘイ Aether";
+"lexicon.command_aliases.title" = "コントロールコマンドのエイリアス";
+"lexicon.command_aliases.subtitle" = "これらは内蔵のコントロールコマンドです。言語ごとに使いやすいフレーズに変更できます。空欄にするとデフォルトが使用されます。";
+
+"panels.shortcuts.current_app" = "現在のアプリ";
+"panels.shortcuts.current_app.description" = "フォアグラウンドアプリのメニューから取得したショートカットを表示します。ブラウザ、エディタ、ターミナルの一般的なデフォルトも含まれます。音声が一致すると対応するキーが送信されます。";
+"panels.shortcuts.no_accessibility" = "アプリのメニューとショートカットを読み取るには、アクセシビリティの権限を有効にする必要があります。";
+"panels.shortcuts.loaded_count_fmt" = "%d 個のショートカットを読み込みました。以下は音声制御に推奨される項目です。";
+"panels.shortcuts.no_matches" = "一致するショートカットはありません";
+"panels.shortcuts.no_readable" = "現在のアプリには読み取り可能なショートカットがないか、対象のアプリに切り替わっていません。";
+"panels.shortcuts.global" = "Aether グローバル";
+"panels.shortcuts.search_placeholder" = "ショートカットを検索";
+"panels.shortcuts.hold_to_talk_hint" = "プッシュ・トゥ・トークを使用するには、ショートカットキーを押し続けてください。";
+
+/* Intent Actions */
+"intent.click_left" = "左クリック";
+"intent.click_right" = "右クリック";
+"intent.double_click" = "ダブルクリック";
+"intent.media_play_pause" = "再生/一時停止";
+"intent.media_previous" = "前の曲";
+"intent.media_next" = "次の曲";
+"intent.show_shortcut_panel" = "ショートカットパネルを表示";
+"intent.hide_shortcut_panel" = "ショートカットパネルを閉じる";
+"intent.start_pointer" = "ヘッドトラッキングを開始";
+"intent.stop_pointer" = "ヘッドトラッキングを停止";
+"intent.recenter" = "センター補正";
+"intent.scroll" = "スクロール";
+"intent.scroll_down" = "下にスクロール";
+"intent.scroll_up" = "上にスクロール";
+"intent.scroll_top" = "一番上へスクロール";
+"intent.scroll_bottom" = "一番下へスクロール";
+"intent.drag_start" = "ドラッグ開始";
+"intent.drag_end" = "ドラッグ終了";
+"intent.undo" = "取り消し";
+"intent.paste" = "貼り付け";
+"intent.lock_connection" = "接続をロック";
+"intent.unlock_connection" = "接続を解除";
+"intent.dictation" = "入力";
+"intent.unknown" = "不明なコマンド";
+
+/* Permission Status */
+"status.permission.authorized" = "システムステータス：許可済み";
+"status.permission.unauthorized" = "システムステータス：未許可";
+"status.permission.denied" = "システムステータス：拒否";
+"status.permission.restricted" = "システムステータス：制限あり";
+"status.permission.not_determined" = "システムステータス：未決定";
+"status.permission.unknown" = "システムステータス：不明";
+
+/* UI Strings - Settings & Panels */
+"settings.term_correction.title" = "コンテキスト用語修正";
+"settings.term_correction.description" = "共通グループとカスタムグループをサポートします。各グループは独立して有効/無効、アプリのバインド、ルールの編集が可能です。";
+"settings.term_correction.rule_format" = "ルール形式：`検索語=>置換語` または `検索語=>置換語=>cmd`";
+"settings.term_correction.add_group" = "グループを追加";
+"settings.term_correction.edit_group" = "グループを編集";
+"settings.term_correction.effective_apps" = "対象アプリ";
+"settings.term_correction.entry_rules" = "用語ルール";
+"settings.term_correction.entry_rules_hint" = "一行に一つ：`検索語=>置換語`。オプションで `=>cmd`（コントロールのみ）、`=>dict`（入力のみ）を指定できます。";
+"settings.term_correction.no_apps_to_add" = "追加可能な実行中のアプリはありません";
+"settings.term_correction.running_apps" = "実行中のアプリ";
+"settings.term_correction.select_app_manually" = "アプリを手動で選択...";
+"settings.term_correction.add_app" = "アプリを追加";
+"settings.term_correction.edit" = "編集";
+"settings.term_correction.done" = "完了";
+
+"panels.shortcuts.count_fmt" = "%d 個のショートカット";
+"panels.shortcuts.clickable_hint" = "クリックでトリガー";

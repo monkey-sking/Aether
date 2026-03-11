@@ -1,0 +1,499 @@
+/* Generic */
+"generic.on" = "AN";
+"generic.off" = "AUS";
+"generic.idle" = "Leerlauf";
+"generic.ready" = "Bereit";
+"generic.tracking" = "Tracking läuft";
+"generic.select_item" = "Element auswählen";
+"generic.refresh" = "Aktualisieren";
+
+/* App */
+"app.project_title" = "Projekt Aether";
+"app.version_fmt" = "Version %@ (%@)";
+
+/* Status */
+"status.perception_network" = "Wahrnehmungsnetzwerk";
+"status.pointer_output" = "Zeigerausgabe";
+"status.text_output" = "Textausgabe";
+"status.mode" = "Modus";
+"status.mode.auto" = "Automatischer Modus";
+
+/* Rows */
+"row.virtual_hid" = "Virtuelles HID";
+"row.airpods_matrix" = "AirPods-Matrix";
+"row.voice" = "Sprache";
+"row.lid_sensor" = "Deckelsensor";
+
+/* Permissions */
+"permissions.title" = "Berechtigungen";
+"permissions.accessibility" = "Bedienungshilfen";
+"permissions.microphone" = "Mikrofon";
+"permissions.speech" = "Spracherkennung";
+"permissions.fix_accessibility" = "Bedienungshilfen korrigieren";
+"permissions.fix_microphone" = "Mikrofon korrigieren";
+"permissions.fix_speech" = "Spracherkennung korrigieren";
+"permissions.open_pane" = "Fenster öffnen";
+"permissions.recheck" = "Erneut prüfen";
+
+/* Driver errors */
+"driver.error.need_accessibility" = "Bitte gewähren Sie zuerst die Berechtigung für Bedienungshilfen";
+"driver.error.airpods_not_connected" = "Bitte verbinden Sie zuerst die AirPods";
+"driver.error.start_tracking_first" = "Bitte starten Sie zuerst die Motion Matrix, um sicherzustellen, dass die AirPods verbunden sind und Daten fließen.";
+"motion.error.airpods_not_detected" = "AirPods nicht erkannt. Bitte stellen Sie sicher, dass sie mit diesem Mac verbunden sind, und versuchen Sie es erneut.";
+"motion.error.connection_timeout" = "Verbindungszeitüberschreitung. Keine Bewegungsdaten innerhalb von 5 Sekunden erhalten.";
+"motion.error.airpods_disconnected" = "AirPods getrennt oder zu einem anderen Gerät gewechselt.";
+"motion.error.connection_lost" = "Verbindung verloren. Keine Daten für 5 Sekunden erhalten.";
+
+/* Controls */
+"control.dwell_click" = "Verweilklick";
+"control.always_listening" = "Dauerhaftes Zuhören";
+"control.always_listening_wake_window" = "Aktives Fenster für dauerhaftes Zuhören";
+"control.always_listening_wake_window_hint" = "Innerhalb dieses Fensters können Befehle direkt ausgeführt werden, ohne das Aktivierungswort erneut zu sagen.";
+"control.llm_enhance_dictation" = "Diktatverbesserung durch LLM";
+"control.prefer_inputmethod_caret" = "IME-Caret-Engine verwenden";
+"control.caret_engine_compare" = "AX vs. IME Delta protokollieren";
+"control.hud_auto_hide" = "HUD-Auto-Ausblendung";
+"control.hud_auto_hide_hint" = "Betrifft nur einmalige Tipps; das HUD für kontinuierliches Zuhören wird hier nicht gesteuert.";
+"control.push_to_talk_hint" = "Push-to-Talk: ⌥Space halten. Immer zuhörend: Sagen Sie „Aether …“";
+"control.toggle_tracking" = "Tracking umschalten";
+"control.toggle_tracking_hint" = "Tracking umschalten: ⌥T oder Sprachbefehl verwenden";
+
+/* Actions */
+"action.activate_perception" = "Wahrnehmungstracking aktivieren";
+"action.start_motion_matrix" = "Motion Matrix starten";
+"action.stop_motion_matrix" = "Motion Matrix stoppen";
+"action.finish_range_calibration" = "Kalibrierung abschließen";
+
+/* Onboarding */
+"onboarding.setup_required" = "Einrichtung erforderlich";
+"onboarding.accessibility" = "Bedienungshilfen aktivieren, um globale Hotkeys und Eingabeautomatisierung zu ermöglichen.";
+"onboarding.microphone" = "Mikrofonzugriff gewähren, um Spracheingabe zu nutzen.";
+"onboarding.speech" = "Spracherkennungszugriff gewähren, um Transkription zu nutzen.";
+
+/* Menu bar */
+"menu.pointer" = "Zeiger";
+"menu.voice" = "Sprache";
+"menu.status.setup_attention" = "Einrichtung erfordert Aufmerksamkeit";
+"menu.status.voice_pointer_ready" = "Sprache und Zeiger bereit";
+"voice.status.idle" = "Bereit";
+"menu.status.pointer_active" = "Zeigersteuerung aktiv";
+"Aether" = "Aether";
+"menu.status.ready" = "Bereit";
+"menu.status.accessibility_missing" = "Bedienungshilfen-Berechtigung fehlt";
+"menu.status.microphone_missing" = "Mikrofon-Berechtigung fehlt";
+"menu.status.speech_missing" = "Berechtigung für Spracherkennung fehlt";
+"menu.enable_accessibility" = "Bedienungshilfen aktivieren";
+"menu.enable_microphone" = "Mikrofon aktivieren";
+"menu.enable_speech" = "Spracherkennung aktivieren";
+"menu.open_settings" = "Einstellungen öffnen";
+"menu.settings_ellipsis" = "Einstellungen…";
+"menu.more_controls" = "Weitere Steuerelemente";
+"menu.shortcut_panel_fmt" = "Kurzbefehl-Panel (%@)";
+"menu.shortcut_panel" = "Kurzbefehl-Panel";
+"menu.start_pointer" = "Zeigersteuerung starten";
+"menu.stop_pointer" = "Zeigersteuerung stoppen";
+"menu.recenter_pointer" = "Zeiger neuzentrieren";
+"menu.show_window" = "Fenster anzeigen";
+"menu.quit" = "Beenden";
+
+/* Hotkeys */
+"hotkey.section_title" = "Tastenkombinationen";
+"hotkey.toggle_tracking" = "Tracking umschalten";
+"hotkey.connection_lock" = "Verbindungssperre";
+"hotkey.toggle_input_control_mode" = "Eingabe-/Steuerungsmodus umschalten";
+"hotkey.toggle_language" = "Sprache umschalten";
+"hotkey.toggle_shortcut_panel" = "Kurzbefehl-Panel umschalten";
+"hotkey.push_to_talk" = "Push-to-Talk (Halten zum Sprechen)";
+"hotkey.press_key" = "Taste drücken…";
+"hotkey.reset_all" = "Alle zurücksetzen";
+"hotkey.reset_single" = "Auf Standard zurücksetzen";
+
+/* New Features */
+"control.show_dock_icon" = "Dock-Symbol anzeigen";
+"control.tilt_scroll" = "Neigungs-Scrollen";
+"control.debug_mode" = "Debug-Modus";
+"control.toggle_tracking_fmt %@" = "Tracking umschalten: %@";
+
+"section.quick_start" = "Schnellstart";
+"section.runtime_status" = "Laufzeitstatus";
+"section.voice_listening" = "Sprache & Zuhören";
+"section.hud_settings" = "HUD-Einstellungen";
+"section.advanced_settings" = "Erweiterte Einstellungen";
+"voice.state_now" = "Aktueller Sprachstatus";
+"voice.wakeword_required_now" = "Aktivierungswort jetzt erforderlich";
+"voice.yes" = "Ja";
+"voice.no" = "Nein";
+
+"menu.start_pointer_fmt %@" = "Zeiger starten (%@)";
+"menu.stop_pointer_fmt %@" = "Zeiger stoppen (%@)";
+"menu.airpods_lock_fmt %@" = "AirPods Sperre (%@)";
+
+/* Speech Status */
+"speech.listening" = "Bereit...";
+"speech.waiting_command" = "Warte auf Befehl...";
+"speech.waiting_wakeword" = "Warte auf Aktivierungswort...";
+"speech.idle" = "Bereit";
+"speech.unavailable" = "Spracherkennung nicht verfügbar";
+"speech.error" = "Erkennungsfehler";
+"speech.pasted" = "Eingefügt";
+"speech.typed" = "Eingegeben";
+"speech.undo" = "Rückgängig";
+"speech.done" = "Fertig";
+
+/* HUD Hints & Errors */
+"speech.no_matching_command" = "Kein passender Befehl gefunden";
+"speech.no_editable_field" = "Kein Eingabefeld erkannt";
+"speech.undo_done" = "Rückgängig gemacht";
+"speech.pasted_cmdv" = "Eingefügt (Cmd+V)";
+"speech.bilingual_switch_unsupported" = "Nur im zweisprachigen Modus";
+"speech.no_mic_detected" = "Kein Mikrofon erkannt";
+"speech.need_mic_permission" = "Bitte erteilen Sie zuerst die Mikrofonberechtigung";
+"speech.need_recognition_permission" = "Bitte erteilen Sie zuerst die Spracherkennungsberechtigung";
+"speech.lang_indicator" = "De";
+
+/* Dashboard & Settings (New) */
+"settings.tab.overview" = "Übersicht";
+"settings.tab.general" = "Allgemein";
+"settings.tab.input" = "Eingabe";
+"settings.tab.feedback" = "Rückmeldung (Feedback)";
+"settings.tab.advanced" = "Erweitert";
+
+"settings.header.motion" = "Bewegungssteuerung";
+"settings.header.shortcuts" = "Kurzbefehle";
+
+"dashboard.hint.command" = "Sagen Sie einen Befehl wie „Klick“";
+"dashboard.hint.wakeword" = "Sagen Sie „Aether“, um aufzuwachen";
+"dashboard.hint.enable" = "Sprachsteuerung zum Starten aktivieren";
+
+/* Command Center & Navigation */
+"command.center.title" = "Kommandozentrale";
+"command.center.voice_stream" = "Sprach-Stream";
+"command.center.motion_matrix" = "Bewegungsmatrix";
+"status.system.active" = "System aktiv";
+"status.system.offline" = "System offline";
+"action.recenter" = "Neuzentrieren";
+"navigation.section.controls" = "Steuerung";
+"navigation.item.system" = "Systemsteuerung";
+"navigation.section.configuration" = "Configurations";
+
+/* Visualization */
+"viz.voice_signal" = "Sprachsignal";
+"viz.last_command" = "LETZTER BEFEHL";
+"viz.calibration" = "KALIBRIERUNG";
+"viz.velocity" = "GESCHWINDIGKEIT";
+
+/* Settings Modules */
+"settings.voice_input" = "Spracheingabe";
+"settings.wakeword_sensitivity" = "Empfindlichkeit des Aktivierungsworts";
+"settings.advanced_processing" = "Sprachverarbeitung";
+"settings.smarter_dictation" = "KI-Logikverbesserung";
+"settings.command_mode" = "Befehlsmodus";
+"settings.dictation_mode" = "Diktatmodus";
+"settings.microphone" = "Mikrofon";
+"settings.no_microphone" = "Kein Mikrofon gefunden";
+
+/* Voice Activation */
+"settings.activation.title" = "Aktivierungsmethode";
+"settings.activation_methods" = "Aktivierungsmethoden";
+"settings.activation.shortcut" = "Kurzbefehl (Push-to-Talk)";
+"settings.activation.shortcut_hint" = "Taste drücken, um einen Befehl zu sprechen.";
+"settings.activation.wakeword_hint" = "Sagen Sie „Hey Aether“, um aufzuwachen.";
+"settings.activation.always_hint" = "Mikrofon immer offen für direkte Befehle.";
+"settings.activation.always_warning" = "Warnung: Hoher Batterieverbrauch. Mikrofon ist immer an.";
+"settings.activation.hands_free" = "Mundfrei (Hands-Free)";
+"settings.activation.push_to_talk" = "Push-to-Talk (Halten zum Sprechen)";
+"settings.activation.wake_word" = "Aktivierungswort („Hey Aether“)";
+"settings.activation.gaze_wake" = "Gaze Wake (Auf den Bildschirm blicken)";
+"settings.activation.keep_awake" = "Dauer des Wachbleibens";
+
+/* Command Mode */
+"settings.default_device" = "Systemstandard";
+"settings.command_timeout" = "Befehls-Timeout";
+"settings.feedback_sound" = "Feedback-Ton";
+"settings.auto_punctuation" = "Automatische Interpunktion";
+"settings.gestures_clicks" = "Gesten & Klicks";
+"settings.dictation.refinement_hint" = "Aktiviert die KI-gestützte automatische Verfeinerung und Korrektur von diktierten Texten.";
+"settings.dwell_click_subtitle" = "Automatischer Klick beim Drüberfahren";
+"settings.tilt_scroll_subtitle" = "Kopfneigung scrollt den Inhalt";
+"settings.calibration" = "Kalibrierung";
+"settings.current_status" = "Aktueller Status:";
+"action.recenter_matrix" = "Matrix neuzentrieren";
+"status.active" = "Aktiv";
+"status.disabled" = "Deaktiviert";
+"status.paused" = "Pausiert";
+"calibration.normal" = "Standard";
+"settings.page.voice.title" = "Sprache";
+"settings.page.voice.subtitle" = "Mikrofoneingabe, Aktivierungsmodus, Diktatverbesserung und Terminologieregeln verwalten.";
+"current_app_controls.open_panel" = "Panel öffnen";
+"settings.page.pointer.title" = "Zeiger";
+"settings.page.pointer.subtitle" = "Tracking, Klickverhalten und Kalibrierung an einem Ort anpassen.";
+"settings.page.advanced.title" = "Erweitert";
+"settings.page.advanced.subtitle" = "Laufzeitstatus, Berechtigungen und App-Verhalten überprüfen.";
+"settings.page.shortcuts.title" = "Kurzbefehle";
+"settings.page.shortcuts.subtitle" = "Push-to-Talk, Zeigersteuerung, Verbindungssperre und andere globale Kurzbefehle verwalten.";
+
+/* Language Selection */
+"settings.speech_language" = "Spracherkennungssprache";
+"language.system" = "Systemsprache folgen";
+"language.en_US" = "English (US)";
+"language.zh_CN" = "中文 (简体)";
+"language.ja_JP" = "日本語";
+"language.ko_KR" = "한국어";
+"language.fr_FR" = "Français";
+"language.de_DE" = "Deutsch";
+"language.es_ES" = "Español";
+
+/* Voice Lexicon */
+"voice_lexicon.title" = "Sprachlexikon";
+"voice_lexicon.description" = "Konfigurieren Sie Aktivierungswörter, erzwungene Präfixe und Befehls-Aliase nach Sprache. Trennen Sie mehrere Ausdrücke mit Kommas oder Zeilenumbrüchen; leer lassen für Standardeinstellungen.";
+"voice_lexicon.editing_language" = "Sprache bearbeiten";
+"voice_lexicon.current_target" = "Aktuelles Ziel";
+"voice_lexicon.reset_language" = "Diese Sprache zurücksetzen";
+"voice_lexicon.export" = "JSON exportieren";
+"voice_lexicon.import" = "JSON importieren";
+"voice_lexicon.wake_words" = "Aktivierungswörter";
+"voice_lexicon.command_prefixes" = "Erzwungene Befehlspräfixe";
+"voice_lexicon.dictation_prefixes" = "Erzwungene Diktatpräfixe";
+"voice_lexicon.leave_empty" = "Leer lassen für Standardeinstellungen";
+"voice_lexicon.default" = "Standard";
+"voice_lexicon.custom" = "Benutzerdefiniert";
+"voice_lexicon.clear" = "Löschen";
+"voice_lexicon.imported" = "Importiert";
+"voice_lexicon.exported" = "Exportiert";
+"voice_lexicon.import_failed" = "Import fehlgeschlagen";
+"voice_lexicon.export_failed" = "Export fehlgeschlagen";
+
+/* Main window (fallback) */
+"main.section.workspace" = "Arbeitsbereich";
+"main.section.voice" = "Stimme";
+"main.section.controls" = "Steuerung";
+"main.panel.overview" = "Übersicht";
+"main.panel.basics" = "Grundlagen";
+"main.panel.term_corrections" = "Begriffskorrekturen";
+"main.panel.lexicon" = "Lexikon";
+"main.panel.current_app" = "Aktuelle App";
+"main.panel.insights" = "Einblicke";
+"main.panel.pointer" = "Zeiger";
+"main.panel.headset_buttons" = "Headset-Tasten";
+"main.panel.shortcuts" = "Kurzbefehle";
+"main.overview.title" = "Übersicht";
+"main.overview.subtitle.ready" = "Kernberechtigungen sind bereit. Diese Seite zeigt die am häufigsten verwendeten Steuerelemente und den Laufzeitstatus.";
+"main.overview.subtitle.pending_fmt" = "%d Einrichtungselement(e) erfordern noch Aufmerksamkeit, bevor Aether vollständig bereit ist.";
+"main.readiness.title" = "Bereitschaft";
+"main.readiness.subtitle" = "Aktivieren Sie zuerst die erforderlichen Berechtigungen, und passen Sie dann das Sprach- und Zeigerverhalten an.";
+"main.readiness.ready_count_fmt" = "%d/%d Bereit";
+"main.readiness.collapsed" = "Alle Kernberechtigungen sind bereit. Falls nötig für Details erweitern.";
+"main.permission.accessibility.detail.ready" = "Erlaubt, die Systemeingabe zu steuern";
+"main.permission.accessibility.detail.missing" = "Erforderlich für Zeigersteuerung und globale Kurzbefehle";
+"main.permission.microphone.detail.ready" = "Bereit für Sprachaufnahme";
+"main.permission.microphone.detail.missing" = "Erforderlich für Sprachaufnahme";
+"main.permission.speech.detail.ready" = "Erkennungs-Engine ist verfügbar";
+"main.permission.speech.detail.missing" = "Erforderlich für Diktat und Befehle";
+"main.action.enable" = "Aktivieren";
+"main.action.open_settings" = "Einstellungen öffnen";
+"main.pointer.title" = "Zeigersteuerung";
+"main.pointer.subtitle.active" = "Head-Tracking läuft";
+"main.pointer.subtitle.idle" = "Starten Sie das Head-Tracking, um den Zeiger zu steuern";
+"main.pointer.auto_start.title" = "Autostart bei Headset-Verbindung";
+"main.pointer.auto_start.subtitle" = "Startet automatisch das Head-Tracking, wenn ein kompatibles Headset verbunden wird";
+"main.pointer.posture_guide.title" = "Haltungshilfe anzeigen";
+"main.pointer.posture_guide.subtitle" = "Zeigt vor dem Autostart eine kurze Haltungshilfe an";
+"main.pointer.footnote" = "Autostart funktioniert nur mit Headsets, die Kopfbewegungen unterstützen.";
+"main.voice_activation.title" = "Sprachaktivierung";
+"main.voice_activation.subtitle" = "Zwischen den am häufigsten verwendeten Sprachmodi wechseln.";
+"main.voice_mode.push_to_talk.short" = "PTT";
+"main.voice_mode.wake_word.short" = "Aktivieren";
+"main.voice_mode.hands_free.short" = "Mundfrei";
+"main.voice_mode.push_to_talk.detail" = "Erkennung läuft nur, während der Kurzbefehl gehalten wird.";
+"main.voice_mode.wake_word.detail" = "Sagen Sie zuerst das Aktivierungswort, dann fahren Sie mit Diktat oder Steuerung fort.";
+"main.voice_mode.hands_free.detail" = "Dauerhaftes Zuhören. Das HUD klappt im Leerlauf zusammen.";
+
+/* Menu bar (fallback) */
+"menu.toggle_input_control_mode" = "Eingabe-/Steuerungsmodus umstellen";
+"menu.switch_mode" = "Modus umstellen";
+"menu.show_shortcut_panel" = "Kurzbefehl-Panel anzeigen";
+"menu.hide_shortcut_panel" = "Kurzbefehl-Panel ausblenden";
+
+/* Hotkey helper text (fallback) */
+"hotkey.helper.push_to_talk" = "Zum Sprechen halten";
+"hotkey.helper.toggle_tracking" = "Head-Tracking starten oder stoppen";
+"hotkey.helper.connection_lock" = "Headset-Verbindungssperre umschalten";
+"hotkey.helper.toggle_input_control_mode" = "Eingabe-/Steuerungsmodus umstellen";
+"hotkey.helper.toggle_language" = "Durch aktivierte Sprachen wechseln";
+"hotkey.helper.toggle_shortcut_panel" = "Kurzbefehl-Panel der aktuellen App anzeigen oder ausblenden";
+"hotkey.key.space" = "Leertaste";
+"hotkey.key.unknown_fmt" = "Taste (%d)";
+"hotkey.mouse.middle_click" = "Mittlere Maustaste";
+"hotkey.mouse.back" = "Maus Zurück";
+"hotkey.mouse.forward" = "Maus Vorwärts";
+"hotkey.mouse.generic_fmt" = "Maus %d";
+
+/* Headset & motion (fallback) */
+"headset.press.single" = "Einfach drücken / Pinch";
+"headset.press.double" = "Doppelt drücken / Pinch";
+"headset.press.triple" = "Dreifach drücken / Pinch";
+"headset.action.none" = "Keine Aktion";
+"headset.action.none.detail" = "Nach dreimaligem Drücken keine Aktion ausführen.";
+"headset.status.no_data" = "Keine Daten";
+"headset.status.no_compatible" = "Kein kompatibles Headset verbunden";
+"headset.status.calibrating" = "Kalibrierung...";
+"headset.status.connecting" = "Verbindungsaufbau...";
+"headset.status.tracking" = "Verfolgung...";
+"headset.status.away" = "Abwesend";
+"headset.status.disconnected" = "Getrennt";
+"headset.status.signal_lost" = "Signal verloren";
+"headset.status.connection_failed" = "Verbindung fehlgeschlagen";
+"headset.status.stopped" = "Gestoppt";
+"headset.status.error_fmt" = "Headset-Fehler: %@";
+"headset.hud.no_compatible" = "Kein kompatibles Headset erkannt";
+"headset.hud.posture_guide" = "Sitzen Sie aufrecht und blicken Sie auf den Bildschirm, um das Head-Tracking zu starten";
+"headset.hud.unsupported" = "Dieses Headset unterstützt kein Head-Motion-Tracking";
+"headset.now_playing.title" = "Aether Headset-Tastenbelegung";
+"headset.now_playing.artist_fmt" = "Einfach: %1$@  ·  Doppelt: %2$@  ·  Dreifach: %3$@";
+"headset.hud.no_input_fallback" = "Kein Eingabefeld erkannt. Wechsel zum Steuerungsmodus";
+"headset.hud.switched_control" = "In den Steuerungsmodus gewechselt";
+"headset.hud.switched_input" = "In den Eingabemodus gewechselt";
+"headset.event.action_fmt" = "Headset %@ · %@";
+"headset.hud.no_action_assigned_fmt" = "Keine Aktion für %@ zugewiesen";
+"headset.hud.connection_lock" = "Headset-Verbindungssperre umschalten";
+"headset.hud.push_to_talk_unsupported" = "Headset-Tasten können nicht für Push-to-Talk verwendet werden";
+"headset.hud.stop_tracking" = "Tracking stoppen";
+"headset.hud.start_tracking" = "Tracking starten";
+"headset.hud.exit_input_mode" = "Eingabemodus verlassen";
+"headset.remote.disabled" = "Headset-Fernbedienung deaktiviert";
+"headset.remote.stream_connected" = "Medienfernbedienung registriert, Headset-Bewegungsstream verbunden";
+"headset.remote.waiting" = "Medienfernbedienung registriert und wartet darauf, dass macOS Ereignisse für einfaches, doppeltes oder dreifaches Drücken an Aether leitet";
+"headset.remote.unregistered" = "Headset-Fernbedienung nicht registriert";
+"headset.event.single" = "Headset einmaliges Drücken";
+"headset.event.single_end" = "Headset einmaliges Drücken Ende";
+"headset.event.single_toggle" = "Headset einmaliges Drücken Umschalten";
+"headset.experiment.notice" = "Experimentell: Auf manchen Geräten zeigt macOS Mikrofonhinweise an oder fängt das Ereignis ab, was gelegentlich zu verpassten Tastendrücken führt.";
+"custom_app_rule_editor.title" = "Benutzerdefinierte App-Regel bearbeiten";
+"custom_app_rule_editor.done" = "Fertig";
+"custom_app_rule_editor.enable_rule" = "Diese Regel aktivieren";
+"custom_app_rule_editor.target_app" = "Ziel-App";
+"custom_app_rule_editor.bundle_id_placeholder" = "Bundle-ID, z. B. com.openai.chatgpt";
+"custom_app_rule_editor.action_title" = "Aktionsname";
+"custom_app_rule_editor.action_title_placeholder" = "Beispiel: Senden";
+"custom_app_rule_editor.voice_aliases" = "Sprachalias";
+"custom_app_rule_editor.voice_aliases_hint" = "Alias durch Kommas trennen. Wenn leer, wird der Aktionsname verwendet.";
+"custom_app_rule_editor.voice_aliases_placeholder" = "Beispiel: Senden, Absenden, Nachricht senden";
+"custom_app_rule_editor.shortcut" = "Tastenkürzel";
+"custom_app_rule_editor.shortcut_hint" = "Klicke unten und drücke eine einzelne Taste, eine Sondertaste oder eine Tastenkombination. Beispiele: F, Eingabe, Tab, Entf.";
+"headset.hud.disconnected" = "Headset getrennt";
+"headset.hud.connection_lost" = "Verbindung verloren";
+"headset.hud.connection_timeout" = "Verbindungstimeout";
+"headset.hud.scroll_top" = "Ganz nach oben scrollen";
+"headset.hud.scroll_bottom" = "Ganz nach unten scrollen";
+"headset.hud.drag_start" = "Ziehen starten";
+"headset.hud.drag_drop" = "Ablegen";
+
+/* Settings Modules (Refined) */
+"settings.section.basics.title" = "Grundlagen";
+"settings.section.basics.page_title" = "Sprachgrundlagen";
+"settings.section.basics.subtitle" = "Mikrofon, Erkennungssprache und Aktivierungsmodi.";
+
+"settings.section.term_corrections.title" = "Begriffskorrekturen";
+"settings.section.term_corrections.page_title" = "Begriffskorrekturen";
+"settings.section.term_corrections.subtitle" = "Diktatverfeinerung, Erkennungskorrekturen und app-spezifische Terminologieregeln.";
+
+"settings.section.lexicon.title" = "Lexikon";
+"settings.section.lexicon.page_title" = "Sprachlexikon";
+"settings.section.lexicon.subtitle" = "Aktivierungswörter und Befehls-Aliase.";
+
+"settings.section.app_controls.title" = "Aktuelle App";
+"settings.section.app_controls.page_title" = "Aktuelle App-Steuerung";
+"settings.section.app_controls.subtitle" = "Überprüfen Sie die für die App im Vordergrund verfügbaren Kurzbefehle.";
+
+"settings.section.insights.title" = "Einblicke";
+"settings.section.insights.page_title" = "Spracheinblicke";
+"settings.section.insights.subtitle" = "Aktivitätshistorie für Sprachdiktat und Steuerung pro App.";
+
+"settings.voice.language_hint" = "Eine einzelne Sprache ist am stabilsten. Der zweisprachige Modus dient dem schnellen Umschalten und der Lexikon-Einrichtung pro Sprache.";
+"settings.voice.mode_single" = "Einzeln";
+"settings.voice.mode_bilingual" = "Zweisprachig";
+"settings.voice.primary_lang" = "Primärsprache";
+"settings.voice.secondary_lang" = "Sekundärsprache";
+"settings.voice.bilingual_hint" = "Im zweisprachigen Modus vertauscht der Umschalter Primär- und Sekundärsprache. Die Erkennung bevorzugt derzeit die Primärsprache.";
+"settings.voice.bilingual_lang_status_fmt" = "Primär: %1$@ · Sekundär: %2$@";
+"settings.voice.system_lang_status_fmt" = "System · %@";
+"settings.voice.permission_required" = "Berechtigung erforderlich";
+"settings.voice.open_mic_permission" = "Mikrofonberechtigung öffnen";
+"settings.voice.open_speech_permission" = "Spracherkennungsberechtigung öffnen";
+"settings.voice.ptt_status_hint_fmt" = "Aktueller Kurzbefehl: %@. Ändern Sie ihn auf der Seite „Kurzbefehle“.";
+"settings.dictation.refinement_hint" = "Diktatausgabe an einem Ort nachbearbeiten und verfeinern.";
+
+"lexicon.editing_language.hint" = "Aktivierungswörter und Befehls-Aliase pro Sprache bearbeiten.";
+"lexicon.section.core_controls.title" = "Kernsteuerung";
+"lexicon.section.core_controls.subtitle" = "Zeigerklicks, Scrollen, Ziehen und gängige Bearbeitungsaktionen.";
+"lexicon.section.media_panels.title" = "Medien & Panels";
+"lexicon.section.media_panels.subtitle" = "Wiedergabesteuerung und Sichtbarkeit des Kurzbefehl-Panels.";
+"lexicon.section.pointer_control.title" = "Zeigersteuerung";
+"lexicon.section.pointer_control.subtitle" = "Zeiger-Tracking und Neuzentrierungsbefehle.";
+"lexicon.wake_words.subtitle" = "Sagen Sie diese zuerst, um Aether vor dem Befehl zu wecken.";
+"lexicon.wake_words.example" = "Beispiel: Aether, Hey Aether";
+"lexicon.command_aliases.title" = "Aliasnamen für Steuerungsbefehle";
+"lexicon.command_aliases.subtitle" = "Dies sind integrierte Steuerungsbefehle. Passen Sie Phrasen pro Sprache an oder lassen Sie sie leer, um die Standardeinstellungen zu verwenden.";
+
+"panels.shortcuts.current_app" = "Aktuelle App";
+"panels.shortcuts.current_app.description" = "Diese Befehle stammen aus den Menü-Kurzbefehlen der App im Vordergrund, wobei gängige Browser-, Editor- und Terminal-Standardwerte bei Bedarf ergänzt werden. Ein passender Sprachbefehl löst die entsprechende Tastenkombination aus.";
+"panels.shortcuts.no_accessibility" = "Die Bedienungshilfen-Berechtigung ist erforderlich, um die Menü-Kurzbefehle der aktuellen App zu lesen.";
+"panels.shortcuts.loaded_count_fmt" = "%d Kurzbefehle geladen. Die Vorschau unten hebt sprachfreundliche Elemente hervor, einschließlich gängiger Browser-, Editor- und Terminal-Standardwerte.";
+"panels.shortcuts.no_matches" = "Keine passenden Kurzbefehle";
+"panels.shortcuts.no_readable" = "Die App im Vordergrund stellt noch keine lesbaren Menü-Kurzbefehle bereit, oder es ist keine Ziel-App im Fokus.";
+"panels.shortcuts.global" = "Aether Global (Systemweit)";
+"panels.shortcuts.search_placeholder" = "Kurzbefehle suchen";
+"panels.shortcuts.hold_to_talk_hint" = "Verwenden Sie den Hotkey „Zum Sprechen drücken“";
+
+/* Intent Actions */
+"intent.click_left" = "Linksklick";
+"intent.click_right" = "Rechtsklick";
+"intent.double_click" = "Doppelklick";
+"intent.media_play_pause" = "Wiedergabe oder Pause";
+"intent.media_previous" = "Vorheriger Titel";
+"intent.media_next" = "Nächster Titel";
+"intent.show_shortcut_panel" = "Kurzbefehl-Panel anzeigen";
+"intent.hide_shortcut_panel" = "Kurzbefehl-Panel ausblenden";
+"intent.start_pointer" = "Zeiger aktivieren";
+"intent.stop_pointer" = "Zeiger deaktivieren";
+"intent.recenter" = "Neuzentrieren";
+"intent.scroll" = "Scrollen";
+"intent.scroll_down" = "Nach unten scrollen";
+"intent.scroll_up" = "Nach oben scrollen";
+"intent.scroll_top" = "Ganz nach oben scrollen";
+"intent.scroll_bottom" = "Ganz nach unten scrollen";
+"intent.drag_start" = "Ziehen starten";
+"intent.drag_end" = "Ziehen beenden";
+"intent.undo" = "Rückgängig machen";
+"intent.paste" = "Einfügen";
+"intent.lock_connection" = "Verbindung sperren";
+"intent.unlock_connection" = "Verbindung entsperren";
+"intent.dictation" = "Diktat";
+"intent.unknown" = "Unbekannter Befehl";
+
+/* Permission Status */
+"status.permission.authorized" = "Systemstatus: Autorisiert";
+"status.permission.unauthorized" = "Systemstatus: Nicht autorisiert";
+"status.permission.denied" = "Systemstatus: Verweigert";
+"status.permission.restricted" = "Systemstatus: Eingeschränkt";
+"status.permission.not_determined" = "Systemstatus: Nicht festgelegt";
+"status.permission.unknown" = "Systemstatus: Unbekannt";
+
+/* UI Strings - Settings & Panels */
+"settings.term_correction.title" = "Kontextuelle Begriffskorrektur";
+"settings.term_correction.description" = "Unterstützt allgemeine und benutzerdefinierte Gruppen. Jede Gruppe kann unabhängig aktiviert, Apps zugewiesen und Regeln bearbeitet werden.";
+"settings.term_correction.rule_format" = "Format: `Quelle=>Ziel` oder `Quelle=>Ziel=>cmd`";
+"settings.term_correction.add_group" = "Gruppe hinzufügen";
+"settings.term_correction.edit_group" = "Gruppe bearbeiten";
+"settings.term_correction.effective_apps" = "Aktive Apps";
+"settings.term_correction.entry_rules" = "Regeln";
+"settings.term_correction.entry_rules_hint" = "Pro Zeile: `Quelle=>Ziel`. Optional `=>cmd` (Steuerung) oder `=>dict` (Diktat).";
+"settings.term_correction.no_apps_to_add" = "Keine laufenden Apps zum Hinzufügen gefunden";
+"settings.term_correction.running_apps" = "Laufende Apps";
+"settings.term_correction.select_app_manually" = "App manuell wählen...";
+"settings.term_correction.add_app" = "Hinzufügen";
+"settings.term_correction.edit" = "Bearbeiten";
+"settings.term_correction.done" = "Fertig";
+
+"panels.shortcuts.count_fmt" = "%d Kurzbefehle";
+"panels.shortcuts.clickable_hint" = "Anklickbar";
