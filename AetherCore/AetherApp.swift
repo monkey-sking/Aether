@@ -1635,7 +1635,7 @@ class AppState: ObservableObject {
             recordVoiceDictation(text)
         case .unknown:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=unknown")
-            break
+            recordVoiceControl(intent)
         }
     }
 
@@ -2016,7 +2016,7 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
     private func ensurePanel() {
         guard panel == nil else { return }
 
-        let hostingController = NSHostingController(rootView: CurrentAppShortcutPanelView())
+        let hostingController = FocuslessHostingController(rootView: CurrentAppShortcutPanelView())
         let panel = ShortcutOverlayPanel(
             contentRect: NSRect(x: 0, y: 0, width: 1160, height: 760),
             styleMask: [.borderless, .fullSizeContentView],
@@ -2142,6 +2142,21 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
 private final class ShortcutOverlayPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+}
+
+private final class FocuslessHostingView<Content: View>: NSHostingView<Content> {
+    override var focusRingType: NSFocusRingType {
+        get { .none }
+        set { /* ignore */ }
+    }
+    override var focusRingMaskBounds: NSRect { .zero }
+    override func drawFocusRingMask() {}
+}
+
+private final class FocuslessHostingController<Content: View>: NSHostingController<Content> {
+    override func loadView() {
+        view = FocuslessHostingView(rootView: rootView)
+    }
 }
 
 private struct CurrentAppShortcutPanelSection: Identifiable {
@@ -2490,11 +2505,6 @@ private struct CurrentAppShortcutPanelView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        SuppressEnclosingScrollFocusRing()
-                            .frame(width: 0, height: 0)
-                            .hidden()
-                            .allowsHitTesting(false)
-
                         panelGroupHeader(
                             title: snapshot?.appName ?? (isChinese ? "当前 App" : "Current App"),
                             detail: isChinese
@@ -2554,6 +2564,8 @@ private struct CurrentAppShortcutPanelView: View {
                     .padding(.bottom, 4)
                 }
                 .scrollIndicators(.hidden)
+                .focusable(false)
+                .background(SuppressEnclosingScrollFocusRing())
             }
             .padding(26)
         }
@@ -2657,15 +2669,33 @@ private struct CurrentAppShortcutPanelView: View {
 
                 Spacer(minLength: 12)
 
-                NoFocusRingTextField(
-                    placeholder: isChinese ? "搜索快捷键" : "Search shortcuts",
-                    text: $searchText,
-                    isFocused: Binding(
-                        get: { isSearchFieldFocused },
-                        set: { isSearchFieldFocused = $0 }
-                    ),
-                    font: .systemFont(ofSize: 13, weight: .regular)
-                )
+                ZStack(alignment: .trailing) {
+                    NoFocusRingTextField(
+                        placeholder: isChinese ? "搜索快捷键" : "Search shortcuts",
+                        text: $searchText,
+                        isFocused: Binding(
+                            get: { isSearchFieldFocused },
+                            set: { isSearchFieldFocused = $0 }
+                        ),
+                        font: .systemFont(ofSize: 13, weight: .regular)
+                    )
+                    .focusEffectDisabled()
+                    .padding(.trailing, searchText.isEmpty ? 0 : 26)
+
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                            isSearchFieldFocused = true
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary.opacity(0.7))
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 22, height: 22)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 8)
+                    }
+                }
                 .frame(width: 240)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
