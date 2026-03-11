@@ -387,6 +387,40 @@ final class SpeechManager: ObservableObject {
         HeadMotionManager.shared.effectiveRecognitionControlMode
     }
 
+    private var currentResolvedInputDeviceName: String {
+        var deviceIDToUse = selectedInputDeviceID
+        if deviceIDToUse == 0 {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+            AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                0,
+                nil,
+                &size,
+                &deviceIDToUse
+            )
+        }
+        return availableInputDevices.first(where: { $0.id == deviceIDToUse })?.name ?? ""
+    }
+
+    private var shouldSuppressSystemHeadsetMicControl: Bool {
+        let name = currentResolvedInputDeviceName.lowercased()
+        let icon = currentInputDeviceIcon.lowercased()
+        return icon.contains("airpod")
+            || icon.contains("airpods")
+            || name.contains("airpods")
+            || name.contains("beats")
+            || name.contains("headphone")
+            || name.contains("earphone")
+            || name.contains("bluetooth")
+            || name.contains("耳机")
+    }
+
     private var isHeadsetInputMuteGestureEnabled: Bool {
         UserDefaults.standard.object(forKey: "enableHeadsetInputMuteGesture") as? Bool ?? false
     }
@@ -763,9 +797,16 @@ final class SpeechManager: ObservableObject {
             GlobalLogger.speech.info(
                 "[ASR Session] start locale=\(activeLocale.identifier) mode=\(recognitionControlMode.rawValue) taskHint=\(String(describing: taskHint)) preferOnDevice=\(preferOnDevice) selectedInputID=\(selectedInputDeviceID) selectedInputName=\(selectedDeviceName) autoPunctuation=\(isAutoPunctuationEnabled) contextualCount=\(contextual.count)"
             )
-            if isHeadsetInputMuteGestureEnabled {
+            if shouldSuppressSystemHeadsetMicControl {
                 headsetInputMuteRouter.activate { [weak self] inputShouldBeMuted in
-                    self?.handleHeadsetInputMuteGesture(inputShouldBeMuted)
+                    guard let self else { return }
+                    if self.isHeadsetInputMuteGestureEnabled {
+                        self.handleHeadsetInputMuteGesture(inputShouldBeMuted)
+                    } else {
+                        GlobalLogger.speech.info(
+                            "[HeadsetMute] swallowed system mic-control gesture input=\(self.currentResolvedInputDeviceName)"
+                        )
+                    }
                 }
             } else {
                 headsetInputMuteRouter.deactivate()
@@ -1434,6 +1475,7 @@ final class SpeechManager: ObservableObject {
         GlobalLogger.speech.info(
             "[IntentPipeline] apply seq=\(job.seq) utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) intent=\(intentSummary(job.intent)) diagnostics=\(diagnosticsLog)"
         )
+        revertStreamedDictationIfNeeded(for: job)
         switch job.intent {
         case .undo:
             injector.undoPasteIfRecent()
@@ -1507,6 +1549,33 @@ final class SpeechManager: ObservableObject {
             status = NSLocalizedString("speech.done", comment: "")
             clearHandledCommandPreview()
         }
+    }
+
+    private func revertStreamedDictationIfNeeded(for job: ProcessedJob) {
+        let streamedCount = max(job.screenTypedCount, job.streamedTextSnapshot.count)
+        guard streamedCount > 0 else { return }
+
+        let shouldRevert: Bool
+        let reason: String
+        switch job.intent {
+        case .dictation:
+            return
+        case .unknown:
+            guard !job.sessionTypingMode else { return }
+            shouldRevert = true
+            reason = "unknown-control"
+        default:
+            shouldRevert = true
+            reason = "command-intent"
+        }
+
+        guard shouldRevert else { return }
+        let targetBundleLog = job.targetBundleID ?? "nil"
+        GlobalLogger.speech.info(
+            "[TextPipeline] revert-streamed utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) deleteCount=\(streamedCount) reason=\(reason)"
+        )
+        injector.deleteBackward(count: streamedCount, targetPID: job.targetPID)
+        dictationHandler.reset(targetPID: job.targetPID)
     }
 
     private func clearHandledCommandPreview() {
