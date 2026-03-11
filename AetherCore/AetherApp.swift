@@ -2661,11 +2661,13 @@ private struct CurrentAppShortcutPanelView: View {
                     ),
                     font: .systemFont(ofSize: 13, weight: .regular)
                 )
+                .frame(width: 240)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
-                .frame(width: 240)
-                .background(chromeBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(chromeBackground)
+                }
 
                 Button(String(localized: "generic.refresh")) {
                     _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
