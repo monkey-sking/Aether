@@ -88,9 +88,10 @@ struct HUDView: View {
                     .foregroundColor(.white)
                     .font(.system(size: 14))
                     .shadow(radius: 1)
-                    .clipShape(AirPodHalfClip(isLeft: isLeft))
-                    // Offset to bring the side-heavy bud into the center of the 22x22 frame
-                    .offset(x: isLeft ? 3.5 : -3.5)
+                    // Swap: We want the other side of the symbol to match user perspective
+                    .clipShape(AirPodHalfClip(isLeft: !isLeft))
+                    // Adjusted offset for perfect visual centering in the green ring
+                    .offset(x: isLeft ? 4.0 : -4.0)
             } else {
                 Image(systemName: resolvedSymbolName(for: requestedIcon))
                     .foregroundColor(.white)
@@ -107,11 +108,11 @@ struct HUDView: View {
         let isLeft: Bool
         func path(in rect: CGRect) -> Path {
             var path = Path()
-            // We use a tight crop to remove the "other" bud and any connecting lines
+            // Tighten the cut to 2px away from the center to ensure no residue
             if isLeft {
-                path.addRect(CGRect(x: 0, y: 0, width: rect.width / 2 - 1, height: rect.height))
+                path.addRect(CGRect(x: 0, y: 0, width: rect.width / 2 - 2, height: rect.height))
             } else {
-                path.addRect(CGRect(x: rect.width / 2 + 1, y: 0, width: rect.width / 2 + 1, height: rect.height))
+                path.addRect(CGRect(x: rect.width / 2 + 2, y: 0, width: rect.width / 2, height: rect.height))
             }
             return path
         }
