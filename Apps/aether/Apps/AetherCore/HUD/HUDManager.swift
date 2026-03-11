@@ -628,6 +628,12 @@ final class HUDManager {
             return false
         }
 
+        if !explicitTypingClickReentry,
+           lastGoodTypingRect != nil,
+           now.timeIntervalSince(lastGoodTypingRectAt) < 1.2 {
+            return true
+        }
+
         if requiresExplicitTypingReentry {
             if explicitTypingClickReentry {
                 requiresExplicitTypingReentry = false

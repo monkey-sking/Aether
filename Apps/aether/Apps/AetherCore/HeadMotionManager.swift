@@ -15,6 +15,7 @@ import MediaPlayer
 
 class HeadMotionManager: ObservableObject {
     static let shared = HeadMotionManager()
+    private static let systemDefinedEventTypeRawValue: Int = 14
 
     static let pttDownNotification = Notification.Name("AetherPTTDown")
     static let pttUpNotification = Notification.Name("AetherPTTUp")
@@ -270,10 +271,12 @@ class HeadMotionManager: ObservableObject {
     private let precisionZoneRadius: CGFloat = 44
     private let headGestureWindow: TimeInterval = 0.95
     private let headGestureCooldown: TimeInterval = 1.5
-    private let headGestureNodThreshold: Double = 0.11
-    private let headGestureNodAmplitude: Double = 0.26
-    private let headGestureShakeThreshold: Double = 0.16
-    private let headGestureShakeAmplitude: Double = 0.34
+    // Restore head gesture sensitivity closer to the earlier tuning.
+    private let headGestureSensitivityScale: Double = 0.8
+    private var headGestureNodThreshold: Double { 0.11 * headGestureSensitivityScale }
+    private var headGestureNodAmplitude: Double { 0.26 * headGestureSensitivityScale }
+    private var headGestureShakeThreshold: Double { 0.16 * headGestureSensitivityScale }
+    private var headGestureShakeAmplitude: Double { 0.34 * headGestureSensitivityScale }
     
     // Dynamic Range Calibration
     @Published var calibrationStatus: String = String(localized: "calibration.normal")
@@ -842,6 +845,7 @@ class HeadMotionManager: ObservableObject {
                 shakeMetrics.sampleCount
             )
             Task { @MainActor [weak self] in
+                self?.playHeadGestureConfirmationSound()
                 self?.performTrackingToggle(source: "head-gesture-shake")
             }
             return
@@ -860,6 +864,7 @@ class HeadMotionManager: ObservableObject {
             nodMetrics.sampleCount
         )
         Task { @MainActor [weak self] in
+            self?.playHeadGestureConfirmationSound()
             self?.performTrackingToggle(source: "head-gesture-nod")
         }
     }
@@ -872,6 +877,50 @@ class HeadMotionManager: ObservableObject {
     private func detectShakeGesture(in samples: [HeadGestureSample]) -> Bool {
         let metrics = gestureMetrics(values: samples.map(\.yaw), threshold: headGestureShakeThreshold)
         return metrics.amplitude >= headGestureShakeAmplitude && metrics.signChanges >= 2
+    }
+
+    private func mediaKeyKind(for keyCode: Int32) -> HeadsetPressKind? {
+        switch keyCode {
+        case NX_KEYTYPE_PLAY:
+            return .single
+        case NX_KEYTYPE_FAST, NX_KEYTYPE_NEXT:
+            return .double
+        case NX_KEYTYPE_REWIND, NX_KEYTYPE_PREVIOUS:
+            return .triple
+        default:
+            return nil
+        }
+    }
+
+    private func shouldConsumeHeadsetMediaKey(kind: HeadsetPressKind) -> Bool {
+        headsetPressAction(for: kind) != .none
+    }
+
+    private func handleSystemDefinedMediaKeyEvent(_ event: CGEvent) -> Bool {
+        guard let nsEvent = NSEvent(cgEvent: event) else { return false }
+        guard nsEvent.type == .systemDefined else { return false }
+        guard nsEvent.subtype.rawValue == 8 else { return false }
+
+        let data1 = nsEvent.data1
+        let keyCode = Int32((data1 & 0xFFFF0000) >> 16)
+        let keyState = (data1 & 0xFF00) >> 8
+        let isKeyDown = keyState == 0xA
+        guard isKeyDown else { return false }
+        guard let kind = mediaKeyKind(for: keyCode) else { return false }
+        guard shouldConsumeHeadsetMediaKey(kind: kind) else { return false }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            switch kind {
+            case .single:
+                self.handleHeadsetSinglePress(origin: "systemDefined-play")
+            case .double:
+                self.handleHeadsetDoublePress()
+            case .triple:
+                self.handleHeadsetTriplePress()
+            }
+        }
+        return true
     }
 
     private func gestureMetrics(values: [Double], threshold: Double) -> HeadGestureMetrics {
@@ -1268,6 +1317,10 @@ class HeadMotionManager: ObservableObject {
             recognitionControlMode: nextMode.hudMode,
             duration: 0.8
         )
+        if isCommandMode && !isTracking {
+            os_log("Control mode toggled while tracking inactive; starting tracking", log: log, type: .info)
+            startTracking()
+        }
         os_log("Recognition Mode Override Toggled (%{public}@, persist=%{public}@): %{public}@",
                log: log, type: .info, source, persist ? "yes" : "no", isCommandMode ? "command" : "dictation")
     }
@@ -1415,6 +1468,19 @@ class HeadMotionManager: ObservableObject {
         )
         os_log("Recognition Mode escape exit (%{public}@): mode=%{public}@",
                log: log, type: .info, source, effectiveRecognitionControlMode.rawValue)
+    }
+
+    private func playHeadGestureConfirmationSound() {
+        let preferredNames = ["Glass", "Hero", "Ping"]
+        for name in preferredNames {
+            if let sound = NSSound(named: name) {
+                sound.play()
+                os_log("Head gesture confirmation sound: %{public}@", log: log, type: .info, name)
+                return
+            }
+        }
+        NSSound(named: "Tink")?.play()
+        os_log("Head gesture confirmation sound fallback: Tink", log: log, type: .info)
     }
     
     // ... triggerMouseClick (unchanged) ...
@@ -1624,14 +1690,15 @@ class HeadMotionManager: ObservableObject {
         // Monitor global events for hotkeys (Shift+Ctrl+S for Emergency Stop, Ctrl+Opt+V for PTT)
         GlobalLogger.lifecycle.info("HeadMotionManager: Setting up hotkeys (Event Tap)...")
         
-        let mask: CGEventMask =
-            (1 << CGEventType.keyDown.rawValue) |
-            (1 << CGEventType.keyUp.rawValue) |
-            (1 << CGEventType.flagsChanged.rawValue) |
-            (1 << CGEventType.leftMouseDown.rawValue) |
-            (1 << CGEventType.rightMouseDown.rawValue) |
-            (1 << CGEventType.otherMouseDown.rawValue) |
-            (1 << CGEventType.otherMouseUp.rawValue)
+        var mask: CGEventMask = 0
+        mask |= (1 << CGEventType.keyDown.rawValue)
+        mask |= (1 << CGEventType.keyUp.rawValue)
+        mask |= (1 << CGEventType.flagsChanged.rawValue)
+        mask |= (1 << HeadMotionManager.systemDefinedEventTypeRawValue)
+        mask |= (1 << CGEventType.leftMouseDown.rawValue)
+        mask |= (1 << CGEventType.rightMouseDown.rawValue)
+        mask |= (1 << CGEventType.otherMouseDown.rawValue)
+        mask |= (1 << CGEventType.otherMouseUp.rawValue)
         
         func callback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
             guard let refcon else { return Unmanaged.passUnretained(event) }
@@ -1677,6 +1744,13 @@ class HeadMotionManager: ObservableObject {
                     manager.endPTT(from: source, origin: "keyboard-flagsChanged")
                     return nil
                 }
+            }
+
+            if Int(type.rawValue) == HeadMotionManager.systemDefinedEventTypeRawValue {
+                if manager.handleSystemDefinedMediaKeyEvent(event) {
+                    return nil
+                }
+                return Unmanaged.passUnretained(event)
             }
 
             // Trace modifiers for debugging

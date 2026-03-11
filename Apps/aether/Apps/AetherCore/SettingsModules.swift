@@ -945,6 +945,11 @@ private struct HeadsetShortcutMappingCard: View {
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
+                Text(NSLocalizedString("headset.experiment.notice", comment: ""))
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
                 VStack(alignment: .leading, spacing: 8) {
                     actionRow(
                         kind: .single,
@@ -1511,17 +1516,17 @@ private struct CustomAppShortcutRuleEditorSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(isChinese ? "编辑自定义 App 规则" : "Edit Custom App Rule")
+                Text(NSLocalizedString("custom_app_rule_editor.title", comment: ""))
                     .font(.headline)
                 Spacer()
-                Button(isChinese ? "完成" : "Done") { dismiss() }
+                Button(NSLocalizedString("custom_app_rule_editor.done", comment: "")) { dismiss() }
             }
 
-            Toggle(isChinese ? "启用这条规则" : "Enable this rule", isOn: $rule.isEnabled)
+            Toggle(NSLocalizedString("custom_app_rule_editor.enable_rule", comment: ""), isOn: $rule.isEnabled)
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text(isChinese ? "目标 App" : "Target App")
+                    Text(NSLocalizedString("custom_app_rule_editor.target_app", comment: ""))
                         .font(.subheadline.weight(.semibold))
                     Spacer()
                     SpeechAppPickerMenu(
@@ -1535,7 +1540,7 @@ private struct CustomAppShortcutRuleEditorSheet: View {
                     SpeechAppIcon(bundleID: rule.bundleIdentifier)
                         .frame(width: 28, height: 28)
                     TextField(
-                        isChinese ? "Bundle ID，例如 com.openai.chatgpt" : "Bundle ID, e.g. com.openai.chatgpt",
+                        NSLocalizedString("custom_app_rule_editor.bundle_id_placeholder", comment: ""),
                         text: $rule.bundleIdentifier
                     )
                     .textFieldStyle(.roundedBorder)
@@ -1543,43 +1548,39 @@ private struct CustomAppShortcutRuleEditorSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(isChinese ? "动作名称" : "Action Title")
+                Text(NSLocalizedString("custom_app_rule_editor.action_title", comment: ""))
                     .font(.subheadline.weight(.semibold))
-                TextField(isChinese ? "例如：发送" : "Example: Send", text: $rule.title)
+                TextField(NSLocalizedString("custom_app_rule_editor.action_title_placeholder", comment: ""), text: $rule.title)
                     .textFieldStyle(.roundedBorder)
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(isChinese ? "语音别名" : "Voice Aliases")
+                Text(NSLocalizedString("custom_app_rule_editor.voice_aliases", comment: ""))
                     .font(.subheadline.weight(.semibold))
-                Text(isChinese ? "多个别名用逗号或换行分隔；为空时会默认使用动作名称。" : "Separate aliases with commas or new lines. If left empty, the action title is used.")
+                Text(NSLocalizedString("custom_app_rule_editor.voice_aliases_hint", comment: ""))
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextEditor(text: aliasesBinding)
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(minHeight: 96)
-                    .padding(6)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(6)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
+                TextField(
+                    NSLocalizedString("custom_app_rule_editor.voice_aliases_placeholder", comment: ""),
+                    text: aliasesBinding
+                )
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.caption, design: .monospaced))
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(isChinese ? "快捷键" : "Shortcut")
+                Text(NSLocalizedString("custom_app_rule_editor.shortcut", comment: ""))
                     .font(.subheadline.weight(.semibold))
-                Text(isChinese ? "点击下面按钮后按下单键或组合键。" : "Click below, then press a single key or key combination.")
+                Text(NSLocalizedString("custom_app_rule_editor.shortcut_hint", comment: ""))
                     .font(.caption)
                     .foregroundColor(.secondary)
-                KeyRecorderView(binding: $rule.shortcut, onChange: { newBinding in
+                KeyRecorderView(binding: $rule.shortcut, allowBareKeys: true, onChange: { newBinding in
                     rule.shortcut = newBinding
                 })
             }
         }
         .padding(16)
-        .frame(width: 560, height: 500)
+        .frame(width: 560)
     }
 }
 

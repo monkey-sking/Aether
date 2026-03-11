@@ -138,11 +138,13 @@ struct KeyRecorderRow: View {
 
 /// An invisible NSView that captures the next key event when active.
 struct KeyRecorderHelper: NSViewRepresentable {
+    var allowBareKeys: Bool = false
     var onRecord: (Int, UInt64, Int?) -> Void
     var onCancel: () -> Void
 
     func makeNSView(context: Context) -> KeyRecorderNSView {
         let view = KeyRecorderNSView()
+        view.allowBareKeys = allowBareKeys
         view.onRecord = onRecord
         view.onCancel = onCancel
         // Ensure it can become first responder
@@ -151,6 +153,7 @@ struct KeyRecorderHelper: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: KeyRecorderNSView, context: Context) {
+        nsView.allowBareKeys = allowBareKeys
         nsView.onRecord = onRecord
         nsView.onCancel = onCancel
         // Keep focus if still valid
@@ -162,6 +165,7 @@ struct KeyRecorderHelper: NSViewRepresentable {
 
 final class KeyRecorderNSView: NSView {
     private let logger = Logger(subsystem: "com.7fei.Aether", category: "KeyRecorder")
+    var allowBareKeys: Bool = false
     var onRecord: ((Int, UInt64, Int?) -> Void)?
     var onCancel: (() -> Void)?
     
@@ -274,8 +278,7 @@ final class KeyRecorderNSView: NSView {
             // HotkeyManager uses CGEventFlags.rawValue.
             // But we want to ensure we capture the modifiers correctly.
             
-            // Check for at least one modifier OR caps lock
-            if activeMods.isEmpty && !isCaps {
+            if !allowBareKeys && activeMods.isEmpty && !isCaps {
                 logger.debug("Ignored bare key (CG): \(keyCode)")
                 return
             }
@@ -310,8 +313,7 @@ final class KeyRecorderNSView: NSView {
         // check physical caps lock
         let isCapsLockDown = CGEventSource.keyState(.hidSystemState, key: 57)
         
-        // If no standard modifiers and no physical caps lock, ignore (bare key)
-        if activeModifiers.isEmpty && !isCapsLockDown {
+        if !allowBareKeys && activeModifiers.isEmpty && !isCapsLockDown {
             logger.debug("Ignored bare key: \(keyCode), mods=\(activeModifiers.rawValue)")
             return
         }
@@ -356,6 +358,7 @@ final class KeyRecorderNSView: NSView {
 /// A standalone recorder for a single HotkeyBinding.
 struct KeyRecorderView: View {
     @Binding var binding: HotkeyBinding
+    var allowBareKeys: Bool = false
     var onChange: (HotkeyBinding) -> Void
     var font: Font = .body
     
@@ -382,6 +385,7 @@ struct KeyRecorderView: View {
         .buttonStyle(.plain)
         .background(
             isRecording ? KeyRecorderHelper(
+                allowBareKeys: allowBareKeys,
                 onRecord: { keyCode, modifiers, mouseButton in
                     let newBinding: HotkeyBinding
                     if let btn = mouseButton {
