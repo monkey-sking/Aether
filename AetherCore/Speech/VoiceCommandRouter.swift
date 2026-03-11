@@ -142,6 +142,70 @@ final class FrontmostAppCommandCatalog: ObservableObject {
         )
     ]
 
+    private static let bilingualAliasGroups: [[String]] = [
+        ["file", "文件"],
+        ["edit", "编辑"],
+        ["view", "视图"],
+        ["window", "窗口"],
+        ["help", "帮助"],
+        ["history", "历史", "历史记录"],
+        ["bookmarks", "书签"],
+        ["go", "跳转", "导航"],
+        ["navigate", "跳转", "导航"],
+        ["tab", "标签", "标签页"],
+        ["tabs", "标签", "标签页"],
+        ["new", "新建"],
+        ["open", "打开"],
+        ["close", "关闭"],
+        ["find", "查找", "搜索"],
+        ["search", "搜索", "查找"],
+        ["refresh", "刷新", "重新加载"],
+        ["reload", "刷新", "重新加载"],
+        ["preferences", "settings", "偏好设置"],
+        ["new tab", "新建标签", "新建标签页"],
+        ["close tab", "关闭标签", "关闭标签页", "关闭当前标签"],
+        ["next tab", "下一个标签", "下一个标签页"],
+        ["previous tab", "上一个标签", "上一个标签页"],
+        ["reopen closed tab", "恢复已关闭标签页", "重新打开标签", "恢复标签"],
+        ["refresh page", "刷新页面", "重新加载页面"],
+        ["find in page", "在页面中查找", "页面查找"],
+        ["focus address bar", "address bar", "聚焦地址栏", "切到地址栏"],
+        ["new window", "新建窗口"],
+        ["close window", "关闭窗口"],
+        ["command palette", "命令面板"],
+        ["quick open", "快速打开"],
+        ["search everywhere", "搜索所有地方", "全局搜索"],
+        ["search project", "搜索项目", "全局搜索"],
+        ["replace in project", "替换项目", "全局替换", "项目替换"],
+        ["quick switcher", "快速切换", "切换频道", "切换服务器"],
+        ["search messages", "搜索消息", "Slack 搜索"],
+        ["new message", "新建消息", "写消息"],
+        ["new page", "新建页面", "创建页面"],
+        ["command menu", "命令菜单", "斜杠菜单"],
+        ["split pane", "垂直分屏", "终端分屏", "分屏"],
+        ["command search", "命令搜索", "搜索命令"]
+    ]
+
+    private static let bilingualAliasLookup: [String: [String]] = {
+        var lookup: [String: Set<String>] = [:]
+
+        for group in bilingualAliasGroups {
+            let uniqueGroup = VoiceCommandRouter.uniqueAliases(group)
+            for term in uniqueGroup {
+                let key = normalizedAliasLookupKey(term)
+                guard !key.isEmpty else { continue }
+
+                var related = lookup[key, default: []]
+                for candidate in uniqueGroup where normalizedAliasLookupKey(candidate) != key {
+                    related.insert(candidate)
+                }
+                lookup[key] = related
+            }
+        }
+
+        return lookup.mapValues { Array($0) }
+    }()
+
     private static let commandModifier: UInt64 = CGEventFlags.maskCommand.rawValue
     private static let commandShiftModifier: UInt64 = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue
     private static let commandControlModifier: UInt64 = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskControl.rawValue
@@ -345,6 +409,11 @@ final class FrontmostAppCommandCatalog: ObservableObject {
                 shortcut: template.shortcut,
                 aliases: VoiceCommandRouter.uniqueAliases([template.title] + template.aliases)
             )
+
+            if commands.contains(where: { isSemanticDuplicate($0, of: command) }) {
+                continue
+            }
+
             let dedupeKey = supplementalDedupeKey(for: command)
             if seen.insert(dedupeKey).inserted {
                 commands.append(command)
@@ -375,6 +444,23 @@ final class FrontmostAppCommandCatalog: ObservableObject {
     private func supplementalDedupeKey(for command: FrontmostAppCommand) -> String {
         [command.bundleIdentifier, command.title.lowercased(), command.shortcut.displayString]
             .joined(separator: "::")
+    }
+
+    private func isSemanticDuplicate(_ existing: FrontmostAppCommand, of supplemental: FrontmostAppCommand) -> Bool {
+        guard existing.shortcut == supplemental.shortcut else { return false }
+
+        let existingAliases = Set(
+            VoiceCommandRouter.uniqueAliases([existing.title] + existing.aliases)
+                .map(Self.normalizedAliasLookupKey)
+                .filter { !$0.isEmpty }
+        )
+        let supplementalAliases = Set(
+            VoiceCommandRouter.uniqueAliases([supplemental.title] + supplemental.aliases)
+                .map(Self.normalizedAliasLookupKey)
+                .filter { !$0.isEmpty }
+        )
+
+        return !existingAliases.isDisjoint(with: supplementalAliases)
     }
 
     private func browserSupplementalCommands() -> [SupplementalCommandTemplate] {
@@ -776,6 +862,14 @@ final class FrontmostAppCommandCatalog: ObservableObject {
         Self.commandCharacterKeyCodes[commandChar.lowercased()]
     }
 
+    private static func normalizedAliasLookupKey(_ raw: String) -> String {
+        raw
+            .replacingOccurrences(of: "\u{2026}", with: "")
+            .lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .joined()
+    }
+
     private func sanitizedTitle(_ raw: String?) -> String {
         guard let raw else { return "" }
         return raw
@@ -793,6 +887,13 @@ final class FrontmostAppCommandCatalog: ObservableObject {
         let lowered = joined.lowercased()
 
         var aliases = [title, joined]
+
+        for component in path + [title] {
+            let key = Self.normalizedAliasLookupKey(component)
+            if let related = Self.bilingualAliasLookup[key] {
+                aliases += related
+            }
+        }
 
         for rule in Self.aliasRules where rule.keywords.allSatisfy(lowered.contains) {
             aliases += rule.aliases

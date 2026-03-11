@@ -126,7 +126,7 @@
 
 "menu.start_pointer_fmt %@" = "Zeiger starten (%@)";
 "menu.stop_pointer_fmt %@" = "Zeiger stoppen (%@)";
-"menu.airpods_lock_fmt %@" = "🔒 AirPods Sperre (%@)";
+"menu.airpods_lock_fmt %@" = "AirPods Sperre (%@)";
 
 /* Speech Status */
 "speech.listening" = "Bereit...";

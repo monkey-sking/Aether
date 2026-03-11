@@ -194,7 +194,7 @@
 "main.voice_mode.push_to_talk.short" = "PTT";
 "main.voice_mode.wake_word.detail" = "Say the wake word first, then continue with dictation or control.";
 "main.voice_mode.wake_word.short" = "Wake";
-"menu.airpods_lock_fmt %@" = "🔒 AirPods Lock (%@)";
+"menu.airpods_lock_fmt %@" = "AirPods Lock (%@)";
 "menu.enable_accessibility" = "Enable Accessibility";
 "menu.enable_microphone" = "Enable Microphone";
 "menu.enable_speech" = "Enable Speech Recognition";

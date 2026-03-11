@@ -194,6 +194,8 @@ struct InputSettingsView: View {
             VoiceLexiconSection(
                 title: NSLocalizedString("lexicon.section.core_controls.title", comment: ""),
                 subtitle: NSLocalizedString("lexicon.section.core_controls.subtitle", comment: ""),
+                systemImage: "cursorarrow.click.2",
+                tint: .blue,
                 presets: [.clickLeft, .clickRight, .doubleClick, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .dragStart, .dragEnd, .undo, .paste]
             ),
             VoiceLexiconSection(
@@ -201,6 +203,8 @@ struct InputSettingsView: View {
                 subtitle: isChinese
                     ? "耳机按钮和语音命令都更适合触发 Aether 自己的动作，而不是暴露底层媒体桥接语义。"
                     : "Expose Aether actions here instead of the underlying media-remote bridge semantics.",
+                systemImage: "sparkles.rectangle.stack",
+                tint: .accentColor,
                 presets: [.toggleInputControlMode, .toggleTracking, .toggleLanguage, .toggleShortcutPanel]
             ),
             VoiceLexiconSection(
@@ -208,6 +212,8 @@ struct InputSettingsView: View {
                 subtitle: isChinese
                     ? "头控的主开关已经统一到“切换头控”，这里保留姿态校准等补充动作。"
                     : "Pointer control now uses toggle semantics as the main action; this section keeps calibration-style helpers.",
+                systemImage: "scope",
+                tint: .orange,
                 presets: [.recenter]
             )
         ]
@@ -615,16 +621,18 @@ struct InputSettingsView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
 
-                            ForEach(commandAliasSections) { aliasSection in
-                                VStack(alignment: .leading, spacing: 10) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(aliasSection.title)
-                                            .font(.subheadline.weight(.semibold))
-                                        Text(aliasSection.subtitle)
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
+                            HStack(spacing: 8) {
+                                ForEach(commandAliasSections) { aliasSection in
+                                    VoiceLexiconSectionChip(
+                                        title: aliasSection.title,
+                                        count: aliasSection.presets.count,
+                                        tint: aliasSection.tint
+                                    )
+                                }
+                            }
 
+                            ForEach(commandAliasSections) { aliasSection in
+                                VoiceLexiconSectionCard(section: aliasSection) {
                                     VStack(spacing: 12) {
                                         ForEach(aliasSection.presets) { preset in
                                             VoiceLexiconEditorRow(
@@ -986,9 +994,91 @@ private struct HeadsetShortcutMappingCard: View {
 private struct VoiceLexiconSection: Identifiable {
     let title: String
     let subtitle: String
+    let systemImage: String
+    let tint: Color
     let presets: [VoiceCommandPreset]
 
     var id: String { title }
+}
+
+private struct VoiceLexiconSectionChip: View {
+    let title: String
+    let count: Int
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+            Text("\(count)")
+                .font(.caption2.weight(.bold))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(tint.opacity(0.18))
+                .clipShape(Capsule())
+        }
+        .foregroundColor(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.62))
+        .clipShape(Capsule())
+    }
+}
+
+private struct VoiceLexiconSectionCard<Content: View>: View {
+    let section: VoiceLexiconSection
+    let content: Content
+
+    init(section: VoiceLexiconSection, @ViewBuilder content: () -> Content) {
+        self.section = section
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(section.tint.opacity(0.14))
+                        .frame(width: 34, height: 34)
+
+                    Image(systemName: section.systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(section.tint)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(section.title)
+                            .font(.subheadline.weight(.semibold))
+                        Text("\(section.presets.count)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundColor(section.tint)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(section.tint.opacity(0.14))
+                            .clipShape(Capsule())
+                    }
+
+                    Text(section.subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+            }
+
+            content
+        }
+        .padding(14)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.42))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(section.tint.opacity(0.14), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
 }
 
 private extension VoiceCommandPreset {
@@ -1993,7 +2083,7 @@ struct OutputSettingsView: View {
                         ControlCard(
                             title: L10n.commandCenterMotionMatrix, // Reusing Motion Matrix title which is appropriate
                             subtitle: headManager.isTracking ? L10n.statusActive : L10n.statusPaused,
-                            icon: "viewfinder",
+                            icon: "cursorarrow.and.square.on.square.dashed",
                             color: .green,
                             isOn: trackingBinding
                         )

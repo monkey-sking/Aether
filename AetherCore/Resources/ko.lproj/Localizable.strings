@@ -193,7 +193,7 @@
 "main.voice_mode.push_to_talk.short" = "PTT";
 "main.voice_mode.wake_word.detail" = "먼저 호출어를 말한 다음, 받아쓰기나 제어를 계속하세요.";
 "main.voice_mode.wake_word.short" = "호출어";
-"menu.airpods_lock_fmt %@" = "🔒 AirPods 잠금 (%@)";
+"menu.airpods_lock_fmt %@" = "AirPods 잠금 (%@)";
 "menu.enable_accessibility" = "손쉬운 사용 활성화";
 "menu.enable_microphone" = "마이크 활성화";
 "menu.enable_speech" = "음성 인식 활성화";

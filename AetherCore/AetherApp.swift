@@ -2403,7 +2403,7 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private var normalizedSearchText: String {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        normalizeSearchText(searchText)
     }
 
     private var filteredSections: [CurrentAppShortcutPanelSection] {
@@ -2727,9 +2727,12 @@ private struct CurrentAppShortcutPanelView: View {
             command.title,
             command.displayPath,
             command.shortcut.displayString,
-            command.aliases.joined(separator: " ")
+            command.aliases.joined(separator: " "),
+            command.title.pinyin,
+            command.displayPath.pinyin,
+            command.aliases.joined(separator: " ").pinyin
         ]
-        return haystacks.contains { $0.lowercased().contains(needle) }
+        return haystacks.contains { normalizeSearchText($0).contains(needle) }
     }
 
     private func matchesSearch(_ entry: AetherGlobalShortcutPanelEntry) -> Bool {
@@ -2740,7 +2743,15 @@ private struct CurrentAppShortcutPanelView: View {
             entry.action.helperText,
             entry.binding.displayString
         ]
-        return haystacks.contains { $0.lowercased().contains(needle) }
+        return haystacks.contains { normalizeSearchText($0).contains(needle) }
+    }
+
+    private func normalizeSearchText(_ raw: String) -> String {
+        raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .joined()
     }
 
     private func triggerCurrentAppShortcut(_ command: FrontmostAppCommand) {

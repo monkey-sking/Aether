@@ -522,12 +522,12 @@ final class CaretDetector: ObservableObject {
                              if AXValueGetValue(bVal, .cgRect, &rawR) {
                                   // 1. Bogus Check (0,0) or Tiny
                                   if (rawR.origin.x == 0 && rawR.origin.y == 0) || (rawR.width <= 1 && rawR.height <= 1) {
-                                      self.logger.debug("🚨 [PRE-FLIP REJECT] Bogus standard range: \(rawR.debugDescription)")
+                                      self.logger.debug("[PRE-FLIP REJECT] Bogus standard range: \(rawR.debugDescription)")
                                   } 
                                   // 2. Non-Caret Geometry (Selection)
                                   // Codex often returns the whole line/block as selection range
                                   else if rawR.width > 80 || rawR.height > 80 {
-                                      self.logger.debug("🚫 [NON-CARET] Rejecting large selection range: \(rawR.debugDescription)")
+                                      self.logger.debug("[NON-CARET] Rejecting large selection range: \(rawR.debugDescription)")
                                   } 
                                   else {
                                       if let r = extractRect(from: boundsValue!) {
@@ -567,7 +567,7 @@ final class CaretDetector: ObservableObject {
                                           newInputContextRect = r_appkit
                                           shouldTemporarilyKeepLastCaret = true
                                       } else {
-                                          self.logger.debug("🛡 [WEB] Rejection: Preventing synthetic caret without editable evidence.")
+                                          self.logger.debug("[WEB] Rejection: Preventing synthetic caret without editable evidence.")
                                       }
                                   } else {
                                       // 2. Standard Candidates
@@ -649,7 +649,7 @@ final class CaretDetector: ObservableObject {
         // [Final Sanity Check] Codex/HighFreq
         if let r = newRect, self.isHighFrequencyApp(appName: self.currentAppName, bundleID: self.currentAppBundleID) {
              if r.width > 100 || r.height > 100 {
-                 self.logger.debug("🛡 [CODEX] Final Sanity: Rejecting huge caret \(r.debugDescription, privacy: .public)")
+                 self.logger.debug("[CODEX] Final Sanity: Rejecting huge caret \(r.debugDescription, privacy: .public)")
                  newRect = nil
              } else {
                  self.logger.debug("✅ [CODEX] Final Sanity: Accepted caret \(r.debugDescription, privacy: .public)")
