@@ -425,7 +425,7 @@ final class SpeechManager: ObservableObject {
     }
 
     private var shouldSuppressSystemHeadsetMicControl: Bool {
-        guard UserDefaults.standard.object(forKey: "enableHeadsetInputMuteGesture") as? Bool ?? false else {
+        guard UserDefaults.standard.object(forKey: "enableHeadsetInputMuteGesture") as? Bool ?? true else {
             return false
         }
         return isHeadsetLikeInputDevice
@@ -2449,6 +2449,7 @@ private final class HeadsetInputMuteRouter {
     private var activatedAt: Date = .distantPast
     private var lastDeliveredAt: Date = .distantPast
     private var lastDeliveredState: Bool?
+    private var suppressNextProgrammaticUnmuteCallback = false
 
     func activate(onSinglePress: @escaping (Bool) -> Void) {
         guard #available(macOS 14.0, *) else { return }
@@ -2471,6 +2472,15 @@ private final class HeadsetInputMuteRouter {
                     os_log("Input mute gesture ignored during activation warmup", log: self.log, type: .info)
                     return true
                 }
+                if !inputShouldBeMuted, self.suppressNextProgrammaticUnmuteCallback {
+                    self.suppressNextProgrammaticUnmuteCallback = false
+                    os_log("Input mute gesture ignored after programmatic unmute reset", log: self.log, type: .info)
+                    return true
+                }
+                if !inputShouldBeMuted {
+                    os_log("Input mute gesture ignored for unmute edge", log: self.log, type: .info)
+                    return true
+                }
                 if let lastState = self.lastDeliveredState,
                    lastState == inputShouldBeMuted,
                    now.timeIntervalSince(self.lastDeliveredAt) < 0.9 {
@@ -2483,9 +2493,11 @@ private final class HeadsetInputMuteRouter {
                 }
                 self.lastDeliveredAt = now
                 self.lastDeliveredState = inputShouldBeMuted
+                self.suppressNextProgrammaticUnmuteCallback = true
                 Task { @MainActor in
                     onSinglePress(inputShouldBeMuted)
                 }
+                self.resetInputMuteStateIfNeeded(reason: "consumed-headset-single-press")
                 return true
             }
         } catch {
@@ -2498,6 +2510,8 @@ private final class HeadsetInputMuteRouter {
         activatedAt = Date()
         lastDeliveredAt = .distantPast
         lastDeliveredState = nil
+        suppressNextProgrammaticUnmuteCallback = false
+        resetInputMuteStateIfNeeded(reason: "activate-router")
         os_log("Input mute handler registered", log: log, type: .info)
     }
 
@@ -2516,6 +2530,7 @@ private final class HeadsetInputMuteRouter {
         activatedAt = .distantPast
         lastDeliveredAt = .distantPast
         lastDeliveredState = nil
+        suppressNextProgrammaticUnmuteCallback = false
         removeObserver()
     }
 
@@ -2523,6 +2538,18 @@ private final class HeadsetInputMuteRouter {
     private func logMuteNotification(_ note: Notification) {
         let muted = (note.userInfo?[AVAudioApplication.muteStateKey] as? NSNumber)?.boolValue
         os_log("Input mute state notification: %{public}@", log: log, type: .info, muted == true ? "muted" : "unmuted")
+    }
+
+    private func resetInputMuteStateIfNeeded(reason: String) {
+        guard #available(macOS 14.0, *) else { return }
+        guard AVAudioApplication.shared.isInputMuted else { return }
+        do {
+            try AVAudioApplication.shared.setInputMuted(false)
+            os_log("Input mute state reset to unmuted: %{public}@", log: log, type: .info, reason)
+        } catch {
+            suppressNextProgrammaticUnmuteCallback = false
+            os_log("Input mute reset failed (%{public}@): %{public}@", log: log, type: .error, reason, error.localizedDescription)
+        }
     }
 
     private func removeObserver() {
