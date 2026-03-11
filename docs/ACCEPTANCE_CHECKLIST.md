@@ -18,7 +18,7 @@
 - [x] “当前应用控制”中文标题优化为“应用快捷键”，更贴合实际内容（前台 App 快捷键）
 - [x] “指针”页图标统一更换为 `cursorarrow.and.square.on.square.dashed`
 - [x] 语音词库中的命令别名分组视觉更明显：每组都有独立分组卡片、标题、副标题和数量标记，不再像连续表单
-- [x] 最新正式包已生成：版本 `202603111316`
+- [x] 最新正式包已生成：版本 `202603111330`
     产物：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
 
 ### Browser HUD Performance
@@ -263,7 +263,7 @@
 - [x] 使用完整发布链路：`env NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh`
 - [x] 本次正式包包含：HUD 待命文案不再尾随“中”等语言缩写、快捷键面板搜索框去除系统焦点角标、指针图标更新、中文标题“应用快捷键”、HUD/菜单去 emoji、快捷键面板中英混入修复、设置侧栏标题对齐、语音词库分组视觉增强
 - [x] 正式包版本：`202603111316`；Universal 架构：`arm64 + x86_64`
-- [x] 公证已通过（Submission ID: `fc87c137-bba7-41b6-b3ac-8b93a3626987`），App / DMG 已完成 Staple
+- [x] 公证已通过（Submission ID: `ab338543-37a9-4306-97bc-cec5c5b86720`），App / DMG 已完成 Staple
 - [x] 产物路径：
   App：`.build/release/Aether.app`
   DMG：`.build/release/Aether_Installer.dmg`
