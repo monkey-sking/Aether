@@ -43,7 +43,7 @@ final class AudioCaptureSession {
         if #available(macOS 10.15, *) {
             let enable = useVoiceProcessing
                 || shouldAutoEnableVoiceProcessingIO()
-                || shouldEnableVoiceProcessingForSystemMicMode()
+                || shouldEnableVoiceProcessingForHeadsetMicMode()
             if enable {
                 do {
                     try inputNode.setVoiceProcessingEnabled(true)
@@ -196,29 +196,6 @@ final class AudioCaptureSession {
         // when a new capture engine starts. Teams can opt-in via UserDefaults.
         guard UserDefaults.standard.object(forKey: "autoVoiceProcessingForSpeakers") as? Bool ?? false else { return false }
 
-        func defaultDeviceID(_ selector: AudioObjectPropertySelector) -> AudioDeviceID? {
-            var addr = AudioObjectPropertyAddress(
-                mSelector: selector,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-            var id: AudioDeviceID = 0
-            var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-            return AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &id) == noErr && id != 0 ? id : nil
-        }
-
-        func deviceName(_ id: AudioDeviceID) -> String {
-            var addr = AudioObjectPropertyAddress(
-                mSelector: kAudioObjectPropertyName,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-            var ref: CFString = "" as CFString
-            var size = UInt32(MemoryLayout<CFString>.size)
-            guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &ref) == noErr else { return "" }
-            return ref as String
-        }
-
         let inputID = selectedDeviceID != 0 ? selectedDeviceID : (defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice) ?? 0)
         let outputID = defaultDeviceID(kAudioHardwarePropertyDefaultOutputDevice) ?? 0
         let inName = deviceName(inputID).lowercased()
@@ -237,19 +214,55 @@ final class AudioCaptureSession {
         return false
     }
 
-    private func shouldEnableVoiceProcessingForSystemMicMode() -> Bool {
+    private func shouldEnableVoiceProcessingForHeadsetMicMode() -> Bool {
         guard #available(macOS 12.0, *) else { return false }
 
         let preferred = AVCaptureDevice.preferredMicrophoneMode
         guard preferred != .standard else { return false }
 
+        let inputID = selectedDeviceID != 0 ? selectedDeviceID : (defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice) ?? 0)
+        let inputName = deviceName(inputID).lowercased()
+        let isHeadsetMic = inputName.contains("airpods")
+            || inputName.contains("beats")
+            || inputName.contains("headphone")
+            || inputName.contains("earphone")
+            || inputName.contains("bluetooth")
+            || inputName.contains("耳机")
+
+        guard isHeadsetMic else { return false }
+
         os_log(
-            "VoiceProcessingIO: enabling to honor system mic mode %{public}@",
+            "VoiceProcessingIO: enabling for headset mic mode input='%{public}@' mode=%{public}@",
             log: log,
             type: .info,
+            inputName,
             microphoneModeLabel(preferred)
         )
         return true
+    }
+
+    private func defaultDeviceID(_ selector: AudioObjectPropertySelector) -> AudioDeviceID? {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var id: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        return AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &id) == noErr && id != 0 ? id : nil
+    }
+
+    private func deviceName(_ id: AudioDeviceID) -> String {
+        guard id != 0 else { return "" }
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var ref: CFString = "" as CFString
+        var size = UInt32(MemoryLayout<CFString>.size)
+        guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &ref) == noErr else { return "" }
+        return ref as String
     }
 
     private func logMicrophoneMode(context: String) {
