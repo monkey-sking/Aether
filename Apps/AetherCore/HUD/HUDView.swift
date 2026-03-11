@@ -91,7 +91,7 @@ struct HUDView: View {
                     // Swap: We want the other side of the symbol to match user perspective
                     .clipShape(AirPodHalfClip(isLeft: !isLeft))
                     // Adjusted offset for perfect visual centering in the green ring
-                    .offset(x: isLeft ? 4.0 : -4.0)
+                    .offset(x: isLeft ? 3.5 : -3.5)
             } else {
                 Image(systemName: resolvedSymbolName(for: requestedIcon))
                     .foregroundColor(.white)
