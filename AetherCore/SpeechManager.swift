@@ -746,8 +746,7 @@ final class SpeechManager: ObservableObject {
         eosDetector.start()
 
         lastTranscript = ""; lastError = ""
-        let langSuffix = " " + NSLocalizedString("speech.lang_indicator", comment: "")
-        status = NSLocalizedString("speech.listening", comment: "") + langSuffix
+        status = NSLocalizedString("speech.listening", comment: "")
         noteHandsFreeHUDActivity()
         startMicProgressUI(durationSec: maxRecordingSegmentSeconds(), generation: gen)
         refreshContinuousHUD(isDictating: isDictating)

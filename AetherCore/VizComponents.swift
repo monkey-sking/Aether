@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Shared UI Components
 
@@ -17,6 +18,72 @@ enum AetherUI {
     static let captionStrongFont = Font.system(size: 12, weight: .semibold, design: .rounded)
     static let menuBrandFont = Font.system(size: 15, weight: .semibold, design: .rounded)
     static let menuHeadlineFont = Font.system(size: 14, weight: .semibold, design: .rounded)
+}
+
+struct NoFocusRingTextField: NSViewRepresentable {
+    let placeholder: String
+    @Binding var text: String
+    @Binding var isFocused: Bool
+
+    var font: NSFont = .systemFont(ofSize: 13, weight: .regular)
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: NoFocusRingTextField
+        init(parent: NoFocusRingTextField) { self.parent = parent }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            if parent.text != field.stringValue {
+                parent.text = field.stringValue
+            }
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            if !parent.isFocused { parent.isFocused = true }
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            if parent.isFocused { parent.isFocused = false }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(string: text)
+        field.placeholderString = placeholder
+        field.isBezeled = false
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = font
+        field.delegate = context.coordinator
+        return field
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        if nsView.placeholderString != placeholder {
+            nsView.placeholderString = placeholder
+        }
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+        if nsView.font != font {
+            nsView.font = font
+        }
+
+        if let window = nsView.window {
+            let isFirstResponder = (window.firstResponder as? NSView)?.isDescendant(of: nsView) == true || window.firstResponder === nsView
+            if isFocused && !isFirstResponder {
+                window.makeFirstResponder(nsView)
+            } else if !isFocused && isFirstResponder {
+                window.makeFirstResponder(nil)
+            }
+        }
+    }
 }
 
 struct SidebarSectionHeader: View {
