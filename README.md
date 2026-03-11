@@ -1,11 +1,11 @@
 # Aether Workspace
 
-This repo is a multi-project workspace. Each product lives under `Apps/`.
+This repo is a multi-project workspace. Each product lives under its own top-level directory.
 
 ## Projects
 
-* `Apps/aether/` — The Aether macOS app and DriverKit stack. See `Apps/aether/README.md`.
+* `Apps/` — The Aether macOS app and DriverKit stack. See `Apps/README.md`.
 
 ## Planned
 
-* `Apps/website/` — Official website (to be created).
+* `website/` — Official website (to be created).
