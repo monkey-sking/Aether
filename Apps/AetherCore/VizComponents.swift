@@ -51,13 +51,21 @@ struct NoFocusRingTextField: NSViewRepresentable {
         Coordinator(parent: self)
     }
 
+    private final class FocuslessTextField: NSTextField {
+        override var focusRingMaskBounds: NSRect { .zero }
+        override func drawFocusRingMask() {}
+    }
+
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(string: text)
+        let field = FocuslessTextField(string: text)
         field.placeholderString = placeholder
         field.isBezeled = false
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
+        if let cell = field.cell as? NSTextFieldCell {
+            cell.focusRingType = .none
+        }
         field.font = font
         field.delegate = context.coordinator
         return field
