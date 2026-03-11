@@ -27,7 +27,9 @@ struct HUDView: View {
 
             case .command:
                 if state.message.isEmpty {
-                    languageToggle(showDivider: false)
+                    micIcon
+                    contextIcon
+                    languageToggle(showDivider: true)
                 } else {
                     micIcon
                     Text(state.message)
