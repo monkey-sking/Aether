@@ -127,7 +127,7 @@ struct AetherMenuBar: Scene {
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "AetherMainWindow" }) else {
+            guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue.contains("main") == true || $0.title == "Aether" }) else {
                 return
             }
             window.makeKeyAndOrderFront(nil)

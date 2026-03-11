@@ -1929,7 +1929,7 @@ class AppState: ObservableObject {
 
     func showMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "AetherMainWindow" }) {
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.contains("main") == true || $0.title == "Aether" }) {
             window.makeKeyAndOrderFront(nil)
         }
     }
