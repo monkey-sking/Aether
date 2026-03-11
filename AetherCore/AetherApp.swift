@@ -249,6 +249,10 @@ final class VoiceService: ObservableObject {
         manager.setVoiceLanguageTermsOverrides(overrides)
     }
 
+    func setCustomAppShortcutRules(_ rules: [CustomAppShortcutRule]) {
+        manager.setCustomAppShortcutRules(rules)
+    }
+
     func syncHUDState() {
         manager.syncHUDState()
     }
@@ -549,7 +553,11 @@ class AppState: ObservableObject {
     private static let voiceLanguageTermsOverridesStorageKey = "voiceLanguageTermsOverridesV1"
     private static let voiceUsageHistoryEnabledStorageKey = "voiceUsageHistoryEnabledV1"
     private static let voiceUsageHistoryStorageKey = "voiceUsageHistoryV1"
-    private static let maxVoiceUsageHistoryCount = 400
+    private static let voiceUsageHistoryLimitStorageKey = "voiceUsageHistoryLimitV1"
+    private static let customAppShortcutRulesStorageKey = "customAppShortcutRulesV1"
+    private static let defaultVoiceUsageHistoryLimit = 1000
+    private static let minVoiceUsageHistoryLimit = 100
+    private static let maxVoiceUsageHistoryLimit = 5000
 
     var appShortVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -639,13 +647,33 @@ class AppState: ObservableObject {
         }
     }
 
-    private static func loadVoiceUsageHistory() -> [VoiceUsageEvent] {
+    private static func loadVoiceUsageHistoryLimit() -> Int {
+        let stored = UserDefaults.standard.object(forKey: voiceUsageHistoryLimitStorageKey) as? Int
+            ?? defaultVoiceUsageHistoryLimit
+        return clampVoiceUsageHistoryLimit(stored)
+    }
+
+    private static func loadCustomAppShortcutRules() -> [CustomAppShortcutRule] {
+        guard let data = UserDefaults.standard.data(forKey: customAppShortcutRulesStorageKey),
+              let rules = try? JSONDecoder().decode([CustomAppShortcutRule].self, from: data) else {
+            return []
+        }
+        return rules
+    }
+
+    private static func saveCustomAppShortcutRules(_ rules: [CustomAppShortcutRule]) {
+        if let data = try? JSONEncoder().encode(rules) {
+            UserDefaults.standard.set(data, forKey: customAppShortcutRulesStorageKey)
+        }
+    }
+
+    private static func loadVoiceUsageHistory(limit: Int) -> [VoiceUsageEvent] {
         guard let data = UserDefaults.standard.data(forKey: voiceUsageHistoryStorageKey),
               let events = try? JSONDecoder().decode([VoiceUsageEvent].self, from: data) else {
             return []
         }
         let sorted = events.sorted { $0.timestamp > $1.timestamp }
-        return trimVoiceUsageHistory(sorted)
+        return trimVoiceUsageHistory(sorted, limit: limit)
     }
 
     private static func saveVoiceUsageHistory(_ events: [VoiceUsageEvent]) {
@@ -654,9 +682,14 @@ class AppState: ObservableObject {
         }
     }
 
-    private static func trimVoiceUsageHistory(_ events: [VoiceUsageEvent]) -> [VoiceUsageEvent] {
-        guard events.count > maxVoiceUsageHistoryCount else { return events }
-        return Array(events.prefix(maxVoiceUsageHistoryCount))
+    private static func trimVoiceUsageHistory(_ events: [VoiceUsageEvent], limit: Int) -> [VoiceUsageEvent] {
+        let resolvedLimit = clampVoiceUsageHistoryLimit(limit)
+        guard events.count > resolvedLimit else { return events }
+        return Array(events.prefix(resolvedLimit))
+    }
+
+    private static func clampVoiceUsageHistoryLimit(_ value: Int) -> Int {
+        min(max(value, minVoiceUsageHistoryLimit), maxVoiceUsageHistoryLimit)
     }
 
     enum VoiceActivationMode: String, CaseIterable, Identifiable {
@@ -905,9 +938,25 @@ class AppState: ObservableObject {
             UserDefaults.standard.set(isVoiceUsageHistoryEnabled, forKey: Self.voiceUsageHistoryEnabledStorageKey)
         }
     }
-    @Published var voiceUsageHistory: [VoiceUsageEvent] = AppState.loadVoiceUsageHistory() {
+    @Published var voiceUsageHistoryLimit: Int = AppState.loadVoiceUsageHistoryLimit() {
         didSet {
-            let trimmed = Self.trimVoiceUsageHistory(voiceUsageHistory)
+            let clamped = Self.clampVoiceUsageHistoryLimit(voiceUsageHistoryLimit)
+            if clamped != voiceUsageHistoryLimit {
+                voiceUsageHistoryLimit = clamped
+                return
+            }
+            UserDefaults.standard.set(clamped, forKey: Self.voiceUsageHistoryLimitStorageKey)
+            let trimmed = Self.trimVoiceUsageHistory(voiceUsageHistory, limit: clamped)
+            if trimmed.count != voiceUsageHistory.count {
+                voiceUsageHistory = trimmed
+                return
+            }
+            Self.saveVoiceUsageHistory(trimmed)
+        }
+    }
+    @Published var voiceUsageHistory: [VoiceUsageEvent] = AppState.loadVoiceUsageHistory(limit: AppState.loadVoiceUsageHistoryLimit()) {
+        didSet {
+            let trimmed = Self.trimVoiceUsageHistory(voiceUsageHistory, limit: voiceUsageHistoryLimit)
             if trimmed.count != voiceUsageHistory.count {
                 voiceUsageHistory = trimmed
                 return
@@ -925,6 +974,13 @@ class AppState: ObservableObject {
         didSet {
             AppState.saveVoiceLanguageTermsOverrides(voiceLanguageTermsOverrides)
             voiceService.setVoiceLanguageTermsOverrides(voiceLanguageTermsOverrides)
+        }
+    }
+    @Published var customAppShortcutRules: [CustomAppShortcutRule] = AppState.loadCustomAppShortcutRules() {
+        didSet {
+            AppState.saveCustomAppShortcutRules(customAppShortcutRules)
+            voiceService.setCustomAppShortcutRules(customAppShortcutRules)
+            CurrentAppShortcutPanelManager.shared.refreshIfVisible()
         }
     }
 
@@ -966,6 +1022,45 @@ class AppState: ObservableObject {
 
     func clearVoiceUsageHistory() {
         voiceUsageHistory = []
+    }
+
+    func mergedFrontmostAppCommandSnapshot(_ snapshot: FrontmostAppCommandSnapshot?) -> FrontmostAppCommandSnapshot? {
+        mergeFrontmostAppCommandSnapshot(snapshot: snapshot, customRules: customAppShortcutRules)
+    }
+
+    func addCustomAppShortcutRule(prefilling bundleIdentifier: String? = nil) {
+        let resolvedBundleIdentifier = bundleIdentifier
+            ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            ?? ""
+        let defaultTitle = Locale.current.identifier.hasPrefix("zh") ? "新动作" : "New Action"
+        customAppShortcutRules.insert(
+            CustomAppShortcutRule(
+                bundleIdentifier: resolvedBundleIdentifier,
+                title: defaultTitle,
+                shortcut: HotkeyBinding(keyCode: kVK_Return, modifiers: 0)
+            ),
+            at: 0
+        )
+    }
+
+    func removeCustomAppShortcutRule(id: String) {
+        customAppShortcutRules.removeAll { $0.id == id }
+    }
+
+    func aliasesText(for customRuleID: String) -> String {
+        customAppShortcutRules
+            .first(where: { $0.id == customRuleID })?
+            .aliases
+            .joined(separator: ", ")
+            ?? ""
+    }
+
+    func updateAliasesText(_ raw: String, for customRuleID: String) {
+        guard let index = customAppShortcutRules.firstIndex(where: { $0.id == customRuleID }) else { return }
+        customAppShortcutRules[index].aliases = raw
+            .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     func addSpeechTermGroup() {
@@ -1241,6 +1336,7 @@ class AppState: ObservableObject {
         voiceService.setLLMEnhancementEnabled(self.isLLMEnhancementEnabled)
         voiceService.setVoiceCommandOverrides(self.voiceCommandOverrides)
         voiceService.setVoiceLanguageTermsOverrides(self.voiceLanguageTermsOverrides)
+        voiceService.setCustomAppShortcutRules(self.customAppShortcutRules)
 
         voiceService.$status
             .assign(to: &$voiceStatus)
@@ -2086,9 +2182,8 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
             ? HotkeyAction.allCases.filter { $0 != .connectionLock }.count
             : HotkeyAction.allCases.filter { $0 != .pushToTalk && $0 != .connectionLock }.count
         let globalSectionHeight = CurrentAppShortcutPanelLayout.estimatedHeight(forGlobalShortcutCount: visibleGlobalShortcutCount)
-        guard AXIsProcessTrusted(),
-              let snapshot = FrontmostAppCommandCatalog.shared.snapshot,
-              !snapshot.commands.isEmpty else {
+        let mergedSnapshot = appState?.mergedFrontmostAppCommandSnapshot(FrontmostAppCommandCatalog.shared.snapshot)
+        guard let snapshot = mergedSnapshot, !snapshot.commands.isEmpty else {
             let width = min(max(visibleFrame.width * 0.54, 820), 980)
             let height = min(max(globalSectionHeight + 240, 460), visibleFrame.height - 40)
             return CGSize(width: width, height: height)
@@ -2383,7 +2478,7 @@ private struct CurrentAppShortcutPanelView: View {
     @State private var measuredSectionHeights: [String: CGFloat] = [:]
 
     private var snapshot: FrontmostAppCommandSnapshot? {
-        catalog.snapshot
+        panelManager.appState?.mergedFrontmostAppCommandSnapshot(catalog.snapshot)
     }
 
     private var sections: [CurrentAppShortcutPanelSection] {
@@ -2513,7 +2608,7 @@ private struct CurrentAppShortcutPanelView: View {
                             count: filteredAppShortcutCount
                         )
 
-                        if !AXIsProcessTrusted() {
+                        if !AXIsProcessTrusted() && (snapshot?.commands.isEmpty ?? true) {
                             emptyState(
                                 title: isChinese ? "需要辅助功能权限" : "Accessibility Permission Required",
                                 detail: isChinese
@@ -2639,8 +2734,8 @@ private struct CurrentAppShortcutPanelView: View {
                         .minimumScaleFactor(0.82)
                     Text(
                         isChinese
-                            ? "按顶层菜单分组展示可触发快捷键，并补充浏览器、编辑器、终端等常见默认快捷键。语音命中或直接点击条目，都会发送对应组合键。"
-                            : "Shortcut commands grouped by top-level menu, with common browser, editor, and terminal defaults filled in when useful. Voice matches and direct clicks both send the corresponding key combo."
+                            ? "按顶层菜单分组展示可触发快捷键，并补充常见默认快捷键和你的自定义 App 规则。语音命中或直接点击条目，都会发送对应组合键。"
+                            : "Shortcut commands grouped by top-level menu, with common defaults and your custom app rules merged in. Voice matches and direct clicks both send the corresponding key combo."
                     )
                     .font(.subheadline)
                     .foregroundColor(.secondary)

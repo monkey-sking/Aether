@@ -72,6 +72,7 @@ struct InputSettingsView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var frontmostAppCommandCatalog = FrontmostAppCommandCatalog.shared
     @State private var editingGroupID: String?
+    @State private var editingCustomRuleID: String?
     @State private var commandLocaleID: String = ""
     @State private var lexiconTransferStatus: String?
     let section: VoiceSettingsSection
@@ -179,12 +180,16 @@ struct InputSettingsView: View {
         Locale.current.localizedString(forIdentifier: resolvedCommandLocaleID) ?? resolvedCommandLocaleID
     }
 
+    private var mergedFrontmostSnapshot: FrontmostAppCommandSnapshot? {
+        appState.mergedFrontmostAppCommandSnapshot(frontmostAppCommandCatalog.snapshot)
+    }
+
     private var isChinese: Bool {
         Locale.current.identifier.hasPrefix("zh")
     }
 
     private var visibleFrontmostCommands: [FrontmostAppCommand] {
-        let commands = frontmostAppCommandCatalog.snapshot?.commands ?? []
+        let commands = mergedFrontmostSnapshot?.commands ?? []
         let recommended = commands.filter { $0.aliases.count > 2 }
         return Array((recommended.isEmpty ? commands : recommended).prefix(12))
     }
@@ -674,7 +679,7 @@ struct InputSettingsView: View {
                                     .foregroundColor(.secondary)
                             }
                             Spacer()
-                            if let snapshot = frontmostAppCommandCatalog.snapshot {
+                            if let snapshot = mergedFrontmostSnapshot {
                                 LanguageStatusTag(title: snapshot.appName, tint: .green)
                             }
                             Button(String(localized: "current_app_controls.open_panel")) {
@@ -689,17 +694,17 @@ struct InputSettingsView: View {
                             .controlSize(.small)
                         }
 
-                        if !appState.accessibilityTrusted {
+                        if !appState.accessibilityTrusted && (mergedFrontmostSnapshot?.commands.isEmpty ?? true) {
                             Text(Locale.current.identifier.hasPrefix("zh")
                                  ? "需要先开启辅助功能权限，才能读取当前应用菜单和快捷键。"
                                  : "Accessibility permission is required to read the current app's menu shortcuts.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                        } else if let snapshot = frontmostAppCommandCatalog.snapshot, !snapshot.commands.isEmpty {
+                        } else if let snapshot = mergedFrontmostSnapshot, !snapshot.commands.isEmpty {
                             Text(
                                 Locale.current.identifier.hasPrefix("zh")
-                                    ? "已读取 \(snapshot.commands.count) 条快捷键。下面是推荐用于语音控制的高频项，浏览器、编辑器和终端常用快捷键也会补进来。"
-                                    : "Loaded \(snapshot.commands.count) shortcuts. The preview below highlights voice-friendly items, including common browser, editor, and terminal defaults."
+                                    ? "已准备 \(snapshot.commands.count) 条快捷键。除了读取到的菜单项，下面还会并入你手动补充的自定义 App 规则。"
+                                    : "Prepared \(snapshot.commands.count) shortcuts. The preview below includes menu shortcuts plus your custom app rules."
                             )
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -714,6 +719,22 @@ struct InputSettingsView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+
+                        CustomAppShortcutRulesCard(
+                            rules: $appState.customAppShortcutRules,
+                            onAdd: {
+                                let bundleID = mergedFrontmostSnapshot?.bundleIdentifier
+                                    ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                                appState.addCustomAppShortcutRule(prefilling: bundleID)
+                                editingCustomRuleID = appState.customAppShortcutRules.first?.id
+                            },
+                            onEdit: { ruleID in
+                                editingCustomRuleID = ruleID
+                            },
+                            onDelete: { ruleID in
+                                appState.removeCustomAppShortcutRule(id: ruleID)
+                            }
+                        )
                     }
                 }
                 }
@@ -731,14 +752,24 @@ struct InputSettingsView: View {
             _ = frontmostAppCommandCatalog.refresh(force: true)
         }
         .sheet(isPresented: Binding(
-            get: { editingGroupID != nil },
-            set: { if !$0 { editingGroupID = nil } }
+            get: { editingGroupID != nil || editingCustomRuleID != nil },
+            set: {
+                if !$0 {
+                    editingGroupID = nil
+                    editingCustomRuleID = nil
+                }
+            }
         )) {
             if let id = editingGroupID,
                let idx = appState.speechTermGroups.firstIndex(where: { $0.id == id }) {
                 SpeechTermGroupEditorSheet(
                     group: $appState.speechTermGroups[idx],
                     enabledAll: appState.speechTermCorrectionEnabled
+                )
+            } else if let id = editingCustomRuleID,
+                      let idx = appState.customAppShortcutRules.firstIndex(where: { $0.id == id }) {
+                CustomAppShortcutRuleEditorSheet(
+                    rule: $appState.customAppShortcutRules[idx]
                 )
             } else {
                 EmptyView()
@@ -1341,6 +1372,217 @@ private struct FrontmostAppCommandCard: View {
     }
 }
 
+private struct CustomAppShortcutRulesCard: View {
+    @Binding var rules: [CustomAppShortcutRule]
+    let onAdd: () -> Void
+    let onEdit: (String) -> Void
+    let onDelete: (String) -> Void
+
+    private var isChinese: Bool {
+        Locale.current.identifier.hasPrefix("zh")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(
+                        isChinese ? "自定义 App 规则" : "Custom App Rules",
+                        systemImage: "slider.horizontal.3"
+                    )
+                    .font(.headline)
+                    Text(
+                        isChinese
+                            ? "给某个 App 手动补一条语音命令和对应快捷键。它会同时出现在语音路由、设置预览和快捷键面板里。"
+                            : "Manually add voice-triggered shortcuts for a specific app. They appear in routing, settings preview, and the shortcut panel."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button(isChinese ? "新增规则" : "Add Rule", action: onAdd)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+
+            if rules.isEmpty {
+                Text(isChinese ? "还没有自定义规则。比如你可以给聊天应用补一条“发送 -> ⏎ / ⌘↩”规则。" : "No custom rules yet. For example, add a \"Send -> Return / Cmd+Return\" rule for your chat app.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(rules) { rule in
+                        CustomAppShortcutRuleRow(rule: rule, onEdit: {
+                            onEdit(rule.id)
+                        }, onDelete: {
+                            onDelete(rule.id)
+                        })
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct CustomAppShortcutRuleRow: View {
+    let rule: CustomAppShortcutRule
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    private var aliasPreview: String {
+        let aliases = rule.effectiveAliases
+        return aliases.prefix(3).joined(separator: " / ")
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            SpeechAppIcon(bundleID: rule.bundleIdentifier)
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(rule.title.isEmpty ? "Untitled" : rule.title)
+                        .font(.subheadline.weight(.semibold))
+                    if !rule.isEnabled {
+                        Text("OFF")
+                            .font(.caption2.weight(.bold))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Text(SpeechAppMetaStore.name(for: rule.bundleIdentifier))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                if !aliasPreview.isEmpty {
+                    Text(aliasPreview)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            Text(rule.shortcut.displayString)
+                .font(.caption.monospaced())
+                .foregroundColor(.accentColor)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.accentColor.opacity(0.12))
+                .clipShape(Capsule())
+
+            Button(action: onEdit) {
+                Image(systemName: "pencil")
+            }
+            .buttonStyle(.borderless)
+
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(10)
+    }
+}
+
+private struct CustomAppShortcutRuleEditorSheet: View {
+    @Binding var rule: CustomAppShortcutRule
+    @Environment(\.dismiss) private var dismiss
+
+    private var isChinese: Bool {
+        Locale.current.identifier.hasPrefix("zh")
+    }
+
+    private var aliasesBinding: Binding<String> {
+        Binding(
+            get: { rule.aliases.joined(separator: ", ") },
+            set: { raw in
+                rule.aliases = raw
+                    .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(isChinese ? "编辑自定义 App 规则" : "Edit Custom App Rule")
+                    .font(.headline)
+                Spacer()
+                Button(isChinese ? "完成" : "Done") { dismiss() }
+            }
+
+            Toggle(isChinese ? "启用这条规则" : "Enable this rule", isOn: $rule.isEnabled)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(isChinese ? "目标 App" : "Target App")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    SpeechAppPickerMenu(
+                        existingBundleIds: Set(rule.bundleIdentifier.isEmpty ? [] : [rule.bundleIdentifier.lowercased()]),
+                        onAdd: { bundleID in
+                            rule.bundleIdentifier = bundleID
+                        }
+                    )
+                }
+                HStack(spacing: 10) {
+                    SpeechAppIcon(bundleID: rule.bundleIdentifier)
+                        .frame(width: 28, height: 28)
+                    TextField(
+                        isChinese ? "Bundle ID，例如 com.openai.chatgpt" : "Bundle ID, e.g. com.openai.chatgpt",
+                        text: $rule.bundleIdentifier
+                    )
+                    .textFieldStyle(.roundedBorder)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(isChinese ? "动作名称" : "Action Title")
+                    .font(.subheadline.weight(.semibold))
+                TextField(isChinese ? "例如：发送" : "Example: Send", text: $rule.title)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(isChinese ? "语音别名" : "Voice Aliases")
+                    .font(.subheadline.weight(.semibold))
+                Text(isChinese ? "多个别名用逗号或换行分隔；为空时会默认使用动作名称。" : "Separate aliases with commas or new lines. If left empty, the action title is used.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextEditor(text: aliasesBinding)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(minHeight: 96)
+                    .padding(6)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(isChinese ? "快捷键" : "Shortcut")
+                    .font(.subheadline.weight(.semibold))
+                Text(isChinese ? "点击下面按钮后按下单键或组合键。" : "Click below, then press a single key or key combination.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                KeyRecorderView(binding: $rule.shortcut, onChange: { newBinding in
+                    rule.shortcut = newBinding
+                })
+            }
+        }
+        .padding(16)
+        .frame(width: 560, height: 500)
+    }
+}
+
 private struct VoiceUsageInsightsCard: View {
     @EnvironmentObject var appState: AppState
 
@@ -1378,6 +1620,31 @@ private struct VoiceUsageInsightsCard: View {
                     Spacer()
                     Toggle("", isOn: $appState.isVoiceUsageHistoryEnabled)
                         .labelsHidden()
+                }
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(isChinese ? "保留上限" : "Retention Limit")
+                            .font(.subheadline.weight(.semibold))
+                        Text(
+                            isChinese
+                                ? "默认保留最近 1000 条，可按 100 条为单位调整。"
+                                : "Defaults to the latest 1000 entries and can be adjusted in steps of 100."
+                        )
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Stepper(
+                        value: $appState.voiceUsageHistoryLimit,
+                        in: 100...5000,
+                        step: 100
+                    ) {
+                        Text("\(appState.voiceUsageHistoryLimit)")
+                            .font(.subheadline.monospacedDigit())
+                            .frame(minWidth: 48, alignment: .trailing)
+                    }
+                    .frame(width: 150)
                 }
 
                 if !appState.isVoiceUsageHistoryEnabled {
