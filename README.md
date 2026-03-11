@@ -25,7 +25,7 @@ Project Aether 是一个构建在 macOS 生态上的分布式感知网络。它�
 ## 📁 项目结构 (Directory Structure)
 
 ```
-Apps/aether/
+Apps/
 ├── Apps/
 │   └── AetherCore/           # 主 App (macOS / SwiftUI) - 大脑
 │       ├── HeadMotionManager.swift   # 运动引擎 & 姿态解算
