@@ -125,15 +125,15 @@ struct AetherMainView: View {
         case .overview:
             return String(localized: "main.panel.overview")
         case .voiceBasics:
-            return String(localized: "main.panel.basics")
+            return NSLocalizedString("settings.section.basics.page_title", comment: "")
         case .voiceTerms:
-            return String(localized: "main.panel.term_corrections")
+            return NSLocalizedString("settings.section.term_corrections.page_title", comment: "")
         case .voiceLexicon:
-            return String(localized: "main.panel.lexicon")
+            return NSLocalizedString("settings.section.lexicon.page_title", comment: "")
         case .voiceAppControls:
-            return String(localized: "main.panel.current_app")
+            return NSLocalizedString("settings.section.app_controls.page_title", comment: "")
         case .voiceInsights:
-            return String(localized: "main.panel.insights")
+            return NSLocalizedString("settings.section.insights.page_title", comment: "")
         case .pointer:
             return String(localized: "main.panel.pointer")
         case .headset:
@@ -158,7 +158,7 @@ struct AetherMainView: View {
         case .voiceInsights:
             return "chart.bar.xaxis"
         case .pointer:
-            return "viewfinder"
+            return "cursorarrow.and.square.on.square.dashed"
         case .headset:
             return "airpodspro"
         case .shortcuts:
@@ -475,7 +475,7 @@ private struct PointerControlTile: View {
                 DashboardTileHeader(
                     title: String(localized: "main.pointer.title"),
                     subtitle: subtitle,
-                    systemImage: "viewfinder",
+                    systemImage: "cursorarrow.and.square.on.square.dashed",
                     iconBackground: isOn ? Color.green : Color.gray.opacity(0.16),
                     iconForeground: isOn ? .white : .secondary
                 )

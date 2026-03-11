@@ -8,10 +8,15 @@
 - [ ] 点击“切换输入 / 控制模式”时，在真实输入框内不再频繁误报“未检测到输入框，已切换到控制模式”
     本轮代码已调整：恢复“手动切换后仍继续跟随焦点”的逻辑；下一步人工验收需结合日志确认是否为 AX 输入态误判
 - [ ] 焦点在输入框与非输入区域之间切换时，Aether 会继续自动在输入模式与控制模式之间切换
-- [ ] “连接锁定”已从产品主入口完全移除：词库、耳机动作映射、快捷键设置、快捷面板主入口均不再出现
-- [ ] 总览页底部与菜单栏菜单内都可见当前版本号（格式：`版本 x.y (build)`）
-- [ ] HUD 临时提示不再使用 emoji 前缀，统一改为纯文本 + 系统 icon，保持与现有 HUD 风格一致
-- [x] 最新正式包已生成：版本 `202603111128`
+- [x] “连接锁定”已从产品主入口完全移除：词库、耳机动作映射、快捷键设置、快捷面板主入口均不再出现
+- [x] 总览页底部与菜单栏菜单内都可见当前版本号（格式：`版本 x.y (build)`）
+- [x] HUD / 菜单 / 设置文案不再使用 emoji 前缀，统一改为纯文本 + 系统 icon，保持与现有 HUD 风格一致
+- [x] 英文 App 的快捷键面板不再混入一份额外的中文“补充命令”；当前 App 快捷键支持中英双语命中，点击条目发送的应始终是真实可执行的组合键
+- [x] 设置页左侧导航名称与右侧内容页标题保持一致，不再出现“词库 / 语音词库”“基础 / 语音基础”这类两套命名
+- [x] “当前应用控制”中文标题优化为“应用快捷键”，更贴合实际内容（前台 App 快捷键）
+- [x] “指针”页图标统一更换为 `cursorarrow.and.square.on.square.dashed`
+- [x] 语音词库中的命令别名分组视觉更明显：每组都有独立分组卡片、标题、副标题和数量标记，不再像连续表单
+- [x] 最新正式包已生成：版本 `202603111306`
     产物：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
 
 ### Browser HUD Performance
@@ -254,13 +259,13 @@
 
 ### 最近一次正式发布（2026-03-11）
 - [x] 使用完整发布链路：`env NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh`
-- [x] 本次正式包包含：Mic Mode 保持修复、焦点自动切换恢复、移除“连接锁定”产品入口
-- [x] 正式包版本：`202603111128`；Universal 架构：`arm64 + x86_64`
-- [x] 公证已通过（Submission ID: `5eba4ccf-df6f-4a9a-9b2b-d350cc13cad8`），App / DMG 已完成 Staple
-- [x] 产物校验：
+- [x] 本次正式包包含：指针图标更新、中文标题“应用快捷键”、HUD/菜单去 emoji、快捷键面板中英混入修复、设置侧栏标题对齐、语音词库分组视觉增强
+- [x] 正式包版本：`202603111306`；Universal 架构：`arm64 + x86_64`
+- [x] 公证已通过（Submission ID: `2171495e-6e18-4f74-b5c6-3a1e64e8fae6`），App / DMG 已完成 Staple
+- [x] 产物路径：
   App：`.build/release/Aether.app`
-  DMG：`.build/release/Aether_Installer.dmg`（SHA256 `581c2d5171bebaef5a2600ca8ab609bd25891237c6f463955d08d9a10f2ee228`）
-  ZIP：`.build/release/Aether.zip`（SHA256 `b0b65594c1fcd293767b30c8b961af93438b6ea045c0b372feb21f4768067f40`）
+  DMG：`.build/release/Aether_Installer.dmg`
+  ZIP：`.build/release/Aether.zip`
 - [x] 产物已生成：`.build/release/Aether.app` / `.build/release/Aether_Installer.dmg` / `.build/release/Aether.zip`
 
 ### 权限复用专项（已验收项）

@@ -128,7 +128,7 @@
 
 "menu.start_pointer_fmt %@" = "开启头控 (%@)";
 "menu.stop_pointer_fmt %@" = "停止头控 (%@)";
-"menu.airpods_lock_fmt %@" = "🔒 连接锁定 (%@)";
+"menu.airpods_lock_fmt %@" = "连接锁定 (%@)";
 
 /* Speech Status */
 "speech.listening" = "待命中...";
@@ -389,9 +389,9 @@
 "settings.section.lexicon.page_title" = "语音词库";
 "settings.section.lexicon.subtitle" = "唤醒词和命令别名。";
 
-"settings.section.app_controls.title" = "当前应用";
-"settings.section.app_controls.page_title" = "当前应用控制";
-"settings.section.app_controls.subtitle" = "查看前台 App 可直接触发的快捷键。";
+"settings.section.app_controls.title" = "应用";
+"settings.section.app_controls.page_title" = "应用快捷键";
+"settings.section.app_controls.subtitle" = "查看当前应用可用的快捷键。";
 
 "settings.section.insights.title" = "统计";
 "settings.section.insights.page_title" = "语音统计";

@@ -126,7 +126,7 @@
 
 "menu.start_pointer_fmt %@" = "ポインターを開始 (%@)";
 "menu.stop_pointer_fmt %@" = "ポインターを停止 (%@)";
-"menu.airpods_lock_fmt %@" = "🔒 AirPods ロック (%@)";
+"menu.airpods_lock_fmt %@" = "AirPods ロック (%@)";
 
 /* Speech Status */
 "speech.listening" = "待機中...";

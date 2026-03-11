@@ -126,7 +126,7 @@
 
 "menu.start_pointer_fmt %@" = "Démarrer le pointeur (%@)";
 "menu.stop_pointer_fmt %@" = "Arrêter le pointeur (%@)";
-"menu.airpods_lock_fmt %@" = "🔒 Verrouillage AirPods (%@)";
+"menu.airpods_lock_fmt %@" = "Verrouillage AirPods (%@)";
 
 /* Speech Status */
 "speech.listening" = "En attente...";

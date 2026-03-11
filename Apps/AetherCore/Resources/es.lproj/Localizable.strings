@@ -126,7 +126,7 @@
 
 "menu.start_pointer_fmt %@" = "Iniciar puntero (%@)";
 "menu.stop_pointer_fmt %@" = "Detener puntero (%@)";
-"menu.airpods_lock_fmt %@" = "🔒 Bloqueo AirPods (%@)";
+"menu.airpods_lock_fmt %@" = "Bloqueo AirPods (%@)";
 
 /* Speech Status */
 "speech.listening" = "En espera...";
