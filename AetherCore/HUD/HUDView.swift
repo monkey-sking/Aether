@@ -83,11 +83,14 @@ struct HUDView: View {
 
             let requestedIcon = state.inputDeviceIcon
             if requestedIcon == "airpodspro.left" || requestedIcon == "airpodspro.right" {
+                let isLeft = requestedIcon == "airpodspro.left"
                 Image(systemName: "airpodspro")
                     .foregroundColor(.white)
                     .font(.system(size: 14))
                     .shadow(radius: 1)
-                    .clipShape(AirPodHalfClip(isLeft: requestedIcon == "airpodspro.left"))
+                    .clipShape(AirPodHalfClip(isLeft: isLeft))
+                    // Offset to bring the side-heavy bud into the center of the 22x22 frame
+                    .offset(x: isLeft ? 3.5 : -3.5)
             } else {
                 Image(systemName: resolvedSymbolName(for: requestedIcon))
                     .foregroundColor(.white)
@@ -104,10 +107,11 @@ struct HUDView: View {
         let isLeft: Bool
         func path(in rect: CGRect) -> Path {
             var path = Path()
+            // We use a tight crop to remove the "other" bud and any connecting lines
             if isLeft {
-                path.addRect(CGRect(x: 0, y: 0, width: rect.width / 2 + 1, height: rect.height))
+                path.addRect(CGRect(x: 0, y: 0, width: rect.width / 2 - 1, height: rect.height))
             } else {
-                path.addRect(CGRect(x: rect.width / 2 - 1, y: 0, width: rect.width / 2 + 1, height: rect.height))
+                path.addRect(CGRect(x: rect.width / 2 + 1, y: 0, width: rect.width / 2 + 1, height: rect.height))
             }
             return path
         }
