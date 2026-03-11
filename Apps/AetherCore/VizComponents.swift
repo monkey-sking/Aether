@@ -39,6 +39,13 @@ struct NoFocusRingTextField: NSViewRepresentable {
         }
 
         func controlTextDidBeginEditing(_ obj: Notification) {
+            if let field = obj.object as? NSTextField,
+               let textView = field.currentEditor() as? NSTextView {
+                textView.focusRingType = .none
+                textView.enclosingScrollView?.focusRingType = .none
+                textView.enclosingScrollView?.drawsBackground = false
+                textView.drawsBackground = false
+            }
             if !parent.isFocused { parent.isFocused = true }
         }
 
@@ -52,8 +59,24 @@ struct NoFocusRingTextField: NSViewRepresentable {
     }
 
     private final class FocuslessTextField: NSTextField {
+        override var focusRingType: NSFocusRingType {
+            get { .none }
+            set {}
+        }
         override var focusRingMaskBounds: NSRect { .zero }
         override func drawFocusRingMask() {}
+        override class var cellClass: AnyClass? {
+            get { FocuslessTextFieldCell.self }
+            set {}
+        }
+    }
+
+    private final class FocuslessTextFieldCell: NSTextFieldCell {
+        override var focusRingType: NSFocusRingType {
+            get { .none }
+            set {}
+        }
+        override func drawFocusRingMask(withFrame cellFrame: NSRect, in controlView: NSView) {}
     }
 
     func makeNSView(context: Context) -> NSTextField {
@@ -62,9 +85,13 @@ struct NoFocusRingTextField: NSViewRepresentable {
         field.isBezeled = false
         field.isBordered = false
         field.drawsBackground = false
+        field.backgroundColor = .clear
         field.focusRingType = .none
         if let cell = field.cell as? NSTextFieldCell {
             cell.focusRingType = .none
+            cell.isScrollable = true
+            cell.drawsBackground = false
+            cell.backgroundColor = .clear
         }
         field.font = font
         field.delegate = context.coordinator
@@ -95,6 +122,14 @@ struct NoFocusRingTextField: NSViewRepresentable {
 }
 
 struct SuppressEnclosingScrollFocusRing: NSViewRepresentable {
+    final class Coordinator {
+        var didApply: Bool = false
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -102,14 +137,29 @@ struct SuppressEnclosingScrollFocusRing: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        applyFocusRingSuppression(from: nsView, coordinator: context.coordinator)
+    }
+
+    private func applyFocusRingSuppression(from view: NSView, coordinator: Coordinator) {
         // SwiftUI ScrollView on macOS uses an NSScrollView that can draw "corner brackets"
         // focus indicators. Force-disable the focus ring on the enclosing scroll view.
-        DispatchQueue.main.async {
-            guard let scroll = nsView.enclosingScrollView else { return }
-            scroll.focusRingType = .none
-            scroll.contentView.focusRingType = .none
-            scroll.documentView?.focusRingType = .none
+        guard let scroll = view.enclosingScrollView else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                self.applyFocusRingSuppression(from: view, coordinator: coordinator)
+            }
+            return
         }
+
+        if coordinator.didApply {
+            return
+        }
+
+        scroll.focusRingType = .none
+        scroll.contentView.focusRingType = .none
+        scroll.documentView?.focusRingType = .none
+        scroll.borderType = .noBorder
+        scroll.drawsBackground = false
+        coordinator.didApply = true
     }
 }
 
