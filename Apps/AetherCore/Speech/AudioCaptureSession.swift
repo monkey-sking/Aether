@@ -12,6 +12,7 @@ final class AudioCaptureSession {
     // MARK: - Config
     var selectedDeviceID: AudioDeviceID = 0
     var useVoiceProcessing: Bool = false
+    var allowAutomaticHeadsetVoiceProcessing: Bool = true
 
     // MARK: - Callbacks
     /// Called on the audio thread for every buffer. Feed this to RecognitionSession.append().
@@ -43,7 +44,7 @@ final class AudioCaptureSession {
         if #available(macOS 10.15, *) {
             let enable = useVoiceProcessing
                 || shouldAutoEnableVoiceProcessingIO()
-                || shouldEnableVoiceProcessingForHeadsetMicMode()
+                || (allowAutomaticHeadsetVoiceProcessing && shouldEnableVoiceProcessingForHeadsetMicMode())
             if enable {
                 do {
                     try inputNode.setVoiceProcessingEnabled(true)
@@ -218,6 +219,7 @@ final class AudioCaptureSession {
         guard #available(macOS 12.0, *) else { return false }
 
         let preferred = AVCaptureDevice.preferredMicrophoneMode
+        let active = AVCaptureDevice.activeMicrophoneMode
         guard preferred != .standard else { return false }
 
         let inputID = selectedDeviceID != 0 ? selectedDeviceID : (defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice) ?? 0)
@@ -236,7 +238,7 @@ final class AudioCaptureSession {
             log: log,
             type: .info,
             inputName,
-            microphoneModeLabel(preferred)
+            "\(microphoneModeLabel(preferred))/\(microphoneModeLabel(active))"
         )
         return true
     }

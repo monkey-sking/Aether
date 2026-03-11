@@ -25,11 +25,94 @@ struct FrontmostAppCommand: Identifiable, Equatable {
 
 extension FrontmostAppCommand: Sendable {}
 
+struct CustomAppShortcutRule: Codable, Identifiable, Equatable {
+    var id: String
+    var isEnabled: Bool
+    var bundleIdentifier: String
+    var title: String
+    var aliases: [String]
+    var shortcut: HotkeyBinding
+
+    init(
+        id: String = UUID().uuidString,
+        isEnabled: Bool = true,
+        bundleIdentifier: String,
+        title: String,
+        aliases: [String] = [],
+        shortcut: HotkeyBinding
+    ) {
+        self.id = id
+        self.isEnabled = isEnabled
+        self.bundleIdentifier = bundleIdentifier
+        self.title = title
+        self.aliases = aliases
+        self.shortcut = shortcut
+    }
+
+    func matches(bundleIdentifier candidate: String) -> Bool {
+        bundleIdentifier.caseInsensitiveCompare(candidate) == .orderedSame
+    }
+
+    func makeCommand(processIdentifier: pid_t, appName: String) -> FrontmostAppCommand {
+        FrontmostAppCommand(
+            processIdentifier: processIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            appName: appName,
+            menuPath: [Locale.current.identifier.hasPrefix("zh") ? "自定义规则" : "Custom Rules"],
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            shortcut: shortcut,
+            aliases: effectiveAliases
+        )
+    }
+
+    var effectiveAliases: [String] {
+        VoiceCommandRouter.uniqueAliases(
+            [title] + aliases.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        )
+    }
+}
+
+extension CustomAppShortcutRule: Sendable {}
+
 struct FrontmostAppCommandSnapshot: Equatable, Sendable {
     let processIdentifier: pid_t
     let bundleIdentifier: String
     let appName: String
     let commands: [FrontmostAppCommand]
+}
+
+func mergeFrontmostAppCommandSnapshot(
+    snapshot: FrontmostAppCommandSnapshot?,
+    customRules: [CustomAppShortcutRule],
+    frontmostApp: NSRunningApplication? = NSWorkspace.shared.frontmostApplication
+) -> FrontmostAppCommandSnapshot? {
+    let processIdentifier = snapshot?.processIdentifier ?? frontmostApp?.processIdentifier ?? 0
+    let bundleIdentifier = snapshot?.bundleIdentifier ?? frontmostApp?.bundleIdentifier ?? ""
+    let appName = snapshot?.appName ?? frontmostApp?.localizedName ?? bundleIdentifier
+
+    guard !bundleIdentifier.isEmpty else { return snapshot }
+
+    let customCommands = customRules
+        .filter { $0.isEnabled && $0.matches(bundleIdentifier: bundleIdentifier) }
+        .map { $0.makeCommand(processIdentifier: processIdentifier, appName: appName) }
+
+    let customKeys = Set(customCommands.map { semanticFrontmostCommandKey($0) })
+    let baseCommands = (snapshot?.commands ?? []).filter { !customKeys.contains(semanticFrontmostCommandKey($0)) }
+    let merged = customCommands + baseCommands
+
+    guard !merged.isEmpty || snapshot != nil else { return nil }
+
+    return FrontmostAppCommandSnapshot(
+        processIdentifier: processIdentifier,
+        bundleIdentifier: bundleIdentifier,
+        appName: appName,
+        commands: merged
+    )
+}
+
+private func semanticFrontmostCommandKey(_ command: FrontmostAppCommand) -> String {
+    let title = command.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return "\(command.bundleIdentifier.lowercased())::\(title)::\(command.shortcut.keyCode)::\(command.shortcut.modifiers)"
 }
 
 @MainActor

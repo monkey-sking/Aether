@@ -279,6 +279,9 @@ final class SpeechManager: ObservableObject {
     private var finalizationWorkItem: DispatchWorkItem?
     private var pendingEngineRestartWorkItem: DispatchWorkItem?
     private var lastEngineRestartAt: Date = .distantPast
+    private var headsetVoiceProcessingSuppressedUntil: Date = .distantPast
+    private var headsetVoiceProcessingFaultTimes: [Date] = []
+    private var customAppShortcutRules: [CustomAppShortcutRule] = []
     private let engineRestartDebounce: TimeInterval = 0.55
     private let engineRestartMinInterval: TimeInterval = 1.5
     private var continuousRecoveryGraceUntil: Date = .distantPast
@@ -408,7 +411,7 @@ final class SpeechManager: ObservableObject {
         return availableInputDevices.first(where: { $0.id == deviceIDToUse })?.name ?? ""
     }
 
-    private var shouldSuppressSystemHeadsetMicControl: Bool {
+    private var isHeadsetLikeInputDevice: Bool {
         let name = currentResolvedInputDeviceName.lowercased()
         let icon = currentInputDeviceIcon.lowercased()
         return icon.contains("airpod")
@@ -421,8 +424,11 @@ final class SpeechManager: ObservableObject {
             || name.contains("耳机")
     }
 
-    private var isHeadsetInputMuteGestureEnabled: Bool {
-        UserDefaults.standard.object(forKey: "enableHeadsetInputMuteGesture") as? Bool ?? false
+    private var shouldSuppressSystemHeadsetMicControl: Bool {
+        guard UserDefaults.standard.object(forKey: "enableHeadsetInputMuteGesture") as? Bool ?? false else {
+            return false
+        }
+        return isHeadsetLikeInputDevice
     }
 
     private var isTypingRecoveryHoldActive: Bool {
@@ -747,6 +753,7 @@ final class SpeechManager: ObservableObject {
         }
 
         // Start audio capture
+        refreshHeadsetVoiceProcessingPolicy()
         audioCapture.selectedDeviceID = selectedInputDeviceID
         do { try audioCapture.start() } catch {
             status = NSLocalizedString("speech.error", comment: ""); lastError = error.localizedDescription
@@ -800,13 +807,10 @@ final class SpeechManager: ObservableObject {
             if shouldSuppressSystemHeadsetMicControl {
                 headsetInputMuteRouter.activate { [weak self] inputShouldBeMuted in
                     guard let self else { return }
-                    if self.isHeadsetInputMuteGestureEnabled {
-                        self.handleHeadsetInputMuteGesture(inputShouldBeMuted)
-                    } else {
-                        GlobalLogger.speech.info(
-                            "[HeadsetMute] swallowed system mic-control gesture input=\(self.currentResolvedInputDeviceName)"
-                        )
-                    }
+                    GlobalLogger.speech.info(
+                        "[HeadsetMute] accepted system mic-control gesture input=\(self.currentResolvedInputDeviceName) muted=\(inputShouldBeMuted)"
+                    )
+                    self.handleHeadsetInputMuteGesture(inputShouldBeMuted)
                 }
             } else {
                 headsetInputMuteRouter.deactivate()
@@ -979,6 +983,7 @@ final class SpeechManager: ObservableObject {
     private func handleRecognitionError(_ error: Error, isRecoverable: Bool) {
         beginTypingRecoveryHold(reason: isRecoverable ? "recognition-recoverable-error" : "recognition-fatal-error")
         if isRecoverable {
+            noteRecoverableHeadsetVoiceProcessingFailure(reason: "recognition-recoverable-error")
             metrics.recoverableErrors += 1
             os_log("Recognition recoverable error: %{public}@", log: log, type: .info, error.localizedDescription)
             if isAlwaysListeningEnabled {
@@ -1159,6 +1164,11 @@ final class SpeechManager: ObservableObject {
     func setVoiceLanguageTermsOverrides(_ overrides: [VoiceLanguageTermsOverrideConfig]) {
         wakeWordDetector.overrides = overrides
         commandRouter.languageTermsOverrides = overrides
+    }
+
+    func setCustomAppShortcutRules(_ rules: [CustomAppShortcutRule]) {
+        customAppShortcutRules = rules
+        _ = refreshFrontmostAppCommands(force: true)
     }
 
     private func cleanup() {
@@ -1769,7 +1779,9 @@ final class SpeechManager: ObservableObject {
 
     @discardableResult
     private func refreshFrontmostAppCommands(force: Bool = false) -> [FrontmostAppCommand] {
-        let commands = FrontmostAppCommandCatalog.refreshSnapshotFromAnyThread(force: force)?.commands ?? []
+        let snapshot = FrontmostAppCommandCatalog.refreshSnapshotFromAnyThread(force: force)
+        let merged = mergeFrontmostAppCommandSnapshot(snapshot: snapshot, customRules: customAppShortcutRules)
+        let commands = merged?.commands ?? []
         commandRouter.frontmostAppCommands = commands
         return commands
     }
@@ -1988,6 +2000,34 @@ final class SpeechManager: ObservableObject {
 
     static func shouldDiscardTranscriptOnEngineRestart(reason: String) -> Bool {
         reason == "input-device-selection" || reason == "default-input-device-changed"
+    }
+
+    private func refreshHeadsetVoiceProcessingPolicy() {
+        let isSuppressed = Date() < headsetVoiceProcessingSuppressedUntil
+        audioCapture.allowAutomaticHeadsetVoiceProcessing = !isSuppressed
+        if !isSuppressed, !headsetVoiceProcessingFaultTimes.isEmpty {
+            headsetVoiceProcessingFaultTimes.removeAll()
+        }
+    }
+
+    private func noteRecoverableHeadsetVoiceProcessingFailure(reason: String) {
+        guard isHeadsetLikeInputDevice else { return }
+
+        let now = Date()
+        headsetVoiceProcessingFaultTimes.append(now)
+        headsetVoiceProcessingFaultTimes.removeAll { now.timeIntervalSince($0) > 18 }
+        guard headsetVoiceProcessingFaultTimes.count >= 3 else { return }
+        guard now >= headsetVoiceProcessingSuppressedUntil else { return }
+
+        headsetVoiceProcessingSuppressedUntil = now.addingTimeInterval(180)
+        headsetVoiceProcessingFaultTimes.removeAll()
+        audioCapture.allowAutomaticHeadsetVoiceProcessing = false
+        GlobalLogger.speech.info(
+            "[VoiceProcessingIO] suppress headset auto-enable for 180s reason=\(reason) input=\(currentResolvedInputDeviceName)"
+        )
+        if pendingEngineRestartWorkItem == nil {
+            scheduleEngineRestart(reason: "headset-vpio-suppressed", debounce: 0.05)
+        }
     }
 
     // MARK: - Device Management
@@ -2406,6 +2446,9 @@ private final class HeadsetInputMuteRouter {
     private let log = GlobalLogger.speech
     private var isActive = false
     private var observer: NSObjectProtocol?
+    private var activatedAt: Date = .distantPast
+    private var lastDeliveredAt: Date = .distantPast
+    private var lastDeliveredState: Bool?
 
     func activate(onSinglePress: @escaping (Bool) -> Void) {
         guard #available(macOS 14.0, *) else { return }
@@ -2423,6 +2466,23 @@ private final class HeadsetInputMuteRouter {
 
         do {
             try AVAudioApplication.shared.setInputMuteStateChangeHandler { inputShouldBeMuted in
+                let now = Date()
+                if now.timeIntervalSince(self.activatedAt) < 0.35 {
+                    os_log("Input mute gesture ignored during activation warmup", log: self.log, type: .info)
+                    return true
+                }
+                if let lastState = self.lastDeliveredState,
+                   lastState == inputShouldBeMuted,
+                   now.timeIntervalSince(self.lastDeliveredAt) < 0.9 {
+                    os_log("Input mute gesture ignored as duplicate", log: self.log, type: .info)
+                    return true
+                }
+                if now.timeIntervalSince(self.lastDeliveredAt) < 0.45 {
+                    os_log("Input mute gesture ignored as rapid repeat", log: self.log, type: .info)
+                    return true
+                }
+                self.lastDeliveredAt = now
+                self.lastDeliveredState = inputShouldBeMuted
                 Task { @MainActor in
                     onSinglePress(inputShouldBeMuted)
                 }
@@ -2435,6 +2495,9 @@ private final class HeadsetInputMuteRouter {
         }
 
         isActive = true
+        activatedAt = Date()
+        lastDeliveredAt = .distantPast
+        lastDeliveredState = nil
         os_log("Input mute handler registered", log: log, type: .info)
     }
 
@@ -2450,6 +2513,9 @@ private final class HeadsetInputMuteRouter {
         }
 
         isActive = false
+        activatedAt = .distantPast
+        lastDeliveredAt = .distantPast
+        lastDeliveredState = nil
         removeObserver()
     }
 
