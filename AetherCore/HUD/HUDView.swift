@@ -89,18 +89,32 @@ struct HUDView: View {
         .frame(width: 22, height: 22)
     }
     
+    private static let symbolFallbacks: [String: [String]] = [
+        "airpodspro.left": ["airpod.gen3.left", "airpod.left", "airpods", "headphones"],
+        "airpodspro.right": ["airpod.gen3.right", "airpod.right", "airpods", "headphones"],
+        "airpod.gen3.left": ["airpod.left", "airpods", "headphones"],
+        "airpod.gen3.right": ["airpod.right", "airpods", "headphones"],
+        "airpod.gen3": ["airpods", "headphones"],
+        "airpodspro": ["airpods", "headphones"],
+        "airpodsmax": ["headphones"]
+    ]
+
     private func resolvedSymbolName(for requested: String) -> String {
         let normalized = requested.trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalized.isEmpty { return "mic.slash" }
-        if NSImage(systemSymbolName: normalized, accessibilityDescription: nil) != nil {
-            return normalized
+        let primary = normalized.isEmpty ? "mic.slash" : normalized
+        if isValidSymbol(primary) { return primary }
+
+        if let fallbacks = Self.symbolFallbacks[primary] {
+            for fallback in fallbacks where isValidSymbol(fallback) {
+                return fallback
+            }
         }
-        let fallback = normalized.replacingOccurrences(of: ".left", with: "")
-                                  .replacingOccurrences(of: ".right", with: "")
-        if NSImage(systemSymbolName: fallback, accessibilityDescription: nil) != nil {
-            return fallback
-        }
-        return "mic.fill"
+
+        return isValidSymbol("mic.slash") ? "mic.slash" : "mic"
+    }
+
+    private func isValidSymbol(_ name: String) -> Bool {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
     }
 
     private var contextIcon: some View {
