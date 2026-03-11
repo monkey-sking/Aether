@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import AVFAudio
 import Speech
 import AppKit
 import os
@@ -43,6 +44,7 @@ struct UtteranceExecutionGuard {
 @MainActor
 final class SpeechManager: ObservableObject {
     private let log = GlobalLogger.speech
+    private let headsetInputMuteRouter = HeadsetInputMuteRouter()
 
     // MARK: - Intent Pipeline (unchanged)
     private struct IntentJob: Sendable {
@@ -729,6 +731,9 @@ final class SpeechManager: ObservableObject {
             GlobalLogger.speech.info(
                 "[ASR Session] start locale=\(activeLocale.identifier) mode=\(recognitionControlMode.rawValue) taskHint=\(String(describing: taskHint)) preferOnDevice=\(preferOnDevice) selectedInputID=\(selectedInputDeviceID) selectedInputName=\(selectedDeviceName) autoPunctuation=\(isAutoPunctuationEnabled) contextualCount=\(contextual.count)"
             )
+            headsetInputMuteRouter.activate { [weak self] inputShouldBeMuted in
+                self?.handleHeadsetInputMuteGesture(inputShouldBeMuted)
+            }
         } catch {
             status = NSLocalizedString("speech.unavailable", comment: ""); lastError = "Speech recognizer unavailable"; return
         }
@@ -1011,6 +1016,7 @@ final class SpeechManager: ObservableObject {
 
     private func stopAudioCapture() {
         cancelDeferredAudioStop()
+        headsetInputMuteRouter.deactivate()
         audioCapture.stop()
     }
 
@@ -1025,6 +1031,7 @@ final class SpeechManager: ObservableObject {
             guard let self else { return }
             self.deferredAudioStopWorkItem = nil
             guard !self.recognitionSession.isRunning, !self.isStopping, !self.isAlwaysListeningEnabled, !self.isPTTHeld else { return }
+            self.headsetInputMuteRouter.deactivate()
             self.audioCapture.stop()
         }
         deferredAudioStopWorkItem = workItem
@@ -1036,6 +1043,7 @@ final class SpeechManager: ObservableObject {
         isStopping = false
         eosDetector.stop()
         recognitionSession.cancel()
+        headsetInputMuteRouter.deactivate()
         audioCapture.stop()
     }
 
@@ -1052,6 +1060,7 @@ final class SpeechManager: ObservableObject {
         recognitionSession.cancel()
         eosDetector.stop()
         stopTimer?.invalidate(); stopTimer = nil
+        headsetInputMuteRouter.deactivate()
         isStopping = false; isDictating = false; sessionTypingMode = false; shouldShowProcessingDotsDuringStop = false
         activeUtteranceID = 0; sessionTargetPID = nil; sessionTargetBundleID = nil
         sessionTargetElementFingerprint = nil; didLogSessionTargetMismatch = false
@@ -1061,6 +1070,7 @@ final class SpeechManager: ObservableObject {
     }
 
     private func resetHUDTransientState() {
+        headsetInputMuteRouter.deactivate()
         isStopping = false; isDictating = false; sessionTypingMode = false; shouldShowProcessingDotsDuringStop = false
         activeUtteranceID = 0; sessionTargetPID = nil; sessionTargetBundleID = nil
         sessionTargetElementFingerprint = nil; didLogSessionTargetMismatch = false
@@ -1547,6 +1557,11 @@ final class SpeechManager: ObservableObject {
         case .clickLeft: return "clickLeft"
         case .clickRight: return "clickRight"
         case .doubleClick: return "doubleClick"
+        case .toggleInputControlMode: return "toggleInputControlMode"
+        case .toggleTracking: return "toggleTracking"
+        case .toggleLanguage: return "toggleLanguage"
+        case .toggleConnectionLock: return "toggleConnectionLock"
+        case .toggleShortcutPanel: return "toggleShortcutPanel"
         case .mediaPlayPause: return "mediaPlayPause"
         case .mediaPrevious: return "mediaPrevious"
         case .mediaNext: return "mediaNext"
@@ -1602,6 +1617,10 @@ final class SpeechManager: ObservableObject {
         GlobalLogger.speech.info(
             "[Metrics] sessions=\(metrics.sessions) utterances=\(metrics.utterances) commands=\(metrics.commands) dictation=\(metrics.dictations) unknown=\(metrics.unknowns) firstPartialAvgMs=\(avgFirstPartial) engineRestarts=\(metrics.engineRestarts) lowConfDrops=\(metrics.lowConfidenceCommandDowngrades) recoverableErr=\(metrics.recoverableErrors) fatalErr=\(metrics.fatalErrors)"
         )
+    }
+
+    private func handleHeadsetInputMuteGesture(_ inputShouldBeMuted: Bool) {
+        HeadMotionManager.shared.handleSystemInputMuteGesture(inputShouldBeMuted)
     }
 
     @discardableResult
@@ -2182,6 +2201,72 @@ final class SpeechManager: ObservableObject {
             if let ruleScope = r.scope, ruleScope != scope { continue }
             c = c.replacingOccurrences(of: r.from, with: r.to) } }
         return c
+    }
+}
+
+@MainActor
+private final class HeadsetInputMuteRouter {
+    private let log = GlobalLogger.speech
+    private var isActive = false
+    private var observer: NSObjectProtocol?
+
+    func activate(onSinglePress: @escaping (Bool) -> Void) {
+        guard #available(macOS 14.0, *) else { return }
+        guard !isActive else { return }
+
+        observer = NotificationCenter.default.addObserver(
+            forName: AVAudioApplication.inputMuteStateChangeNotification,
+            object: AVAudioApplication.shared,
+            queue: .main
+        ) { [weak self] note in
+            Task { @MainActor [weak self] in
+                self?.logMuteNotification(note)
+            }
+        }
+
+        do {
+            try AVAudioApplication.shared.setInputMuteStateChangeHandler { inputShouldBeMuted in
+                Task { @MainActor in
+                    onSinglePress(inputShouldBeMuted)
+                }
+                return true
+            }
+        } catch {
+            os_log("Input mute handler registration failed: %{public}@", log: log, type: .error, error.localizedDescription)
+            removeObserver()
+            return
+        }
+
+        isActive = true
+        os_log("Input mute handler registered", log: log, type: .info)
+    }
+
+    func deactivate() {
+        guard #available(macOS 14.0, *) else { return }
+
+        if isActive {
+            do {
+                try AVAudioApplication.shared.setInputMuteStateChangeHandler(nil)
+            } catch {
+                os_log("Input mute handler clear failed: %{public}@", log: log, type: .error, error.localizedDescription)
+            }
+        }
+
+        isActive = false
+        removeObserver()
+    }
+
+    @available(macOS 14.0, *)
+    private func logMuteNotification(_ note: Notification) {
+        let muted = (note.userInfo?[AVAudioApplication.muteStateKey] as? NSNumber)?.boolValue
+        os_log("Input mute state notification: %{public}@", log: log, type: .info, muted == true ? "muted" : "unmuted")
+    }
+
+    private func removeObserver() {
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+            self.observer = nil
+        }
     }
 }
 

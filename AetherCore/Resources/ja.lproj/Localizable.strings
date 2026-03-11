@@ -9,6 +9,7 @@
 
 /* App */
 "app.project_title" = "Aether プロジェクト";
+"app.version_fmt" = "Version %@ (%@)";
 
 /* Status */
 "status.perception_network" = "パーセプション・ネットワーク";

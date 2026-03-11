@@ -806,6 +806,11 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
     case clickLeft
     case clickRight
     case doubleClick
+    case toggleInputControlMode
+    case toggleTracking
+    case toggleLanguage
+    case toggleConnectionLock
+    case toggleShortcutPanel
     case mediaPlayPause
     case mediaPrevious
     case mediaNext
@@ -827,6 +832,32 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    static let allCases: [VoiceCommandPreset] = [
+        .clickLeft,
+        .clickRight,
+        .doubleClick,
+        .toggleInputControlMode,
+        .toggleTracking,
+        .toggleLanguage,
+        .toggleShortcutPanel,
+        .mediaPlayPause,
+        .mediaPrevious,
+        .mediaNext,
+        .showShortcutPanel,
+        .hideShortcutPanel,
+        .startPointer,
+        .stopPointer,
+        .recenter,
+        .scrollUp,
+        .scrollDown,
+        .scrollTop,
+        .scrollBottom,
+        .dragStart,
+        .dragEnd,
+        .undo,
+        .paste
+    ]
+
     var intent: VoiceIntent {
         switch self {
         case .clickLeft:
@@ -835,6 +866,16 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return .clickRight
         case .doubleClick:
             return .doubleClick
+        case .toggleInputControlMode:
+            return .toggleInputControlMode
+        case .toggleTracking:
+            return .toggleTracking
+        case .toggleLanguage:
+            return .toggleLanguage
+        case .toggleConnectionLock:
+            return .toggleConnectionLock
+        case .toggleShortcutPanel:
+            return .toggleShortcutPanel
         case .mediaPlayPause:
             return .mediaPlayPause
         case .mediaPrevious:
@@ -876,7 +917,7 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
 
     var isTypingSafe: Bool {
         switch self {
-        case .showShortcutPanel, .hideShortcutPanel, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .undo, .paste:
+        case .toggleShortcutPanel, .showShortcutPanel, .hideShortcutPanel, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .undo, .paste:
             return true
         default:
             return false
@@ -892,6 +933,16 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return isChinese ? "右键" : "Right Click"
         case .doubleClick:
             return isChinese ? "双击" : "Double Click"
+        case .toggleInputControlMode:
+            return isChinese ? "切换输入/控制模式" : "Toggle Input/Control Mode"
+        case .toggleTracking:
+            return isChinese ? "切换头控" : "Toggle Pointer Control"
+        case .toggleLanguage:
+            return isChinese ? "切换语言" : "Toggle Language"
+        case .toggleConnectionLock:
+            return isChinese ? "切换连接锁定" : "Toggle Connection Lock"
+        case .toggleShortcutPanel:
+            return isChinese ? "切换快捷键面板" : "Toggle Shortcuts Panel"
         case .mediaPlayPause:
             return isChinese ? "播放 / 暂停" : "Play / Pause"
         case .mediaPrevious:
@@ -944,6 +995,11 @@ enum VoiceIntent: Equatable {
     case clickLeft
     case clickRight
     case doubleClick
+    case toggleInputControlMode
+    case toggleTracking
+    case toggleLanguage
+    case toggleConnectionLock
+    case toggleShortcutPanel
     case mediaPlayPause
     case mediaPrevious
     case mediaNext
@@ -1176,6 +1232,21 @@ final class VoiceCommandRouter {
         case .doubleClick:
             chinese = ["双击"]
             english = ["double click", "doubleclick"]
+        case .toggleInputControlMode:
+            chinese = ["切换输入控制模式", "切换输入模式", "切换控制模式", "输入控制模式切换", "切换输入和控制模式", "切换输入控制"]
+            english = ["toggle input mode", "toggle control mode", "toggle input control mode", "switch input mode", "switch control mode"]
+        case .toggleTracking:
+            chinese = ["切换头控", "切换指针控制", "切换追踪", "切换头部控制"]
+            english = ["toggle tracking", "toggle pointer", "toggle pointer control", "toggle head tracking"]
+        case .toggleLanguage:
+            chinese = ["切换语言", "切换语音语言", "切换识别语言"]
+            english = ["toggle language", "switch language", "toggle speech language"]
+        case .toggleConnectionLock:
+            chinese = ["切换连接锁定", "切换耳机连接锁定", "切换连接锁", "切换耳机锁定"]
+            english = ["toggle connection lock", "toggle headset lock", "toggle headset connection lock"]
+        case .toggleShortcutPanel:
+            chinese = ["切换快捷键面板", "切换面板", "切换命令面板"]
+            english = ["toggle shortcuts panel", "toggle shortcut panel", "toggle shortcuts", "toggle command panel"]
         case .mediaPlayPause:
             chinese = ["播放", "暂停", "播放暂停", "继续播放"]
             english = ["play", "pause", "play pause", "toggle playback"]

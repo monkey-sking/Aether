@@ -6,6 +6,7 @@
 "action.start_motion_matrix" = "모션 매트릭스 시작";
 "action.stop_motion_matrix" = "모션 매트릭스 중지";
 "app.project_title" = "Aether 프로젝트";
+"app.version_fmt" = "Version %@ (%@)";
 "calibration.normal" = "정상";
 "command.center.motion_matrix" = "모션 매트릭스";
 "command.center.title" = "커맨드 센터";

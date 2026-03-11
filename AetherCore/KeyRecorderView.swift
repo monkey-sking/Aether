@@ -13,7 +13,8 @@ struct HotkeySettingsSection: View {
 
     private var visibleActions: [HotkeyAction] {
         HotkeyAction.allCases.filter { action in
-            action != .pushToTalk || appState.voiceActivationMode == .pushToTalk
+            if action == .connectionLock { return false }
+            return action != .pushToTalk || appState.voiceActivationMode == .pushToTalk
         }
     }
 

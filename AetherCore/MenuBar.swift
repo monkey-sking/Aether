@@ -113,6 +113,10 @@ struct AetherMenuBar: Scene {
 
             Divider()
 
+            Text(appState.appVersionDisplay)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             Button(String(localized: "menu.quit")) {
                 NSApp.terminate(nil)
             }

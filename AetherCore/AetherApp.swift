@@ -551,6 +551,18 @@ class AppState: ObservableObject {
     private static let voiceUsageHistoryStorageKey = "voiceUsageHistoryV1"
     private static let maxVoiceUsageHistoryCount = 400
 
+    var appShortVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+
+    var appBuildVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String ?? "0"
+    }
+
+    var appVersionDisplay: String {
+        String(format: String(localized: "app.version_fmt"), appShortVersion, appBuildVersion)
+    }
+
     private static func defaultSpeechTermGroups() -> [SpeechTermGroupConfig] {
         [
             SpeechTermGroupConfig(
@@ -1513,6 +1525,26 @@ class AppState: ObservableObject {
             GlobalLogger.lifecycle.info("[VoiceIntent] action=doubleClick")
             motionService.doubleClick()
             recordVoiceControl(intent)
+        case .toggleInputControlMode:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleInputControlMode")
+            toggleRecognitionInputControlMode()
+            recordVoiceControl(intent)
+        case .toggleTracking:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleTracking")
+            toggleMotionTracking()
+            recordVoiceControl(intent)
+        case .toggleLanguage:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleLanguage")
+            NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
+            recordVoiceControl(intent)
+        case .toggleConnectionLock:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleConnectionLock")
+            connectionLock.toggle()
+            recordVoiceControl(intent)
+        case .toggleShortcutPanel:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleShortcutPanel")
+            toggleShortcutPanel(activateApp: false, focusSearchField: false)
+            recordVoiceControl(intent)
         case .mediaPlayPause:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=mediaPlayPause")
             nowPlayingService.togglePlayPause()
@@ -1686,6 +1718,11 @@ class AppState: ObservableObject {
         case .clickLeft: return NSLocalizedString("intent.click_left", comment: "")
         case .clickRight: return NSLocalizedString("intent.click_right", comment: "")
         case .doubleClick: return NSLocalizedString("intent.double_click", comment: "")
+        case .toggleInputControlMode: return String(localized: "hotkey.toggle_input_control_mode")
+        case .toggleTracking: return String(localized: "hotkey.toggle_tracking")
+        case .toggleLanguage: return String(localized: "hotkey.toggle_language")
+        case .toggleConnectionLock: return String(localized: "hotkey.connection_lock")
+        case .toggleShortcutPanel: return String(localized: "hotkey.toggle_shortcut_panel")
         case .mediaPlayPause: return NSLocalizedString("intent.media_play_pause", comment: "")
         case .mediaPrevious: return NSLocalizedString("intent.media_previous", comment: "")
         case .mediaNext: return NSLocalizedString("intent.media_next", comment: "")
@@ -2046,8 +2083,8 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
 
     private func preferredPanelSize(in visibleFrame: NSRect) -> CGSize {
         let visibleGlobalShortcutCount = (appState?.voiceActivationMode == .pushToTalk)
-            ? HotkeyAction.allCases.count
-            : HotkeyAction.allCases.filter { $0 != .pushToTalk }.count
+            ? HotkeyAction.allCases.filter { $0 != .connectionLock }.count
+            : HotkeyAction.allCases.filter { $0 != .pushToTalk && $0 != .connectionLock }.count
         let globalSectionHeight = CurrentAppShortcutPanelLayout.estimatedHeight(forGlobalShortcutCount: visibleGlobalShortcutCount)
         guard AXIsProcessTrusted(),
               let snapshot = FrontmostAppCommandCatalog.shared.snapshot,
@@ -2345,8 +2382,7 @@ private struct CurrentAppShortcutPanelView: View {
             .pushToTalk,
             .toggleTracking,
             .toggleLanguage,
-            .toggleShortcutPanel,
-            .connectionLock
+            .toggleShortcutPanel
         ]
 
         return preferredOrder.filter {

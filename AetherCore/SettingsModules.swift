@@ -197,14 +197,18 @@ struct InputSettingsView: View {
                 presets: [.clickLeft, .clickRight, .doubleClick, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .dragStart, .dragEnd, .undo, .paste]
             ),
             VoiceLexiconSection(
-                title: NSLocalizedString("lexicon.section.media_panels.title", comment: ""),
-                subtitle: NSLocalizedString("lexicon.section.media_panels.subtitle", comment: ""),
-                presets: [.mediaPlayPause, .mediaPrevious, .mediaNext, .showShortcutPanel, .hideShortcutPanel]
+                title: isChinese ? "Aether 功能与面板" : "Aether Actions & Panels",
+                subtitle: isChinese
+                    ? "耳机按钮和语音命令都更适合触发 Aether 自己的动作，而不是暴露底层媒体桥接语义。"
+                    : "Expose Aether actions here instead of the underlying media-remote bridge semantics.",
+                presets: [.toggleInputControlMode, .toggleTracking, .toggleLanguage, .toggleShortcutPanel]
             ),
             VoiceLexiconSection(
                 title: NSLocalizedString("lexicon.section.pointer_control.title", comment: ""),
-                subtitle: NSLocalizedString("lexicon.section.pointer_control.subtitle", comment: ""),
-                presets: [.recenter, .startPointer, .stopPointer]
+                subtitle: isChinese
+                    ? "头控的主开关已经统一到“切换头控”，这里保留姿态校准等补充动作。"
+                    : "Pointer control now uses toggle semantics as the main action; this section keeps calibration-style helpers.",
+                presets: [.recenter]
             )
         ]
     }
@@ -814,7 +818,7 @@ private struct HeadsetShortcutMappingCard: View {
     }
 
     private var pressActionOptions: [FixedPopUpOption] {
-        HeadMotionManager.HeadsetPressAction.allCases.map {
+        HeadMotionManager.HeadsetPressAction.allCases.filter { $0 != .connectionLock }.map {
             FixedPopUpOption(id: $0.rawValue, title: $0.label)
         }
     }
@@ -877,7 +881,7 @@ private struct HeadsetShortcutMappingCard: View {
                             .font(.headline)
                         Text(
                             isChinese
-                                ? "耳机单按、双按、三按都可以单独指定动作。默认分别是切换输入 / 控制模式、开始 / 停止头控、切换语言；修改后会立即生效并保存到本机。"
+                                ? "耳机单按、双按、三按都可以单独指定动作。默认分别是切换输入 / 控制模式、切换头控、切换语言；修改后会立即生效并保存到本机。"
                                 : "Single, double, and triple press can each trigger their own action. The defaults are mode switching, tracking toggle, and language switching, and changes apply immediately."
                         )
                         .font(.caption)
@@ -888,7 +892,7 @@ private struct HeadsetShortcutMappingCard: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     statusRow(
-                        title: isChinese ? "媒体遥控状态" : "Media Remote Status",
+                        title: isChinese ? "耳机事件通道" : "Headset Event Routing",
                         value: motionManager.headsetRemoteStatusText.isEmpty
                             ? (isChinese ? "初始化中" : "Initializing")
                             : motionManager.headsetRemoteStatusText
@@ -912,7 +916,7 @@ private struct HeadsetShortcutMappingCard: View {
                     actionRow(
                         kind: .double,
                         detail: isChinese
-                            ? "系统把双按事件交给 Aether 时，会执行这里选定的动作。默认用来开始或停止头控。"
+                            ? "系统把双按事件交给 Aether 时，会执行这里选定的动作。默认用来切换头控。"
                             : "When macOS routes a double press to Aether, it runs the action selected here. By default it toggles tracking."
                     )
                     actionRow(
@@ -997,6 +1001,16 @@ private extension VoiceCommandPreset {
             return isChinese ? "右键点击" : "Right Click"
         case .doubleClick:
             return isChinese ? "双击" : "Double Click"
+        case .toggleInputControlMode:
+            return isChinese ? "切换输入/控制模式" : "Toggle Input/Control Mode"
+        case .toggleTracking:
+            return isChinese ? "切换头控" : "Toggle Pointer Control"
+        case .toggleLanguage:
+            return isChinese ? "切换语言" : "Toggle Language"
+        case .toggleConnectionLock:
+            return isChinese ? "切换连接锁定" : "Toggle Connection Lock"
+        case .toggleShortcutPanel:
+            return isChinese ? "切换快捷键面板" : "Toggle Shortcuts Panel"
         case .mediaPlayPause:
             return isChinese ? "播放 / 暂停" : "Play / Pause"
         case .mediaPrevious:
@@ -1045,6 +1059,16 @@ private extension VoiceCommandPreset {
             return isChinese ? "在当前鼠标位置打开右键菜单。" : "Opens the context menu at the current pointer position."
         case .doubleClick:
             return isChinese ? "适合打开文件、确认或激活列表项。" : "Useful for opening files or activating items."
+        case .toggleInputControlMode:
+            return isChinese ? "在输入模式和控制模式之间切换，适合耳机单按或语音快速切换。" : "Switches between dictation and control mode."
+        case .toggleTracking:
+            return isChinese ? "开启中的头控会停止，停止中的头控会直接开启。" : "Toggles pointer tracking on or off."
+        case .toggleLanguage:
+            return isChinese ? "在已启用的语音语言之间循环切换。" : "Cycles through the enabled speech languages."
+        case .toggleConnectionLock:
+            return isChinese ? "切换耳机连接锁定状态，避免在多设备之间误切换。" : "Toggles the headset connection lock."
+        case .toggleShortcutPanel:
+            return isChinese ? "展开中的快捷键面板会收起，收起中的面板会展开。" : "Toggles the shortcut overlay for the current app."
         case .mediaPlayPause:
             return isChinese ? "控制当前系统播放源的播放或暂停。" : "Plays or pauses the current system media source."
         case .mediaPrevious:
@@ -1093,6 +1117,16 @@ private extension VoiceCommandPreset {
             return isChinese ? "例如：右键、打开菜单" : "Example: right click, open menu"
         case .doubleClick:
             return isChinese ? "例如：双击、打开它" : "Example: double click, open it"
+        case .toggleInputControlMode:
+            return isChinese ? "例如：切换输入模式、切换控制模式" : "Example: toggle input mode"
+        case .toggleTracking:
+            return isChinese ? "例如：切换头控、切换指针控制" : "Example: toggle pointer control"
+        case .toggleLanguage:
+            return isChinese ? "例如：切换语言、切换语音语言" : "Example: toggle language"
+        case .toggleConnectionLock:
+            return isChinese ? "例如：切换连接锁定、切换耳机锁定" : "Example: toggle connection lock"
+        case .toggleShortcutPanel:
+            return isChinese ? "例如：切换快捷键面板、切换命令面板" : "Example: toggle shortcuts panel"
         case .mediaPlayPause:
             return isChinese ? "例如：播放、暂停、继续播放" : "Example: play, pause, resume"
         case .mediaPrevious:
@@ -1940,6 +1974,13 @@ struct OutputSettingsView: View {
             set: { headManager.showPostureGuideBeforeTracking = $0 }
         )
     }
+
+    private var headGestureToggleBinding: Binding<Bool> {
+        Binding(
+            get: { headManager.headGestureToggleEnabled },
+            set: { headManager.headGestureToggleEnabled = $0 }
+        )
+    }
     
     var body: some View {
         SettingsPage(
@@ -1968,6 +2009,11 @@ struct OutputSettingsView: View {
                             isOn: postureGuideBinding
                         )
                         .disabled(!headManager.autoStartTrackingOnHeadsetConnection)
+
+                        Toggle(
+                            isChinese ? "点头开启头控，摇头停止头控" : "Nod to start tracking, shake to stop",
+                            isOn: headGestureToggleBinding
+                        )
 
                         Divider()
 
@@ -2002,8 +2048,6 @@ struct OutputSettingsView: View {
 }
 
 struct HeadsetSettingsView: View {
-    @ObservedObject private var connectionLock = ConnectionLockService.shared
-
     private var isChinese: Bool {
         Locale.current.identifier.hasPrefix("zh")
     }
@@ -2017,39 +2061,6 @@ struct HeadsetSettingsView: View {
         ) {
             VStack(spacing: 20) {
                 HeadsetShortcutMappingCard()
-
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label(isChinese ? "连接锁定" : "Connection Lock", systemImage: "lock.fill")
-                            .font(.headline)
-
-                        Text(
-                            isChinese
-                                ? "低频高级功能。需要时可手动锁定当前耳机连接，减少耳机在多设备间误切换。"
-                                : "Low-frequency advanced control. Lock the current headset connection when you need to prevent unwanted device switching."
-                        )
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                        HStack {
-                            Text(isChinese ? "当前状态" : "Current Status")
-                                .font(.subheadline.weight(.semibold))
-                            Spacer()
-                            Text(connectionLock.isLocked ? (isChinese ? "已锁定" : "Locked") : (isChinese ? "未锁定" : "Unlocked"))
-                                .foregroundColor(connectionLock.isLocked ? .green : .secondary)
-                        }
-
-                        Button(action: { connectionLock.toggle() }) {
-                            Text(connectionLock.isLocked
-                                 ? (isChinese ? "解除连接锁定" : "Unlock Connection")
-                                 : (isChinese ? "锁定当前连接" : "Lock Current Connection"))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                        }
-                        .controlSize(.large)
-                    }
-                }
             }
         }
     }

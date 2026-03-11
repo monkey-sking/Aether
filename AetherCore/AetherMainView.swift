@@ -236,6 +236,13 @@ private struct OverviewDashboardView: View {
         )
     }
 
+    private var headGestureToggleBinding: Binding<Bool> {
+        Binding(
+            get: { headManager.headGestureToggleEnabled },
+            set: { headManager.headGestureToggleEnabled = $0 }
+        )
+    }
+
     private var setupItems: [OverviewSetupItem] {
         [
             OverviewSetupItem(
@@ -309,7 +316,8 @@ private struct OverviewDashboardView: View {
                             : String(localized: "main.pointer.subtitle.idle"),
                         isOn: trackingBinding,
                         autoStartOnConnect: autoStartTrackingBinding,
-                        showPostureGuide: postureGuideBinding
+                        showPostureGuide: postureGuideBinding,
+                        headGestureToggle: headGestureToggleBinding
                     )
                 }
 
@@ -318,6 +326,14 @@ private struct OverviewDashboardView: View {
                         mode: $appState.voiceActivationMode
                     )
                 }
+            }
+
+            HStack {
+                Spacer()
+                Text(appState.appVersionDisplay)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
             }
         }
         .onAppear {
@@ -447,6 +463,11 @@ private struct PointerControlTile: View {
     @Binding var isOn: Bool
     @Binding var autoStartOnConnect: Bool
     @Binding var showPostureGuide: Bool
+    @Binding var headGestureToggle: Bool
+
+    private var isChinese: Bool {
+        Locale.current.identifier.hasPrefix("zh")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -476,6 +497,11 @@ private struct PointerControlTile: View {
                 )
                 .disabled(!autoStartOnConnect)
                 .opacity(autoStartOnConnect ? 1 : 0.55)
+                inlineToggle(
+                    title: isChinese ? "点头 / 摇头开关" : "Head gesture toggle",
+                    subtitle: isChinese ? "点头开启头控，摇头停止头控。" : "Use a nod to start tracking and a shake to stop it.",
+                    isOn: $headGestureToggle
+                )
             }
 
             Text(LocalizedStringKey("main.pointer.footnote"))
