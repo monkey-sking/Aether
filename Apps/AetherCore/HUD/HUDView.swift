@@ -91,8 +91,16 @@ struct HUDView: View {
     
     private func resolvedSymbolName(for requested: String) -> String {
         let normalized = requested.trimmingCharacters(in: .whitespacesAndNewlines)
-        let primary = normalized.isEmpty ? "mic.slash" : normalized
-        return primary
+        if normalized.isEmpty { return "mic.slash" }
+        if NSImage(systemSymbolName: normalized, accessibilityDescription: nil) != nil {
+            return normalized
+        }
+        let fallback = normalized.replacingOccurrences(of: ".left", with: "")
+                                  .replacingOccurrences(of: ".right", with: "")
+        if NSImage(systemSymbolName: fallback, accessibilityDescription: nil) != nil {
+            return fallback
+        }
+        return "mic.fill"
     }
 
     private var contextIcon: some View {
