@@ -81,12 +81,36 @@ struct HUDView: View {
                     .frame(width: 22, height: 22)
             }
 
-            Image(systemName: resolvedSymbolName(for: state.inputDeviceIcon))
-                .foregroundColor(.white)
-                .font(.system(size: 14))
-                .shadow(radius: 1)
+            let requestedIcon = state.inputDeviceIcon
+            if requestedIcon == "airpodspro.left" || requestedIcon == "airpodspro.right" {
+                Image(systemName: "airpodspro")
+                    .foregroundColor(.white)
+                    .font(.system(size: 14))
+                    .shadow(radius: 1)
+                    .clipShape(AirPodHalfClip(isLeft: requestedIcon == "airpodspro.left"))
+            } else {
+                Image(systemName: resolvedSymbolName(for: requestedIcon))
+                    .foregroundColor(.white)
+                    .font(.system(size: 14))
+                    .shadow(radius: 1)
+            }
         }
         .frame(width: 22, height: 22)
+    }
+    
+    // MARK: - Helper Types
+    
+    struct AirPodHalfClip: Shape {
+        let isLeft: Bool
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            if isLeft {
+                path.addRect(CGRect(x: 0, y: 0, width: rect.width / 2 + 1, height: rect.height))
+            } else {
+                path.addRect(CGRect(x: rect.width / 2 - 1, y: 0, width: rect.width / 2 + 1, height: rect.height))
+            }
+            return path
+        }
     }
     
     private static let symbolFallbacks: [String: [String]] = [

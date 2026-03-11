@@ -339,7 +339,8 @@ final class SpeechManager: ObservableObject {
         sessionTypingMode: Bool,
         liveTyping: Bool,
         canType: Bool,
-        hasStreamedDictation: Bool
+        hasStreamedDictation: Bool,
+        isUtteranceActive: Bool
     ) -> Bool {
         switch recognitionControlMode {
         case .command:
@@ -348,6 +349,10 @@ final class SpeechManager: ObservableObject {
             return canType
         case .auto:
             guard canType else { return false }
+            // If we are already mid-utterance and previously decided it's typing, stick to it.
+            // This prevents focus blips from hijacking the mode during speech.
+            if isUtteranceActive && sessionTypingMode { return true }
+            
             // Only keep a sticky typing state if this utterance has already injected text.
             // This prevents a stale input-state snapshot from hijacking a visible control-mode utterance.
             return liveTyping || (sessionTypingMode && hasStreamedDictation)
@@ -359,9 +364,14 @@ final class SpeechManager: ObservableObject {
         computedTypingContext: Bool,
         hasStreamedDictation: Bool,
         hudRecognitionControlMode: HUDRecognitionControlMode,
-        hudTypingContext: Bool
+        hudTypingContext: Bool,
+        isUtteranceActive: Bool
     ) -> Bool {
         guard recognitionControlMode == .auto else { return computedTypingContext }
+        
+        // Mid-utterance persistence
+        if isUtteranceActive && computedTypingContext { return true }
+        
         guard computedTypingContext else { return false }
         guard !hasStreamedDictation else { return true }
 
@@ -819,7 +829,8 @@ final class SpeechManager: ObservableObject {
             sessionTypingMode: sessionTypingMode,
             liveTyping: liveTyping,
             canType: canType,
-            hasStreamedDictation: hasStreamedDictation
+            hasStreamedDictation: hasStreamedDictation,
+            isUtteranceActive: isUtteranceActive
         )
         let hudState = HUDManager.shared.state
         let nextTypingMode = Self.reconcileTypingContextWithVisibleHUD(
@@ -827,7 +838,8 @@ final class SpeechManager: ObservableObject {
             computedTypingContext: computedTypingMode,
             hasStreamedDictation: hasStreamedDictation,
             hudRecognitionControlMode: hudState.recognitionControlMode,
-            hudTypingContext: hudState.isTypingContext
+            hudTypingContext: hudState.isTypingContext,
+            isUtteranceActive: isUtteranceActive
         )
         if recognitionControlMode == .auto,
            sessionTypingMode,
@@ -1183,7 +1195,8 @@ final class SpeechManager: ObservableObject {
             sessionTypingMode: sessionTypingMode,
             liveTyping: liveTyping,
             canType: true,
-            hasStreamedDictation: hasStreamedDictation
+            hasStreamedDictation: hasStreamedDictation,
+            isUtteranceActive: isUtteranceActive
         )
         let hudState = HUDManager.shared.state
         let typingContext = Self.reconcileTypingContextWithVisibleHUD(
@@ -1191,7 +1204,8 @@ final class SpeechManager: ObservableObject {
             computedTypingContext: computedTypingContext,
             hasStreamedDictation: hasStreamedDictation,
             hudRecognitionControlMode: hudState.recognitionControlMode,
-            hudTypingContext: hudState.isTypingContext
+            hudTypingContext: hudState.isTypingContext,
+            isUtteranceActive: isUtteranceActive
         )
         if typingContext != sessionTypingMode { sessionTypingMode = typingContext; isDictating = typingContext }
         if recognitionControlMode == .auto,
