@@ -2652,15 +2652,20 @@ private struct CurrentAppShortcutPanelView: View {
 
                 Spacer(minLength: 12)
 
-                TextField(isChinese ? "搜索快捷键" : "Search shortcuts", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.subheadline)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .frame(width: 240)
-                    .background(chromeBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .focused($isSearchFieldFocused)
+                NoFocusRingTextField(
+                    placeholder: isChinese ? "搜索快捷键" : "Search shortcuts",
+                    text: $searchText,
+                    isFocused: Binding(
+                        get: { isSearchFieldFocused },
+                        set: { isSearchFieldFocused = $0 }
+                    ),
+                    font: .systemFont(ofSize: 13, weight: .regular)
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .frame(width: 240)
+                .background(chromeBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 Button(String(localized: "generic.refresh")) {
                     _ = FrontmostAppCommandCatalog.shared.refresh(force: true)

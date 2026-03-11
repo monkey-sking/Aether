@@ -23,11 +23,11 @@ struct HUDView: View {
                     .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
                     .fixedSize()
                 contextIcon
-                if state.isLanguageIndicatorVisible { languageToggle }
+                languageToggle(showDivider: true)
 
             case .command:
-                if state.message.isEmpty && state.isLanguageIndicatorVisible {
-                    languageToggle
+                if state.message.isEmpty {
+                    languageToggle(showDivider: false)
                 } else {
                     micIcon
                     Text(state.message)
@@ -36,14 +36,14 @@ struct HUDView: View {
                         .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
                         .fixedSize()
                     contextIcon
-                    if state.isLanguageIndicatorVisible { languageToggle }
+                    languageToggle(showDivider: true)
                 }
 
             case .dictation:
                 micIcon
                 WaveformView(level: state.audioLevel)
                 contextIcon
-                if state.isLanguageIndicatorVisible { languageToggle }
+                languageToggle(showDivider: true)
 
             case .processing:
                 Image(systemName: "ellipsis")
@@ -119,11 +119,13 @@ struct HUDView: View {
         return localized
     }
 
-    private var languageToggle: some View {
+    private func languageToggle(showDivider: Bool) -> some View {
         HStack(spacing: 8) {
-            Divider()
-                .frame(height: 16)
-                .background(Color.white.opacity(0.3))
+            if showDivider {
+                Divider()
+                    .frame(height: 16)
+                    .background(Color.white.opacity(0.3))
+            }
 
             Button(action: {
                 NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
