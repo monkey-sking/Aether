@@ -9,6 +9,7 @@
 
 /* App */
 "app.project_title" = "Aether";
+"app.version_fmt" = "版本 %@（%@）";
 
 /* Status */
 "status.perception_network" = "感知网络";

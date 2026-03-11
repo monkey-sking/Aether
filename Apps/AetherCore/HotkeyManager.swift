@@ -162,6 +162,14 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
 
     var id: String { rawValue }
 
+    static let allCases: [HotkeyAction] = [
+        .toggleTracking,
+        .toggleInputControlMode,
+        .toggleLanguage,
+        .toggleShortcutPanel,
+        .pushToTalk
+    ]
+
     var label: String {
         switch self {
         case .toggleTracking: return String(localized: "hotkey.toggle_tracking")

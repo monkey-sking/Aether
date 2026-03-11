@@ -6,6 +6,7 @@
 "action.start_motion_matrix" = "Start Motion Matrix";
 "action.stop_motion_matrix" = "Stop Motion Matrix";
 "app.project_title" = "Project Aether";
+"app.version_fmt" = "Version %@ (%@)";
 "calibration.normal" = "Normal";
 "command.center.motion_matrix" = "Motion Matrix";
 "command.center.title" = "Command Center";

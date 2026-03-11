@@ -6,5 +6,7 @@
 	<false/>
 	<key>NSAppSleepDisabled</key>
 	<true/>
+	<key>NSAlwaysAllowMicrophoneModeControl</key>
+	<true/>
 </dict>
 </plist>

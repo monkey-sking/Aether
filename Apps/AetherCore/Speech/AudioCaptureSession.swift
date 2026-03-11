@@ -35,12 +35,15 @@ final class AudioCaptureSession {
     func start() throws {
         if let e = audioEngine, e.isRunning { return }
 
+        logMicrophoneMode(context: "before-start")
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         setInputDevice(for: engine)
 
         if #available(macOS 10.15, *) {
-            let enable = useVoiceProcessing || shouldAutoEnableVoiceProcessingIO()
+            let enable = useVoiceProcessing
+                || shouldAutoEnableVoiceProcessingIO()
+                || shouldEnableVoiceProcessingForSystemMicMode()
             if enable {
                 do {
                     try inputNode.setVoiceProcessingEnabled(true)
@@ -85,6 +88,7 @@ final class AudioCaptureSession {
         engine.prepare()
         try engine.start()
         isRunning = true
+        logMicrophoneMode(context: "after-start")
         os_log("AudioCaptureSession started.", log: log, type: .info)
     }
 
@@ -98,6 +102,7 @@ final class AudioCaptureSession {
         lastVoiceActivity = false
         lastLoggedAdaptiveThreshold = -1
         isRunning = false
+        logMicrophoneMode(context: "after-stop")
         os_log("AudioCaptureSession stopped.", log: log, type: .info)
     }
 
@@ -230,5 +235,49 @@ final class AudioCaptureSession {
             return true
         }
         return false
+    }
+
+    private func shouldEnableVoiceProcessingForSystemMicMode() -> Bool {
+        guard #available(macOS 12.0, *) else { return false }
+
+        let preferred = AVCaptureDevice.preferredMicrophoneMode
+        guard preferred != .standard else { return false }
+
+        os_log(
+            "VoiceProcessingIO: enabling to honor system mic mode %{public}@",
+            log: log,
+            type: .info,
+            microphoneModeLabel(preferred)
+        )
+        return true
+    }
+
+    private func logMicrophoneMode(context: String) {
+        guard #available(macOS 12.0, *) else { return }
+
+        let preferred = AVCaptureDevice.preferredMicrophoneMode
+        let active = AVCaptureDevice.activeMicrophoneMode
+        os_log(
+            "MicrophoneMode (%{public}@): preferred=%{public}@ active=%{public}@",
+            log: log,
+            type: .info,
+            context,
+            microphoneModeLabel(preferred),
+            microphoneModeLabel(active)
+        )
+    }
+
+    @available(macOS 12.0, *)
+    private func microphoneModeLabel(_ mode: AVCaptureDevice.MicrophoneMode) -> String {
+        switch mode {
+        case .standard:
+            return "standard"
+        case .wideSpectrum:
+            return "wideSpectrum"
+        case .voiceIsolation:
+            return "voiceIsolation"
+        @unknown default:
+            return "unknown"
+        }
     }
 }

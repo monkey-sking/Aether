@@ -25,6 +25,7 @@ class HeadMotionManager: ObservableObject {
     private static let headsetTriplePressActionKey = "AetherHeadsetTriplePressAction"
     private static let autoStartTrackingOnHeadsetConnectionKey = "AetherAutoStartTrackingOnHeadsetConnection"
     private static let showPostureGuideBeforeTrackingKey = "AetherShowPostureGuideBeforeTracking"
+    private static let headGestureToggleEnabledKey = "AetherHeadGestureToggleEnabled"
 
     enum RecognitionControlMode: String, Sendable {
         case auto
@@ -90,6 +91,14 @@ class HeadMotionManager: ObservableObject {
 
         var id: String { rawValue }
 
+        static let allCases: [HeadsetPressAction] = [
+            .none,
+            .toggleLanguage,
+            .toggleShortcutPanel,
+            .toggleInputControlMode,
+            .toggleTracking
+        ]
+
         var hotkeyAction: HotkeyAction? {
             switch self {
             case .none:
@@ -126,6 +135,20 @@ class HeadMotionManager: ObservableObject {
         }
     }
 
+    private struct HeadGestureSample {
+        let at: Date
+        let yaw: Double
+        let pitch: Double
+    }
+
+    private struct HeadGestureMetrics {
+        let minValue: Double
+        let maxValue: Double
+        let amplitude: Double
+        let signChanges: Int
+        let sampleCount: Int
+    }
+
     private init() {
         // Hotkeys require Accessibility trust. Install the event tap only after permissions are granted.
         // Reset legacy persisted override. Manual mode switch is now focus-follow aware and temporary.
@@ -144,6 +167,9 @@ class HeadMotionManager: ObservableObject {
         }
         startStabilityTimer()
         updateAirPodsRemoteCommandRegistration()
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshHeadGestureMonitoringState(source: "initial-load")
+        }
     }
     
     private var isHotkeyRegistered: Bool = false
@@ -223,6 +249,18 @@ class HeadMotionManager: ObservableObject {
             UserDefaults.standard.set(showPostureGuideBeforeTracking, forKey: HeadMotionManager.showPostureGuideBeforeTrackingKey)
         }
     }
+
+    @Published var headGestureToggleEnabled: Bool = UserDefaults.standard.object(forKey: HeadMotionManager.headGestureToggleEnabledKey) as? Bool ?? false {
+        didSet {
+            UserDefaults.standard.set(headGestureToggleEnabled, forKey: HeadMotionManager.headGestureToggleEnabledKey)
+            if !headGestureToggleEnabled {
+                resetHeadGestureRecognition()
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshHeadGestureMonitoringState(source: "head-gesture-setting-changed")
+            }
+        }
+    }
     
     // Experience Optimization Constants
     private let deadzone: Double = 0.005  // Ignore movements smaller than ~0.3 degrees
@@ -230,6 +268,12 @@ class HeadMotionManager: ObservableObject {
     private let precisionSmoothing: CGFloat = 0.18
     private let cursorHoldRadius: CGFloat = 8
     private let precisionZoneRadius: CGFloat = 44
+    private let headGestureWindow: TimeInterval = 0.95
+    private let headGestureCooldown: TimeInterval = 1.5
+    private let headGestureNodThreshold: Double = 0.11
+    private let headGestureNodAmplitude: Double = 0.26
+    private let headGestureShakeThreshold: Double = 0.16
+    private let headGestureShakeAmplitude: Double = 0.34
     
     // Dynamic Range Calibration
     @Published var calibrationStatus: String = String(localized: "calibration.normal")
@@ -244,10 +288,18 @@ class HeadMotionManager: ObservableObject {
     private var minPitch: Double = -0.2
     private var maxPitch: Double = 0.2
     private var isCalibratingRange: Bool = false
+    private var isPassiveHeadGestureMonitoring: Bool = false
+    private var passiveGestureBaseYaw: Double = 0.0
+    private var passiveGestureBasePitch: Double = 0.0
+    private var isPassiveGestureCalibrated: Bool = false
+    private var recentHeadGestureSamples: [HeadGestureSample] = []
+    private var lastHeadGestureTriggerAt: Date = .distantPast
+    private var lastHeadGestureDebugLogAt: Date = .distantPast
     
     @Published var currentPostureBias: PostureBias = .neutral
     // Temporary override, usually from AirPods squeeze during a PTT session.
     @Published var transientRecognitionControlMode: RecognitionControlMode? = nil
+    private var transientRecognitionControlModeFollowsFocus: Bool = false
     private var transientModeAnchorTypingState: Bool?
     private var lastTransientModeSyncAt: Date = .distantPast
     private var transientModeObservedTypingState: Bool?
@@ -405,6 +457,7 @@ class HeadMotionManager: ObservableObject {
         guard !isTracking else { return }
         pendingAutoTrackingStart?.cancel()
         pendingAutoTrackingStart = nil
+        stopPassiveHeadGestureMonitoring(source: "tracking-start")
         
         // CRITICAL: Verify AirPods are actually available before starting
         // isDeviceMotionAvailable checks if the device SUPPORTS motion tracking
@@ -413,7 +466,10 @@ class HeadMotionManager: ObservableObject {
             let msg = String(localized: "motion.error.airpods_not_detected")
             attitudeText = String(localized: "headset.status.no_compatible")
             os_log("Cannot start tracking: AirPods not available", log: log, type: .error)
-            HUDManager.shared.showTemporary(message: "❌ \(String(localized: "headset.hud.no_compatible"))")
+            HUDManager.shared.showTemporary(
+                message: String(localized: "headset.hud.no_compatible"),
+                icon: "xmark.circle.fill"
+            )
             onError?(msg)
             return // BLOCK tracking if AirPods not available
         }
@@ -511,6 +567,8 @@ class HeadMotionManager: ObservableObject {
             
             let offYaw = attitude.yaw - self.baseYaw
             let offPitch = attitude.pitch - self.basePitch
+
+            self.processHeadGestureSample(yaw: offYaw, pitch: offPitch)
             
             // Attention Check (Gaze-based Context Switching)
             self.updateAttentionState(yaw: offYaw)
@@ -615,7 +673,10 @@ class HeadMotionManager: ObservableObject {
         os_log("Aether: Connection Timeout - No data received", log: log, type: .error)
         
         let msg = String(localized: "motion.error.connection_timeout")
-        HUDManager.shared.showTemporary(message: "❌ \(String(localized: "headset.hud.connection_timeout"))")
+        HUDManager.shared.showTemporary(
+            message: String(localized: "headset.hud.connection_timeout"),
+            icon: "xmark.circle.fill"
+        )
         onError?(msg)
         
         stopTrackingInternal()
@@ -645,13 +706,19 @@ class HeadMotionManager: ObservableObject {
         }
         
         motionManager.stopDeviceMotionUpdates()
-        
-        DispatchQueue.main.async {
-            // Don't overwrite "Connection Failed" if that was the reason
+
+        let finalizeTrackingStop = {
             if self.isTracking {
                 self.attitudeText = String(localized: "headset.status.stopped")
             }
             self.isTracking = false
+            self.refreshHeadGestureMonitoringState(source: "tracking-stopped")
+        }
+
+        if Thread.isMainThread {
+            finalizeTrackingStop()
+        } else {
+            DispatchQueue.main.async(execute: finalizeTrackingStop)
         }
         
         isCalibrated = false
@@ -659,7 +726,214 @@ class HeadMotionManager: ObservableObject {
         isAirPodsStreamActive = false
         isLookingAtScreen = false
         refreshHeadsetRemoteStatus()
+        resetHeadGestureRecognition()
         os_log("Aether: Stopped tracking", log: log)
+    }
+
+    private func refreshHeadGestureMonitoringState(source: String) {
+        guard !isTracking else {
+            stopPassiveHeadGestureMonitoring(source: "\(source)-tracking-active")
+            return
+        }
+
+        let shouldMonitor = headGestureToggleEnabled && lastObservedAirPodSide != .none && motionManager.isDeviceMotionAvailable
+        if shouldMonitor {
+            startPassiveHeadGestureMonitoring(source: source)
+        } else {
+            os_log(
+                "Head gesture monitor idle (%{public}@): enabled=%{public}@ connected=%{public}@ motionAvailable=%{public}@",
+                log: log,
+                type: .info,
+                source,
+                String(headGestureToggleEnabled),
+                String(lastObservedAirPodSide != .none),
+                String(motionManager.isDeviceMotionAvailable)
+            )
+            stopPassiveHeadGestureMonitoring(source: source)
+        }
+    }
+
+    private func startPassiveHeadGestureMonitoring(source: String) {
+        guard !isTracking else { return }
+        guard headGestureToggleEnabled else { return }
+        guard lastObservedAirPodSide != .none else { return }
+        guard motionManager.isDeviceMotionAvailable else { return }
+        guard !isPassiveHeadGestureMonitoring else { return }
+
+        isPassiveHeadGestureMonitoring = true
+        isPassiveGestureCalibrated = false
+        resetHeadGestureRecognition()
+        os_log("Head gesture monitor started (%{public}@)", log: log, type: .info, source)
+
+        motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, error in
+            guard let self else { return }
+            if let error {
+                os_log("Head gesture monitor error: %{public}@", log: self.log, type: .error, error.localizedDescription)
+                self.stopPassiveHeadGestureMonitoring(source: "gesture-monitor-error")
+                return
+            }
+            guard let attitude = motion?.attitude else { return }
+            self.handlePassiveHeadGestureMotion(attitude)
+        }
+    }
+
+    private func stopPassiveHeadGestureMonitoring(source: String) {
+        guard isPassiveHeadGestureMonitoring else { return }
+        motionManager.stopDeviceMotionUpdates()
+        isPassiveHeadGestureMonitoring = false
+        isPassiveGestureCalibrated = false
+        resetHeadGestureRecognition()
+        os_log("Head gesture monitor stopped (%{public}@)", log: log, type: .info, source)
+    }
+
+    private func handlePassiveHeadGestureMotion(_ attitude: CMAttitude) {
+        if !isPassiveGestureCalibrated {
+            passiveGestureBaseYaw = attitude.yaw
+            passiveGestureBasePitch = attitude.pitch
+            isPassiveGestureCalibrated = true
+            os_log(
+                "Head gesture baseline calibrated: yaw=%.3f pitch=%.3f",
+                log: log,
+                type: .info,
+                passiveGestureBaseYaw,
+                passiveGestureBasePitch
+            )
+            return
+        }
+
+        let offYaw = attitude.yaw - passiveGestureBaseYaw
+        let offPitch = attitude.pitch - passiveGestureBasePitch
+        processHeadGestureSample(yaw: offYaw, pitch: offPitch)
+    }
+
+    private func resetHeadGestureRecognition() {
+        recentHeadGestureSamples.removeAll(keepingCapacity: false)
+    }
+
+    private func processHeadGestureSample(yaw: Double, pitch: Double) {
+        guard headGestureToggleEnabled else { return }
+
+        let now = Date()
+        recentHeadGestureSamples.append(HeadGestureSample(at: now, yaw: yaw, pitch: pitch))
+        recentHeadGestureSamples.removeAll { now.timeIntervalSince($0.at) > headGestureWindow }
+
+        let nodMetrics = gestureMetrics(values: recentHeadGestureSamples.map(\.pitch), threshold: headGestureNodThreshold)
+        let shakeMetrics = gestureMetrics(values: recentHeadGestureSamples.map(\.yaw), threshold: headGestureShakeThreshold)
+        maybeLogHeadGestureDiagnostics(
+            at: now,
+            nodMetrics: nodMetrics,
+            shakeMetrics: shakeMetrics,
+            yaw: yaw,
+            pitch: pitch
+        )
+
+        guard now.timeIntervalSince(lastHeadGestureTriggerAt) >= headGestureCooldown else { return }
+
+        if isTracking {
+            guard shakeMetrics.amplitude >= headGestureShakeAmplitude, shakeMetrics.signChanges >= 2 else { return }
+            lastHeadGestureTriggerAt = now
+            resetHeadGestureRecognition()
+            os_log(
+                "Head gesture detected: shake amp=%.3f signChanges=%{public}d samples=%{public}d",
+                log: log,
+                type: .info,
+                shakeMetrics.amplitude,
+                shakeMetrics.signChanges,
+                shakeMetrics.sampleCount
+            )
+            Task { @MainActor [weak self] in
+                self?.performTrackingToggle(source: "head-gesture-shake")
+            }
+            return
+        }
+
+        guard isPassiveHeadGestureMonitoring else { return }
+        guard nodMetrics.amplitude >= headGestureNodAmplitude, nodMetrics.signChanges >= 2 else { return }
+        lastHeadGestureTriggerAt = now
+        resetHeadGestureRecognition()
+        os_log(
+            "Head gesture detected: nod amp=%.3f signChanges=%{public}d samples=%{public}d",
+            log: log,
+            type: .info,
+            nodMetrics.amplitude,
+            nodMetrics.signChanges,
+            nodMetrics.sampleCount
+        )
+        Task { @MainActor [weak self] in
+            self?.performTrackingToggle(source: "head-gesture-nod")
+        }
+    }
+
+    private func detectNodGesture(in samples: [HeadGestureSample]) -> Bool {
+        let metrics = gestureMetrics(values: samples.map(\.pitch), threshold: headGestureNodThreshold)
+        return metrics.amplitude >= headGestureNodAmplitude && metrics.signChanges >= 2
+    }
+
+    private func detectShakeGesture(in samples: [HeadGestureSample]) -> Bool {
+        let metrics = gestureMetrics(values: samples.map(\.yaw), threshold: headGestureShakeThreshold)
+        return metrics.amplitude >= headGestureShakeAmplitude && metrics.signChanges >= 2
+    }
+
+    private func gestureMetrics(values: [Double], threshold: Double) -> HeadGestureMetrics {
+        guard let minValue = values.min(), let maxValue = values.max() else {
+            return HeadGestureMetrics(minValue: 0, maxValue: 0, amplitude: 0, signChanges: 0, sampleCount: values.count)
+        }
+        var signChanges = 0
+        var lastSign = 0
+
+        for value in values {
+            let sign: Int
+            if value >= threshold {
+                sign = 1
+            } else if value <= -threshold {
+                sign = -1
+            } else {
+                continue
+            }
+
+            if lastSign != 0 && sign != lastSign {
+                signChanges += 1
+            }
+            lastSign = sign
+        }
+
+        return HeadGestureMetrics(
+            minValue: minValue,
+            maxValue: maxValue,
+            amplitude: maxValue - minValue,
+            signChanges: signChanges,
+            sampleCount: values.count
+        )
+    }
+
+    private func maybeLogHeadGestureDiagnostics(
+        at now: Date,
+        nodMetrics: HeadGestureMetrics,
+        shakeMetrics: HeadGestureMetrics,
+        yaw: Double,
+        pitch: Double
+    ) {
+        guard isDebugModeEnabled else { return }
+        guard now.timeIntervalSince(lastHeadGestureDebugLogAt) >= 1.0 else { return }
+        guard nodMetrics.sampleCount >= 4 || shakeMetrics.sampleCount >= 4 else { return }
+
+        lastHeadGestureDebugLogAt = now
+        os_log(
+            "Head gesture diag: tracking=%{public}@ passive=%{public}@ yaw=%.3f pitch=%.3f nodAmp=%.3f/%0.3f nodSigns=%{public}d shakeAmp=%.3f/%0.3f shakeSigns=%{public}d samples=%{public}d",
+            log: log,
+            type: .debug,
+            String(isTracking),
+            String(isPassiveHeadGestureMonitoring),
+            yaw,
+            pitch,
+            nodMetrics.amplitude,
+            headGestureNodAmplitude,
+            nodMetrics.signChanges,
+            shakeMetrics.amplitude,
+            headGestureShakeAmplitude,
+            shakeMetrics.signChanges,
+            max(nodMetrics.sampleCount, shakeMetrics.sampleCount)
+        )
     }
     
     // ... toggleTracking, public wrappers, etc. (unchanged) ...
@@ -693,12 +967,18 @@ class HeadMotionManager: ObservableObject {
 
     func scrollToTop() {
         AutomationOutputs.shared.scroll(dx: 0, dy: -100000)
-        HUDManager.shared.showTemporary(message: "⬆️ \(String(localized: "headset.hud.scroll_top"))")
+        HUDManager.shared.showTemporary(
+            message: String(localized: "headset.hud.scroll_top"),
+            icon: "arrow.up.to.line"
+        )
     }
 
     func scrollToBottom() {
         AutomationOutputs.shared.scroll(dx: 0, dy: 100000)
-        HUDManager.shared.showTemporary(message: "⬇️ \(String(localized: "headset.hud.scroll_bottom"))")
+        HUDManager.shared.showTemporary(
+            message: String(localized: "headset.hud.scroll_bottom"),
+            icon: "arrow.down.to.line"
+        )
     }
 
     func dragStart() {
@@ -706,7 +986,10 @@ class HeadMotionManager: ObservableObject {
         isDragging = true
         // Use current cursor location (nil) to avoid coordinate flipping issues
         AutomationOutputs.shared.drag(start: true, at: nil)
-        HUDManager.shared.showTemporary(message: "✊ \(String(localized: "headset.hud.drag_start"))")
+        HUDManager.shared.showTemporary(
+            message: String(localized: "headset.hud.drag_start"),
+            icon: "hand.draw.fill"
+        )
     }
 
     func dragEnd() {
@@ -714,7 +997,10 @@ class HeadMotionManager: ObservableObject {
         isDragging = false
         // Use current cursor location (nil) to avoid coordinate flipping issues
         AutomationOutputs.shared.drag(start: false, at: nil)
-        HUDManager.shared.showTemporary(message: "🖐 \(String(localized: "headset.hud.drag_drop"))")
+        HUDManager.shared.showTemporary(
+            message: String(localized: "headset.hud.drag_drop"),
+            icon: "hand.raised.fill"
+        )
     }
 
     func recenter() {
@@ -764,9 +1050,13 @@ class HeadMotionManager: ObservableObject {
         if !isConnected {
             pendingAutoTrackingStart?.cancel()
             pendingAutoTrackingStart = nil
+            stopPassiveHeadGestureMonitoring(source: "airpods-disconnected")
             if isTracking {
                 let msg = String(localized: "motion.error.airpods_disconnected")
-                HUDManager.shared.showTemporary(message: "⚠️ \(String(localized: "headset.hud.disconnected"))")
+                HUDManager.shared.showTemporary(
+                    message: String(localized: "headset.hud.disconnected"),
+                    icon: "exclamationmark.triangle.fill"
+                )
                 onError?(msg)
                 stopTrackingInternal()
                 attitudeText = String(localized: "headset.status.disconnected")
@@ -774,6 +1064,7 @@ class HeadMotionManager: ObservableObject {
             return
         }
 
+        refreshHeadGestureMonitoringState(source: "airpods-connected")
         guard autoStartTrackingOnHeadsetConnection, !wasConnected else { return }
         scheduleAutoTrackingStartAfterConnection()
     }
@@ -950,10 +1241,7 @@ class HeadMotionManager: ObservableObject {
         // Control mode can always work without text field focus.
         if nextMode == .dictation && !currentlyTyping {
             let message = String(localized: "headset.hud.no_input_fallback")
-            transientRecognitionControlMode = nil
-            transientModeAnchorTypingState = nil
-            transientModeObservedTypingState = nil
-            transientModeObservedAt = .distantPast
+            setTransientRecognitionControlMode(nil)
             persistentRecognitionControlMode = .auto
             postRecognitionControlModeChanged(source: source)
             HUDManager.shared.showTemporary(
@@ -966,12 +1254,9 @@ class HeadMotionManager: ObservableObject {
             return
         }
 
-        // Manual switch is temporary: keep auto as the persistent policy and apply a transient override.
+        // Manual switch should still follow focus changes after the user toggles it.
         persistentRecognitionControlMode = .auto
-        transientRecognitionControlMode = nextMode
-        transientModeAnchorTypingState = currentlyTyping
-        transientModeObservedTypingState = currentlyTyping
-        transientModeObservedAt = Date()
+        setTransientRecognitionControlMode(nextMode, anchorTypingState: currentlyTyping, followsFocus: true)
 
         let isCommandMode = nextMode == .command
         let message = isCommandMode
@@ -1011,6 +1296,13 @@ class HeadMotionManager: ObservableObject {
     }
 
     @MainActor
+    func handleSystemInputMuteGesture(_ inputShouldBeMuted: Bool) {
+        let source = inputShouldBeMuted ? "airpods-input-mute" : "airpods-input-unmute"
+        guard shouldHandleHeadsetRemoteAction(kind: .single) else { return }
+        performConfiguredHeadsetAction(kind: .single, source: source)
+    }
+
+    @MainActor
     private func handleHeadsetDoublePress() {
         guard shouldHandleHeadsetRemoteAction(kind: .double) else { return }
         performConfiguredHeadsetAction(kind: .double, source: HeadsetPressKind.double.eventSource)
@@ -1045,7 +1337,8 @@ class HeadMotionManager: ObservableObject {
             performTrackingToggle(source: source)
         case .connectionLock:
             HUDManager.shared.showTemporary(
-                message: "🔒 \(String(localized: "headset.hud.connection_lock"))",
+                message: String(localized: "headset.hud.connection_lock"),
+                icon: "lock.fill",
                 duration: 0.8
             )
             NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
@@ -1078,11 +1371,19 @@ class HeadMotionManager: ObservableObject {
     private func performTrackingToggle(source: String) {
         if isTracking {
             GlobalLogger.input.info("Tracking Toggle (\(source)): Stop Tracking")
-            HUDManager.shared.showTemporary(message: "⏹ \(String(localized: "headset.hud.stop_tracking"))", duration: 0.8)
+            HUDManager.shared.showTemporary(
+                message: String(localized: "headset.hud.stop_tracking"),
+                icon: "stop.fill",
+                duration: 0.8
+            )
             stopTracking()
         } else {
             GlobalLogger.input.info("Tracking Toggle (\(source)): Start Tracking")
-            HUDManager.shared.showTemporary(message: "▶️ \(String(localized: "headset.hud.start_tracking"))", duration: 0.8)
+            HUDManager.shared.showTemporary(
+                message: String(localized: "headset.hud.start_tracking"),
+                icon: "play.fill",
+                duration: 0.8
+            )
             startTracking()
         }
     }
@@ -1101,12 +1402,9 @@ class HeadMotionManager: ObservableObject {
         let resolvedMode = resolvedRecognitionControlMode(currentlyTyping: currentlyTyping)
         guard resolvedMode == .dictation else { return }
 
-        // Legacy expectation: pressing Esc should force control mode immediately.
+        // Pressing Esc should force control mode immediately, while still allowing focus-follow auto mode.
         persistentRecognitionControlMode = .auto
-        transientRecognitionControlMode = .command
-        transientModeAnchorTypingState = currentlyTyping
-        transientModeObservedTypingState = currentlyTyping
-        transientModeObservedAt = Date()
+        setTransientRecognitionControlMode(.command, anchorTypingState: currentlyTyping, followsFocus: true)
 
         let message = String(localized: "headset.hud.exit_input_mode")
         postRecognitionControlModeChanged(source: source)
@@ -1236,10 +1534,7 @@ class HeadMotionManager: ObservableObject {
         activePTTSources.insert(source)
 
         if !wasPressed {
-            transientRecognitionControlMode = nil
-            transientModeAnchorTypingState = nil
-            transientModeObservedTypingState = nil
-            transientModeObservedAt = .distantPast
+            setTransientRecognitionControlMode(nil)
             os_log("PTT DOWN (%{public}@)", log: log, type: .info, origin)
             NotificationCenter.default.post(name: HeadMotionManager.pttDownNotification, object: nil)
         }
@@ -1412,18 +1707,27 @@ class HeadMotionManager: ObservableObject {
                     case .toggleTracking:
                         if manager.isTracking {
                             GlobalLogger.input.info("Hotkey: Stop Tracking")
-                            HUDManager.shared.showTemporary(message: "⏹ \(String(localized: "headset.hud.stop_tracking"))")
+                            HUDManager.shared.showTemporary(
+                                message: String(localized: "headset.hud.stop_tracking"),
+                                icon: "stop.fill"
+                            )
                             DispatchQueue.main.async { manager.stopTracking() }
                         } else {
                             GlobalLogger.input.info("Hotkey: Start Tracking")
-                            HUDManager.shared.showTemporary(message: "▶️ \(String(localized: "headset.hud.start_tracking"))")
+                            HUDManager.shared.showTemporary(
+                                message: String(localized: "headset.hud.start_tracking"),
+                                icon: "play.fill"
+                            )
                             DispatchQueue.main.async { manager.startTracking() }
                         }
                         return nil
 
                     case .connectionLock:
                         GlobalLogger.input.info("Hotkey: Toggle Connection Lock")
-                        HUDManager.shared.showTemporary(message: "🔒 \(String(localized: "headset.hud.connection_lock"))")
+                        HUDManager.shared.showTemporary(
+                            message: String(localized: "headset.hud.connection_lock"),
+                            icon: "lock.fill"
+                        )
                         NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
                         return nil
 
@@ -1474,6 +1778,7 @@ class HeadMotionManager: ObservableObject {
             if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
                 DispatchQueue.main.async {
                     guard manager.transientRecognitionControlMode != nil else { return }
+                    guard manager.transientRecognitionControlModeFollowsFocus else { return }
                     guard HUDManager.shared.hasRecentExplicitTypingClickReentry() else { return }
                     manager.clearTransientRecognitionControlMode(source: "mouse-input-refocus")
                 }
@@ -1488,18 +1793,27 @@ class HeadMotionManager: ObservableObject {
                     case .toggleTracking:
                         if manager.isTracking {
                             GlobalLogger.input.info("Mouse Hotkey: Stop Tracking")
-                            HUDManager.shared.showTemporary(message: "⏹ \(String(localized: "headset.hud.stop_tracking"))")
+                            HUDManager.shared.showTemporary(
+                                message: String(localized: "headset.hud.stop_tracking"),
+                                icon: "stop.fill"
+                            )
                             DispatchQueue.main.async { manager.stopTracking() }
                         } else {
                             GlobalLogger.input.info("Mouse Hotkey: Start Tracking")
-                            HUDManager.shared.showTemporary(message: "▶️ \(String(localized: "headset.hud.start_tracking"))")
+                            HUDManager.shared.showTemporary(
+                                message: String(localized: "headset.hud.start_tracking"),
+                                icon: "play.fill"
+                            )
                             DispatchQueue.main.async { manager.startTracking() }
                         }
                         return nil
                         
                     case .connectionLock:
                         GlobalLogger.input.info("Mouse Hotkey: Toggle Connection Lock")
-                        HUDManager.shared.showTemporary(message: "🔒 \(String(localized: "headset.hud.connection_lock"))")
+                        HUDManager.shared.showTemporary(
+                            message: String(localized: "headset.hud.connection_lock"),
+                            icon: "lock.fill"
+                        )
                         NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
                         return nil
 
@@ -1617,7 +1931,10 @@ class HeadMotionManager: ObservableObject {
             if !self.motionManager.isDeviceMotionAvailable {
                 os_log("Monitor: AirPods capability lost (Switched device?)", log: self.log, type: .error)
                 let msg = String(localized: "motion.error.airpods_disconnected") // "AirPods disconnected or switched to another device."
-                HUDManager.shared.showTemporary(message: "⚠️ \(String(localized: "headset.hud.disconnected"))")
+                HUDManager.shared.showTemporary(
+                    message: String(localized: "headset.hud.disconnected"),
+                    icon: "exclamationmark.triangle.fill"
+                )
                 self.onError?(msg)
                 self.stopTrackingInternal()
                 DispatchQueue.main.async { self.attitudeText = String(localized: "headset.status.disconnected") }
@@ -1628,7 +1945,10 @@ class HeadMotionManager: ObservableObject {
             if let lastTime = self.lastDataTime, Date().timeIntervalSince(lastTime) > 5.0 {
                 os_log("Monitor: No data for 5s (Signal lost)", log: self.log, type: .error)
                 let msg = String(localized: "motion.error.connection_lost") // "Connection lost. No data received."
-                HUDManager.shared.showTemporary(message: "⚠️ \(String(localized: "headset.hud.connection_lost"))")
+                HUDManager.shared.showTemporary(
+                    message: String(localized: "headset.hud.connection_lost"),
+                    icon: "exclamationmark.triangle.fill"
+                )
                 self.onError?(msg)
                 self.stopTrackingInternal()
                 DispatchQueue.main.async { self.attitudeText = String(localized: "headset.status.signal_lost") }
@@ -1658,8 +1978,10 @@ class HeadMotionManager: ObservableObject {
             transientModeAnchorTypingState = nil
             transientModeObservedTypingState = nil
             transientModeObservedAt = .distantPast
+            transientRecognitionControlModeFollowsFocus = false
             return
         }
+        guard transientRecognitionControlModeFollowsFocus else { return }
         // Respect future explicit persistent preferences if introduced.
         guard persistentRecognitionControlMode == .auto else { return }
 
@@ -1685,10 +2007,7 @@ class HeadMotionManager: ObservableObject {
             return
         }
 
-        transientRecognitionControlMode = nil
-        transientModeAnchorTypingState = nil
-        transientModeObservedTypingState = nil
-        transientModeObservedAt = .distantPast
+        setTransientRecognitionControlMode(nil)
         postRecognitionControlModeChanged(source: source)
         os_log("Recognition Mode transient override cleared (%{public}@): focus context changed",
                log: log, type: .info, source)
@@ -1699,15 +2018,24 @@ class HeadMotionManager: ObservableObject {
         guard transientRecognitionControlMode != nil else { return }
         guard persistentRecognitionControlMode == .auto else { return }
         let priorMode = effectiveRecognitionControlMode.rawValue
-        transientRecognitionControlMode = nil
-        transientModeAnchorTypingState = nil
-        transientModeObservedTypingState = nil
-        transientModeObservedAt = .distantPast
+        setTransientRecognitionControlMode(nil)
         postRecognitionControlModeChanged(source: source)
         os_log("Recognition Mode transient override cleared (%{public}@): prior=%{public}@ typing=%{public}@ explicitReentry=%{public}@",
                log: log, type: .info, source, priorMode,
                String(HUDManager.shared.lastKnownTypingState()),
                String(HUDManager.shared.hasRecentExplicitTypingClickReentry()))
+    }
+
+    private func setTransientRecognitionControlMode(
+        _ mode: RecognitionControlMode?,
+        anchorTypingState: Bool? = nil,
+        followsFocus: Bool = false
+    ) {
+        transientRecognitionControlMode = mode
+        transientRecognitionControlModeFollowsFocus = (mode != nil) && followsFocus
+        transientModeAnchorTypingState = mode == nil ? nil : anchorTypingState
+        transientModeObservedTypingState = mode == nil ? nil : anchorTypingState
+        transientModeObservedAt = mode == nil ? .distantPast : Date()
     }
 
 }
