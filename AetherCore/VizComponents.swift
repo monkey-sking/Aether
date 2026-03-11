@@ -94,6 +94,25 @@ struct NoFocusRingTextField: NSViewRepresentable {
     }
 }
 
+struct SuppressEnclosingScrollFocusRing: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // SwiftUI ScrollView on macOS uses an NSScrollView that can draw "corner brackets"
+        // focus indicators. Force-disable the focus ring on the enclosing scroll view.
+        DispatchQueue.main.async {
+            guard let scroll = nsView.enclosingScrollView else { return }
+            scroll.focusRingType = .none
+            scroll.contentView.focusRingType = .none
+            scroll.documentView?.focusRingType = .none
+        }
+    }
+}
+
 struct SidebarSectionHeader: View {
     let title: LocalizedStringKey
 

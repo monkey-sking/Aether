@@ -2490,6 +2490,11 @@ private struct CurrentAppShortcutPanelView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
+                        SuppressEnclosingScrollFocusRing()
+                            .frame(width: 0, height: 0)
+                            .hidden()
+                            .allowsHitTesting(false)
+
                         panelGroupHeader(
                             title: snapshot?.appName ?? (isChinese ? "当前 App" : "Current App"),
                             detail: isChinese
