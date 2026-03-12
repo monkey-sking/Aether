@@ -82,53 +82,26 @@ struct HUDView: View {
             }
 
             let requestedIcon = state.inputDeviceIcon
-            if requestedIcon == "airpodspro.left" || requestedIcon == "airpodspro.right" {
-                let isLeft = requestedIcon == "airpodspro.left"
-                // Measured against the actual SwiftUI render path (`font(14) + clip + frame(22)`):
-                // with the user-perspective swap (`!isLeft`), a 4pt compensation centers the clipped bud.
-                let airPodsProHalfOffset: CGFloat = 4.0
-                Image(systemName: "airpodspro")
-                    .foregroundColor(.white)
-                    .font(.system(size: 14))
-                    .shadow(radius: 1)
-                    // Swap: We want the other side of the symbol to match user perspective
-                    .clipShape(AirPodHalfClip(isLeft: !isLeft))
-                    .offset(x: isLeft ? -airPodsProHalfOffset : airPodsProHalfOffset)
-            } else {
-                Image(systemName: resolvedSymbolName(for: requestedIcon))
-                    .foregroundColor(.white)
-                    .font(.system(size: 14))
-                    .shadow(radius: 1)
-            }
+            Image(systemName: resolvedSymbolName(for: requestedIcon))
+                .foregroundColor(.white)
+                .font(.system(size: 14))
+                .shadow(radius: 1)
         }
         .frame(width: 22, height: 22)
     }
     
     // MARK: - Helper Types
     
-    struct AirPodHalfClip: Shape {
-        let isLeft: Bool
-        func path(in rect: CGRect) -> Path {
-            var path = Path()
-            // Reverted to user-confirmed crop values to clean up "other bud" residue while keeping shape
-            let mid = rect.width / 2
-            if isLeft {
-                path.addRect(CGRect(x: 0, y: 0, width: mid - 1, height: rect.height))
-            } else {
-                path.addRect(CGRect(x: mid + 1, y: 0, width: mid + 1, height: rect.height))
-            }
-            return path
-        }
-    }
-    
     private static let symbolFallbacks: [String: [String]] = [
-        "airpodspro.left": ["airpod.gen3.left", "airpod.left", "airpods", "headphones"],
-        "airpodspro.right": ["airpod.gen3.right", "airpod.right", "airpods", "headphones"],
+        "airpods.pro.left": ["airpod.gen3.left", "airpod.left", "airpods", "headphones"],
+        "airpods.pro.right": ["airpod.gen3.right", "airpod.right", "airpods", "headphones"],
         "airpod.gen3.left": ["airpod.left", "airpods", "headphones"],
         "airpod.gen3.right": ["airpod.right", "airpods", "headphones"],
         "airpod.gen3": ["airpods", "headphones"],
-        "airpodspro": ["airpods", "headphones"],
-        "airpodsmax": ["headphones"]
+        "airpods.pro": ["airpods", "headphones"],
+        "airpods.max": ["headphones"],
+        "airpodsmax": ["airpods.max", "headphones"],
+        "airpodspro": ["airpods.pro", "airpods", "headphones"]
     ]
 
     private func resolvedSymbolName(for requested: String) -> String {

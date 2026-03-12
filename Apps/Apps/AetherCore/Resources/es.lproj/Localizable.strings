@@ -497,3 +497,20 @@
 
 "panels.shortcuts.count_fmt" = "%d atajos";
 "panels.shortcuts.clickable_hint" = "Clic para activar";
+"main.panel.head_gestures" = "Gestos de la cabeza";
+"settings.page.head_gestures.title" = "Gestos de la cabeza";
+"settings.page.head_gestures.subtitle" = "Configura acciones para asentir y negar.";
+"head_gesture.toggle.enable" = "Activar gestos de la cabeza";
+"head_gesture.toggle.detail" = "Detecta asentir y negar con un auricular compatible.";
+"head_gesture.mapping.title" = "Asignación de gestos";
+"head_gesture.mapping.subtitle" = "Asigna acciones a asentir y negar.";
+"head_gesture.kind.nod" = "Asentir";
+"head_gesture.kind.shake" = "Negar";
+"head_gesture.detail.nod" = "Activa esta acción al asentir.";
+"head_gesture.detail.shake" = "Activa esta acción al negar.";
+"head_gesture.status.no_event" = "Aún no se detectaron gestos de cabeza";
+"head_gesture.status.last_event" = "Último gesto de cabeza";
+"head_gesture.event.action_fmt" = "Gesto de cabeza %@ · %@";
+"head_gesture.hud.no_action_assigned_fmt" = "Ninguna acción asignada para %@";
+"head_gesture.action.none" = "Ninguna acción";
+"head_gesture.action.none.detail" = "No hacer nada después del gesto.";

@@ -497,3 +497,20 @@
 
 "panels.shortcuts.count_fmt" = "%d Kurzbefehle";
 "panels.shortcuts.clickable_hint" = "Anklickbar";
+"main.panel.head_gestures" = "Kopfgesten";
+"settings.page.head_gestures.title" = "Kopfgesten";
+"settings.page.head_gestures.subtitle" = "Aktionen für Nicken und Schütteln konfigurieren.";
+"head_gesture.toggle.enable" = "Kopfgesten aktivieren";
+"head_gesture.toggle.detail" = "Erkennt Nicken und Schütteln mit einem unterstützten Headset.";
+"head_gesture.mapping.title" = "Gesten-Zuordnung";
+"head_gesture.mapping.subtitle" = "Weisen Sie Aktionen für Nicken und Schütteln zu.";
+"head_gesture.kind.nod" = "Nicken";
+"head_gesture.kind.shake" = "Schütteln";
+"head_gesture.detail.nod" = "Diese Aktion beim Nicken auslösen.";
+"head_gesture.detail.shake" = "Diese Aktion beim Kopfschütteln auslösen.";
+"head_gesture.status.no_event" = "Noch keine Kopfgesten erkannt";
+"head_gesture.status.last_event" = "Letzte Kopfgeste";
+"head_gesture.event.action_fmt" = "Kopfgeste %@ · %@";
+"head_gesture.hud.no_action_assigned_fmt" = "Keine Aktion für %@ zugewiesen";
+"head_gesture.action.none" = "Keine Aktion";
+"head_gesture.action.none.detail" = "Nach der Geste nichts tun.";

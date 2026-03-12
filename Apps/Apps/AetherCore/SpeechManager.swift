@@ -425,10 +425,7 @@ final class SpeechManager: ObservableObject {
     }
 
     private var shouldSuppressSystemHeadsetMicControl: Bool {
-        guard UserDefaults.standard.object(forKey: "enableHeadsetInputMuteGesture") as? Bool ?? true else {
-            return false
-        }
-        return isHeadsetLikeInputDevice
+        false
     }
 
     private var isTypingRecoveryHoldActive: Bool {
@@ -488,11 +485,11 @@ final class SpeechManager: ObservableObject {
             guard isAP else { return matched.iconName }
             let side = AirPodsDetector.shared.currentSide()
             if side == .none { return matched.iconName }
-            let base = matched.iconName
+            let base = normalizeAirPodsSymbolName(matched.iconName)
             switch side {
-            case .left: return base == "airpodsmax" ? "airpodsmax" : base == "airpodspro" ? "airpodspro.left" : "airpod.gen3.left"
-            case .right: return base == "airpodsmax" ? "airpodsmax" : base == "airpodspro" ? "airpodspro.right" : "airpod.gen3.right"
-            case .both: return base == "airpodsmax" ? "airpodsmax" : base == "airpodspro" ? "airpodspro" : "airpod.gen3"
+            case .left: return base == "airpods.max" ? "airpods.max" : base == "airpods.pro" ? "airpods.pro.left" : "airpod.gen3.left"
+            case .right: return base == "airpods.max" ? "airpods.max" : base == "airpods.pro" ? "airpods.pro.right" : "airpod.gen3.right"
+            case .both: return base == "airpods.max" ? "airpods.max" : base == "airpods.pro" ? "airpods.pro" : "airpod.gen3"
             case .none: return matched.iconName
             }
         }
@@ -517,6 +514,17 @@ final class SpeechManager: ObservableObject {
             lastLoggedAirPodSide = side
         }
         return icon
+    }
+
+    private func normalizeAirPodsSymbolName(_ raw: String) -> String {
+        switch raw {
+        case "airpodspro":
+            return "airpods.pro"
+        case "airpodsmax":
+            return "airpods.max"
+        default:
+            return raw
+        }
     }
 
     // MARK: - Init

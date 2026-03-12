@@ -849,95 +849,75 @@ struct InputSettingsView: View {
 
 }
 
-private struct HeadsetShortcutMappingCard: View {
+private struct HeadGestureShortcutMappingCard: View {
     @ObservedObject private var motionManager = HeadMotionManager.shared
 
-    private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
-    }
-
-    private var pressActionOptions: [FixedPopUpOption] {
-        HeadMotionManager.HeadsetPressAction.allCases.filter { $0 != .connectionLock }.map {
+    private var gestureActionOptions: [FixedPopUpOption] {
+        HeadMotionManager.HeadGestureAction.allCases.map {
             FixedPopUpOption(id: $0.rawValue, title: $0.label)
         }
     }
 
-    private func selection(for kind: HeadMotionManager.HeadsetPressKind) -> Binding<String> {
+    private func selection(for kind: HeadMotionManager.HeadGestureKind) -> Binding<String> {
         Binding(
             get: { action(for: kind).rawValue },
             set: { newValue in
-                guard let action = HeadMotionManager.HeadsetPressAction(rawValue: newValue) else { return }
+                guard let action = HeadMotionManager.HeadGestureAction(rawValue: newValue) else { return }
                 setAction(action, for: kind)
             }
         )
     }
 
-    private func action(for kind: HeadMotionManager.HeadsetPressKind) -> HeadMotionManager.HeadsetPressAction {
+    private func action(for kind: HeadMotionManager.HeadGestureKind) -> HeadMotionManager.HeadGestureAction {
         switch kind {
-        case .single:
-            return motionManager.headsetSinglePressAction
-        case .double:
-            return motionManager.headsetDoublePressAction
-        case .triple:
-            return motionManager.headsetTriplePressAction
+        case .nod:
+            return motionManager.headGestureNodAction
+        case .shake:
+            return motionManager.headGestureShakeAction
         }
     }
 
-    private func setAction(_ action: HeadMotionManager.HeadsetPressAction, for kind: HeadMotionManager.HeadsetPressKind) {
+    private func setAction(_ action: HeadMotionManager.HeadGestureAction, for kind: HeadMotionManager.HeadGestureKind) {
         switch kind {
-        case .single:
-            motionManager.headsetSinglePressAction = action
-        case .double:
-            motionManager.headsetDoublePressAction = action
-        case .triple:
-            motionManager.headsetTriplePressAction = action
+        case .nod:
+            motionManager.headGestureNodAction = action
+        case .shake:
+            motionManager.headGestureShakeAction = action
         }
     }
 
     private var lastEventText: String {
-        guard !motionManager.lastHeadsetRemoteEventText.isEmpty else {
-            return isChinese ? "尚未收到耳机按钮事件" : "No headset button event received yet"
+        guard !motionManager.lastHeadGestureEventText.isEmpty else {
+            return String(localized: "head_gesture.status.no_event")
         }
 
-        if let date = motionManager.lastHeadsetRemoteEventAt {
+        if let date = motionManager.lastHeadGestureEventAt {
             let formatter = DateFormatter()
             formatter.timeStyle = .medium
-            return "\(motionManager.lastHeadsetRemoteEventText) · \(formatter.string(from: date))"
+            return "\(motionManager.lastHeadGestureEventText) · \(formatter.string(from: date))"
         }
-        return motionManager.lastHeadsetRemoteEventText
+        return motionManager.lastHeadGestureEventText
     }
 
     var body: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "airpodspro")
-                        .foregroundColor(.secondary)
-                        .frame(width: 18)
+                    TransparencyModeIcon(size: 18, color: .secondary)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(isChinese ? "耳机按钮映射" : "Headset Button Mapping")
+                        Text(String(localized: "head_gesture.mapping.title"))
                             .font(.headline)
-                        Text(
-                            isChinese
-                                ? "耳机单按、双按、三按都可以单独指定动作。默认分别是切换输入 / 控制模式、切换头控、切换语言；修改后会立即生效并保存到本机。"
-                                : "Single, double, and triple press can each trigger their own action. The defaults are mode switching, tracking toggle, and language switching, and changes apply immediately."
-                        )
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                        Text(String(localized: "head_gesture.mapping.subtitle"))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
                     statusRow(
-                        title: isChinese ? "耳机事件通道" : "Headset Event Routing",
-                        value: motionManager.headsetRemoteStatusText.isEmpty
-                            ? (isChinese ? "初始化中" : "Initializing")
-                            : motionManager.headsetRemoteStatusText
-                    )
-                    statusRow(
-                        title: isChinese ? "最近一次耳机事件" : "Last Headset Event",
+                        title: String(localized: "head_gesture.status.last_event"),
                         value: lastEventText
                     )
                 }
@@ -945,37 +925,23 @@ private struct HeadsetShortcutMappingCard: View {
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                Text(NSLocalizedString("headset.experiment.notice", comment: ""))
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
                 VStack(alignment: .leading, spacing: 8) {
                     actionRow(
-                        kind: .single,
-                        detail: isChinese
-                            ? "系统把单按事件交给 Aether 时，会执行这里选定的动作。默认只切换模式，不会直接开始录音。"
-                            : "When macOS routes a single press to Aether, it runs the action selected here. By default it switches modes without starting capture."
+                        kind: .nod,
+                        detail: String(localized: "head_gesture.detail.nod")
                     )
                     actionRow(
-                        kind: .double,
-                        detail: isChinese
-                            ? "系统把双按事件交给 Aether 时，会执行这里选定的动作。默认用来切换头控。"
-                            : "When macOS routes a double press to Aether, it runs the action selected here. By default it toggles tracking."
-                    )
-                    actionRow(
-                        kind: .triple,
-                        detail: isChinese
-                            ? "系统把三按事件交给 Aether 时，会执行这里选定的动作。默认用来切换语言。"
-                            : "When macOS routes a triple press to Aether, it runs the action selected here. By default it cycles languages."
+                        kind: .shake,
+                        detail: String(localized: "head_gesture.detail.shake")
                     )
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
-    private func actionRow(kind: HeadMotionManager.HeadsetPressKind, detail: String) -> some View {
+    private func actionRow(kind: HeadMotionManager.HeadGestureKind, detail: String) -> some View {
         let currentAction = action(for: kind)
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
@@ -993,20 +959,10 @@ private struct HeadsetShortcutMappingCard: View {
 
             Spacer(minLength: 12)
 
-            VStack(alignment: .trailing, spacing: 8) {
-                Text(currentAction.label)
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(.accentColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.accentColor.opacity(0.12))
-                    .clipShape(Capsule())
-
-                FixedWidthPopUpMenu(
-                    options: pressActionOptions,
-                    selection: selection(for: kind)
-                )
-            }
+            FixedWidthPopUpMenu(
+                options: gestureActionOptions,
+                selection: selection(for: kind)
+            )
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
@@ -2333,13 +2289,6 @@ struct OutputSettingsView: View {
         )
     }
 
-    private var headGestureToggleBinding: Binding<Bool> {
-        Binding(
-            get: { headManager.headGestureToggleEnabled },
-            set: { headManager.headGestureToggleEnabled = $0 }
-        )
-    }
-    
     var body: some View {
         SettingsPage(
             title: String(localized: "settings.page.pointer.title"),
@@ -2367,11 +2316,6 @@ struct OutputSettingsView: View {
                             isOn: postureGuideBinding
                         )
                         .disabled(!headManager.autoStartTrackingOnHeadsetConnection)
-
-                        Toggle(
-                            isChinese ? "点头开启头控，摇头停止头控" : "Nod to start tracking, shake to stop",
-                            isOn: headGestureToggleBinding
-                        )
 
                         Divider()
 
@@ -2405,24 +2349,49 @@ struct OutputSettingsView: View {
     }
 }
 
-struct HeadsetSettingsView: View {
-    private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
+struct HeadGestureSettingsView: View {
+    @ObservedObject private var headManager = HeadMotionManager.shared
+
+    private var headGestureToggleBinding: Binding<Bool> {
+        Binding(
+            get: { headManager.headGestureToggleEnabled },
+            set: { headManager.headGestureToggleEnabled = $0 }
+        )
     }
 
     var body: some View {
         SettingsPage(
-            title: isChinese ? "耳机按钮" : "Headset Buttons",
-            subtitle: isChinese
-                ? "单按、双按、三按的系统媒体事件映射。"
-                : "Map single, double, and triple headset button presses."
+            title: String(localized: "settings.page.head_gestures.title"),
+            subtitle: String(localized: "settings.page.head_gestures.subtitle")
         ) {
             VStack(spacing: 20) {
-                HeadsetShortcutMappingCard()
+                GlassCard {
+                    HStack(alignment: .top, spacing: 12) {
+                        TransparencyModeIcon(size: 22, color: .secondary)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(String(localized: "head_gesture.toggle.enable"))
+                                .font(.headline)
+                            Text(String(localized: "head_gesture.toggle.detail"))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 12)
+
+                        Toggle("", isOn: headGestureToggleBinding)
+                            .labelsHidden()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                HeadGestureShortcutMappingCard()
             }
         }
     }
 }
+
 
 // MARK: - Shortcuts Placeholder
 struct ShortcutsSettingsView: View {

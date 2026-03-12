@@ -15,7 +15,6 @@ import MediaPlayer
 
 class HeadMotionManager: ObservableObject {
     static let shared = HeadMotionManager()
-    private static let systemDefinedEventTypeRawValue: Int = 14
 
     static let pttDownNotification = Notification.Name("AetherPTTDown")
     static let pttUpNotification = Notification.Name("AetherPTTUp")
@@ -27,6 +26,8 @@ class HeadMotionManager: ObservableObject {
     private static let autoStartTrackingOnHeadsetConnectionKey = "AetherAutoStartTrackingOnHeadsetConnection"
     private static let showPostureGuideBeforeTrackingKey = "AetherShowPostureGuideBeforeTracking"
     private static let headGestureToggleEnabledKey = "AetherHeadGestureToggleEnabled"
+    private static let headGestureNodActionKey = "AetherHeadGestureNodAction"
+    private static let headGestureShakeActionKey = "AetherHeadGestureShakeAction"
 
     enum RecognitionControlMode: String, Sendable {
         case auto
@@ -136,18 +137,90 @@ class HeadMotionManager: ObservableObject {
         }
     }
 
+    enum HeadGestureKind: String, CaseIterable, Identifiable, Sendable {
+        case nod
+        case shake
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .nod:
+                return String(localized: "head_gesture.kind.nod")
+            case .shake:
+                return String(localized: "head_gesture.kind.shake")
+            }
+        }
+    }
+
+    enum HeadGestureAction: String, CaseIterable, Identifiable, Sendable {
+        case none
+        case toggleLanguage
+        case toggleShortcutPanel
+        case toggleInputControlMode
+        case toggleTracking
+
+        var id: String { rawValue }
+
+        static let allCases: [HeadGestureAction] = [
+            .none,
+            .toggleInputControlMode,
+            .toggleTracking,
+            .toggleShortcutPanel,
+            .toggleLanguage
+        ]
+
+        var hotkeyAction: HotkeyAction? {
+            switch self {
+            case .none:
+                return nil
+            case .toggleLanguage:
+                return .toggleLanguage
+            case .toggleShortcutPanel:
+                return .toggleShortcutPanel
+            case .toggleInputControlMode:
+                return .toggleInputControlMode
+            case .toggleTracking:
+                return .toggleTracking
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .none:
+                return String(localized: "head_gesture.action.none")
+            case .toggleLanguage, .toggleShortcutPanel, .toggleInputControlMode, .toggleTracking:
+                return hotkeyAction?.label ?? rawValue
+            }
+        }
+
+        var helperText: String {
+            switch self {
+            case .none:
+                return String(localized: "head_gesture.action.none.detail")
+            case .toggleLanguage, .toggleShortcutPanel, .toggleInputControlMode, .toggleTracking:
+                return hotkeyAction?.helperText ?? ""
+            }
+        }
+    }
+
     private struct HeadGestureSample {
         let at: Date
         let yaw: Double
         let pitch: Double
     }
 
-    private struct HeadGestureMetrics {
+    private struct HeadGestureAxisMetrics {
         let minValue: Double
         let maxValue: Double
         let amplitude: Double
         let signChanges: Int
+        let peakCount: Int
+        let maxVelocity: Double
+        let meanAbsVelocity: Double
         let sampleCount: Int
+        let activeSampleCount: Int
+        let activeDuration: TimeInterval
     }
 
     private init() {
@@ -188,6 +261,8 @@ class HeadMotionManager: ObservableObject {
     @Published private(set) var headsetRemoteStatusText: String = ""
     @Published private(set) var lastHeadsetRemoteEventText: String = ""
     @Published private(set) var lastHeadsetRemoteEventAt: Date?
+    @Published private(set) var lastHeadGestureEventText: String = ""
+    @Published private(set) var lastHeadGestureEventAt: Date?
     
     // Callback for critical errors (to show UI alerts)
     var onError: ((String) -> Void)?
@@ -230,6 +305,18 @@ class HeadMotionManager: ObservableObject {
         }
     }
 
+    @Published var headGestureNodAction: HeadGestureAction = HeadMotionManager.loadHeadGestureActionFromDefaults(for: .nod) {
+        didSet {
+            HeadMotionManager.saveHeadGestureAction(headGestureNodAction, for: .nod)
+        }
+    }
+
+    @Published var headGestureShakeAction: HeadGestureAction = HeadMotionManager.loadHeadGestureActionFromDefaults(for: .shake) {
+        didSet {
+            HeadMotionManager.saveHeadGestureAction(headGestureShakeAction, for: .shake)
+        }
+    }
+
     @Published var autoStartTrackingOnHeadsetConnection: Bool = UserDefaults.standard.object(forKey: HeadMotionManager.autoStartTrackingOnHeadsetConnectionKey) as? Bool ?? false {
         didSet {
             UserDefaults.standard.set(autoStartTrackingOnHeadsetConnection, forKey: HeadMotionManager.autoStartTrackingOnHeadsetConnectionKey)
@@ -251,7 +338,7 @@ class HeadMotionManager: ObservableObject {
         }
     }
 
-    @Published var headGestureToggleEnabled: Bool = UserDefaults.standard.object(forKey: HeadMotionManager.headGestureToggleEnabledKey) as? Bool ?? false {
+    @Published var headGestureToggleEnabled: Bool = UserDefaults.standard.object(forKey: HeadMotionManager.headGestureToggleEnabledKey) as? Bool ?? true {
         didSet {
             UserDefaults.standard.set(headGestureToggleEnabled, forKey: HeadMotionManager.headGestureToggleEnabledKey)
             if !headGestureToggleEnabled {
@@ -269,14 +356,19 @@ class HeadMotionManager: ObservableObject {
     private let precisionSmoothing: CGFloat = 0.18
     private let cursorHoldRadius: CGFloat = 8
     private let precisionZoneRadius: CGFloat = 44
-    private let headGestureWindow: TimeInterval = 0.95
-    private let headGestureCooldown: TimeInterval = 1.5
+    private let headGestureWindow: TimeInterval = 0.85
+    private let headGestureCooldown: TimeInterval = 1.2
+    private let headGestureMinActiveDuration: TimeInterval = 0.12
+    private let headGestureMaxActiveDuration: TimeInterval = 0.9
+    private let headGestureMinVelocityNod: Double = 0.55
+    private let headGestureMinVelocityShake: Double = 0.45
+    private let headGestureCrossAxisLimitRatio: Double = 0.85
     // Restore head gesture sensitivity closer to the earlier tuning.
     private let headGestureSensitivityScale: Double = 0.8
     private var headGestureNodThreshold: Double { 0.11 * headGestureSensitivityScale }
     private var headGestureNodAmplitude: Double { 0.26 * headGestureSensitivityScale }
-    private var headGestureShakeThreshold: Double { 0.16 * headGestureSensitivityScale }
-    private var headGestureShakeAmplitude: Double { 0.34 * headGestureSensitivityScale }
+    private var headGestureShakeThreshold: Double { 0.13 * headGestureSensitivityScale }
+    private var headGestureShakeAmplitude: Double { 0.28 * headGestureSensitivityScale }
     
     // Dynamic Range Calibration
     @Published var calibrationStatus: String = String(localized: "calibration.normal")
@@ -410,6 +502,14 @@ class HeadMotionManager: ObservableObject {
         return action
     }
 
+    private static func loadHeadGestureActionFromDefaults(for kind: HeadGestureKind) -> HeadGestureAction {
+        guard let raw = UserDefaults.standard.string(forKey: headGestureActionKey(for: kind)),
+              let action = HeadGestureAction(rawValue: raw) else {
+            return defaultHeadGestureAction(for: kind)
+        }
+        return action
+    }
+
     private static func saveRecognitionControlMode(_ value: RecognitionControlMode) {
         switch value {
         case .command:
@@ -425,6 +525,10 @@ class HeadMotionManager: ObservableObject {
         UserDefaults.standard.set(action.rawValue, forKey: headsetPressActionKey(for: kind))
     }
 
+    private static func saveHeadGestureAction(_ action: HeadGestureAction, for kind: HeadGestureKind) {
+        UserDefaults.standard.set(action.rawValue, forKey: headGestureActionKey(for: kind))
+    }
+
     private static func headsetPressActionKey(for kind: HeadsetPressKind) -> String {
         switch kind {
         case .single:
@@ -436,6 +540,15 @@ class HeadMotionManager: ObservableObject {
         }
     }
 
+    private static func headGestureActionKey(for kind: HeadGestureKind) -> String {
+        switch kind {
+        case .nod:
+            return headGestureNodActionKey
+        case .shake:
+            return headGestureShakeActionKey
+        }
+    }
+
     private static func defaultHeadsetPressAction(for kind: HeadsetPressKind) -> HeadsetPressAction {
         switch kind {
         case .single:
@@ -444,6 +557,15 @@ class HeadMotionManager: ObservableObject {
             return .toggleTracking
         case .triple:
             return .toggleLanguage
+        }
+    }
+
+    private static func defaultHeadGestureAction(for kind: HeadGestureKind) -> HeadGestureAction {
+        switch kind {
+        case .nod:
+            return .toggleTracking
+        case .shake:
+            return .toggleInputControlMode
         }
     }
     
@@ -820,8 +942,8 @@ class HeadMotionManager: ObservableObject {
         recentHeadGestureSamples.append(HeadGestureSample(at: now, yaw: yaw, pitch: pitch))
         recentHeadGestureSamples.removeAll { now.timeIntervalSince($0.at) > headGestureWindow }
 
-        let nodMetrics = gestureMetrics(values: recentHeadGestureSamples.map(\.pitch), threshold: headGestureNodThreshold)
-        let shakeMetrics = gestureMetrics(values: recentHeadGestureSamples.map(\.yaw), threshold: headGestureShakeThreshold)
+        let nodMetrics = axisMetrics(samples: recentHeadGestureSamples, keyPath: \.pitch, threshold: headGestureNodThreshold)
+        let shakeMetrics = axisMetrics(samples: recentHeadGestureSamples, keyPath: \.yaw, threshold: headGestureShakeThreshold)
         maybeLogHeadGestureDiagnostics(
             at: now,
             nodMetrics: nodMetrics,
@@ -832,104 +954,107 @@ class HeadMotionManager: ObservableObject {
 
         guard now.timeIntervalSince(lastHeadGestureTriggerAt) >= headGestureCooldown else { return }
 
-        if isTracking {
-            guard shakeMetrics.amplitude >= headGestureShakeAmplitude, shakeMetrics.signChanges >= 2 else { return }
+        let shakeDurationOK = shakeMetrics.activeDuration >= headGestureMinActiveDuration
+            && shakeMetrics.activeDuration <= headGestureMaxActiveDuration
+        let nodDurationOK = nodMetrics.activeDuration >= headGestureMinActiveDuration
+            && nodMetrics.activeDuration <= headGestureMaxActiveDuration
+        let shakeDominant = nodMetrics.amplitude <= (shakeMetrics.amplitude * headGestureCrossAxisLimitRatio)
+        let nodDominant = shakeMetrics.amplitude <= (nodMetrics.amplitude * headGestureCrossAxisLimitRatio)
+
+        if shakeMetrics.amplitude >= headGestureShakeAmplitude,
+           shakeMetrics.signChanges >= 1,
+           shakeMetrics.peakCount >= 1,
+           shakeMetrics.maxVelocity >= headGestureMinVelocityShake,
+           shakeDurationOK,
+           shakeDominant {
             lastHeadGestureTriggerAt = now
             resetHeadGestureRecognition()
             os_log(
-                "Head gesture detected: shake amp=%.3f signChanges=%{public}d samples=%{public}d",
+                "Head gesture detected: shake amp=%.3f signChanges=%{public}d peaks=%{public}d vel=%.3f samples=%{public}d",
                 log: log,
                 type: .info,
                 shakeMetrics.amplitude,
                 shakeMetrics.signChanges,
+                shakeMetrics.peakCount,
+                shakeMetrics.maxVelocity,
                 shakeMetrics.sampleCount
             )
             Task { @MainActor [weak self] in
-                self?.playHeadGestureConfirmationSound()
-                self?.performTrackingToggle(source: "head-gesture-shake")
+                self?.playHeadGestureConfirmationSound(for: .shake)
+                self?.performConfiguredHeadGestureAction(kind: .shake, source: "head-gesture-shake")
             }
             return
         }
 
-        guard isPassiveHeadGestureMonitoring else { return }
-        guard nodMetrics.amplitude >= headGestureNodAmplitude, nodMetrics.signChanges >= 2 else { return }
+        guard nodMetrics.amplitude >= headGestureNodAmplitude,
+              nodMetrics.signChanges >= 1,
+              nodMetrics.peakCount >= 1,
+              nodMetrics.maxVelocity >= headGestureMinVelocityNod,
+              nodDurationOK,
+              nodDominant else { return }
         lastHeadGestureTriggerAt = now
         resetHeadGestureRecognition()
         os_log(
-            "Head gesture detected: nod amp=%.3f signChanges=%{public}d samples=%{public}d",
+            "Head gesture detected: nod amp=%.3f signChanges=%{public}d peaks=%{public}d vel=%.3f samples=%{public}d",
             log: log,
             type: .info,
             nodMetrics.amplitude,
             nodMetrics.signChanges,
+            nodMetrics.peakCount,
+            nodMetrics.maxVelocity,
             nodMetrics.sampleCount
         )
         Task { @MainActor [weak self] in
-            self?.playHeadGestureConfirmationSound()
-            self?.performTrackingToggle(source: "head-gesture-nod")
+            self?.playHeadGestureConfirmationSound(for: .nod)
+            self?.performConfiguredHeadGestureAction(kind: .nod, source: "head-gesture-nod")
         }
     }
 
     private func detectNodGesture(in samples: [HeadGestureSample]) -> Bool {
-        let metrics = gestureMetrics(values: samples.map(\.pitch), threshold: headGestureNodThreshold)
-        return metrics.amplitude >= headGestureNodAmplitude && metrics.signChanges >= 2
+        let metrics = axisMetrics(samples: samples, keyPath: \.pitch, threshold: headGestureNodThreshold)
+        let durationOK = metrics.activeDuration >= headGestureMinActiveDuration
+            && metrics.activeDuration <= headGestureMaxActiveDuration
+        return metrics.amplitude >= headGestureNodAmplitude
+            && metrics.signChanges >= 1
+            && metrics.peakCount >= 1
+            && metrics.maxVelocity >= headGestureMinVelocityNod
+            && durationOK
     }
 
     private func detectShakeGesture(in samples: [HeadGestureSample]) -> Bool {
-        let metrics = gestureMetrics(values: samples.map(\.yaw), threshold: headGestureShakeThreshold)
-        return metrics.amplitude >= headGestureShakeAmplitude && metrics.signChanges >= 2
+        let metrics = axisMetrics(samples: samples, keyPath: \.yaw, threshold: headGestureShakeThreshold)
+        let durationOK = metrics.activeDuration >= headGestureMinActiveDuration
+            && metrics.activeDuration <= headGestureMaxActiveDuration
+        return metrics.amplitude >= headGestureShakeAmplitude
+            && metrics.signChanges >= 1
+            && metrics.peakCount >= 1
+            && metrics.maxVelocity >= headGestureMinVelocityShake
+            && durationOK
     }
 
-    private func mediaKeyKind(for keyCode: Int32) -> HeadsetPressKind? {
-        switch keyCode {
-        case NX_KEYTYPE_PLAY:
-            return .single
-        case NX_KEYTYPE_FAST, NX_KEYTYPE_NEXT:
-            return .double
-        case NX_KEYTYPE_REWIND, NX_KEYTYPE_PREVIOUS:
-            return .triple
-        default:
-            return nil
+    private func axisMetrics(
+        samples: [HeadGestureSample],
+        keyPath: KeyPath<HeadGestureSample, Double>,
+        threshold: Double
+    ) -> HeadGestureAxisMetrics {
+        let values = samples.map { $0[keyPath: keyPath] }
+        guard let minValue = values.min(), let maxValue = values.max(), values.count >= 2 else {
+            return HeadGestureAxisMetrics(
+                minValue: 0,
+                maxValue: 0,
+                amplitude: 0,
+                signChanges: 0,
+                peakCount: 0,
+                maxVelocity: 0,
+                meanAbsVelocity: 0,
+                sampleCount: values.count,
+                activeSampleCount: 0,
+                activeDuration: 0
+            )
         }
-    }
 
-    private func shouldConsumeHeadsetMediaKey(kind: HeadsetPressKind) -> Bool {
-        headsetPressAction(for: kind) != .none
-    }
-
-    private func handleSystemDefinedMediaKeyEvent(_ event: CGEvent) -> Bool {
-        guard let nsEvent = NSEvent(cgEvent: event) else { return false }
-        guard nsEvent.type == .systemDefined else { return false }
-        guard nsEvent.subtype.rawValue == 8 else { return false }
-
-        let data1 = nsEvent.data1
-        let keyCode = Int32((data1 & 0xFFFF0000) >> 16)
-        let keyState = (data1 & 0xFF00) >> 8
-        let isKeyDown = keyState == 0xA
-        guard isKeyDown else { return false }
-        guard let kind = mediaKeyKind(for: keyCode) else { return false }
-        guard shouldConsumeHeadsetMediaKey(kind: kind) else { return false }
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            switch kind {
-            case .single:
-                self.handleHeadsetSinglePress(origin: "systemDefined-play")
-            case .double:
-                self.handleHeadsetDoublePress()
-            case .triple:
-                self.handleHeadsetTriplePress()
-            }
-        }
-        return true
-    }
-
-    private func gestureMetrics(values: [Double], threshold: Double) -> HeadGestureMetrics {
-        guard let minValue = values.min(), let maxValue = values.max() else {
-            return HeadGestureMetrics(minValue: 0, maxValue: 0, amplitude: 0, signChanges: 0, sampleCount: values.count)
-        }
         var signChanges = 0
         var lastSign = 0
-
         for value in values {
             let sign: Int
             if value >= threshold {
@@ -946,19 +1071,73 @@ class HeadMotionManager: ObservableObject {
             lastSign = sign
         }
 
-        return HeadGestureMetrics(
+        var peakCount = 0
+        var maxVelocity = 0.0
+        var meanAbsVelocity: Double = 0
+        var velocitySamples = 0
+        var lastDeltaSign = 0
+
+        for idx in 1..<samples.count {
+            let current = samples[idx]
+            let previous = samples[idx - 1]
+            let dt = current.at.timeIntervalSince(previous.at)
+            guard dt > 0 else { continue }
+            let dv = current[keyPath: keyPath] - previous[keyPath: keyPath]
+            let velocity = dv / dt
+            let absVelocity = abs(velocity)
+            maxVelocity = max(maxVelocity, absVelocity)
+            meanAbsVelocity += absVelocity
+            velocitySamples += 1
+
+            let deltaSign: Int
+            if dv > 0 {
+                deltaSign = 1
+            } else if dv < 0 {
+                deltaSign = -1
+            } else {
+                deltaSign = 0
+            }
+            if lastDeltaSign != 0 && deltaSign != 0 && deltaSign != lastDeltaSign {
+                let candidateValue = previous[keyPath: keyPath]
+                if abs(candidateValue) >= threshold {
+                    peakCount += 1
+                }
+            }
+            if deltaSign != 0 {
+                lastDeltaSign = deltaSign
+            }
+        }
+
+        if velocitySamples > 0 {
+            meanAbsVelocity /= Double(velocitySamples)
+        }
+
+        let activeSamples = samples.filter { abs($0[keyPath: keyPath]) >= threshold }
+        let activeDuration: TimeInterval
+        if let firstActive = activeSamples.first, let lastActive = activeSamples.last, activeSamples.count >= 2 {
+            activeDuration = lastActive.at.timeIntervalSince(firstActive.at)
+        } else {
+            activeDuration = 0
+        }
+
+        return HeadGestureAxisMetrics(
             minValue: minValue,
             maxValue: maxValue,
             amplitude: maxValue - minValue,
             signChanges: signChanges,
-            sampleCount: values.count
+            peakCount: peakCount,
+            maxVelocity: maxVelocity,
+            meanAbsVelocity: meanAbsVelocity,
+            sampleCount: values.count,
+            activeSampleCount: activeSamples.count,
+            activeDuration: activeDuration
         )
     }
 
     private func maybeLogHeadGestureDiagnostics(
         at now: Date,
-        nodMetrics: HeadGestureMetrics,
-        shakeMetrics: HeadGestureMetrics,
+        nodMetrics: HeadGestureAxisMetrics,
+        shakeMetrics: HeadGestureAxisMetrics,
         yaw: Double,
         pitch: Double
     ) {
@@ -968,7 +1147,7 @@ class HeadMotionManager: ObservableObject {
 
         lastHeadGestureDebugLogAt = now
         os_log(
-            "Head gesture diag: tracking=%{public}@ passive=%{public}@ yaw=%.3f pitch=%.3f nodAmp=%.3f/%0.3f nodSigns=%{public}d shakeAmp=%.3f/%0.3f shakeSigns=%{public}d samples=%{public}d",
+            "Head gesture diag: tracking=%{public}@ passive=%{public}@ yaw=%.3f pitch=%.3f nodAmp=%.3f/%0.3f nodSigns=%{public}d nodPeaks=%{public}d nodVel=%.3f nodDur=%.2f shakeAmp=%.3f/%0.3f shakeSigns=%{public}d shakePeaks=%{public}d shakeVel=%.3f shakeDur=%.2f samples=%{public}d",
             log: log,
             type: .debug,
             String(isTracking),
@@ -978,9 +1157,15 @@ class HeadMotionManager: ObservableObject {
             nodMetrics.amplitude,
             headGestureNodAmplitude,
             nodMetrics.signChanges,
+            nodMetrics.peakCount,
+            nodMetrics.maxVelocity,
+            nodMetrics.activeDuration,
             shakeMetrics.amplitude,
             headGestureShakeAmplitude,
             shakeMetrics.signChanges,
+            shakeMetrics.peakCount,
+            shakeMetrics.maxVelocity,
+            shakeMetrics.activeDuration,
             max(nodMetrics.sampleCount, shakeMetrics.sampleCount)
         )
     }
@@ -1157,6 +1342,7 @@ class HeadMotionManager: ObservableObject {
         playTarget = commandCenter.playCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             DispatchQueue.main.async {
+                os_log("Headset playCommand received", log: self.log, type: .info)
                 self.handleHeadsetSinglePress(origin: "airpods-play")
             }
             return .success
@@ -1164,6 +1350,7 @@ class HeadMotionManager: ObservableObject {
         pauseTarget = commandCenter.pauseCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             DispatchQueue.main.async {
+                os_log("Headset pauseCommand received", log: self.log, type: .info)
                 self.handleHeadsetSinglePress(origin: "airpods-pause")
             }
             return .success
@@ -1171,6 +1358,7 @@ class HeadMotionManager: ObservableObject {
         toggleTarget = commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
             DispatchQueue.main.async {
+                os_log("Headset togglePlayPauseCommand received", log: self.log, type: .info)
                 self.handleHeadsetSinglePress(origin: "airpods-toggle")
             }
             return .success
@@ -1227,6 +1415,7 @@ class HeadMotionManager: ObservableObject {
         updateNowPlayingInfo()
         isHeadsetRemoteRegistered = true
         refreshHeadsetRemoteStatus()
+        SilentAudioManager.shared.start()
     }
 
     private func updateNowPlayingInfo() {
@@ -1245,7 +1434,9 @@ class HeadMotionManager: ObservableObject {
             headsetTriplePressAction.label
         )
         nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = 0.0
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
+        // Mark as actively playing so MediaRemote routes headset commands to Aether.
+        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
+        nowPlayingInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
         if #available(macOS 10.13, *) {
@@ -1278,6 +1469,7 @@ class HeadMotionManager: ObservableObject {
         }
         isHeadsetRemoteRegistered = false
         refreshHeadsetRemoteStatus()
+        SilentAudioManager.shared.stop()
     }
 
     @MainActor
@@ -1358,12 +1550,14 @@ class HeadMotionManager: ObservableObject {
     @MainActor
     private func handleHeadsetDoublePress() {
         guard shouldHandleHeadsetRemoteAction(kind: .double) else { return }
+        os_log("Headset double press received", log: log, type: .info)
         performConfiguredHeadsetAction(kind: .double, source: HeadsetPressKind.double.eventSource)
     }
 
     @MainActor
     private func handleHeadsetTriplePress() {
         guard shouldHandleHeadsetRemoteAction(kind: .triple) else { return }
+        os_log("Headset triple press received", log: log, type: .info)
         performConfiguredHeadsetAction(kind: .triple, source: HeadsetPressKind.triple.eventSource)
     }
 
@@ -1376,6 +1570,22 @@ class HeadMotionManager: ObservableObject {
         guard let action = configuredAction.hotkeyAction else {
             HUDManager.shared.showTemporary(
                 message: String(format: String(localized: "headset.hud.no_action_assigned_fmt"), kind.label),
+                duration: 0.8
+            )
+            return
+        }
+        performHeadsetAction(action, source: source)
+    }
+
+    @MainActor
+    private func performConfiguredHeadGestureAction(kind: HeadGestureKind, source: String) {
+        let configuredAction = headGestureAction(for: kind)
+        noteHeadGestureEvent(
+            display: String(format: String(localized: "head_gesture.event.action_fmt"), kind.label, configuredAction.label)
+        )
+        guard let action = configuredAction.hotkeyAction else {
+            HUDManager.shared.showTemporary(
+                message: String(format: String(localized: "head_gesture.hud.no_action_assigned_fmt"), kind.label),
                 duration: 0.8
             )
             return
@@ -1417,6 +1627,15 @@ class HeadMotionManager: ObservableObject {
             return headsetDoublePressAction
         case .triple:
             return headsetTriplePressAction
+        }
+    }
+
+    private func headGestureAction(for kind: HeadGestureKind) -> HeadGestureAction {
+        switch kind {
+        case .nod:
+            return headGestureNodAction
+        case .shake:
+            return headGestureShakeAction
         }
     }
 
@@ -1470,8 +1689,14 @@ class HeadMotionManager: ObservableObject {
                log: log, type: .info, source, effectiveRecognitionControlMode.rawValue)
     }
 
-    private func playHeadGestureConfirmationSound() {
-        let preferredNames = ["Glass", "Hero", "Ping"]
+    private func playHeadGestureConfirmationSound(for kind: HeadGestureKind) {
+        let preferredNames: [String]
+        switch kind {
+        case .nod:
+            preferredNames = ["Pop", "Tink", "Glass"]
+        case .shake:
+            preferredNames = ["Glass", "Ping", "Pop"]
+        }
         for name in preferredNames {
             if let sound = NSSound(named: name) {
                 sound.play()
@@ -1526,7 +1751,7 @@ class HeadMotionManager: ObservableObject {
     }
 
     private var shouldEnableAirPodsModeSwitch: Bool {
-        true
+        false
     }
 
     private func updateAirPodsRemoteCommandRegistration() {
@@ -1561,6 +1786,11 @@ class HeadMotionManager: ObservableObject {
         lastHeadsetRemoteEventText = display
         lastHeadsetRemoteEventAt = Date()
         refreshHeadsetRemoteStatus()
+    }
+
+    private func noteHeadGestureEvent(display: String) {
+        lastHeadGestureEventText = display
+        lastHeadGestureEventAt = Date()
     }
 
     private func beginAirPodsPTT(source: PTTSource, origin: String) -> MPRemoteCommandHandlerStatus {
@@ -1694,7 +1924,6 @@ class HeadMotionManager: ObservableObject {
         mask |= (1 << CGEventType.keyDown.rawValue)
         mask |= (1 << CGEventType.keyUp.rawValue)
         mask |= (1 << CGEventType.flagsChanged.rawValue)
-        mask |= (1 << HeadMotionManager.systemDefinedEventTypeRawValue)
         mask |= (1 << CGEventType.leftMouseDown.rawValue)
         mask |= (1 << CGEventType.rightMouseDown.rawValue)
         mask |= (1 << CGEventType.otherMouseDown.rawValue)
@@ -1744,13 +1973,6 @@ class HeadMotionManager: ObservableObject {
                     manager.endPTT(from: source, origin: "keyboard-flagsChanged")
                     return nil
                 }
-            }
-
-            if Int(type.rawValue) == HeadMotionManager.systemDefinedEventTypeRawValue {
-                if manager.handleSystemDefinedMediaKeyEvent(event) {
-                    return nil
-                }
-                return Unmanaged.passUnretained(event)
             }
 
             // Trace modifiers for debugging

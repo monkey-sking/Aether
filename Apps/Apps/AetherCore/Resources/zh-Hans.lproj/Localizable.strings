@@ -497,3 +497,20 @@
 
 "panels.shortcuts.count_fmt" = "%d 条快捷键";
 "panels.shortcuts.clickable_hint" = "可点击触发";
+"main.panel.head_gestures" = "头部动作";
+"settings.page.head_gestures.title" = "头部动作";
+"settings.page.head_gestures.subtitle" = "配置点头与摇头的动作。";
+"head_gesture.toggle.enable" = "启用头部动作";
+"head_gesture.toggle.detail" = "佩戴支持的耳机时检测点头与摇头。";
+"head_gesture.mapping.title" = "动作映射";
+"head_gesture.mapping.subtitle" = "为点头和摇头分别指定动作。";
+"head_gesture.kind.nod" = "点头";
+"head_gesture.kind.shake" = "摇头";
+"head_gesture.detail.nod" = "点头时触发以下动作。";
+"head_gesture.detail.shake" = "摇头时触发以下动作。";
+"head_gesture.status.no_event" = "尚未检测到头部动作";
+"head_gesture.status.last_event" = "最近一次头部动作";
+"head_gesture.event.action_fmt" = "头部动作%@ · %@";
+"head_gesture.hud.no_action_assigned_fmt" = "%@未设置动作";
+"head_gesture.action.none" = "无动作";
+"head_gesture.action.none.detail" = "触发后不执行动作。";

@@ -58,3 +58,22 @@ This is the most "open" input surface available to developers. While Apple uses 
 *   **Head Motion**: High potential. The "wild west" for custom interaction design. System interference is minimal during normal usage.
 
 **Recommendation**: Focus heavily on **Head Motion (`CMHeadphoneMotionManager`)** for rich, interference-free control. Use **Buttons (`MPRemoteCommandCenter`)** sparingly, perhaps only as a toggle for the head tracking itself.
+
+## 3. 2026-03-11 Agent Handoff Summary: MPRemoteCommandCenter Route
+
+### Current Status
+- Aether currently uses **only** `MPRemoteCommandCenter` to receive `play/pause/next/previous` which maps to AirPods single/double/triple clicks.
+- The `systemDefined` CGEventTap media key interception and "multi-click merging" have been removed to avoid delay and system beep interference.
+- Log markers (`Headset playCommand received`, etc.) were added to `HeadMotionManager.swift`.
+
+### Known Limitations & Validation Points
+1. **System Dispatch**: If no `play/pause/next/previous` logs appear upon AirPods clicks, the macOS system is failing to dispatch the media commands to Aether. This happens if Aether loses "Now Playing" eligibility.
+2. **Siri/Gesture Interception**: If ONLY `play/pause` logs appear but no `next/previous` logs appear upon double/triple clicks, it means macOS or Siri is intercepting the multi-clicks at the system level before converting them to media commands. (Users often must map their AirPods stems to "Next/Previous Track" in System Settings instead of "Siri/Noise Control").
+3. **Internal Logic**: If `next/previous` logs appear but Aether doesn't act, the issue lies in Aether's internal action mapping.
+
+### Recommendation for Receiving Engineer
+- Use the following command to debug system dispatching:
+  ```bash
+  /usr/bin/log show --last 2m --predicate 'process == "Aether" && (eventMessage CONTAINS "Headset" || eventMessage CONTAINS "remote")' --style compact
+  ```
+- If `MPRemoteCommandCenter` proves too unreliable (due to Now Playing focus stealing by other apps like Safari/Music without silent audio playing), we may need to reconsider a lightweight `CGEventTap` or introduce a silent audio `AVAudioPlayer` loop to strongly hold the Now Playing focus.
