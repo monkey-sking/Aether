@@ -497,3 +497,20 @@
 
 "panels.shortcuts.count_fmt" = "%d raccourcis";
 "panels.shortcuts.clickable_hint" = "Cliquable";
+"main.panel.head_gestures" = "Gestes de la tête";
+"settings.page.head_gestures.title" = "Gestes de la tête";
+"settings.page.head_gestures.subtitle" = "Configurez les raccourcis pour le hochement et le secouement.";
+"head_gesture.toggle.enable" = "Activer les gestes de la tête";
+"head_gesture.toggle.detail" = "Détecte les hochements et secousses avec un casque compatible.";
+"head_gesture.mapping.title" = "Mappage des gestes";
+"head_gesture.mapping.subtitle" = "Attribuez des actions au hochement et au secouement.";
+"head_gesture.kind.nod" = "Hochement";
+"head_gesture.kind.shake" = "Secouement";
+"head_gesture.detail.nod" = "Déclenche cette action lorsque vous hochez la tête.";
+"head_gesture.detail.shake" = "Déclenche cette action lorsque vous secouez la tête.";
+"head_gesture.status.no_event" = "Aucun geste de tête détecté pour l'instant";
+"head_gesture.status.last_event" = "Dernier geste de tête";
+"head_gesture.event.action_fmt" = "Geste de tête %@ · %@";
+"head_gesture.hud.no_action_assigned_fmt" = "Aucune action assignée pour %@";
+"head_gesture.action.none" = "Aucune action";
+"head_gesture.action.none.detail" = "Ne rien faire après le geste.";

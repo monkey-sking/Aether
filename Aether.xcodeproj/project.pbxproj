@@ -44,6 +44,7 @@
 		D6005F733C008EA04C26BBEA /* SpeechManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9C8E1A62B942CEEB23DF83 /* SpeechManager.swift */; };
 		D724D4B20ABC48F38FBE285D /* AetherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3AE5E3C03244494B2DCC0DB /* AetherApp.swift */; };
 		DCA1BDC59DF10BE0ED0F3AF2 /* AudioCaptureSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5837AE8FD6964FF43A98002 /* AudioCaptureSession.swift */; };
+		E32035EFDCD97152052E8113 /* SilentAudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CB4B825A058EED6F40CE230 /* SilentAudioManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,6 +64,7 @@
 		1D863E78A6DBBC070343227B /* VoiceCommandRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VoiceCommandRouter.swift; path = ../Apps/AetherCore/Speech/VoiceCommandRouter.swift; sourceTree = "<group>"; };
 		2D7C64E195EDD6F1BC8660FB /* RecognitionSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RecognitionSession.swift; path = ../Apps/AetherCore/Speech/RecognitionSession.swift; sourceTree = "<group>"; };
 		35EEF3E8253127D05E0B8AF8 /* AetherTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AetherTests.swift; sourceTree = "<group>"; };
+		3CB4B825A058EED6F40CE230 /* SilentAudioManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SilentAudioManager.swift; path = Apps/AetherCore/SilentAudioManager.swift; sourceTree = "<group>"; };
 		4B7AD64E322D43EBB7EB5CA2 /* InputMethodCaretBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HUD/InputMethodCaretBridge.swift; sourceTree = "<group>"; };
 		607FEF712E1EB0E5508512FC /* TextInjector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TextInjector.swift; path = ../Apps/AetherCore/Speech/TextInjector.swift; sourceTree = "<group>"; };
 		6FAA72967637433DB33B061E /* HeadMotionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HeadMotionManager.swift; sourceTree = "<group>"; };
@@ -200,6 +202,7 @@
 				B9211FBD2F2C809E00230452 /* Recovered References */,
 				0DCF953418C6411D4E34CB14 /* Frameworks */,
 				AD32D3A6621F171397C467EE /* AetherTests */,
+				3CB4B825A058EED6F40CE230 /* SilentAudioManager.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -360,6 +363,7 @@
 				C5578CA8C4E0CB8132E13F00 /* EOSDetector.swift in Sources */,
 				A63C766AA1AB8C9891D38846 /* DictationHandler.swift in Sources */,
 				38E0C2865D2EF8EBA566137B /* CommandHandler.swift in Sources */,
+				E32035EFDCD97152052E8113 /* SilentAudioManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

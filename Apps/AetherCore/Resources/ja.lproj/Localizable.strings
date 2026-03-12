@@ -498,3 +498,20 @@
 
 "panels.shortcuts.count_fmt" = "%d 個のショートカット";
 "panels.shortcuts.clickable_hint" = "クリックでトリガー";
+"main.panel.head_gestures" = "頭部ジェスチャー";
+"settings.page.head_gestures.title" = "頭部ジェスチャー";
+"settings.page.head_gestures.subtitle" = "うなずきと首振りの動作を設定します。";
+"head_gesture.toggle.enable" = "頭部ジェスチャーを有効にする";
+"head_gesture.toggle.detail" = "対応ヘッドセット装着時にうなずき・首振りを検出します。";
+"head_gesture.mapping.title" = "ジェスチャー割り当て";
+"head_gesture.mapping.subtitle" = "うなずきと首振りにアクションを割り当てます。";
+"head_gesture.kind.nod" = "うなずき";
+"head_gesture.kind.shake" = "首振り";
+"head_gesture.detail.nod" = "うなずいたときにこのアクションを実行します。";
+"head_gesture.detail.shake" = "首を振ったときにこのアクションを実行します。";
+"head_gesture.status.no_event" = "まだ頭部ジェスチャーが検出されていません";
+"head_gesture.status.last_event" = "最後の頭部ジェスチャー";
+"head_gesture.event.action_fmt" = "頭部ジェスチャー%@ · %@";
+"head_gesture.hud.no_action_assigned_fmt" = "%@ に割り当てられたアクションはありません";
+"head_gesture.action.none" = "アクションなし";
+"head_gesture.action.none.detail" = "ジェスチャー後に何もしません。";

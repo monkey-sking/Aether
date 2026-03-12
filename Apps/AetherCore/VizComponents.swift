@@ -177,14 +177,32 @@ struct SidebarSectionHeader: View {
 
 struct SidebarItemLabel: View {
     let title: String
-    let systemImage: String
+    private let systemImage: String?
+    private let iconView: AnyView?
+
+    init(title: String, systemImage: String) {
+        self.title = title
+        self.systemImage = systemImage
+        self.iconView = nil
+    }
+
+    init<Icon: View>(title: String, @ViewBuilder icon: () -> Icon) {
+        self.title = title
+        self.systemImage = nil
+        self.iconView = AnyView(icon())
+    }
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: systemImage)
-                .font(.system(size: AetherUI.sidebarIconSize, weight: .semibold))
-                .frame(width: AetherUI.sidebarIconFrame, alignment: .center)
-                .foregroundStyle(.primary)
+            if let iconView {
+                iconView
+                    .frame(width: AetherUI.sidebarIconFrame, alignment: .center)
+            } else if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: AetherUI.sidebarIconSize, weight: .semibold))
+                    .frame(width: AetherUI.sidebarIconFrame, alignment: .center)
+                    .foregroundStyle(.primary)
+            }
 
             Text(title)
                 .font(AetherUI.sidebarItemFont)
@@ -192,6 +210,18 @@ struct SidebarItemLabel: View {
                 .lineLimit(1)
         }
         .padding(.vertical, 6)
+    }
+}
+
+struct TransparencyModeIcon: View {
+    let size: CGFloat
+    var color: Color = .primary
+
+    var body: some View {
+        Image(systemName: "person.fill.viewfinder")
+            .font(.system(size: size, weight: .semibold))
+        .foregroundStyle(color)
+        .frame(width: size, height: size, alignment: .center)
     }
 }
 

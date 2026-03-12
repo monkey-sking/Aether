@@ -22,7 +22,7 @@ struct AetherMainView: View {
         case voiceAppControls
         case voiceInsights
         case pointer
-        case headset
+        case headGestures
         case shortcuts
     }
 
@@ -65,8 +65,8 @@ struct AetherMainView: View {
                     NavigationLink(value: Panel.pointer) {
                         panelLabel(.pointer)
                     }
-                    NavigationLink(value: Panel.headset) {
-                        panelLabel(.headset)
+                    NavigationLink(value: Panel.headGestures) {
+                        panelLabel(.headGestures)
                     }
                     NavigationLink(value: Panel.shortcuts) {
                         panelLabel(.shortcuts)
@@ -95,8 +95,8 @@ struct AetherMainView: View {
                 InputSettingsView(section: .insights)
             case .pointer:
                 OutputSettingsView()
-            case .headset:
-                HeadsetSettingsView()
+            case .headGestures:
+                HeadGestureSettingsView()
             case .shortcuts:
                 ShortcutsSettingsView()
             case .none:
@@ -114,10 +114,16 @@ struct AetherMainView: View {
 
     @ViewBuilder
     private func panelLabel(_ panel: Panel) -> some View {
-        SidebarItemLabel(
-            title: panelTitle(panel),
-            systemImage: panelSymbol(panel)
-        )
+        if panel == .headGestures {
+            SidebarItemLabel(title: panelTitle(panel)) {
+                TransparencyModeIcon(size: AetherUI.sidebarIconSize, color: .primary)
+            }
+        } else {
+            SidebarItemLabel(
+                title: panelTitle(panel),
+                systemImage: panelSymbol(panel)
+            )
+        }
     }
 
     private func panelTitle(_ panel: Panel) -> String {
@@ -136,8 +142,8 @@ struct AetherMainView: View {
             return NSLocalizedString("settings.section.insights.page_title", comment: "")
         case .pointer:
             return String(localized: "main.panel.pointer")
-        case .headset:
-            return String(localized: "main.panel.headset_buttons")
+        case .headGestures:
+            return String(localized: "main.panel.head_gestures")
         case .shortcuts:
             return String(localized: "main.panel.shortcuts")
         }
@@ -159,8 +165,8 @@ struct AetherMainView: View {
             return "chart.bar.xaxis"
         case .pointer:
             return "cursorarrow.and.square.on.square.dashed"
-        case .headset:
-            return "airpodspro"
+        case .headGestures:
+            return "person.crop.circle"
         case .shortcuts:
             return "keyboard"
         }
@@ -233,13 +239,6 @@ private struct OverviewDashboardView: View {
         Binding(
             get: { headManager.showPostureGuideBeforeTracking },
             set: { headManager.showPostureGuideBeforeTracking = $0 }
-        )
-    }
-
-    private var headGestureToggleBinding: Binding<Bool> {
-        Binding(
-            get: { headManager.headGestureToggleEnabled },
-            set: { headManager.headGestureToggleEnabled = $0 }
         )
     }
 
@@ -316,8 +315,7 @@ private struct OverviewDashboardView: View {
                             : String(localized: "main.pointer.subtitle.idle"),
                         isOn: trackingBinding,
                         autoStartOnConnect: autoStartTrackingBinding,
-                        showPostureGuide: postureGuideBinding,
-                        headGestureToggle: headGestureToggleBinding
+                        showPostureGuide: postureGuideBinding
                     )
                 }
 
@@ -463,7 +461,6 @@ private struct PointerControlTile: View {
     @Binding var isOn: Bool
     @Binding var autoStartOnConnect: Bool
     @Binding var showPostureGuide: Bool
-    @Binding var headGestureToggle: Bool
 
     private var isChinese: Bool {
         Locale.current.identifier.hasPrefix("zh")
@@ -497,11 +494,6 @@ private struct PointerControlTile: View {
                 )
                 .disabled(!autoStartOnConnect)
                 .opacity(autoStartOnConnect ? 1 : 0.55)
-                inlineToggle(
-                    title: isChinese ? "点头 / 摇头开关" : "Head gesture toggle",
-                    subtitle: isChinese ? "点头开启头控，摇头停止头控。" : "Use a nod to start tracking and a shake to stop it.",
-                    isOn: $headGestureToggle
-                )
             }
 
             Text(LocalizedStringKey("main.pointer.footnote"))
