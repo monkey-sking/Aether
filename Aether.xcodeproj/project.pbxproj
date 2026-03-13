@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		020D63FE98D947C096B56AC2 /* HUDManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA7BC5466FA47C190921F7C /* HUDManager.swift */; };
+		C0DEF00D0BADC0FFEE777771 /* AppLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE777770 /* AppLocalization.swift */; };
 		18DE7300FCE3F9872B01AD52 /* RecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7C64E195EDD6F1BC8660FB /* RecognitionSession.swift */; };
 		296C7A8991A64B1CBECDFBF5 /* HeadMotionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FAA72967637433DB33B061E /* HeadMotionManager.swift */; };
 		2C4EA293C03545F8952A233C /* CaretDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B04B778B904E9EBE08B8F1 /* CaretDetector.swift */; };
@@ -15,6 +16,7 @@
 		31B988EA77999AB6CC7B6D66 /* WakeWordDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A02A17193B719852F3F6799 /* WakeWordDetector.swift */; };
 		38E0C2865D2EF8EBA566137B /* CommandHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83D513A99130EC0F797EAF0 /* CommandHandler.swift */; };
 		4BDBBCA080E1B33D13F87E22 /* VoiceCommandRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D863E78A6DBBC070343227B /* VoiceCommandRouter.swift */; };
+		C0DEF00D0BADC0FFEE555557 /* VoiceLexiconDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE555556 /* VoiceLexiconDefaults.swift */; };
 		58F4FE2F0F3944ACA658AA5B /* HUDState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD149F2C14A14BBD874C58F7 /* HUDState.swift */; };
 		6CAFD84A56B2486181DB21D0 /* HUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDD62DBE56B946A9A7724D7D /* HUDView.swift */; };
 		752B8656CCE440E6FF74855D /* VoiceCommandRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAE13A5808AC6A480FF02900 /* VoiceCommandRouterTests.swift */; };
@@ -34,6 +36,7 @@
 		C0DEF00D0BADC0FFEE222223 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE222224 /* Localizable.strings */; };
 		C0DEF00D0BADC0FFEE222225 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE222226 /* InfoPlist.strings */; };
 		C0DEF00D0BADC0FFEE222227 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE222228 /* InfoPlist.strings */; };
+		C0DEF00D0BADC0FFEE666662 /* VoiceLexiconDefaults.json in Resources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE666661 /* VoiceLexiconDefaults.json */; };
 		C0DEF00D0BADC0FFEE330001 /* ConnectionLockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE330002 /* ConnectionLockService.swift */; };
 		C0DEF00D0BADC0FFEE330003 /* AetherIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE330004 /* AetherIntents.swift */; };
 		C0DEF00D0BADC0FFEE440001 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE440002 /* HotkeyManager.swift */; };
@@ -60,8 +63,10 @@
 /* Begin PBXFileReference section */
 		053CF960D5E89CB16A8AD09A /* MenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/MenuBar.swift; sourceTree = "<group>"; };
 		0A2FFF0B546D7CEAD686E5CE /* LLMProviders.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LLMProviders.swift; path = ../Apps/AetherCore/Speech/LLMProviders.swift; sourceTree = "<group>"; };
+		C0DEF00D0BADC0FFEE777770 /* AppLocalization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/AppLocalization.swift; sourceTree = "<group>"; };
 		1BE0C0C41DAF3037CAB2EB06 /* DictationHandler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DictationHandler.swift; path = ../Apps/AetherCore/Speech/DictationHandler.swift; sourceTree = "<group>"; };
 		1D863E78A6DBBC070343227B /* VoiceCommandRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VoiceCommandRouter.swift; path = ../Apps/AetherCore/Speech/VoiceCommandRouter.swift; sourceTree = "<group>"; };
+		C0DEF00D0BADC0FFEE555556 /* VoiceLexiconDefaults.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VoiceLexiconDefaults.swift; path = ../Apps/AetherCore/Speech/VoiceLexiconDefaults.swift; sourceTree = "<group>"; };
 		2D7C64E195EDD6F1BC8660FB /* RecognitionSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RecognitionSession.swift; path = ../Apps/AetherCore/Speech/RecognitionSession.swift; sourceTree = "<group>"; };
 		35EEF3E8253127D05E0B8AF8 /* AetherTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AetherTests.swift; sourceTree = "<group>"; };
 		3CB4B825A058EED6F40CE230 /* SilentAudioManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SilentAudioManager.swift; path = Apps/AetherCore/SilentAudioManager.swift; sourceTree = "<group>"; };
@@ -84,6 +89,7 @@
 		C0DEF00D0BADC0FFEE222224 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Apps/AetherCore/Resources/zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE222226 /* InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Apps/AetherCore/Resources/en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE222228 /* InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Apps/AetherCore/Resources/zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		C0DEF00D0BADC0FFEE666661 /* VoiceLexiconDefaults.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Apps/AetherCore/Resources/VoiceLexiconDefaults.json; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE330002 /* ConnectionLockService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/ConnectionLockService.swift; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE330004 /* AetherIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/AetherIntents.swift; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE440002 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HotkeyManager.swift; sourceTree = "<group>"; };
@@ -132,6 +138,7 @@
 			isa = PBXGroup;
 			children = (
 				1D863E78A6DBBC070343227B /* VoiceCommandRouter.swift */,
+				C0DEF00D0BADC0FFEE555556 /* VoiceLexiconDefaults.swift */,
 				0A2FFF0B546D7CEAD686E5CE /* LLMProviders.swift */,
 				607FEF712E1EB0E5508512FC /* TextInjector.swift */,
 				F7A6E69406F013C80C167F40 /* AirPodsDetector.swift */,
@@ -175,12 +182,14 @@
 				6FAA72967637433DB33B061E /* HeadMotionManager.swift */,
 				FF9C8E1A62B942CEEB23DF83 /* SpeechManager.swift */,
 				8567D0FA10ABB5C4430600CE /* PermissionsManager.swift */,
+				C0DEF00D0BADC0FFEE777770 /* AppLocalization.swift */,
 				053CF960D5E89CB16A8AD09A /* MenuBar.swift */,
 				C0DEF00D0BADC0FFEE330002 /* ConnectionLockService.swift */,
 				C0DEF00D0BADC0FFEE330004 /* AetherIntents.swift */,
 				C0DEF00D0BADC0FFEE440002 /* HotkeyManager.swift */,
 				C0DEF00D0BADC0FFEE440004 /* KeyRecorderView.swift */,
 				7B12389AB5C944F3B8BE3C75 /* Assets.xcassets */,
+				C0DEF00D0BADC0FFEE666661 /* VoiceLexiconDefaults.json */,
 				C0DEF00D0BADC0FFEE222222 /* Localizable.strings */,
 				C0DEF00D0BADC0FFEE222224 /* Localizable.strings */,
 				C0DEF00D0BADC0FFEE222226 /* InfoPlist.strings */,
@@ -302,6 +311,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9BCF13220FAC4B6F8975A1FA /* Assets.xcassets in Resources */,
+				C0DEF00D0BADC0FFEE666662 /* VoiceLexiconDefaults.json in Resources */,
 				C0DEF00D0BADC0FFEE222221 /* Localizable.strings in Resources */,
 				C0DEF00D0BADC0FFEE222223 /* Localizable.strings in Resources */,
 				C0DEF00D0BADC0FFEE222225 /* InfoPlist.strings in Resources */,
@@ -349,11 +359,13 @@
 				C0DEF00D0BADC0FFEE440001 /* HotkeyManager.swift in Sources */,
 				C0DEF00D0BADC0FFEE440003 /* KeyRecorderView.swift in Sources */,
 				58F4FE2F0F3944ACA658AA5B /* HUDState.swift in Sources */,
+				C0DEF00D0BADC0FFEE777771 /* AppLocalization.swift in Sources */,
 				6CAFD84A56B2486181DB21D0 /* HUDView.swift in Sources */,
 				020D63FE98D947C096B56AC2 /* HUDManager.swift in Sources */,
 				2C4EA293C03545F8952A233C /* CaretDetector.swift in Sources */,
 				80BFA81A4CB14209B6E96C5F /* InputMethodCaretBridge.swift in Sources */,
 				4BDBBCA080E1B33D13F87E22 /* VoiceCommandRouter.swift in Sources */,
+				C0DEF00D0BADC0FFEE555557 /* VoiceLexiconDefaults.swift in Sources */,
 				B536C893C35B916AD9A8D4BE /* LLMProviders.swift in Sources */,
 				AD623470C6D84037CBC4BAC0 /* TextInjector.swift in Sources */,
 				C92C3F90B1616F0A4BD361F2 /* AirPodsDetector.swift in Sources */,

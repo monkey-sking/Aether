@@ -60,19 +60,19 @@ final class WakeWordDetector {
     }
 
     static func defaultWakePhrases(for localeIdentifier: String) -> [String] {
-        let locale = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier).lowercased()
-        if locale.hasPrefix("zh") {
-            return ["艾瑟", "hey aether", "hi aether", "aether"]
-        }
-        return ["hey aether", "hi aether", "aether", "艾瑟"]
+        guard let defaults = VoiceLexiconDefaults.load() else { return [] }
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let entry = defaults.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        })
+        return VoiceLexiconSupport.uniqueTerms(entry?.wakeWords ?? [])
     }
 
     static func effectiveWakePhrases(
         for localeIdentifier: String,
         overrides: [VoiceLanguageTermsOverrideConfig]
     ) -> [String] {
-        if let override = overrideEntry(for: localeIdentifier, overrides: overrides),
-           !override.wakeWords.isEmpty {
+        if let override = overrideEntry(for: localeIdentifier, overrides: overrides) {
             return VoiceLexiconSupport.uniqueTerms(override.wakeWords)
         }
         return defaultWakePhrases(for: localeIdentifier)

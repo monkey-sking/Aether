@@ -58,7 +58,7 @@ struct CustomAppShortcutRule: Codable, Identifiable, Equatable {
             processIdentifier: processIdentifier,
             bundleIdentifier: bundleIdentifier,
             appName: appName,
-            menuPath: [Locale.current.identifier.hasPrefix("zh") ? "自定义规则" : "Custom Rules"],
+            menuPath: [AppLocalization.isChinese ? "自定义规则" : "Custom Rules"],
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             shortcut: shortcut,
             aliases: effectiveAliases
@@ -547,7 +547,7 @@ final class FrontmostAppCommandCatalog: ObservableObject {
     }
 
     private func browserSupplementalCommands() -> [SupplementalCommandTemplate] {
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let isChinese = AppLocalization.isChinese
         let browserSection = isChinese ? "浏览器常用" : "Browser"
         let tabsGroup = isChinese ? "标签页" : "Tabs"
         let pageGroup = isChinese ? "页面" : "Page"
@@ -627,7 +627,7 @@ final class FrontmostAppCommandCatalog: ObservableObject {
     }
 
     private func editorSupplementalCommands(for bundleIdentifier: String) -> [SupplementalCommandTemplate] {
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let isChinese = AppLocalization.isChinese
         let editorSection = isChinese ? "编辑器常用" : "Editor"
         let navigationGroup = isChinese ? "导航" : "Navigation"
         let commandGroup = isChinese ? "命令" : "Commands"
@@ -717,7 +717,7 @@ final class FrontmostAppCommandCatalog: ObservableObject {
     }
 
     private func terminalSupplementalCommands(for bundleIdentifier: String) -> [SupplementalCommandTemplate] {
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let isChinese = AppLocalization.isChinese
         let terminalSection = isChinese ? "终端常用" : "Terminal"
         let sessionGroup = isChinese ? "会话" : "Session"
         let layoutGroup = isChinese ? "布局" : "Layout"
@@ -767,7 +767,7 @@ final class FrontmostAppCommandCatalog: ObservableObject {
     }
 
     private func collaborationSupplementalCommands(for bundleIdentifier: String) -> [SupplementalCommandTemplate] {
-        let isChinese = Locale.current.identifier.hasPrefix("zh")
+        let isChinese = AppLocalization.isChinese
         let collaborationSection = isChinese ? "协作常用" : "Collaboration"
         let navigationGroup = isChinese ? "导航" : "Navigation"
         let composeGroup = isChinese ? "创建" : "Compose"
@@ -1400,110 +1400,31 @@ final class VoiceCommandRouter {
     }
 
     static func defaultAliases(for preset: VoiceCommandPreset, localeIdentifier: String) -> [String] {
-        let locale = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier).lowercased()
-        let useChinese = locale.hasPrefix("zh")
-
-        let chinese: [String]
-        let english: [String]
-
-        switch preset {
-        case .clickLeft:
-            chinese = ["点击", "单击"]
-            english = ["click"]
-        case .clickRight:
-            chinese = ["右键", "右击", "邮件"]
-            english = ["right click", "rightclick", "context"]
-        case .doubleClick:
-            chinese = ["双击"]
-            english = ["double click", "doubleclick"]
-        case .toggleInputControlMode:
-            chinese = ["切换输入控制模式", "切换输入模式", "切换控制模式", "输入控制模式切换", "切换输入和控制模式", "切换输入控制"]
-            english = ["toggle input mode", "toggle control mode", "toggle input control mode", "switch input mode", "switch control mode"]
-        case .toggleTracking:
-            chinese = ["切换头控", "切换指针控制", "切换追踪", "切换头部控制"]
-            english = ["toggle tracking", "toggle pointer", "toggle pointer control", "toggle head tracking"]
-        case .toggleLanguage:
-            chinese = ["切换语言", "切换语音语言", "切换识别语言"]
-            english = ["toggle language", "switch language", "toggle speech language"]
-        case .toggleConnectionLock:
-            chinese = ["切换连接锁定", "切换耳机连接锁定", "切换连接锁", "切换耳机锁定"]
-            english = ["toggle connection lock", "toggle headset lock", "toggle headset connection lock"]
-        case .toggleShortcutPanel:
-            chinese = ["切换快捷键面板", "切换面板", "切换命令面板"]
-            english = ["toggle shortcuts panel", "toggle shortcut panel", "toggle shortcuts", "toggle command panel"]
-        case .mediaPlayPause:
-            chinese = ["播放", "暂停", "播放暂停", "继续播放"]
-            english = ["play", "pause", "play pause", "toggle playback"]
-        case .mediaPrevious:
-            chinese = ["上一首", "上一个"]
-            english = ["previous track", "previous", "back track"]
-        case .mediaNext:
-            chinese = ["下一首", "下一个"]
-            english = ["next track", "next", "skip track"]
-        case .showShortcutPanel:
-            chinese = ["显示快捷键面板", "打开快捷键面板", "显示当前应用快捷键", "打开当前应用快捷键", "显示命令面板", "显示面板", "打开面板"]
-            english = ["show shortcuts panel", "open shortcuts panel", "show app shortcuts", "show current app shortcuts"]
-        case .hideShortcutPanel:
-            chinese = ["关闭快捷键面板", "隐藏快捷键面板", "收起快捷键面板", "关闭当前应用快捷键", "关闭面板", "隐藏面板", "收起面板"]
-            english = ["hide shortcuts panel", "close shortcuts panel", "dismiss shortcuts panel", "hide app shortcuts"]
-        case .startPointer:
-            chinese = ["开始", "继续"]
-            english = ["start", "resume"]
-        case .stopPointer:
-            chinese = ["停止", "暂停控制"]
-            english = ["stop", "pause control"]
-        case .recenter:
-            chinese = ["校准", "居中", "重置"]
-            english = ["recenter", "reset"]
-        case .scrollUp:
-            chinese = ["向上", "上滚", "向上滚动"]
-            english = ["scroll up", "up"]
-        case .scrollDown:
-            chinese = ["向下", "下滚", "向下滚动"]
-            english = ["scroll down", "down"]
-        case .scrollTop:
-            chinese = ["到顶", "滚动到顶部"]
-            english = ["top", "scroll top"]
-        case .scrollBottom:
-            chinese = ["到底", "滚动到底部"]
-            english = ["bottom", "scroll bottom"]
-        case .dragStart:
-            chinese = ["拖", "抓住"]
-            english = ["drag"]
-        case .dragEnd:
-            chinese = ["放", "松开"]
-            english = ["drop", "release"]
-        case .undo:
-            chinese = ["撤销", "撤回"]
-            english = ["undo"]
-        case .paste:
-            chinese = ["粘贴"]
-            english = ["paste"]
-        case .lockConnection:
-            chinese = ["锁定"]
-            english = ["lock", "lock airpods", "lockairpods"]
-        case .unlockConnection:
-            chinese = ["解锁"]
-            english = ["unlock", "unlock airpods", "unlockairpods"]
-        }
-
-        return uniqueAliases((useChinese ? chinese + english : english) + (useChinese ? [] : chinese))
+        guard let defaults = VoiceLexiconDefaults.load() else { return [] }
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let entry = defaults.commandOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical &&
+            $0.commandID == preset.rawValue
+        })
+        return VoiceLexiconSupport.uniqueTerms(entry?.aliases ?? [])
     }
 
     static func defaultCommandPrefixes(for localeIdentifier: String) -> [String] {
-        let locale = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier).lowercased()
-        if locale.hasPrefix("zh") {
-            return ["指令", "命令", "command"]
-        }
-        return ["command", "control", "指令", "命令"]
+        guard let defaults = VoiceLexiconDefaults.load() else { return [] }
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let entry = defaults.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        })
+        return VoiceLexiconSupport.uniqueTerms(entry?.commandPrefixes ?? [])
     }
 
     static func defaultDictationPrefixes(for localeIdentifier: String) -> [String] {
-        let locale = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier).lowercased()
-        if locale.hasPrefix("zh") {
-            return ["输入", "写", "打字", "dictate"]
-        }
-        return ["dictate", "type", "input", "输入", "写"]
+        guard let defaults = VoiceLexiconDefaults.load() else { return [] }
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let entry = defaults.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        })
+        return VoiceLexiconSupport.uniqueTerms(entry?.dictationPrefixes ?? [])
     }
 
     static func effectiveCommandPrefixes(
@@ -1533,12 +1454,10 @@ final class VoiceCommandRouter {
         localeIdentifier: String,
         overrides: [VoiceCommandOverrideConfig]
     ) -> [String] {
-        let defaults = defaultAliases(for: preset, localeIdentifier: localeIdentifier)
-        if let override = overrideEntry(for: preset, localeIdentifier: localeIdentifier, overrides: overrides),
-           !override.aliases.isEmpty {
-            return uniqueAliases(override.aliases + defaults)
+        if let override = overrideEntry(for: preset, localeIdentifier: localeIdentifier, overrides: overrides) {
+            return uniqueAliases(override.aliases)
         }
-        return defaults
+        return defaultAliases(for: preset, localeIdentifier: localeIdentifier)
     }
 
     func contextualStrings(for localeIdentifier: String) -> [String] {

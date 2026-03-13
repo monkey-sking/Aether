@@ -468,13 +468,6 @@ final class PermissionsService: ObservableObject {
 
 @MainActor
 class AppState: ObservableObject {
-    struct VoiceLexiconBackup: Codable {
-        var version: Int = 1
-        var exportedAt: Date = Date()
-        var commandOverrides: [VoiceCommandOverrideConfig]
-        var languageTermsOverrides: [VoiceLanguageTermsOverrideConfig]
-    }
-
     struct SpeechTermGroupConfig: Codable, Identifiable, Equatable {
         var id: String
         var name: String
@@ -559,6 +552,25 @@ class AppState: ObservableObject {
     private static let minVoiceUsageHistoryLimit = 100
     private static let maxVoiceUsageHistoryLimit = 5000
 
+    @Published var appLanguageMode: AppLanguageMode = AppLocalization.storedAppLanguage() {
+        didSet {
+            guard oldValue != appLanguageMode else { return }
+            AppLocalization.setPreferredLanguage(appLanguageMode)
+            HUDManager.shared.showTemporary(
+                message: AppLocalization.localizedString("settings.app_language.restart_hint"),
+                icon: "arrow.clockwise"
+            )
+        }
+    }
+
+    var isChineseUI: Bool {
+        AppLocalization.isChinese
+    }
+
+    var appLocale: Locale {
+        Locale(identifier: AppLocalization.resolvedLocaleIdentifier)
+    }
+
     var appShortVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     }
@@ -621,8 +633,10 @@ class AppState: ObservableObject {
 
     private static func loadVoiceCommandOverrides() -> [VoiceCommandOverrideConfig] {
         guard let data = UserDefaults.standard.data(forKey: voiceCommandOverridesStorageKey),
-              let overrides = try? JSONDecoder().decode([VoiceCommandOverrideConfig].self, from: data) else {
-            return []
+              let overrides = try? JSONDecoder().decode([VoiceCommandOverrideConfig].self, from: data),
+              !overrides.isEmpty,
+              !containsMojibake(overrides) else {
+            return VoiceLexiconDefaults.load()?.commandOverrides ?? []
         }
         return overrides
     }
@@ -635,10 +649,30 @@ class AppState: ObservableObject {
 
     private static func loadVoiceLanguageTermsOverrides() -> [VoiceLanguageTermsOverrideConfig] {
         guard let data = UserDefaults.standard.data(forKey: voiceLanguageTermsOverridesStorageKey),
-              let overrides = try? JSONDecoder().decode([VoiceLanguageTermsOverrideConfig].self, from: data) else {
-            return []
+              let overrides = try? JSONDecoder().decode([VoiceLanguageTermsOverrideConfig].self, from: data),
+              !overrides.isEmpty,
+              !containsMojibake(overrides) else {
+            return VoiceLexiconDefaults.load()?.languageTermsOverrides ?? []
         }
         return overrides
+    }
+
+    private static func containsMojibake(_ overrides: [VoiceCommandOverrideConfig]) -> Bool {
+        overrides.contains { override in
+            override.aliases.contains(where: containsMojibake)
+        }
+    }
+
+    private static func containsMojibake(_ overrides: [VoiceLanguageTermsOverrideConfig]) -> Bool {
+        overrides.contains { override in
+            override.wakeWords.contains(where: containsMojibake) ||
+                override.commandPrefixes.contains(where: containsMojibake) ||
+                override.dictationPrefixes.contains(where: containsMojibake)
+        }
+    }
+
+    private static func containsMojibake(_ value: String) -> Bool {
+        value.contains("Ã") || value.contains("Â")
     }
 
     private static func saveVoiceLanguageTermsOverrides(_ overrides: [VoiceLanguageTermsOverrideConfig]) {
@@ -690,6 +724,40 @@ class AppState: ObservableObject {
 
     private static func clampVoiceUsageHistoryLimit(_ value: Int) -> Int {
         min(max(value, minVoiceUsageHistoryLimit), maxVoiceUsageHistoryLimit)
+    }
+
+    private static let aiPromptMaxEventsDefault = 180
+
+    func buildAetherAIConfigPrompt(maxEvents: Int? = nil) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+
+        let currentLexicon = VoiceLexiconBackup(
+            commandOverrides: voiceCommandOverrides,
+            languageTermsOverrides: voiceLanguageTermsOverrides
+        )
+        let lexiconJSON = (try? String(data: encoder.encode(currentLexicon), encoding: .utf8)) ?? "{}"
+
+        let resolvedMaxEvents = maxEvents ?? Self.aiPromptMaxEventsDefault
+        let recentEvents = Array(voiceUsageHistory.prefix(resolvedMaxEvents))
+        let usageJSON = (try? String(data: encoder.encode(recentEvents), encoding: .utf8)) ?? "[]"
+
+        let commandIDs = VoiceCommandPreset.allCases.map { $0.rawValue }.joined(separator: ", ")
+        let summary = voiceUsageSummary
+        let localeID = voiceService.effectiveLocaleIdentifier
+        let exportedAt = ISO8601DateFormatter().string(from: Date())
+
+        let template = AppLocalization.localizedString("ai.prompt.template")
+        return template
+            .replacingOccurrences(of: "{{COMMAND_IDS}}", with: commandIDs)
+            .replacingOccurrences(of: "{{CURRENT_LEXICON_JSON}}", with: lexiconJSON)
+            .replacingOccurrences(of: "{{USAGE_JSON}}", with: usageJSON)
+            .replacingOccurrences(of: "{{SUMMARY_TOTAL}}", with: String(summary.total))
+            .replacingOccurrences(of: "{{SUMMARY_DICTATION}}", with: String(summary.dictationCount))
+            .replacingOccurrences(of: "{{SUMMARY_CONTROL}}", with: String(summary.controlCount))
+            .replacingOccurrences(of: "{{LOCALE}}", with: localeID)
+            .replacingOccurrences(of: "{{EXPORTED_AT}}", with: exportedAt)
     }
 
     enum VoiceActivationMode: String, CaseIterable, Identifiable {
@@ -1032,7 +1100,7 @@ class AppState: ObservableObject {
         let resolvedBundleIdentifier = bundleIdentifier
             ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             ?? ""
-        let defaultTitle = Locale.current.identifier.hasPrefix("zh") ? "新动作" : "New Action"
+        let defaultTitle = AppLocalization.isChinese ? "新动作" : "New Action"
         customAppShortcutRules.insert(
             CustomAppShortcutRule(
                 bundleIdentifier: resolvedBundleIdentifier,
@@ -1091,12 +1159,15 @@ class AppState: ObservableObject {
     }
 
     func commandOverrideText(for preset: VoiceCommandPreset, localeIdentifier: String) -> String {
-        guard let override = voiceCommandOverrides.first(where: {
-            $0.localeIdentifier == localeIdentifier && $0.commandID == preset.rawValue
-        }) else {
-            return ""
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        if let override = voiceCommandOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical &&
+                $0.commandID == preset.rawValue
+        }) {
+            return override.aliases.joined(separator: ", ")
         }
-        return override.aliases.joined(separator: ", ")
+        let defaults = VoiceCommandRouter.defaultAliases(for: preset, localeIdentifier: canonical)
+        return defaults.joined(separator: ", ")
     }
 
     func updateCommandOverrideText(_ raw: String, for preset: VoiceCommandPreset, localeIdentifier: String) {
@@ -1105,15 +1176,15 @@ class AppState: ObservableObject {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
         voiceCommandOverrides.removeAll {
-            $0.localeIdentifier == localeIdentifier && $0.commandID == preset.rawValue
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical &&
+                $0.commandID == preset.rawValue
         }
-
-        guard !aliases.isEmpty else { return }
 
         voiceCommandOverrides.append(
             VoiceCommandOverrideConfig(
-                localeIdentifier: localeIdentifier,
+                localeIdentifier: canonical,
                 commandID: preset.rawValue,
                 aliases: aliases
             )
@@ -1121,14 +1192,29 @@ class AppState: ObservableObject {
     }
 
     func resetCommandOverrides(for localeIdentifier: String) {
-        voiceCommandOverrides.removeAll { $0.localeIdentifier == localeIdentifier }
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        voiceCommandOverrides.removeAll {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        }
+        if let defaults = VoiceLexiconDefaults.load() {
+            let entries = defaults.commandOverrides.filter {
+                VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+            }
+            voiceCommandOverrides.append(contentsOf: entries)
+        }
     }
 
     func wakeWordOverrideText(for localeIdentifier: String) -> String {
-        voiceLanguageTermsOverrides
-            .first(where: { $0.localeIdentifier == localeIdentifier })?
-            .wakeWords
-            .joined(separator: ", ") ?? ""
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        if let override = voiceLanguageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        }) {
+            return override.wakeWords.joined(separator: ", ")
+        }
+        let defaults = VoiceLexiconDefaults.load()?.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        })
+        return defaults?.wakeWords.joined(separator: ", ") ?? ""
     }
 
     func updateWakeWordOverrideText(_ raw: String, for localeIdentifier: String) {
@@ -1138,7 +1224,16 @@ class AppState: ObservableObject {
     }
 
     func resetVoiceLanguageTermsOverrides(for localeIdentifier: String) {
-        voiceLanguageTermsOverrides.removeAll { $0.localeIdentifier == localeIdentifier }
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        voiceLanguageTermsOverrides.removeAll {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        }
+        if let defaults = VoiceLexiconDefaults.load() {
+            let entries = defaults.languageTermsOverrides.filter {
+                VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+            }
+            voiceLanguageTermsOverrides.append(contentsOf: entries)
+        }
     }
 
     func exportVoiceLexicon() throws -> URL? {
@@ -1181,6 +1276,115 @@ class AppState: ObservableObject {
         return url
     }
 
+    func importVoiceLexiconFromPasteboard() throws -> Bool {
+        let pasteboard = NSPasteboard.general
+        guard let raw = pasteboard.string(forType: .string) else { return false }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let data = Data(trimmed.utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let payload = try decoder.decode(VoiceLexiconBackup.self, from: data)
+        mergeVoiceLexicon(payload)
+        return true
+    }
+
+    private func mergeVoiceLexicon(_ payload: VoiceLexiconBackup) {
+        voiceCommandOverrides = Self.mergeCommandOverrides(
+            existing: voiceCommandOverrides,
+            incoming: payload.commandOverrides
+        )
+        voiceLanguageTermsOverrides = Self.mergeLanguageTermsOverrides(
+            existing: voiceLanguageTermsOverrides,
+            incoming: payload.languageTermsOverrides
+        )
+    }
+
+    private static func mergeCommandOverrides(
+        existing: [VoiceCommandOverrideConfig],
+        incoming: [VoiceCommandOverrideConfig]
+    ) -> [VoiceCommandOverrideConfig] {
+        var result = existing
+        var indexByKey: [String: Int] = [:]
+        for (idx, item) in result.enumerated() {
+            let key = voiceCommandKey(locale: item.localeIdentifier, commandID: item.commandID)
+            indexByKey[key] = idx
+        }
+
+        for item in incoming {
+            let key = voiceCommandKey(locale: item.localeIdentifier, commandID: item.commandID)
+            if let idx = indexByKey[key] {
+                let merged = mergeAliases(base: result[idx].aliases, extra: item.aliases)
+                result[idx].aliases = merged
+            } else {
+                let cleaned = mergeAliases(base: [], extra: item.aliases)
+                let entry = VoiceCommandOverrideConfig(
+                    localeIdentifier: item.localeIdentifier,
+                    commandID: item.commandID,
+                    aliases: cleaned
+                )
+                indexByKey[key] = result.count
+                result.append(entry)
+            }
+        }
+        return result
+    }
+
+    private static func mergeLanguageTermsOverrides(
+        existing: [VoiceLanguageTermsOverrideConfig],
+        incoming: [VoiceLanguageTermsOverrideConfig]
+    ) -> [VoiceLanguageTermsOverrideConfig] {
+        var result = existing
+        var indexByKey: [String: Int] = [:]
+        for (idx, item) in result.enumerated() {
+            let key = canonicalLocaleKey(item.localeIdentifier)
+            indexByKey[key] = idx
+        }
+
+        for item in incoming {
+            let key = canonicalLocaleKey(item.localeIdentifier)
+            if let idx = indexByKey[key] {
+                var merged = result[idx]
+                merged.wakeWords = mergeAliases(base: merged.wakeWords, extra: item.wakeWords)
+                merged.commandPrefixes = mergeAliases(base: merged.commandPrefixes, extra: item.commandPrefixes)
+                merged.dictationPrefixes = mergeAliases(base: merged.dictationPrefixes, extra: item.dictationPrefixes)
+                result[idx] = merged
+            } else {
+                let entry = VoiceLanguageTermsOverrideConfig(
+                    localeIdentifier: item.localeIdentifier,
+                    wakeWords: mergeAliases(base: [], extra: item.wakeWords),
+                    commandPrefixes: mergeAliases(base: [], extra: item.commandPrefixes),
+                    dictationPrefixes: mergeAliases(base: [], extra: item.dictationPrefixes)
+                )
+                indexByKey[key] = result.count
+                result.append(entry)
+            }
+        }
+        return result
+    }
+
+    private static func mergeAliases(base: [String], extra: [String]) -> [String] {
+        VoiceLexiconSupport.uniqueTerms(base + extra)
+    }
+
+    private static func canonicalLocaleKey(_ raw: String) -> String {
+        VoiceLexiconSupport.canonicalLocaleIdentifier(raw).lowercased()
+    }
+
+    private static func voiceCommandKey(locale: String, commandID: String) -> String {
+        "\(canonicalLocaleKey(locale))::\(commandID)"
+    }
+
+    func exportAetherAIConfigPrompt() throws {
+        let prompt = buildAetherAIConfigPrompt()
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(prompt, forType: .string) else {
+            throw NSError(domain: "AetherPromptExport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to copy prompt to pasteboard."])
+        }
+    }
+
     private func parseVoiceTermsText(_ raw: String) -> [String] {
         raw
             .components(separatedBy: CharacterSet(charactersIn: ",\n"))
@@ -1192,23 +1396,25 @@ class AppState: ObservableObject {
         for localeIdentifier: String,
         mutate: (inout VoiceLanguageTermsOverrideConfig) -> Void
     ) {
-        var config = voiceLanguageTermsOverrides.first(where: { $0.localeIdentifier == localeIdentifier }) ??
-            VoiceLanguageTermsOverrideConfig(
-                localeIdentifier: localeIdentifier,
-                wakeWords: [],
-                commandPrefixes: [],
-                dictationPrefixes: []
-            )
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        var config = voiceLanguageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        }) ?? VoiceLexiconDefaults.load()?.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        }) ?? VoiceLanguageTermsOverrideConfig(
+            localeIdentifier: canonical,
+            wakeWords: [],
+            commandPrefixes: [],
+            dictationPrefixes: []
+        )
 
         mutate(&config)
 
-        voiceLanguageTermsOverrides.removeAll { $0.localeIdentifier == localeIdentifier }
-        config.commandPrefixes = []
-        config.dictationPrefixes = []
-        let hasAnyValues = !config.wakeWords.isEmpty
-        if hasAnyValues {
-            voiceLanguageTermsOverrides.append(config)
+        config.localeIdentifier = canonical
+        voiceLanguageTermsOverrides.removeAll {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
         }
+        voiceLanguageTermsOverrides.append(config)
     }
     
     func updatePTTBinding(_ binding: HotkeyBinding) {
@@ -1752,7 +1958,7 @@ class AppState: ObservableObject {
     private func recordVoiceDictation(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
         recordVoiceUsageEvent(
             kind: .dictation,
-            action: Locale.current.identifier.hasPrefix("zh") ? "输入" : "Dictation",
+            action: AppLocalization.isChinese ? "输入" : "Dictation",
             content: text,
             appName: appName,
             bundleIdentifier: bundleIdentifier
@@ -1790,7 +1996,7 @@ class AppState: ObservableObject {
            !bundleID.isEmpty {
             return (app.localizedName ?? bundleID, bundleID)
         }
-        let fallbackName = Locale.current.identifier.hasPrefix("zh") ? "未知应用" : "Unknown App"
+        let fallbackName = AppLocalization.isChinese ? "未知应用" : "Unknown App"
         return (appName ?? fallbackName, bundleIdentifier ?? "unknown.app")
     }
 
@@ -1806,7 +2012,7 @@ class AppState: ObservableObject {
     }
 
     private func shortcutPanelActionTitle(_ base: String) -> String {
-        Locale.current.identifier.hasPrefix("zh") ? "快捷面板 · \(base)" : "Shortcut Panel · \(base)"
+        AppLocalization.isChinese ? "快捷面板 · \(base)" : "Shortcut Panel · \(base)"
     }
 
     private func voiceIntentActionTitle(_ intent: VoiceIntent) -> String {
@@ -2509,7 +2715,7 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
+        AppLocalization.isChinese
     }
 
     private var normalizedSearchText: String {
@@ -3151,6 +3357,7 @@ struct AetherApp: App {
         Window("Aether", id: "main") {
             AetherMainView()
                 .environmentObject(appState)
+                .environment(\.locale, appState.appLocale)
         }
         .defaultSize(width: 1120, height: 760)
         .commands {
@@ -3159,6 +3366,7 @@ struct AetherApp: App {
         
         AetherMenuBar()
             .environmentObject(appState)
+            .environment(\.locale, appState.appLocale)
     }
 }
 

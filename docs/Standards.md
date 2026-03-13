@@ -30,3 +30,9 @@ feat(driver): initial implementation of virtual mouse
 ## 4. 语言规范
 *   **正文**: 简体中文 (Simplified Chinese)。
 *   **术语**: 严格使用英文原词 (e.g., DriverKit, gPTP, HID Descriptor)，不要强行翻译。
+
+## 5. 禁止硬编码 (No Hardcoded Copy)
+任何**面向用户**的文案、提示词、配置格式示例、导出模板，不允许写死在代码中。
+*   文案与模板必须放在 `Localizable.strings` 或资源文件中，并通过 key 引用。
+*   AI 提示词必须使用模板 + 占位符（如 `{{PLACEHOLDER}}`），由代码做替换。
+*   任何新增或修改文案，需同步更新对应的本地化资源与文档说明。
