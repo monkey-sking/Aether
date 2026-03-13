@@ -159,6 +159,16 @@ final class CaretDetector: ObservableObject {
         }) {
             eventMonitors.append(monitor)
         }
+
+        // Mouse Move (for HUD avoidance responsiveness in input mode)
+        if let monitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged],
+            handler: { _ in
+                HUDManager.shared.notifyPointerMoved()
+            }
+        ) {
+            eventMonitors.append(monitor)
+        }
         
         // Key Down
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] _ in
@@ -1012,7 +1022,9 @@ final class CaretDetector: ObservableObject {
     
     private func isSiriLike(appName: String?, bundleID: String?) -> Bool {
         if bundleID?.contains("apple.siri") == true { return true }
+        if bundleID?.lowercased().contains("spotlight") == true { return true }
         if appName?.lowercased().contains("siri") == true { return true }
+        if appName?.lowercased().contains("spotlight") == true { return true }
         return false
     }
     

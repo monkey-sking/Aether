@@ -52,7 +52,6 @@ final class MotionService: ObservableObject {
         HUDManager.shared.showTemporary(
             message: message,
             icon: "exclamationmark.triangle.fill",
-            duration: 1.6
         )
     }
 
@@ -100,9 +99,14 @@ final class VoiceService: ObservableObject {
         }
     }
 
-    var onIntent: ((VoiceIntent) -> Void)? {
+    var onIntent: ((VoiceIntent, String?, String?) -> Void)? {
         get { manager.onIntent }
         set { manager.onIntent = newValue }
+    }
+    
+    var onRecognitionFailure: ((String?, String?, String?, String?) -> Void)? {
+        get { manager.onRecognitionFailure }
+        set { manager.onRecognitionFailure = newValue }
     }
     
     var explicitLocaleIdentifier: String? {
@@ -529,6 +533,9 @@ class AppState: ObservableObject {
     struct VoiceUsageSummary {
         let total: Int
         let dictationCount: Int
+        let failureCount: Int
+        let unrecognizedCount: Int
+        let mismatchCount: Int
         let controlCount: Int
     }
 
@@ -538,6 +545,9 @@ class AppState: ObservableObject {
         let bundleIdentifier: String
         let total: Int
         let dictationCount: Int
+        let failureCount: Int
+        let unrecognizedCount: Int
+        let mismatchCount: Int
         let controlCount: Int
     }
 
@@ -1054,29 +1064,50 @@ class AppState: ObservableObject {
 
     var voiceUsageSummary: VoiceUsageSummary {
         var dictation = 0
+        var failure = 0
+        var unrecognized = 0
+        var mismatch = 0
         var control = 0
         for entry in voiceUsageHistory {
-            switch entry.kind {
-            case .dictation:
+            if isVoiceUsageSuccessfulDictation(entry) {
                 dictation += 1
-            case .control:
+            } else if isVoiceUsageFailure(entry) {
+                failure += 1
+            } else if isVoiceUsageUnrecognized(entry) {
+                unrecognized += 1
+            } else if isVoiceUsageHUDControlMismatch(entry) {
+                mismatch += 1
+            } else if entry.kind == .control {
                 control += 1
             }
         }
-        return VoiceUsageSummary(total: voiceUsageHistory.count, dictationCount: dictation, controlCount: control)
+        return VoiceUsageSummary(
+            total: voiceUsageHistory.count,
+            dictationCount: dictation,
+            failureCount: failure,
+            unrecognizedCount: unrecognized,
+            mismatchCount: mismatch,
+            controlCount: control
+        )
     }
 
     var voiceUsageAppSummaries: [VoiceUsageAppSummary] {
         let grouped = Dictionary(grouping: voiceUsageHistory) { $0.bundleIdentifier }
         let summaries = grouped.map { bundleID, entries -> VoiceUsageAppSummary in
-            let dictationCount = entries.filter { $0.kind == .dictation }.count
-            let controlCount = entries.count - dictationCount
+            let dictationCount = entries.filter(isVoiceUsageSuccessfulDictation).count
+            let failureCount = entries.filter(isVoiceUsageFailure).count
+            let unrecognizedCount = entries.filter(isVoiceUsageUnrecognized).count
+            let mismatchCount = entries.filter(isVoiceUsageHUDControlMismatch).count
+            let controlCount = entries.filter { $0.kind == .control }.count
             let appName = entries.first?.appName ?? bundleID
             return VoiceUsageAppSummary(
                 appName: appName,
                 bundleIdentifier: bundleID,
                 total: entries.count,
                 dictationCount: dictationCount,
+                failureCount: failureCount,
+                unrecognizedCount: unrecognizedCount,
+                mismatchCount: mismatchCount,
                 controlCount: controlCount
             )
         }
@@ -1090,6 +1121,31 @@ class AppState: ObservableObject {
 
     func clearVoiceUsageHistory() {
         voiceUsageHistory = []
+    }
+
+    private func isVoiceUsageSuccessfulDictation(_ entry: VoiceUsageEvent) -> Bool {
+        guard entry.kind == .dictation else { return false }
+        return entry.action == "输入" || entry.action == "Dictation"
+    }
+
+    private func isVoiceUsageFailure(_ entry: VoiceUsageEvent) -> Bool {
+        guard entry.kind == .dictation else { return false }
+        return entry.action == "识别失败"
+            || entry.action == "Recognition Failed"
+            || entry.action == "注入失败"
+            || entry.action == "Injection Failed"
+            || entry.action == "注入未验证"
+            || entry.action == "Injection Unverified"
+    }
+
+    private func isVoiceUsageUnrecognized(_ entry: VoiceUsageEvent) -> Bool {
+        guard entry.kind == .dictation else { return false }
+        return entry.action == "未识别" || entry.action == "Unrecognized"
+    }
+
+    private func isVoiceUsageHUDControlMismatch(_ entry: VoiceUsageEvent) -> Bool {
+        guard entry.kind == .dictation else { return false }
+        return entry.action == "控制模式下输入" || entry.action == "Dictation While HUD Control"
     }
 
     func mergedFrontmostAppCommandSnapshot(_ snapshot: FrontmostAppCommandSnapshot?) -> FrontmostAppCommandSnapshot? {
@@ -1385,6 +1441,23 @@ class AppState: ObservableObject {
         }
     }
 
+    func copyVoiceUsageHistoryForDiagnostics() throws {
+        let summary = voiceUsageSummary
+        let localeID = voiceService.effectiveLocaleIdentifier
+        let summaryLine = AppLocalization.isChinese
+            ? "使用统计（总计=\(summary.total) 输入=\(summary.dictationCount) 控制=\(summary.controlCount) locale=\(localeID)）："
+            : "Usage Stats (total=\(summary.total) dictation=\(summary.dictationCount) control=\(summary.controlCount) locale=\(localeID)):"
+        let payload = try voiceUsageHistoryExportString(
+            summary: summaryLine,
+            events: voiceUsageHistory
+        )
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(payload, forType: .string) else {
+            throw NSError(domain: "AetherUsageHistoryExport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to copy usage history to pasteboard."])
+        }
+    }
+
     private func parseVoiceTermsText(_ raw: String) -> [String] {
         raw
             .components(separatedBy: CharacterSet(charactersIn: ",\n"))
@@ -1415,6 +1488,18 @@ class AppState: ObservableObject {
             VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
         }
         voiceLanguageTermsOverrides.append(config)
+    }
+
+    private func voiceUsageHistoryExportString(
+        summary: String,
+        events: [VoiceUsageEvent]
+    ) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(events)
+        let json = String(decoding: data, as: UTF8.self)
+        return "\(summary)\n\(json)"
     }
     
     func updatePTTBinding(_ binding: HotkeyBinding) {
@@ -1568,10 +1653,19 @@ class AppState: ObservableObject {
             .assign(to: &$nowPlayingStatus)
 
 
-        voiceService.onIntent = { [weak self] intent in
+        voiceService.onIntent = { [weak self] intent, appName, bundleIdentifier in
             guard let self else { return }
             DispatchQueue.main.async {
-                self.applyVoiceIntent(intent)
+                self.applyVoiceIntent(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            }
+        }
+        
+        voiceService.onRecognitionFailure = { [weak self] transcript, reason, appName, bundleIdentifier in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                let trimmed = transcript?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let content = (trimmed?.isEmpty == false) ? trimmed : nil
+                self.recordVoiceFailure(content, reason: reason, appName: appName, bundleIdentifier: bundleIdentifier)
             }
         }
 
@@ -1812,41 +1906,45 @@ class AppState: ObservableObject {
         )
     }
 
-    private func applyVoiceIntent(_ intent: VoiceIntent) {
+    private func applyVoiceIntent(
+        _ intent: VoiceIntent,
+        appName: String? = nil,
+        bundleIdentifier: String? = nil
+    ) {
         GlobalLogger.lifecycle.info("[VoiceIntent] execute \(voiceIntentActionTitle(intent))")
         switch intent {
         case .clickLeft:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=clickLeft")
             motionService.clickLeft()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .clickRight:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=clickRight")
             motionService.clickRight()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .doubleClick:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=doubleClick")
             motionService.doubleClick()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .toggleInputControlMode:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleInputControlMode")
             toggleRecognitionInputControlMode()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .toggleTracking:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleTracking")
             toggleMotionTracking()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .toggleLanguage:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleLanguage")
             NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .toggleConnectionLock:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleConnectionLock")
             connectionLock.toggle()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .toggleShortcutPanel:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleShortcutPanel")
             toggleShortcutPanel(activateApp: false, focusSearchField: false)
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .mediaPlayPause:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=mediaPlayPause")
             nowPlayingService.togglePlayPause()
@@ -1874,23 +1972,23 @@ class AppState: ObservableObject {
         case .showShortcutPanel:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=showShortcutPanel")
             showShortcutPanel(activateApp: false, focusSearchField: false)
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .hideShortcutPanel:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=hideShortcutPanel")
             hideShortcutPanel()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .startPointer:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=startPointer")
             motionService.startTracking()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .stopPointer:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=stopPointer")
             motionService.stopTracking()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .recenter:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=recenter")
             motionService.recenter()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .frontmostAppCommand(let command):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=frontmostAppCommand title=\(command.title) shortcut=\(command.shortcut.displayString) pid=\(command.processIdentifier)")
             AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: command.processIdentifier)
@@ -1902,42 +2000,56 @@ class AppState: ObservableObject {
         case .scroll(let dx, let dy):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=scroll dx=\(dx) dy=\(dy)")
             motionService.scroll(dx: dx, dy: dy)
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .scrollToWeb(let edge):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=scrollToWeb edge=\(edge)")
             if edge == "top" { motionService.scrollToTop() }
             else { motionService.scrollToBottom() }
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .dragStart:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=dragStart")
             motionService.dragStart()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .dragEnd:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=dragEnd")
             motionService.dragEnd()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .undo:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=undo")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .paste:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=paste")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .lockConnection:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=lockConnection")
             connectionLock.lock()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .unlockConnection:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=unlockConnection")
             connectionLock.unlock()
-            recordVoiceControl(intent)
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .dictation(let text):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=dictation text=\(text)")
-            recordVoiceDictation(text)
+            if HUDManager.shared.state.recognitionControlMode == .command {
+                GlobalLogger.lifecycle.info("[VoiceIntent] hud_control_mismatch text=\(text)")
+                recordVoiceDictationWhileHUDControl(text, appName: appName, bundleIdentifier: bundleIdentifier)
+            } else {
+                recordVoiceDictation(text, appName: appName, bundleIdentifier: bundleIdentifier)
+            }
         case .unknown:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=unknown")
-            recordVoiceControl(intent)
+            if case .unknown(let transcript) = intent {
+                let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    recordVoiceUnrecognized(trimmed, appName: appName, bundleIdentifier: bundleIdentifier)
+                } else {
+                    recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+                }
+            } else {
+                recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            }
         }
     }
 
@@ -1959,6 +2071,49 @@ class AppState: ObservableObject {
         recordVoiceUsageEvent(
             kind: .dictation,
             action: AppLocalization.isChinese ? "输入" : "Dictation",
+            content: text,
+            appName: appName,
+            bundleIdentifier: bundleIdentifier
+        )
+    }
+    
+    private func recordVoiceDictationWhileHUDControl(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
+        recordVoiceUsageEvent(
+            kind: .dictation,
+            action: AppLocalization.isChinese ? "控制模式下输入" : "Dictation While HUD Control",
+            content: text,
+            appName: appName,
+            bundleIdentifier: bundleIdentifier
+        )
+    }
+    
+    private func recordVoiceUnrecognized(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
+        recordVoiceUsageEvent(
+            kind: .dictation,
+            action: AppLocalization.isChinese ? "未识别" : "Unrecognized",
+            content: text,
+            appName: appName,
+            bundleIdentifier: bundleIdentifier
+        )
+    }
+    
+    private func recordVoiceFailure(
+        _ text: String?,
+        reason: String? = nil,
+        appName: String? = nil,
+        bundleIdentifier: String? = nil
+    ) {
+        let action: String
+        if reason == "invalid-input-target" || reason == "post-injection-mismatch" {
+            action = AppLocalization.isChinese ? "注入失败" : "Injection Failed"
+        } else if reason == "post-injection-unverified" {
+            action = AppLocalization.isChinese ? "注入未验证" : "Injection Unverified"
+        } else {
+            action = AppLocalization.isChinese ? "识别失败" : "Recognition Failed"
+        }
+        recordVoiceUsageEvent(
+            kind: .dictation,
+            action: action,
             content: text,
             appName: appName,
             bundleIdentifier: bundleIdentifier
@@ -3128,7 +3283,6 @@ private struct CurrentAppShortcutPanelView: View {
                 HUDManager.shared.showTemporary(
                     message: isChinese ? "按住说话请继续使用快捷键" : "Use the hold-to-talk hotkey",
                     recognitionControlMode: .auto,
-                    duration: 0.9
                 )
             }
         }

@@ -23,13 +23,17 @@ struct HUDView: View {
                     .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
                     .fixedSize()
                 contextIcon
-                languageToggle(showDivider: true)
+                if state.isLanguageIndicatorVisible {
+                    languageToggle(showDivider: true)
+                }
 
             case .command:
                 if state.message.isEmpty {
                     micIcon
                     contextIcon
-                    languageToggle(showDivider: true)
+                    if state.isLanguageIndicatorVisible {
+                        languageToggle(showDivider: true)
+                    }
                 } else {
                     micIcon
                     Text(state.message)
@@ -38,14 +42,18 @@ struct HUDView: View {
                         .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
                         .fixedSize()
                     contextIcon
-                    languageToggle(showDivider: true)
+                    if state.isLanguageIndicatorVisible {
+                        languageToggle(showDivider: true)
+                    }
                 }
 
             case .dictation:
                 micIcon
                 WaveformView(level: state.audioLevel)
                 contextIcon
-                languageToggle(showDivider: true)
+                if state.isLanguageIndicatorVisible {
+                    languageToggle(showDivider: true)
+                }
 
             case .processing:
                 Image(systemName: "ellipsis")

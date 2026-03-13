@@ -1313,7 +1313,6 @@ class HeadMotionManager: ObservableObject {
         if showPostureGuideBeforeTracking {
             HUDManager.shared.showTemporary(
                 message: String(localized: "headset.hud.posture_guide"),
-                duration: baseDelay
             )
         }
 
@@ -1323,7 +1322,6 @@ class HeadMotionManager: ObservableObject {
             guard self.motionManager.isDeviceMotionAvailable else {
                 HUDManager.shared.showTemporary(
                     message: String(localized: "headset.hud.unsupported"),
-                    duration: 0.95
                 )
                 return
             }
@@ -1488,7 +1486,6 @@ class HeadMotionManager: ObservableObject {
             HUDManager.shared.showTemporary(
                 message: message,
                 recognitionControlMode: .command,
-                duration: 0.75
             )
             os_log("Recognition Mode Toggle blocked (%{public}@, persist=%{public}@): no input focus",
                    log: log, type: .info, source, persist ? "yes" : "no")
@@ -1507,7 +1504,6 @@ class HeadMotionManager: ObservableObject {
         HUDManager.shared.showTemporary(
             message: message,
             recognitionControlMode: nextMode.hudMode,
-            duration: 0.8
         )
         if isCommandMode && !isTracking {
             os_log("Control mode toggled while tracking inactive; starting tracking", log: log, type: .info)
@@ -1570,7 +1566,6 @@ class HeadMotionManager: ObservableObject {
         guard let action = configuredAction.hotkeyAction else {
             HUDManager.shared.showTemporary(
                 message: String(format: String(localized: "headset.hud.no_action_assigned_fmt"), kind.label),
-                duration: 0.8
             )
             return
         }
@@ -1586,7 +1581,6 @@ class HeadMotionManager: ObservableObject {
         guard let action = configuredAction.hotkeyAction else {
             HUDManager.shared.showTemporary(
                 message: String(format: String(localized: "head_gesture.hud.no_action_assigned_fmt"), kind.label),
-                duration: 0.8
             )
             return
         }
@@ -1602,7 +1596,6 @@ class HeadMotionManager: ObservableObject {
             HUDManager.shared.showTemporary(
                 message: String(localized: "headset.hud.connection_lock"),
                 icon: "lock.fill",
-                duration: 0.8
             )
             NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
         case .toggleInputControlMode:
@@ -1614,7 +1607,6 @@ class HeadMotionManager: ObservableObject {
         case .pushToTalk:
             HUDManager.shared.showTemporary(
                 message: String(localized: "headset.hud.push_to_talk_unsupported"),
-                duration: 0.8
             )
         }
     }
@@ -1646,7 +1638,6 @@ class HeadMotionManager: ObservableObject {
             HUDManager.shared.showTemporary(
                 message: String(localized: "headset.hud.stop_tracking"),
                 icon: "stop.fill",
-                duration: 0.8
             )
             stopTracking()
         } else {
@@ -1654,7 +1645,6 @@ class HeadMotionManager: ObservableObject {
             HUDManager.shared.showTemporary(
                 message: String(localized: "headset.hud.start_tracking"),
                 icon: "play.fill",
-                duration: 0.8
             )
             startTracking()
         }
@@ -1683,7 +1673,6 @@ class HeadMotionManager: ObservableObject {
         HUDManager.shared.showTemporary(
             message: message,
             recognitionControlMode: .command,
-            duration: 0.8
         )
         os_log("Recognition Mode escape exit (%{public}@): mode=%{public}@",
                log: log, type: .info, source, effectiveRecognitionControlMode.rawValue)

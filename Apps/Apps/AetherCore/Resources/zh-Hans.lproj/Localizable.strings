@@ -149,7 +149,7 @@
 
 /* HUD 提示与错误 */
 "speech.no_matching_command" = "未匹配到控制命令";
-"speech.no_editable_field" = "未检测到可输入文本框";
+"speech.no_editable_field" = "未检测到输入框";
 "speech.undo_done" = "已撤销";
 "speech.pasted_cmdv" = "已粘贴 (Cmd+V)";
 "speech.bilingual_switch_unsupported" = "仅双语模式支持切换";
@@ -351,9 +351,12 @@
 "headset.status.connection_failed" = "连接失败";
 "headset.status.stopped" = "已停止";
 "insights.copy_ai_prompt" = "复制 AI 提示词";
+"insights.copy_diagnostic_history_failed" = "复制诊断历史失败";
+"insights.copy_diagnostic_history_done" = "已复制诊断历史";
+"insights.copy_diagnostic_history" = "复制诊断历史";
 "insights.copy_ai_prompt_done" = "已复制 AI 提示词";
-"insights.export_ai_prompt" = "复制 AI 提示词";
-"insights.export_ai_prompt_done" = "已复制到剪贴板";
+"insights.export_ai_prompt" = "复制 AI 分析提示";
+"insights.export_ai_prompt_done" = "已复制 AI 分析提示";
 "insights.export_ai_prompt_failed" = "复制失败";
 "insights.usage_description" = "默认关闭。开启后仅在本机记录语音识别内容与所在 App，用于生成可导入的词库/命令建议。";
 "ai.prompt.template" = "你是 Aether 配置顾问。目标：基于下面的语音使用历史，生成可直接导入 Aether 的语音词库配置，用于提升识别准确率与命令覆盖。\n\n只输出 JSON（不要 Markdown、不要解释）。JSON 必须严格符合 AetherVoiceLexicon 格式：\n{\n  \"version\": 1,\n  \"exportedAt\": \"{{EXPORTED_AT}}\",\n  \"commandOverrides\": [\n    { \"localeIdentifier\": \"zh-CN\", \"commandID\": \"scrollDown\", \"aliases\": [\"向下滚\", \"往下\"] }\n  ],\n  \"languageTermsOverrides\": [\n    { \"localeIdentifier\": \"zh-CN\", \"wakeWords\": [\"艾瑟\", \"以太\"], \"commandPrefixes\": [], \"dictationPrefixes\": [] }\n  ]\n}\n\n说明：\n- commandOverrides.aliases 会与默认别名合并（只需给新增别名）。\n- commandID 可用值：{{COMMAND_IDS}}\n- 语言 localeIdentifier 建议用 zh-CN / en-US 等标准值。\n\n当前配置（AetherVoiceLexicon JSON）：\n{{CURRENT_LEXICON_JSON}}\n\n使用统计（总计={{SUMMARY_TOTAL}} 输入={{SUMMARY_DICTATION}} 控制={{SUMMARY_CONTROL}} locale={{LOCALE}}）：\n{{USAGE_JSON}}\n";

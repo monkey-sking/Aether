@@ -72,6 +72,9 @@ enum AXFocusedTypingContextDetector {
         }()
 
         let editableLikely: Bool = {
+            if insertionContextAvailable && editableEvidence {
+                return true
+            }
             if directEditableRoles.contains(role) { return true }
             if role == kAXTextAreaRole as String {
                 return hasInsertionContextOnFocus || hasEditableAncestor || hasSettableValue
@@ -292,6 +295,7 @@ final class HUDManager {
     private let pointerFollowThrottleInterval: TimeInterval = 1.0 / 50.0
     private var lastPointerFollowAt: Date = .distantPast
     private var lastPointerMoveAt: Date = .distantPast
+    private var typingMouseAvoidUntil: Date = .distantPast
     private var lastGoodTypingRect: CGRect?
     private var lastGoodTypingRectAt: Date = .distantPast
     private var lastInputInteractionPoint: CGPoint?
@@ -484,19 +488,29 @@ final class HUDManager {
         language: String? = nil,
         recognitionControlMode: HUDRecognitionControlMode = .auto,
         icon: String? = nil,
-        duration: TimeInterval = 2.0
+        duration: TimeInterval? = nil
     ) {
         let token = UUID()
         activeTemporaryFallbackSnapshot = activeTemporaryFallbackSnapshot ?? lastPersistentSnapshot
+        let fallbackControlMode = lastPersistentSnapshot?.recognitionControlMode ?? state.recognitionControlMode
+        let controlMode: HUDRecognitionControlMode
+        switch recognitionControlMode {
+        case .auto:
+            controlMode = fallbackControlMode
+        case .command, .dictation:
+            // Do not let temporary toasts override the active control mode.
+            controlMode = lastPersistentSnapshot == nil ? recognitionControlMode : fallbackControlMode
+        }
         update(
             mode: .command,
             message: message,
             language: language ?? state.language,
-            recognitionControlMode: recognitionControlMode,
+            recognitionControlMode: controlMode,
             inputDeviceIcon: icon ?? state.inputDeviceIcon,
             lifetime: .temporary(token)
         )
-        scheduleHide(delay: max(0.4, duration), token: token)
+        let resolvedDuration = duration ?? suggestedTemporaryDuration(for: message)
+        scheduleHide(delay: max(0.4, resolvedDuration), token: token)
     }
     
     func hide() {
@@ -528,19 +542,51 @@ final class HUDManager {
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0.4, duration), execute: task)
     }
 
+    func suggestedTemporaryDuration(for message: String) -> TimeInterval {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return 1.0 }
+
+        let base: TimeInterval = 1.0
+        let maxDuration: TimeInterval = 3.8
+
+        // Heuristic: if any ASCII letters present, treat as English-ish; otherwise Chinese-ish.
+        let isEnglishLike = trimmed.unicodeScalars.contains { $0.isASCII && CharacterSet.letters.contains($0) }
+        if isEnglishLike {
+            let words = trimmed.split { $0.isWhitespace || $0.isNewline }.count
+            let extraWords = max(0, words - 3)
+            let duration = base + (Double(extraWords) / 3.0) // ~180 wpm
+            return min(max(duration, base), maxDuration)
+        } else {
+            let chars = trimmed.count
+            let extraChars = max(0, chars - 6)
+            let duration = base + (Double(extraChars) / 4.0) // ~240 chars/min
+            return min(max(duration, base), maxDuration)
+        }
+    }
+
     func notifyPointerMoved() {
         if !Thread.isMainThread {
             DispatchQueue.main.async { self.notifyPointerMoved() }
             return
         }
+        let now = Date()
+        lastPointerMoveAt = now
 
         guard state.mode != .hidden else { return }
-        guard !state.isTypingContext else { return }
+        if state.isTypingContext {
+            guard let panel = hudWindow, panel.isVisible else { return }
+            let mouseLoc = currentCursorLocation()
+            if panel.frame.insetBy(dx: -6, dy: -6).contains(mouseLoc) {
+                typingMouseAvoidUntil = now.addingTimeInterval(0.3)
+                guard now.timeIntervalSince(lastPointerFollowAt) >= 0.06 else { return }
+                lastPointerFollowAt = now
+                requestReposition(immediate: true)
+            }
+            return
+        }
 
-        let now = Date()
         guard now.timeIntervalSince(lastPointerFollowAt) >= pointerFollowThrottleInterval else { return }
         lastPointerFollowAt = now
-        lastPointerMoveAt = now
         requestReposition(immediate: true)
     }
 
@@ -665,6 +711,12 @@ final class HUDManager {
 
         let axEvaluation = axTypingEvaluationThrottled(now: now)
         let axEditableLikely = axEvaluation.editableLikely
+        if axEvaluation.insertionContextAvailable,
+           (axEvaluation.hasEditableAttribute || axEvaluation.hasSettableValue || axEvaluation.hasEditableAncestor) {
+            requiresExplicitTypingReentry = false
+            explicitTypingReentryBundleID = nil
+            return true
+        }
 
         // Geometry-first fallback (works better for browser/webview inputs where AX role is often AXWebArea/AXGroup).
         if axCaretRectThrottled() != nil, axEditableLikely || axEvaluation.insertionContextAvailable {
@@ -1330,6 +1382,11 @@ final class HUDManager {
             if let r = typingRect, isTopBarInputRect(r) {
                 preferBelowInput = true
                 preferAboveInput = false
+            } else if let r = typingRect, r.height >= 54 || r.width >= 420 {
+                // Large compose boxes should prefer staying above the input area so the HUD
+                // does not cover the newest typed text near the caret.
+                preferAboveInput = true
+                preferBelowInput = false
             }
         }
 
@@ -1497,18 +1554,29 @@ final class HUDManager {
         
         // [Legacy] Avoidance Zones
         var zones: [CGRect] = []
-        // Avoid Mouse
-        zones.append(CGRect(x: mouseLoc.x - 15, y: mouseLoc.y - 15, width: 30, height: 30))
-        
-        // Avoid Caret itself (Legacy: caret.insetBy(dx: -5, dy: -2))
-        if let caret = update.caretRect {
-            zones.append(caret.insetBy(dx: -5, dy: -2))
-        }
-        
-        // Avoid Input Context (Text Area)
-        if layoutTypingMode, let inputRect = typingRect ?? update.inputRect {
-             // Legacy used -8, -6
-             zones.append(inputRect.insetBy(dx: -8, dy: -6))
+        let isInputMode = state.recognitionControlMode != .command
+        let hasRecentCaretSignal = update.caretRect != nil || detector.recentCaretRect() != nil
+        let hasRecentTypingSignal = hasRecentCaretSignal || now.timeIntervalSince(lastInputInteractionAt) < 1.0
+        let shouldAvoidMouse = isInputMode && uiTypingMode && now < typingMouseAvoidUntil
+        let shouldAvoidTypingContext = isInputMode && uiTypingMode && hasRecentTypingSignal
+
+        if shouldAvoidMouse || shouldAvoidTypingContext || (uiTypingMode && layoutTypingMode && typingRect != nil) {
+            // Avoid Mouse
+            if shouldAvoidMouse {
+                zones.append(CGRect(x: mouseLoc.x - 15, y: mouseLoc.y - 15, width: 30, height: 30))
+            }
+
+            // Avoid Caret itself (Legacy: caret.insetBy(dx: -5, dy: -2))
+            if shouldAvoidTypingContext, let caret = update.caretRect {
+                zones.append(caret.insetBy(dx: -5, dy: -2))
+            }
+
+            // Avoid Input Context (Text Area)
+            if layoutTypingMode, let inputRect = typingRect ?? update.inputRect {
+                 // Keep the HUD fully outside the active input region, even when caret
+                 // updates are sparse, so the newest typed characters remain visible.
+                 zones.append(inputRect.insetBy(dx: -14, dy: -12))
+            }
         }
         
         for (cand, _) in candidates {
