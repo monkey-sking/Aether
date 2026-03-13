@@ -52,13 +52,28 @@ final class SpeechManager: ObservableObject {
         let llmEnhancementEnabled: Bool; let originSessionGeneration: Int; let utteranceID: Int
         let sessionTypingMode: Bool; let streamedTextSnapshot: String; let screenTypedCount: Int
         let targetPID: pid_t?; let targetBundleID: String?; let targetElementFingerprint: String?
+        let verificationSnapshot: InputVerificationSnapshot?
     }
     private struct ProcessedJob: Sendable {
         let seq: Int; let intent: VoiceIntent; let localeIdentifier: String
         let originSessionGeneration: Int; let utteranceID: Int
         let sessionTypingMode: Bool; let streamedTextSnapshot: String; let screenTypedCount: Int
         let targetPID: pid_t?; let targetBundleID: String?; let targetElementFingerprint: String?
+        let verificationSnapshot: InputVerificationSnapshot?
         let diagnostics: String?
+    }
+    private struct InputVerificationSnapshot: Sendable {
+        let pid: pid_t
+        let bundleID: String?
+        let elementFingerprint: String?
+        let valueText: String?
+        let selectedRangeLocation: Int?
+        let selectedRangeLength: Int?
+    }
+    private enum DictationVerificationResult {
+        case success
+        case mismatch
+        case unverified
     }
     private actor IntentPipeline {
         private var nextSeq: Int = 0; private var expectedSeq: Int = 0
@@ -124,7 +139,8 @@ final class SpeechManager: ObservableObject {
     private let injector = TextInjector()
 
     // MARK: - Internal State
-    var onIntent: ((VoiceIntent) -> Void)?
+    var onIntent: ((VoiceIntent, String?, String?) -> Void)?
+    var onRecognitionFailure: ((String?, String?, String?, String?) -> Void)?
     var llmProvider: LLMProvider?
     private let speechLocaleStorageKey = "speechLocaleIdentifier"
     private let speechLanguageModeStorageKey = "speechLanguageMode"
@@ -556,7 +572,7 @@ final class SpeechManager: ObservableObject {
         recognitionSession.onPartial = { [weak self] text in self?.handlePartial(text) }
         recognitionSession.onFinal = { [weak self] text in self?.handleFinalResult(text) }
         recognitionSession.onError = { [weak self] error, isRecoverable in self?.handleRecognitionError(error, isRecoverable: isRecoverable) }
-        commandHandler.onIntent = { [weak self] intent in self?.onIntent?(intent) }
+        commandHandler.onIntent = { [weak self] intent in self?.onIntent?(intent, nil, nil) }
 
         HeadMotionManager.shared.$isLookingAtScreen.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] isLooking in
             if isLooking && HeadMotionManager.shared.isTracking { self?.playWakeSound(reason: "look-at-screen") }
@@ -660,7 +676,6 @@ final class SpeechManager: ObservableObject {
                     : "Bilingual mode only",
                 recognitionControlMode: hudRecognitionControlMode,
                 icon: "globe",
-                duration: 1.0
             )
             return
         }
@@ -756,7 +771,7 @@ final class SpeechManager: ObservableObject {
         recognitionSession.cancel()
 
         if let hint = missingVoicePermissionHint() {
-            setHUDOverride(mode: .command, message: hint.message, icon: hint.icon, duration: 1.4)
+            setHUDOverride(mode: .command, message: hint.message, icon: hint.icon, duration: nil)
             refreshContinuousHUD(); return
         }
 
@@ -778,7 +793,7 @@ final class SpeechManager: ObservableObject {
         lastAdaptiveSampleAt = .distantPast
         metrics.sessions += 1
         lockSessionInputTarget()
-        dictationHandler.reset(targetPID: sessionTargetPID)
+        dictationHandler.reset(targetPID: preferredTypingInjectionTargetPID(sessionTargetPID, bundleID: sessionTargetBundleID))
         dictationHandler.llmProvider = llmProvider
         dictationHandler.isLLMEnhancementEnabled = isLLMEnhancementEnabled
 
@@ -863,9 +878,10 @@ final class SpeechManager: ObservableObject {
         }
 
         text = normalizeRecognizedText(text)
+        let controlMode = recognitionControlMode
         if !originalRawText.isEmpty || !text.isEmpty {
             GlobalLogger.speech.info(
-                "[ASR Partial] raw='\(originalRawText)' normalized='\(text)' wakeDetected=\(wakeWordDetected) mode=\(recognitionControlMode.rawValue) locale=\(activeLocale.identifier)"
+                "[ASR Partial] raw='\(originalRawText)' normalized='\(text)' wakeDetected=\(wakeWordDetected) mode=\(controlMode.rawValue) locale=\(activeLocale.identifier)"
             )
         }
         let isWakeGatedStandby = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled && !isAwake
@@ -896,7 +912,7 @@ final class SpeechManager: ObservableObject {
         }
         if !hasPayload && isUtteranceActive { isUtteranceActive = false }
 
-        if recognitionControlMode != .command {
+        if controlMode != .command {
             syncSessionInputTargetFromCurrentFocus(resetDictationStream: dictationHandler.screenTypedText.isEmpty)
         }
 
@@ -977,8 +993,9 @@ final class SpeechManager: ObservableObject {
     private func handleFinalResult(_ text: String) {
         let normalized = normalizeRecognizedText(text)
         os_log("isFinal received: '%{public}@'", log: log, type: .info, text)
+        let controlMode = recognitionControlMode
         GlobalLogger.speech.info(
-            "[ASR Final] raw='\(text)' normalized='\(normalized)' mode=\(recognitionControlMode.rawValue) typing=\(sessionTypingMode) locale=\(activeLocale.identifier)"
+            "[ASR Final] raw='\(text)' normalized='\(normalized)' mode=\(controlMode.rawValue) typing=\(sessionTypingMode) locale=\(activeLocale.identifier)"
         )
         finalizationWorkItem?.cancel(); finalizationWorkItem = nil
         eosDetector.noteUtteranceEnded()
@@ -989,6 +1006,12 @@ final class SpeechManager: ObservableObject {
     }
 
     private func handleRecognitionError(_ error: Error, isRecoverable: Bool) {
+        let trimmed = lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let failedTranscript = trimmed.isEmpty ? nil : trimmed
+        let appName = NSWorkspace.shared.frontmostApplication?.localizedName
+        let bundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        onRecognitionFailure?(failedTranscript, error.localizedDescription, appName, bundleIdentifier)
+
         beginTypingRecoveryHold(reason: isRecoverable ? "recognition-recoverable-error" : "recognition-fatal-error")
         if isRecoverable {
             noteRecoverableHeadsetVoiceProcessingFailure(reason: "recognition-recoverable-error")
@@ -1441,13 +1464,17 @@ final class SpeechManager: ObservableObject {
     private func enqueueIntentForParallelExecution(_ intent: VoiceIntent, typingContext: Bool, utteranceID: Int, originSessionGeneration: Int) {
         let localeID = activeLocale.identifier
         let fallback: FocusedInputSnapshot? = typingContext && (sessionTargetPID == nil || sessionTargetPID == 0) ? currentFocusedInputSnapshot() : nil
-        let pid = typingContext ? (sessionTargetPID ?? fallback?.pid) : nil
+        let resolvedPID = typingContext ? (sessionTargetPID ?? fallback?.pid) : nil
         let bid = typingContext ? (sessionTargetBundleID ?? fallback?.bundleID) : nil
         let fp = typingContext ? (sessionTargetElementFingerprint ?? fallback?.elementFingerprint) : nil
+        let pid = typingContext
+            ? preferredTypingInjectionTargetPID(resolvedPID, bundleID: bid)
+            : normalizedInjectionTargetPID(resolvedPID, bundleID: bid)
+        let verificationSnapshot = typingContext ? currentFocusedInputVerificationSnapshot() : nil
         let job = IntentJob(seq: -1, intent: intent, localeIdentifier: localeID, llmEnhancementEnabled: isLLMEnhancementEnabled,
                             originSessionGeneration: originSessionGeneration, utteranceID: utteranceID, sessionTypingMode: typingContext,
                             streamedTextSnapshot: dictationHandler.screenTypedText, screenTypedCount: dictationHandler.screenTypedText.count,
-                            targetPID: pid, targetBundleID: bid, targetElementFingerprint: fp)
+                            targetPID: pid, targetBundleID: bid, targetElementFingerprint: fp, verificationSnapshot: verificationSnapshot)
         let targetBundleLog = bid ?? "nil"
         GlobalLogger.speech.info(
             "[IntentPipeline] enqueue utterance=\(utteranceID) session=\(originSessionGeneration) typing=\(typingContext) intent=\(intentSummary(intent)) targetPID=\(pid ?? 0) targetBundle=\(targetBundleLog)"
@@ -1458,7 +1485,8 @@ final class SpeechManager: ObservableObject {
             let seeded = IntentJob(seq: seq, intent: job.intent, localeIdentifier: job.localeIdentifier, llmEnhancementEnabled: job.llmEnhancementEnabled,
                                    originSessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID, sessionTypingMode: job.sessionTypingMode,
                                    streamedTextSnapshot: job.streamedTextSnapshot, screenTypedCount: job.screenTypedCount,
-                                   targetPID: job.targetPID, targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint)
+                                   targetPID: job.targetPID, targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
+                                   verificationSnapshot: job.verificationSnapshot)
             Task.detached(priority: .userInitiated) { [weak self] in
                 guard let self else { return }
                 let processed = await self.processIntentJob(seeded)
@@ -1477,19 +1505,22 @@ final class SpeechManager: ObservableObject {
                                     originSessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID,
                                     sessionTypingMode: job.sessionTypingMode, streamedTextSnapshot: job.streamedTextSnapshot,
                                     screenTypedCount: job.screenTypedCount, targetPID: job.targetPID,
-                                    targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint, diagnostics: "llm=ok")
+                                    targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
+                                    verificationSnapshot: job.verificationSnapshot, diagnostics: "llm=ok")
             } catch { /* fallthrough */ }
         }
         return ProcessedJob(seq: job.seq, intent: job.intent, localeIdentifier: job.localeIdentifier,
                             originSessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID,
                             sessionTypingMode: job.sessionTypingMode, streamedTextSnapshot: job.streamedTextSnapshot,
                             screenTypedCount: job.screenTypedCount, targetPID: job.targetPID,
-                            targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint, diagnostics: nil)
+                            targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
+                            verificationSnapshot: job.verificationSnapshot, diagnostics: nil)
     }
 
     private func applyProcessedJob(_ job: ProcessedJob) {
         guard utteranceExecutionGuard.shouldExecute(sessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID) else { return }
         let diagnosticsLog = job.diagnostics ?? "nil"
+        let usageContext = resolvedUsageAppContext(for: job)
         GlobalLogger.speech.info(
             "[IntentPipeline] apply seq=\(job.seq) utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) intent=\(intentSummary(job.intent)) diagnostics=\(diagnosticsLog)"
         )
@@ -1498,12 +1529,12 @@ final class SpeechManager: ObservableObject {
         case .undo:
             injector.undoPasteIfRecent()
             status = NSLocalizedString("speech.undo", comment: "")
-            onIntent?(.undo)
+            onIntent?(.undo, usageContext.appName, usageContext.bundleIdentifier)
             clearHandledCommandPreview()
         case .paste:
             AutomationOutputs.shared.pasteFromClipboard()
             status = "Pasted (Cmd+V)"
-            onIntent?(.paste)
+            onIntent?(.paste, usageContext.appName, usageContext.bundleIdentifier)
             clearHandledCommandPreview()
         case .dictation(let text):
             guard isJobInputTargetValidForInjection(job) else {
@@ -1511,6 +1542,7 @@ final class SpeechManager: ObservableObject {
                 GlobalLogger.speech.info(
                     "[IntentPipeline] dictation blocked: invalid target utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog)"
                 )
+                onRecognitionFailure?(text, "invalid-input-target", usageContext.appName, usageContext.bundleIdentifier)
                 status = NSLocalizedString("speech.done", comment: "")
                 showMissingInputTargetHUD()
                 clearHandledCommandPreview()
@@ -1551,7 +1583,18 @@ final class SpeechManager: ObservableObject {
                 injector.type(text, targetPID: job.targetPID)
                 status = NSLocalizedString("speech.typed", comment: "")
             }
-            onIntent?(.dictation(text))
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let verification = await self.verifyDictationInjection(text, for: job)
+                switch verification {
+                case .success:
+                    self.onIntent?(.dictation(text), usageContext.appName, usageContext.bundleIdentifier)
+                case .mismatch:
+                    self.onRecognitionFailure?(text, "post-injection-mismatch", usageContext.appName, usageContext.bundleIdentifier)
+                case .unverified:
+                    self.onRecognitionFailure?(text, "post-injection-unverified", usageContext.appName, usageContext.bundleIdentifier)
+                }
+            }
         case .unknown(let transcript):
             GlobalLogger.router.info(
                 "[IntentPipeline] unknown utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) transcript='\(transcript)'"
@@ -1561,9 +1604,9 @@ final class SpeechManager: ObservableObject {
             if !job.sessionTypingMode || recognitionControlMode == .command {
                 showUnknownCommandHUD(transcript)
             }
-            onIntent?(job.intent)
+            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier)
         default:
-            onIntent?(job.intent)
+            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier)
             status = NSLocalizedString("speech.done", comment: "")
             clearHandledCommandPreview()
         }
@@ -1592,8 +1635,9 @@ final class SpeechManager: ObservableObject {
         GlobalLogger.speech.info(
             "[TextPipeline] revert-streamed utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) deleteCount=\(streamedCount) reason=\(reason)"
         )
-        injector.deleteBackward(count: streamedCount, targetPID: job.targetPID)
-        dictationHandler.reset(targetPID: job.targetPID)
+        let injectionPID = normalizedInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
+        injector.deleteBackward(count: streamedCount, targetPID: injectionPID)
+        dictationHandler.reset(targetPID: injectionPID)
     }
 
     private func clearHandledCommandPreview() {
@@ -1613,7 +1657,6 @@ final class SpeechManager: ObservableObject {
             message: NSLocalizedString("speech.no_editable_field", comment: ""),
             recognitionControlMode: .command,
             icon: "keyboard.badge.exclamationmark",
-            duration: 1.0
         )
     }
 
@@ -1630,7 +1673,6 @@ final class SpeechManager: ObservableObject {
             message: message,
             recognitionControlMode: .command,
             icon: "xmark.circle.fill",
-            duration: 1.1
         )
     }
 
@@ -1870,9 +1912,10 @@ final class SpeechManager: ObservableObject {
     }
 
     // MARK: - HUD Management
-    private func setHUDOverride(mode: HUDMode, message: String, icon: String, duration: TimeInterval) {
+    private func setHUDOverride(mode: HUDMode, message: String, icon: String, duration: TimeInterval?) {
+        let resolvedDuration = duration ?? HUDManager.shared.suggestedTemporaryDuration(for: message)
         hudOverrideMode = mode; hudOverrideMessage = message; hudOverrideIcon = icon
-        hudOverrideUntil = Date().addingTimeInterval(max(0.2, duration))
+        hudOverrideUntil = Date().addingTimeInterval(max(0.2, resolvedDuration))
     }
     private func clearHUDOverride() { hudOverrideUntil = .distantPast; hudOverrideMessage = ""; hudOverrideIcon = "info.circle" }
 
@@ -2141,11 +2184,15 @@ final class SpeechManager: ObservableObject {
         }
         if hasLockedFocusedInputTarget() { return true }
         if let app = NSWorkspace.shared.frontmostApplication,
-           let bid = app.bundleIdentifier {
-            let appName = app.localizedName?.lowercased() ?? ""
-            if bid.contains("apple.siri") || bid == "com.apple.Spotlight" || appName.contains("siri") {
+           isSystemSearchLikeApplication(app) {
+            let hudState = HUDManager.shared.state
+            if hudState.recognitionControlMode == .command, !hudState.isTypingContext {
+                return false
+            }
+            if hudState.recognitionControlMode == .dictation || hudState.isTypingContext {
                 return true
             }
+            return currentFocusedInputSnapshot() != nil
         }
         return HUDManager.shared.currentAXTypingEvaluation().editableLikely
     }
@@ -2215,9 +2262,86 @@ final class SpeechManager: ObservableObject {
         var v: CFTypeRef?; guard AXUIElementCopyAttributeValue(el, attr, &v) == .success, let r = v, CFGetTypeID(r) == AXValueGetTypeID() else { return nil }
         let a = r as! AXValue; guard AXValueGetType(a) == .cgSize else { return nil }; var s = CGSize.zero; return AXValueGetValue(a, .cgSize, &s) ? s : nil
     }
+    private func axSelectedRange(_ el: AXUIElement) -> NSRange? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
+              let raw = value,
+              CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        let ax = raw as! AXValue
+        guard AXValueGetType(ax) == .cfRange else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(ax, .cfRange, &range) else { return nil }
+        guard range.location >= 0, range.length >= 0 else { return nil }
+        return NSRange(location: range.location, length: range.length)
+    }
+    private func axValueText(_ el: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(el, kAXValueAttribute as CFString, &value) == .success else { return nil }
+        if let text = value as? String { return text }
+        if let attributed = value as? NSAttributedString { return attributed.string }
+        return nil
+    }
     private func sanitizeFP(_ raw: String?, fallback: String = "-") -> String {
         guard let raw, !raw.isEmpty else { return fallback }
         return raw.replacingOccurrences(of: "|", with: "/").replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    private func bundleIsSystemSearchLike(_ bundleID: String?) -> Bool {
+        guard let bundleID = bundleID?.lowercased() else { return false }
+        return bundleID.contains("apple.siri")
+            || bundleID == "com.apple.siri"
+            || bundleID == "com.apple.siri.launcher"
+            || bundleID == "com.apple.spotlight"
+            || bundleID == "com.apple.spotlightui"
+            || bundleID == "com.apple.notificationcenterui"
+    }
+    private func isSystemSearchLikeApplication(_ app: NSRunningApplication?) -> Bool {
+        guard let app else { return false }
+        let appName = app.localizedName?.lowercased() ?? ""
+        return bundleIsSystemSearchLike(app.bundleIdentifier)
+            || appName.contains("siri")
+            || appName.contains("spotlight")
+    }
+    private func preferredTypingInjectionTargetPID(_ pid: pid_t?, bundleID: String?) -> pid_t? {
+        if bundleIsSystemSearchLike(bundleID)
+            || isSystemSearchLikeApplication(NSWorkspace.shared.frontmostApplication) {
+            return nil
+        }
+        guard let pid, pid > 0 else { return nil }
+        if let frontmost = NSWorkspace.shared.frontmostApplication {
+            if frontmost.processIdentifier == pid {
+                return nil
+            }
+            if let bundleID, !bundleID.isEmpty, frontmost.bundleIdentifier == bundleID {
+                return nil
+            }
+        }
+        return pid
+    }
+    private func normalizedInjectionTargetPID(_ pid: pid_t?, bundleID: String?) -> pid_t? {
+        if bundleIsSystemSearchLike(bundleID)
+            || bundleIsSystemSearchLike(NSWorkspace.shared.frontmostApplication?.bundleIdentifier) {
+            return nil
+        }
+        guard let pid, pid > 0 else { return nil }
+        return pid
+    }
+    private func axFocusedRole(_ el: AXUIElement) -> String {
+        axStringAttribute(el, kAXRoleAttribute as CFString) ?? ""
+    }
+    private func findDictationCandidate(in element: AXUIElement, depth: Int = 5) -> AXUIElement? {
+        guard depth > 0 else { return nil }
+        if isFocusedElementUsableForDictation(element) { return element }
+
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let children = childrenRef as? [AXUIElement] else { return nil }
+
+        for child in children {
+            if let found = findDictationCandidate(in: child, depth: depth - 1) {
+                return found
+            }
+        }
+        return nil
     }
     private func makeElementFingerprint(_ el: AXUIElement) -> String {
         let role = sanitizeFP(axStringAttribute(el, kAXRoleAttribute as CFString), fallback: "?")
@@ -2233,13 +2357,152 @@ final class SpeechManager: ObservableObject {
         }
         return [role, sub, id, title, ph, wt, pos, size].joined(separator: "|")
     }
-    private func currentFocusedInputSnapshot() -> FocusedInputSnapshot? {
+    private struct ResolvedFocusedInput {
+        let element: AXUIElement
+        let snapshot: FocusedInputSnapshot
+    }
+    private func resolveCurrentFocusedInput() -> ResolvedFocusedInput? {
         let sw = AXUIElementCreateSystemWide(); var fe: CFTypeRef?
         guard AXUIElementCopyAttributeValue(sw, kAXFocusedUIElementAttribute as CFString, &fe) == .success, let r = fe, CFGetTypeID(r) == AXUIElementGetTypeID() else { return nil }
-        let el = r as! AXUIElement
-        guard isFocusedElementUsableForDictation(el) else { return nil }
-        var pid: pid_t = 0; AXUIElementGetPid(el, &pid); guard pid > 0 else { return nil }
-        return FocusedInputSnapshot(pid: pid, bundleID: NSRunningApplication(processIdentifier: pid)?.bundleIdentifier, elementFingerprint: makeElementFingerprint(el))
+        var el = r as! AXUIElement
+        var pid: pid_t = 0
+        AXUIElementGetPid(el, &pid)
+        guard pid > 0 else { return nil }
+        let frontBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+
+        if !isFocusedElementUsableForDictation(el) {
+            let role = axFocusedRole(el)
+            if bundleIsSystemSearchLike(bundleID)
+                || bundleIsSystemSearchLike(frontBundleID)
+                || ["AXWindow", "AXSheet", "AXScrollArea", "AXSplitGroup", "AXGroup"].contains(role) {
+                if let candidate = findDictationCandidate(in: el) {
+                    el = candidate
+                    AXUIElementGetPid(el, &pid)
+                    guard pid > 0 else { return nil }
+                } else if !(bundleIsSystemSearchLike(bundleID) || bundleIsSystemSearchLike(frontBundleID)) {
+                    return nil
+                }
+            } else {
+                return nil
+            }
+        }
+
+        let snapshot = FocusedInputSnapshot(
+            pid: pid,
+            bundleID: NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
+            elementFingerprint: makeElementFingerprint(el)
+        )
+        return ResolvedFocusedInput(element: el, snapshot: snapshot)
+    }
+    private func currentFocusedInputSnapshot() -> FocusedInputSnapshot? {
+        resolveCurrentFocusedInput()?.snapshot
+    }
+    private func currentFocusedInputVerificationSnapshot() -> InputVerificationSnapshot? {
+        guard let resolved = resolveCurrentFocusedInput() else { return nil }
+        let selectedRange = axSelectedRange(resolved.element)
+        return InputVerificationSnapshot(
+            pid: resolved.snapshot.pid,
+            bundleID: resolved.snapshot.bundleID,
+            elementFingerprint: resolved.snapshot.elementFingerprint,
+            valueText: axValueText(resolved.element),
+            selectedRangeLocation: selectedRange?.location,
+            selectedRangeLength: selectedRange?.length
+        )
+    }
+    private func verifyDictationInjection(_ text: String, for job: ProcessedJob) async -> DictationVerificationResult {
+        guard let before = job.verificationSnapshot,
+              let originalValue = before.valueText,
+              let location = before.selectedRangeLocation,
+              let length = before.selectedRangeLength else {
+            return .unverified
+        }
+
+        let selectedRange = NSRange(location: location, length: length)
+        guard let swiftRange = Range(selectedRange, in: originalValue) else { return .unverified }
+        var expectedValue = originalValue
+        expectedValue.replaceSubrange(swiftRange, with: text)
+
+        var sawObservedChange = false
+        let retryDelays: [UInt64] = [
+            180_000_000,
+            280_000_000,
+            420_000_000
+        ]
+
+        for delay in retryDelays {
+            try? await Task.sleep(nanoseconds: delay)
+
+            guard let after = currentFocusedInputVerificationSnapshot() else { continue }
+            guard after.pid == before.pid,
+                  after.bundleID == before.bundleID,
+                  after.elementFingerprint == before.elementFingerprint,
+                  let updatedValue = after.valueText else {
+                continue
+            }
+
+            if updatedValue == expectedValue {
+                return .success
+            }
+
+            if likelyObservedCommittedDictation(
+                originalValue: originalValue,
+                updatedValue: updatedValue,
+                expectedValue: expectedValue,
+                dictatedText: text,
+                beforeSelection: selectedRange,
+                afterSelectionLocation: after.selectedRangeLocation
+            ) {
+                return .success
+            }
+
+            if updatedValue != originalValue {
+                sawObservedChange = true
+            }
+        }
+
+        return sawObservedChange ? .unverified : .mismatch
+    }
+
+    private func likelyObservedCommittedDictation(
+        originalValue: String,
+        updatedValue: String,
+        expectedValue: String,
+        dictatedText: String,
+        beforeSelection: NSRange,
+        afterSelectionLocation: Int?
+    ) -> Bool {
+        if updatedValue == expectedValue {
+            return true
+        }
+
+        guard updatedValue != originalValue else { return false }
+
+        let normalizedUpdated = verificationNormalizedText(updatedValue)
+        let normalizedExpected = verificationNormalizedText(expectedValue)
+        let normalizedDictated = verificationNormalizedText(dictatedText)
+
+        if !normalizedDictated.isEmpty && normalizedUpdated.contains(normalizedDictated) {
+            return true
+        }
+
+        if !normalizedExpected.isEmpty && normalizedUpdated == normalizedExpected {
+            return true
+        }
+
+        if let afterSelectionLocation,
+           afterSelectionLocation >= beforeSelection.location,
+           updatedValue.count >= originalValue.count {
+            return true
+        }
+
+        return false
+    }
+
+    private func verificationNormalizedText(_ text: String) -> String {
+        text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
     }
     private func lockSessionInputTarget() {
         let snap = currentFocusedInputSnapshot()
@@ -2260,7 +2523,7 @@ final class SpeechManager: ObservableObject {
         sessionTargetElementFingerprint = snap.elementFingerprint
         didLogSessionTargetMismatch = false
         if resetDictationStream {
-            dictationHandler.reset(targetPID: sessionTargetPID)
+            dictationHandler.reset(targetPID: preferredTypingInjectionTargetPID(sessionTargetPID, bundleID: sessionTargetBundleID))
         }
     }
     private func rearmInputTarget(reason: String) {
@@ -2271,7 +2534,7 @@ final class SpeechManager: ObservableObject {
         latestVoiceActivity = false
         latestVoiceRMS = 0
         HUDManager.shared.updateMicProgress(progress: 0.0, visible: false)
-        dictationHandler.reset(targetPID: sessionTargetPID)
+        dictationHandler.reset(targetPID: preferredTypingInjectionTargetPID(sessionTargetPID, bundleID: sessionTargetBundleID))
     }
 
     // MARK: - Injection Target Validation
@@ -2279,6 +2542,10 @@ final class SpeechManager: ObservableObject {
         let trusted = accessibilityTrustedSnapshot || AXIsProcessTrusted()
         if accessibilityTrustedSnapshot != trusted { accessibilityTrustedSnapshot = trusted }
         if !trusted { return false }
+        if bundleIsSystemSearchLike(job.targetBundleID)
+            || bundleIsSystemSearchLike(NSWorkspace.shared.frontmostApplication?.bundleIdentifier) {
+            return currentFocusedInputSnapshot() != nil
+        }
         if job.sessionTypingMode && (job.targetPID == nil || job.targetPID == 0) {
             return currentFocusedInputSnapshot() != nil
         }
@@ -2287,6 +2554,32 @@ final class SpeechManager: ObservableObject {
         let matches = front.processIdentifier == tp || (job.targetBundleID.map { front.bundleIdentifier == $0 } ?? false)
         guard matches else { return false }
         return true
+    }
+
+    private func resolvedUsageAppContext(for job: ProcessedJob) -> (appName: String?, bundleIdentifier: String?) {
+        if let bundleID = job.targetBundleID, !bundleID.isEmpty {
+            if let pid = job.targetPID, pid > 0,
+               let app = NSRunningApplication(processIdentifier: pid) {
+                return (app.localizedName, bundleID)
+            }
+            if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID }) {
+                return (app.localizedName, bundleID)
+            }
+            return (nil, bundleID)
+        }
+
+        if let pid = job.targetPID, pid > 0,
+           let app = NSRunningApplication(processIdentifier: pid),
+           let bundleID = app.bundleIdentifier {
+            return (app.localizedName, bundleID)
+        }
+
+        if let front = NSWorkspace.shared.frontmostApplication,
+           let bundleID = front.bundleIdentifier,
+           !bundleID.isEmpty {
+            return (front.localizedName, bundleID)
+        }
+        return (nil, nil)
     }
 
     private func isFocusedElementUsableForDictation(_ element: AXUIElement) -> Bool {

@@ -124,9 +124,12 @@
 "hotkey.section_title" = "Hotkeys";
 "hotkey.toggle_input_control_mode" = "Toggle Input/Control Mode";
 "insights.copy_ai_prompt" = "Copy AI Prompt";
+"insights.copy_diagnostic_history_failed" = "Failed to copy diagnostic history";
+"insights.copy_diagnostic_history_done" = "Diagnostic history copied";
+"insights.copy_diagnostic_history" = "Copy Diagnostic History";
 "insights.copy_ai_prompt_done" = "AI prompt copied";
-"insights.export_ai_prompt" = "Copy AI Prompt";
-"insights.export_ai_prompt_done" = "Copied to clipboard";
+"insights.export_ai_prompt" = "Copy AI Analysis Prompt";
+"insights.export_ai_prompt_done" = "AI analysis prompt copied";
 "insights.export_ai_prompt_failed" = "Copy failed";
 "insights.usage_description" = "Off by default. When enabled, Aether stores local speech content + app context to generate importable lexicon/command suggestions.";
 "ai.prompt.template" = "You are an Aether configuration assistant. Goal: based on the usage history below, output an Aether voice-lexicon config that can be imported directly to improve accuracy and command coverage.\n\nOutput JSON only (no Markdown, no explanations). JSON must strictly follow the AetherVoiceLexicon format:\n{\n  \"version\": 1,\n  \"exportedAt\": \"{{EXPORTED_AT}}\",\n  \"commandOverrides\": [\n    { \"localeIdentifier\": \"en-US\", \"commandID\": \"scrollDown\", \"aliases\": [\"scroll down\", \"page down\"] }\n  ],\n  \"languageTermsOverrides\": [\n    { \"localeIdentifier\": \"en-US\", \"wakeWords\": [\"Aether\", \"Hey Aether\"], \"commandPrefixes\": [], \"dictationPrefixes\": [] }\n  ]\n}\n\nNotes:\n- commandOverrides.aliases are additive (only provide new aliases).\n- commandID allowed values: {{COMMAND_IDS}}\n- localeIdentifier should be standard (e.g., en-US, zh-CN).\n\nCurrent config (AetherVoiceLexicon JSON):\n{{CURRENT_LEXICON_JSON}}\n\nUsage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control={{SUMMARY_CONTROL}}, locale={{LOCALE}}):\n{{USAGE_JSON}}\n";
@@ -383,7 +386,7 @@
 "speech.listening" = "Standing by...";
 "speech.need_mic_permission" = "Grant Microphone permission first.";
 "speech.need_recognition_permission" = "Grant Speech Recognition permission first.";
-"speech.no_editable_field" = "No editable text field detected";
+"speech.no_editable_field" = "No input field detected";
 "speech.no_matching_command" = "No matching control command";
 "speech.no_mic_detected" = "No Microphone Detected";
 "speech.pasted" = "Pasted";

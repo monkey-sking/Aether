@@ -1633,6 +1633,14 @@ private struct VoiceUsageInsightsCard: View {
                             value: "\(summary.dictationCount)"
                         )
                         VoiceUsageSummaryBadge(
+                            title: isChinese ? "失败" : "Failed",
+                            value: "\(summary.failureCount)"
+                        )
+                        VoiceUsageSummaryBadge(
+                            title: isChinese ? "未识别" : "Unrecognized",
+                            value: "\(summary.unrecognizedCount)"
+                        )
+                        VoiceUsageSummaryBadge(
                             title: isChinese ? "控制命令" : "Control",
                             value: "\(summary.controlCount)"
                         )
@@ -1660,6 +1668,22 @@ private struct VoiceUsageInsightsCard: View {
                                 Text(isChinese ? "最近记录" : "Recent Activity")
                                     .font(.subheadline.weight(.semibold))
                                 Spacer()
+                                Button(LocalizedStringKey("insights.copy_diagnostic_history")) {
+                                    do {
+                                        try appState.copyVoiceUsageHistoryForDiagnostics()
+                                        HUDManager.shared.showTemporary(
+                                            message: String(localized: "insights.copy_diagnostic_history_done"),
+                                            icon: "doc.on.doc"
+                                        )
+                                    } catch {
+                                        HUDManager.shared.showTemporary(
+                                            message: String(localized: "insights.copy_diagnostic_history_failed"),
+                                            icon: "xmark.circle.fill"
+                                        )
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
                                 Button(LocalizedStringKey("insights.export_ai_prompt")) {
                                     do {
                                         try appState.exportAetherAIConfigPrompt()
@@ -1735,7 +1759,7 @@ private struct VoiceUsageAppSummaryRow: View {
                     .lineLimit(1)
             }
             Spacer()
-            Text("\(summary.dictationCount)/\(summary.controlCount)")
+            Text("\(summary.dictationCount)/\(summary.failureCount)/\(summary.controlCount)")
                 .font(.caption.monospacedDigit())
                 .foregroundColor(.secondary)
             Text("\(summary.total)")
