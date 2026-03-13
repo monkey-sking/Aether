@@ -48,6 +48,11 @@
 "control.push_to_talk_hint" = "按住 ⌥Space 说话；常驻监听时说“ Aether … ”触发。";
 "control.toggle_tracking" = "切换追踪";
 "control.toggle_tracking_hint" = "切换追踪：⌥T 或使用语音指令";
+"voice_lexicon.import_clipboard" = "从剪贴板导入";
+"voice_lexicon.import_clipboard_done" = "已从剪贴板导入";
+"voice_lexicon.import_clipboard_empty" = "剪贴板为空";
+"voice_lexicon.import_clipboard_failed" = "剪贴板导入失败";
+"voice_lexicon.default_config" = "{\"commandOverrides\":[{\"aliases\":[\"点击\",\"单击\",\"click\"],\"commandID\":\"clickLeft\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"click\",\"点击\",\"单击\"],\"commandID\":\"clickLeft\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"右键\",\"右击\",\"邮件\"],\"commandID\":\"clickRight\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"right click\",\"rightclick\",\"context\"],\"commandID\":\"clickRight\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"双击\",\"double click\",\"doubleclick\"],\"commandID\":\"doubleClick\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"double click\",\"doubleclick\",\"双击\"],\"commandID\":\"doubleClick\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"切换输入控制模式\",\"切换输入模式\",\"切换控制模式\"],\"commandID\":\"toggleInputControlMode\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"toggle input mode\",\"toggle control mode\",\"toggle input control mode\"],\"commandID\":\"toggleInputControlMode\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"切换头控\",\"切换指针控制\",\"切换追踪\"],\"commandID\":\"toggleTracking\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"toggle tracking\",\"toggle pointer\",\"toggle pointer control\"],\"commandID\":\"toggleTracking\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"切换语言\",\"切换语音语言\",\"切换识别语言\"],\"commandID\":\"toggleLanguage\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"toggle language\",\"switch language\",\"toggle speech language\"],\"commandID\":\"toggleLanguage\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"切换连接锁定\",\"切换耳机连接锁定\",\"切换连接锁\"],\"commandID\":\"toggleConnectionLock\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"toggle connection lock\",\"toggle headset lock\",\"toggle headset connection lock\"],\"commandID\":\"toggleConnectionLock\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"切换快捷键面板\",\"切换面板\",\"切换命令面板\"],\"commandID\":\"toggleShortcutPanel\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"toggle shortcuts panel\",\"toggle shortcut panel\",\"toggle shortcuts\"],\"commandID\":\"toggleShortcutPanel\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"播放\",\"暂停\",\"播放暂停\"],\"commandID\":\"mediaPlayPause\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"play\",\"pause\",\"play pause\"],\"commandID\":\"mediaPlayPause\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"上一首\",\"上一个\",\"previous track\"],\"commandID\":\"mediaPrevious\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"previous track\",\"previous\",\"back track\"],\"commandID\":\"mediaPrevious\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"下一首\",\"下一个\",\"next track\"],\"commandID\":\"mediaNext\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"next track\",\"next\",\"skip track\"],\"commandID\":\"mediaNext\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"显示快捷键面板\",\"打开快捷键面板\",\"显示当前应用快捷键\"],\"commandID\":\"showShortcutPanel\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"show shortcuts panel\",\"open shortcuts panel\",\"show app shortcuts\"],\"commandID\":\"showShortcutPanel\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"关闭快捷键面板\",\"隐藏快捷键面板\",\"收起快捷键面板\"],\"commandID\":\"hideShortcutPanel\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"hide shortcuts panel\",\"close shortcuts panel\",\"dismiss shortcuts panel\"],\"commandID\":\"hideShortcutPanel\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"开始\",\"继续\",\"start\"],\"commandID\":\"startPointer\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"start\",\"resume\",\"开始\"],\"commandID\":\"startPointer\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"停止\",\"暂停控制\",\"stop\"],\"commandID\":\"stopPointer\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"stop\",\"pause control\",\"停止\"],\"commandID\":\"stopPointer\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"校准\",\"居中\",\"重置\"],\"commandID\":\"recenter\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"recenter\",\"reset\",\"校准\"],\"commandID\":\"recenter\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"向上\",\"上滚\",\"向上滚动\"],\"commandID\":\"scrollUp\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"scroll up\",\"up\",\"向上\"],\"commandID\":\"scrollUp\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"向下\",\"下滚\",\"向下滚动\"],\"commandID\":\"scrollDown\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"scroll down\",\"down\",\"向下\"],\"commandID\":\"scrollDown\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"到顶\",\"滚动到顶部\",\"top\"],\"commandID\":\"scrollTop\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"top\",\"scroll top\",\"到顶\"],\"commandID\":\"scrollTop\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"到底\",\"滚动到底部\",\"bottom\"],\"commandID\":\"scrollBottom\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"bottom\",\"scroll bottom\",\"到底\"],\"commandID\":\"scrollBottom\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"拖\",\"抓住\",\"drag\"],\"commandID\":\"dragStart\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"drag\",\"拖\",\"抓住\"],\"commandID\":\"dragStart\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"放\",\"松开\",\"drop\"],\"commandID\":\"dragEnd\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"drop\",\"release\",\"放\"],\"commandID\":\"dragEnd\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"撤销\",\"撤回\",\"undo\"],\"commandID\":\"undo\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"undo\",\"撤销\",\"撤回\"],\"commandID\":\"undo\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"粘贴\",\"paste\"],\"commandID\":\"paste\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"paste\",\"粘贴\"],\"commandID\":\"paste\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"锁定\",\"lock\",\"lock airpods\"],\"commandID\":\"lockConnection\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"lock\",\"lock airpods\",\"lockairpods\"],\"commandID\":\"lockConnection\",\"localeIdentifier\":\"en-US\"},{\"aliases\":[\"解锁\",\"unlock\",\"unlock airpods\"],\"commandID\":\"unlockConnection\",\"localeIdentifier\":\"zh-CN\"},{\"aliases\":[\"unlock\",\"unlock airpods\",\"unlockairpods\"],\"commandID\":\"unlockConnection\",\"localeIdentifier\":\"en-US\"}],\"exportedAt\":\"2026-03-13T00:00:00Z\",\"languageTermsOverrides\":[{\"commandPrefixes\":[\"指令\",\"命令\"],\"dictationPrefixes\":[\"输入\",\"写\"],\"localeIdentifier\":\"zh-CN\",\"wakeWords\":[\"艾瑟\",\"hey aether\"]},{\"commandPrefixes\":[\"command\",\"control\"],\"dictationPrefixes\":[\"dictate\",\"type\"],\"localeIdentifier\":\"en-US\",\"wakeWords\":[\"hey aether\",\"hi aether\"]}],\"version\":1}";
 
 /* Actions */
 "action.activate_perception" = "激活感知";
@@ -247,7 +252,7 @@
 
 /* Voice Lexicon */
 "voice_lexicon.title" = "语音词库";
-"voice_lexicon.description" = "按语言统一配置唤醒词、强制前缀和命令别名。多个说法可用逗号或换行分隔；留空时使用内置默认词库。";
+"voice_lexicon.description" = "按语言统一配置唤醒词、强制前缀和命令别名。多个说法可用逗号或换行分隔；默认词库已预填，可直接编辑，清空将禁用该项。";
 "voice_lexicon.editing_language" = "编辑语言";
 "voice_lexicon.current_target" = "当前目标";
 "voice_lexicon.reset_language" = "恢复该语言默认";
@@ -256,7 +261,7 @@
 "voice_lexicon.wake_words" = "唤醒词";
 "voice_lexicon.command_prefixes" = "强制命令前缀";
 "voice_lexicon.dictation_prefixes" = "强制输入前缀";
-"voice_lexicon.leave_empty" = "留空则使用默认词库";
+"voice_lexicon.leave_empty" = "清空以禁用该项";
 "voice_lexicon.default" = "默认";
 "voice_lexicon.custom" = "已自定义";
 "voice_lexicon.clear" = "清空";
@@ -345,6 +350,13 @@
 "headset.status.signal_lost" = "信号丢失";
 "headset.status.connection_failed" = "连接失败";
 "headset.status.stopped" = "已停止";
+"insights.copy_ai_prompt" = "复制 AI 提示词";
+"insights.copy_ai_prompt_done" = "已复制 AI 提示词";
+"insights.export_ai_prompt" = "复制 AI 提示词";
+"insights.export_ai_prompt_done" = "已复制到剪贴板";
+"insights.export_ai_prompt_failed" = "复制失败";
+"insights.usage_description" = "默认关闭。开启后仅在本机记录语音识别内容与所在 App，用于生成可导入的词库/命令建议。";
+"ai.prompt.template" = "你是 Aether 配置顾问。目标：基于下面的语音使用历史，生成可直接导入 Aether 的语音词库配置，用于提升识别准确率与命令覆盖。\n\n只输出 JSON（不要 Markdown、不要解释）。JSON 必须严格符合 AetherVoiceLexicon 格式：\n{\n  \"version\": 1,\n  \"exportedAt\": \"{{EXPORTED_AT}}\",\n  \"commandOverrides\": [\n    { \"localeIdentifier\": \"zh-CN\", \"commandID\": \"scrollDown\", \"aliases\": [\"向下滚\", \"往下\"] }\n  ],\n  \"languageTermsOverrides\": [\n    { \"localeIdentifier\": \"zh-CN\", \"wakeWords\": [\"艾瑟\", \"以太\"], \"commandPrefixes\": [], \"dictationPrefixes\": [] }\n  ]\n}\n\n说明：\n- commandOverrides.aliases 会与默认别名合并（只需给新增别名）。\n- commandID 可用值：{{COMMAND_IDS}}\n- 语言 localeIdentifier 建议用 zh-CN / en-US 等标准值。\n\n当前配置（AetherVoiceLexicon JSON）：\n{{CURRENT_LEXICON_JSON}}\n\n使用统计（总计={{SUMMARY_TOTAL}} 输入={{SUMMARY_DICTATION}} 控制={{SUMMARY_CONTROL}} locale={{LOCALE}}）：\n{{USAGE_JSON}}\n";
 "headset.status.error_fmt" = "耳机错误：%@";
 "headset.hud.no_compatible" = "未检测到支持姿态的耳机";
 "headset.hud.posture_guide" = "请坐正并看向屏幕，准备启动头控";
@@ -514,3 +526,6 @@
 "head_gesture.hud.no_action_assigned_fmt" = "%@未设置动作";
 "head_gesture.action.none" = "无动作";
 "head_gesture.action.none.detail" = "触发后不执行动作。";
+"settings.app_language.title" = "应用语言";
+"settings.app_language.subtitle" = "选择界面与 AI 提示词的语言。";
+"settings.app_language.restart_hint" = "切换语言后需重启生效。";

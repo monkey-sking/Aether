@@ -5,7 +5,7 @@ struct AetherMenuBar: Scene {
     @Environment(\.openWindow) private var openWindow
 
     private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
+        AppLocalization.isChinese
     }
 
     private var needsAttention: Bool {

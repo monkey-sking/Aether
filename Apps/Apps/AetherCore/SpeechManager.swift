@@ -1558,7 +1558,7 @@ final class SpeechManager: ObservableObject {
             )
             status = NSLocalizedString("speech.no_matching_command", comment: "")
             clearHandledCommandPreview()
-            if !job.sessionTypingMode {
+            if !job.sessionTypingMode || recognitionControlMode == .command {
                 showUnknownCommandHUD(transcript)
             }
             onIntent?(job.intent)

@@ -185,7 +185,7 @@ struct InputSettingsView: View {
     }
 
     private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
+        appState.isChineseUI
     }
 
     private var visibleFrontmostCommands: [FrontmostAppCommand] {
@@ -279,8 +279,6 @@ struct InputSettingsView: View {
                                 )
                             }
                         }
-
-                        Divider()
 
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(alignment: .top) {
@@ -574,6 +572,21 @@ struct InputSettingsView: View {
                             .buttonStyle(.bordered)
                             .controlSize(.small)
 
+                            Button(LocalizedStringKey("voice_lexicon.import_clipboard")) {
+                                do {
+                                    let ok = try appState.importVoiceLexiconFromPasteboard()
+                                    if ok {
+                                        lexiconTransferStatus = String(localized: "voice_lexicon.import_clipboard_done")
+                                    } else {
+                                        lexiconTransferStatus = String(localized: "voice_lexicon.import_clipboard_empty")
+                                    }
+                                } catch {
+                                    lexiconTransferStatus = "\(String(localized: "voice_lexicon.import_clipboard_failed")): \(error.localizedDescription)"
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+
                             Button(L10n.voiceLexiconExport) {
                                 do {
                                     if let url = try appState.exportVoiceLexicon() {
@@ -604,7 +617,6 @@ struct InputSettingsView: View {
                                     get: { appState.wakeWordOverrideText(for: resolvedCommandLocaleID) },
                                     set: { appState.updateWakeWordOverrideText($0, for: resolvedCommandLocaleID) }
                                 ),
-                                defaultValues: WakeWordDetector.defaultWakePhrases(for: resolvedCommandLocaleID),
                                 onReset: {
                                     appState.updateWakeWordOverrideText("", for: resolvedCommandLocaleID)
                                 }
@@ -648,7 +660,6 @@ struct InputSettingsView: View {
                                                     get: { appState.commandOverrideText(for: preset, localeIdentifier: resolvedCommandLocaleID) },
                                                     set: { appState.updateCommandOverrideText($0, for: preset, localeIdentifier: resolvedCommandLocaleID) }
                                                 ),
-                                                defaultValues: VoiceCommandRouter.defaultAliases(for: preset, localeIdentifier: resolvedCommandLocaleID),
                                                 onReset: {
                                                     appState.updateCommandOverrideText("", for: preset, localeIdentifier: resolvedCommandLocaleID)
                                                 }
@@ -695,14 +706,14 @@ struct InputSettingsView: View {
                         }
 
                         if !appState.accessibilityTrusted && (mergedFrontmostSnapshot?.commands.isEmpty ?? true) {
-                            Text(Locale.current.identifier.hasPrefix("zh")
+                            Text(AppLocalization.isChinese
                                  ? "需要先开启辅助功能权限，才能读取当前应用菜单和快捷键。"
                                  : "Accessibility permission is required to read the current app's menu shortcuts.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         } else if let snapshot = mergedFrontmostSnapshot, !snapshot.commands.isEmpty {
                             Text(
-                                Locale.current.identifier.hasPrefix("zh")
+                                AppLocalization.isChinese
                                     ? "已准备 \(snapshot.commands.count) 条快捷键。除了读取到的菜单项，下面还会并入你手动补充的自定义 App 规则。"
                                     : "Prepared \(snapshot.commands.count) shortcuts. The preview below includes menu shortcuts plus your custom app rules."
                             )
@@ -1340,7 +1351,7 @@ private struct CustomAppShortcutRulesCard: View {
     let onDelete: (String) -> Void
 
     private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
+        AppLocalization.isChinese
     }
 
     var body: some View {
@@ -1454,7 +1465,7 @@ private struct CustomAppShortcutRuleEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
+        AppLocalization.isChinese
     }
 
     private var aliasesBinding: Binding<String> {
@@ -1544,7 +1555,7 @@ private struct VoiceUsageInsightsCard: View {
     @EnvironmentObject var appState: AppState
 
     private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
+        AppLocalization.isChinese
     }
 
     private var recentEvents: [AppState.VoiceUsageEvent] {
@@ -1565,11 +1576,7 @@ private struct VoiceUsageInsightsCard: View {
                             systemImage: "chart.bar.xaxis"
                         )
                         .font(.headline)
-                        Text(
-                            isChinese
-                                ? "默认关闭。开启后仅在本机记录“在哪个 App 进行了输入/控制”，用于优化词库和命令配置。"
-                                : "Off by default. When enabled, Aether stores local per-app dictation/control usage to help tune lexicon and commands."
-                        )
+                        Text(LocalizedStringKey("insights.usage_description"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1653,6 +1660,22 @@ private struct VoiceUsageInsightsCard: View {
                                 Text(isChinese ? "最近记录" : "Recent Activity")
                                     .font(.subheadline.weight(.semibold))
                                 Spacer()
+                                Button(LocalizedStringKey("insights.export_ai_prompt")) {
+                                    do {
+                                        try appState.exportAetherAIConfigPrompt()
+                                        HUDManager.shared.showTemporary(
+                                            message: String(localized: "insights.export_ai_prompt_done"),
+                                            icon: "doc.on.doc"
+                                        )
+                                    } catch {
+                                        HUDManager.shared.showTemporary(
+                                            message: String(localized: "insights.export_ai_prompt_failed"),
+                                            icon: "xmark.circle.fill"
+                                        )
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
                                 Button(isChinese ? "清空记录" : "Clear History") {
                                     appState.clearVoiceUsageHistory()
                                 }
@@ -1747,7 +1770,7 @@ private struct VoiceUsageEventRow: View {
     }()
 
     private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
+        AppLocalization.isChinese
     }
 
     private var eventIcon: String {
@@ -1811,7 +1834,6 @@ private struct VoiceLexiconEditorRow: View {
     let subtitle: String?
     let example: String?
     @Binding var text: String
-    let defaultValues: [String]
     let onReset: () -> Void
 
     private var hasOverride: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -1849,11 +1871,6 @@ private struct VoiceLexiconEditorRow: View {
             .textFieldStyle(.roundedBorder)
 
             HStack(alignment: .firstTextBaseline) {
-                Text("\(String(localized: "voice_lexicon.default")): \(defaultValues.joined(separator: ", "))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-
                 Spacer()
 
                 Button(L10n.voiceLexiconClear) {
@@ -2259,7 +2276,7 @@ struct OutputSettingsView: View {
     @ObservedObject var headManager = HeadMotionManager.shared
 
     private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
+        AppLocalization.isChinese
     }
 
     private var trackingBinding: Binding<Bool> {

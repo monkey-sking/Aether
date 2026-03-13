@@ -298,7 +298,10 @@ private struct OverviewDashboardView: View {
     var body: some View {
         SettingsPage(
             title: String(localized: "main.overview.title"),
-            subtitle: overviewSubtitle
+            subtitle: overviewSubtitle,
+            headerTrailing: {
+                AppLanguageHeader()
+            }
         ) {
             OverviewReadinessCard(
                 setupItems: setupItems,
@@ -463,7 +466,7 @@ private struct PointerControlTile: View {
     @Binding var showPostureGuide: Bool
 
     private var isChinese: Bool {
-        Locale.current.identifier.hasPrefix("zh")
+        AppLocalization.isChinese
     }
 
     var body: some View {
@@ -574,6 +577,66 @@ private struct VoiceModeTile: View {
             return String(localized: "main.voice_mode.wake_word.detail")
         case .handsFree:
             return String(localized: "main.voice_mode.hands_free.detail")
+        }
+    }
+}
+
+private struct AppLanguageTile: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label(String(localized: "settings.app_language.title"), systemImage: "globe")
+                    .font(.headline)
+                Spacer()
+                Picker("", selection: $appState.appLanguageMode) {
+                    ForEach(AppLanguageMode.allCases) { mode in
+                        Text(AppLocalization.localizedString(mode.localizedTitleKey))
+                            .tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+
+            Text(String(localized: "settings.app_language.subtitle"))
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Text(String(localized: "settings.app_language.restart_hint"))
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: AetherUI.dashboardTileMinHeight, alignment: .topLeading)
+    }
+}
+
+private struct AppLanguageHeader: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "globe")
+                    .foregroundColor(.secondary)
+                Text(String(localized: "settings.app_language.title"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+
+            Picker("", selection: $appState.appLanguageMode) {
+                ForEach(AppLanguageMode.allCases) { mode in
+                    Text(AppLocalization.localizedString(mode.localizedTitleKey))
+                        .tag(mode)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+
+            Text(String(localized: "settings.app_language.restart_hint"))
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
     }
 }

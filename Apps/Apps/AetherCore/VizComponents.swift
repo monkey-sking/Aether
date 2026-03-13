@@ -303,32 +303,52 @@ struct ControlCard: View {
     }
 }
 
-struct SettingsPage<Content: View>: View {
+struct SettingsPage<Content: View, HeaderTrailing: View>: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let title: String
     let subtitle: String
+    let headerTrailing: HeaderTrailing
     var content: Content
 
     init(
         title: String,
         subtitle: String,
         @ViewBuilder content: () -> Content
+    ) where HeaderTrailing == EmptyView {
+        self.title = title
+        self.subtitle = subtitle
+        self.headerTrailing = EmptyView()
+        self.content = content()
+    }
+
+    init(
+        title: String,
+        subtitle: String,
+        @ViewBuilder headerTrailing: () -> HeaderTrailing,
+        @ViewBuilder content: () -> Content
     ) {
         self.title = title
         self.subtitle = subtitle
+        self.headerTrailing = headerTrailing()
         self.content = content()
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(AetherUI.pageTitleFont)
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(title)
+                            .font(AetherUI.pageTitleFont)
+                        Text(subtitle)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    headerTrailing
                 }
 
                 content

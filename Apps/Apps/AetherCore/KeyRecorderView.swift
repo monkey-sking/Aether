@@ -48,7 +48,7 @@ struct HotkeySettingsSection: View {
     }
 
     private var localeAwareSubtitle: String {
-        if Locale.current.identifier.hasPrefix("zh") {
+        if AppLocalization.isChinese {
             return "点击某一项后按下新的组合键，按 Esc 取消。"
         } else {
             return "Click a shortcut, then press the new key combination. Press Esc to cancel."

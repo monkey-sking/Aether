@@ -1,0 +1,504 @@
+{
+  "commandOverrides": [
+    {
+      "aliases": [
+        "点击",
+        "单击",
+        "click"
+      ],
+      "commandID": "clickLeft",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "click",
+        "点击",
+        "单击"
+      ],
+      "commandID": "clickLeft",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "右键",
+        "右击",
+        "邮件"
+      ],
+      "commandID": "clickRight",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "right click",
+        "rightclick",
+        "context"
+      ],
+      "commandID": "clickRight",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "双击",
+        "double click",
+        "doubleclick"
+      ],
+      "commandID": "doubleClick",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "double click",
+        "doubleclick",
+        "双击"
+      ],
+      "commandID": "doubleClick",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "切换输入控制模式",
+        "切换输入模式",
+        "切换控制模式"
+      ],
+      "commandID": "toggleInputControlMode",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "toggle input mode",
+        "toggle control mode",
+        "toggle input control mode"
+      ],
+      "commandID": "toggleInputControlMode",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "切换头控",
+        "切换指针控制",
+        "切换追踪"
+      ],
+      "commandID": "toggleTracking",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "toggle tracking",
+        "toggle pointer",
+        "toggle pointer control"
+      ],
+      "commandID": "toggleTracking",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "切换语言",
+        "切换语音语言",
+        "切换识别语言"
+      ],
+      "commandID": "toggleLanguage",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "toggle language",
+        "switch language",
+        "toggle speech language"
+      ],
+      "commandID": "toggleLanguage",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "切换连接锁定",
+        "切换耳机连接锁定",
+        "切换连接锁"
+      ],
+      "commandID": "toggleConnectionLock",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "toggle connection lock",
+        "toggle headset lock",
+        "toggle headset connection lock"
+      ],
+      "commandID": "toggleConnectionLock",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "切换快捷键面板",
+        "切换面板",
+        "切换命令面板"
+      ],
+      "commandID": "toggleShortcutPanel",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "toggle shortcuts panel",
+        "toggle shortcut panel",
+        "toggle shortcuts"
+      ],
+      "commandID": "toggleShortcutPanel",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "播放",
+        "暂停",
+        "播放暂停"
+      ],
+      "commandID": "mediaPlayPause",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "play",
+        "pause",
+        "play pause"
+      ],
+      "commandID": "mediaPlayPause",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "上一首",
+        "上一个",
+        "previous track"
+      ],
+      "commandID": "mediaPrevious",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "previous track",
+        "previous",
+        "back track"
+      ],
+      "commandID": "mediaPrevious",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "下一首",
+        "下一个",
+        "next track"
+      ],
+      "commandID": "mediaNext",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "next track",
+        "next",
+        "skip track"
+      ],
+      "commandID": "mediaNext",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "显示快捷键面板",
+        "打开快捷键面板",
+        "显示当前应用快捷键"
+      ],
+      "commandID": "showShortcutPanel",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "show shortcuts panel",
+        "open shortcuts panel",
+        "show app shortcuts"
+      ],
+      "commandID": "showShortcutPanel",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "关闭快捷键面板",
+        "隐藏快捷键面板",
+        "收起快捷键面板"
+      ],
+      "commandID": "hideShortcutPanel",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "hide shortcuts panel",
+        "close shortcuts panel",
+        "dismiss shortcuts panel"
+      ],
+      "commandID": "hideShortcutPanel",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "开始",
+        "继续",
+        "start"
+      ],
+      "commandID": "startPointer",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "start",
+        "resume",
+        "开始"
+      ],
+      "commandID": "startPointer",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "停止",
+        "暂停控制",
+        "stop"
+      ],
+      "commandID": "stopPointer",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "stop",
+        "pause control",
+        "停止"
+      ],
+      "commandID": "stopPointer",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "校准",
+        "居中",
+        "重置"
+      ],
+      "commandID": "recenter",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "recenter",
+        "reset",
+        "校准"
+      ],
+      "commandID": "recenter",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "向上",
+        "上滚",
+        "向上滚动"
+      ],
+      "commandID": "scrollUp",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "scroll up",
+        "up",
+        "向上"
+      ],
+      "commandID": "scrollUp",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "向下",
+        "下滚",
+        "向下滚动"
+      ],
+      "commandID": "scrollDown",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "scroll down",
+        "down",
+        "向下"
+      ],
+      "commandID": "scrollDown",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "到顶",
+        "滚动到顶部",
+        "top"
+      ],
+      "commandID": "scrollTop",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "top",
+        "scroll top",
+        "到顶"
+      ],
+      "commandID": "scrollTop",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "到底",
+        "滚动到底部",
+        "bottom"
+      ],
+      "commandID": "scrollBottom",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "bottom",
+        "scroll bottom",
+        "到底"
+      ],
+      "commandID": "scrollBottom",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "拖",
+        "抓住",
+        "drag"
+      ],
+      "commandID": "dragStart",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "drag",
+        "拖",
+        "抓住"
+      ],
+      "commandID": "dragStart",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "放",
+        "松开",
+        "drop"
+      ],
+      "commandID": "dragEnd",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "drop",
+        "release",
+        "放"
+      ],
+      "commandID": "dragEnd",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "撤销",
+        "撤回",
+        "undo"
+      ],
+      "commandID": "undo",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "undo",
+        "撤销",
+        "撤回"
+      ],
+      "commandID": "undo",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "粘贴",
+        "paste"
+      ],
+      "commandID": "paste",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "paste",
+        "粘贴"
+      ],
+      "commandID": "paste",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "锁定",
+        "lock",
+        "lock airpods"
+      ],
+      "commandID": "lockConnection",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "lock",
+        "lock airpods",
+        "lockairpods"
+      ],
+      "commandID": "lockConnection",
+      "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "解锁",
+        "unlock",
+        "unlock airpods"
+      ],
+      "commandID": "unlockConnection",
+      "localeIdentifier": "zh-CN"
+    },
+    {
+      "aliases": [
+        "unlock",
+        "unlock airpods",
+        "unlockairpods"
+      ],
+      "commandID": "unlockConnection",
+      "localeIdentifier": "en-US"
+    }
+  ],
+  "exportedAt": "2026-03-13T00:00:00Z",
+  "languageTermsOverrides": [
+    {
+      "commandPrefixes": [
+        "指令",
+        "命令"
+      ],
+      "dictationPrefixes": [
+        "输入",
+        "写"
+      ],
+      "localeIdentifier": "zh-CN",
+      "wakeWords": [
+        "艾瑟",
+        "hey aether"
+      ]
+    },
+    {
+      "commandPrefixes": [
+        "command",
+        "control"
+      ],
+      "dictationPrefixes": [
+        "dictate",
+        "type"
+      ],
+      "localeIdentifier": "en-US",
+      "wakeWords": [
+        "hey aether",
+        "hi aether"
+      ]
+    }
+  ],
+  "version": 1
+}
