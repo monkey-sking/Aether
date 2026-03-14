@@ -327,6 +327,8 @@ final class HUDManager {
     private var lastPointerFollowAt: Date = .distantPast
     private var lastPointerMoveAt: Date = .distantPast
     private var typingMouseAvoidUntil: Date = .distantPast
+    private var mouseAvoidLockUntil: Date = .distantPast
+    private var mouseAvoidLockOrigin: CGPoint?
     private var lastGoodTypingRect: CGRect?
     private var lastGoodTypingRectAt: Date = .distantPast
     private var lastInputInteractionPoint: CGPoint?
@@ -623,9 +625,13 @@ final class HUDManager {
             guard let panel = hudWindow, panel.isVisible else { return }
             let mouseLoc = currentCursorLocation()
             let minDim = min(panel.frame.width, panel.frame.height)
-            let avoidPadding = max(CGFloat(16), min(CGFloat(32), minDim * 0.2))
-            if panel.frame.insetBy(dx: -avoidPadding, dy: -avoidPadding).contains(mouseLoc) {
-                typingMouseAvoidUntil = now.addingTimeInterval(0.3)
+            let avoidPadding = max(CGFloat(24), min(CGFloat(56), minDim * 0.35))
+            var shouldTriggerAvoid = panel.frame.insetBy(dx: -avoidPadding, dy: -avoidPadding).contains(mouseLoc)
+            if !shouldTriggerAvoid, let caret = detector.currentUpdate.caretRect {
+                shouldTriggerAvoid = caret.insetBy(dx: -16, dy: -12).contains(mouseLoc)
+            }
+            if shouldTriggerAvoid {
+                typingMouseAvoidUntil = now.addingTimeInterval(0.6)
                 guard now.timeIntervalSince(lastPointerFollowAt) >= 0.035 else { return }
                 lastPointerFollowAt = now
                 requestReposition(immediate: true)
@@ -2127,13 +2133,22 @@ final class HUDManager {
         let isInputMode = state.recognitionControlMode != .command
         let hasRecentCaretSignal = update.caretRect != nil || detector.recentCaretRect() != nil || axCaret != nil || axEstimated != nil
         let hasRecentTypingSignal = hasRecentCaretSignal || now.timeIntervalSince(lastInputInteractionAt) < 1.0
-        let shouldAvoidMouse = isInputMode && uiTypingMode && now < typingMouseAvoidUntil
+        let mouseAvoidPadding: CGFloat = max(CGFloat(20), min(CGFloat(48), min(size.width, size.height) * 0.3))
+        let mouseInPanel = uiTypingMode && panel.isVisible && panel.frame.insetBy(dx: -mouseAvoidPadding, dy: -mouseAvoidPadding).contains(mouseLoc)
+        if isInputMode && uiTypingMode && mouseInPanel {
+            typingMouseAvoidUntil = now.addingTimeInterval(0.6)
+        }
+        let shouldAvoidMouse = isInputMode && uiTypingMode && (mouseInPanel || now < typingMouseAvoidUntil)
         let shouldAvoidTypingContext = isInputMode && uiTypingMode && hasRecentTypingSignal
 
         if shouldAvoidMouse || shouldAvoidTypingContext || (uiTypingMode && layoutTypingMode && typingRect != nil) {
             // Avoid Mouse
             if shouldAvoidMouse {
-                zones.append(CGRect(x: mouseLoc.x - 15, y: mouseLoc.y - 15, width: 30, height: 30))
+                let mouseAvoidRadius: CGFloat = 26
+                zones.append(CGRect(x: mouseLoc.x - mouseAvoidRadius,
+                                    y: mouseLoc.y - mouseAvoidRadius,
+                                    width: mouseAvoidRadius * 2,
+                                    height: mouseAvoidRadius * 2))
             }
 
             // Avoid Caret itself (Legacy: caret.insetBy(dx: -5, dy: -2))
@@ -2166,8 +2181,23 @@ final class HUDManager {
                 p.x = min(max(p.x, visibleFrame.minX + 2), visibleFrame.maxX - size.width - 2)
                 let rect = CGRect(origin: p, size: size)
                 if visibleFrame.contains(rect) {
-                    bestPos = p
-                    break
+                    var collision = false
+                    for zone in zones {
+                        if rect.intersects(zone) {
+                            collision = true
+                            break
+                        }
+                    }
+                    if !collision && isInputMode && uiTypingMode {
+                        let mouseHit = rect.insetBy(dx: -8, dy: -8).contains(mouseLoc)
+                        if mouseHit {
+                            collision = true
+                        }
+                    }
+                    if !collision {
+                        bestPos = p
+                        break
+                    }
                 }
             }
         }
@@ -2185,6 +2215,12 @@ final class HUDManager {
                         if rect.intersects(zone) {
                             collision = true
                             break
+                        }
+                    }
+                    if !collision && isInputMode && uiTypingMode {
+                        let mouseHit = rect.insetBy(dx: -8, dy: -8).contains(mouseLoc)
+                        if mouseHit {
+                            collision = true
                         }
                     }
                     
@@ -2244,26 +2280,45 @@ final class HUDManager {
         }
         
         if let pos = bestPos {
+            var targetPos = pos
+            if shouldAvoidMouse {
+                mouseAvoidLockOrigin = pos
+                mouseAvoidLockUntil = now.addingTimeInterval(0.8)
+            } else if now > mouseAvoidLockUntil {
+                mouseAvoidLockOrigin = nil
+            }
+
+            if let lock = mouseAvoidLockOrigin, now < mouseAvoidLockUntil {
+                let lockRect = CGRect(origin: lock, size: size)
+                let stillOccupied = lockRect.insetBy(dx: -8, dy: -8).contains(mouseLoc)
+                if !stillOccupied {
+                    targetPos = lock
+                } else {
+                    mouseAvoidLockOrigin = nil
+                    mouseAvoidLockUntil = .distantPast
+                }
+            }
+
             let finalOrigin: CGPoint
             if panel.isVisible, panel.alphaValue > 0.01, let prev = lastSmoothedWindowOrigin {
-                let dx = pos.x - prev.x
-                let dy = pos.y - prev.y
+                let dx = targetPos.x - prev.x
+                let dy = targetPos.y - prev.y
                 let dist = hypot(dx, dy)
                 if dist < 1 {
-                    finalOrigin = pos
+                    finalOrigin = targetPos
                 } else {
                     // Responsive follow:
                     // - large jumps snap to target to avoid trailing lag
                     // - small movements keep a light smoothing to reduce jitter
                     if dist > 36 {
-                        finalOrigin = pos
+                        finalOrigin = targetPos
                     } else {
                         let alpha: CGFloat = 0.72
                         finalOrigin = CGPoint(x: prev.x + dx * alpha, y: prev.y + dy * alpha)
                     }
                 }
             } else {
-                finalOrigin = pos
+                finalOrigin = targetPos
             }
             panel.setFrameOrigin(finalOrigin)
             lastSmoothedWindowOrigin = finalOrigin
