@@ -28,6 +28,8 @@ final class HUDState: ObservableObject {
     // 0...1 progress for current recording segment (visual ring around mic icon).
     @Published var micProgress: CGFloat = 0.0
     @Published var isMicProgressVisible: Bool = false
+    @Published var caretDebugIndicatorVisible: Bool = false
+    @Published var caretDebugIndicatorColor: Color = .clear
 
     func update(
         mode: HUDMode,
