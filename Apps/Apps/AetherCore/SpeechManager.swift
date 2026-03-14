@@ -483,12 +483,50 @@ final class SpeechManager: ObservableObject {
         recognitionControlMode == .auto && Date() < typingRecoveryHoldUntil
     }
 
+    private func effectiveRecognitionControlMode(
+        for availability: VoiceFeatureAvailability
+    ) -> RecognitionControlMode {
+        if availability.dictationEnabled && !availability.commandEnabled {
+            return .auto
+        }
+        if !availability.dictationEnabled && availability.commandEnabled {
+            return .command
+        }
+        return recognitionControlMode
+    }
+
+    private func effectiveHUDRecognitionControlMode(
+        for availability: VoiceFeatureAvailability,
+        typingEligible: Bool
+    ) -> HUDRecognitionControlMode {
+        if availability.dictationEnabled && !availability.commandEnabled {
+            return typingEligible ? .dictation : .auto
+        }
+        if !availability.dictationEnabled && availability.commandEnabled {
+            return .command
+        }
+        return effectiveRecognitionControlMode(for: availability).hudMode
+    }
+
     private var hudRecognitionControlMode: HUDRecognitionControlMode {
-        recognitionControlMode.hudMode
+        let availability = currentVoiceFeatureAvailability()
+        let liveTypingEvidence = liveTypingHUDEvidence()
+        let typingEligible =
+            liveTypingEvidence
+            || isDictating
+            || sessionTypingMode
+            || hasLockedFocusedInputTarget()
+            || isTypingRecoveryHoldActive
+            || !dictationHandler.screenTypedText.isEmpty
+        return effectiveHUDRecognitionControlMode(
+            for: availability,
+            typingEligible: typingEligible
+        )
     }
 
     private func recognitionTaskHint() -> SFSpeechRecognitionTaskHint {
-        switch recognitionControlMode {
+        let availability = currentVoiceFeatureAvailability()
+        switch effectiveRecognitionControlMode(for: availability) {
         case .command:
             return .confirmation
         case .dictation:
@@ -502,7 +540,7 @@ final class SpeechManager: ObservableObject {
         let preferOnDevice = UserDefaults.standard.object(forKey: "preferOnDeviceRecognition") as? Bool ?? true
         if !preferOnDevice { return false }
         // Command mode benefits from lowest latency and deterministic behavior.
-        if recognitionControlMode == .command { return true }
+        if effectiveRecognitionControlMode(for: currentVoiceFeatureAvailability()) == .command { return true }
         let preferForDictation = UserDefaults.standard.object(forKey: "preferOnDeviceForDictation") as? Bool ?? false
         return preferForDictation
     }
@@ -613,6 +651,17 @@ final class SpeechManager: ObservableObject {
         HeadMotionManager.shared.$isLookingAtScreen.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] isLooking in
             if isLooking && HeadMotionManager.shared.isTracking { self?.playWakeSound(reason: "look-at-screen") }
         }.store(in: &cancellables)
+
+        Timer.publish(every: 0.15, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let availability = self.currentVoiceFeatureAvailability()
+                guard availability.dictationEnabled || availability.commandEnabled else { return }
+                HeadMotionManager.shared.refreshTransientRecognitionControlModeIfNeeded(source: "speech-hud-poll")
+                self.refreshContinuousHUD(isDictating: self.isDictating)
+            }
+            .store(in: &cancellables)
     }
 
     @objc private func handleAirPodsChange() { refreshContinuousHUD() }
@@ -813,6 +862,17 @@ final class SpeechManager: ObservableObject {
             refreshContinuousHUD(); return
         }
 
+        let featureAvailability = currentVoiceFeatureAvailability()
+        let focusedTypingEvidence = focusedTypingHUDEvidence()
+        if featureAvailability.dictationEnabled,
+           !featureAvailability.commandEnabled,
+           !focusedTypingEvidence {
+            clearHUDOverride()
+            showMissingInputTargetHUD()
+            refreshContinuousHUD(isDictating: false)
+            return
+        }
+
         // Start audio capture
         refreshHeadsetVoiceProcessingPolicy()
         audioCapture.selectedDeviceID = selectedInputDeviceID
@@ -916,7 +976,8 @@ final class SpeechManager: ObservableObject {
         }
 
         text = normalizeRecognizedText(text)
-        let controlMode = recognitionControlMode
+        let featureAvailability = currentVoiceFeatureAvailability()
+        let controlMode = effectiveRecognitionControlMode(for: featureAvailability)
         if !originalRawText.isEmpty || !text.isEmpty {
             GlobalLogger.speech.info(
                 "[ASR Partial] raw='\(originalRawText)' normalized='\(text)' wakeDetected=\(wakeWordDetected) mode=\(controlMode.rawValue) locale=\(activeLocale.identifier)"
@@ -960,17 +1021,16 @@ final class SpeechManager: ObservableObject {
         let canType = isAwake || isDirectCommandEnabled || !isAlwaysListeningEnabled
         let hasStreamedDictation = !dictationHandler.screenTypedText.isEmpty
         let computedTypingMode = Self.resolvedUtteranceTypingMode(
-            recognitionControlMode: recognitionControlMode,
+            recognitionControlMode: controlMode,
             sessionTypingMode: sessionTypingMode,
             liveTyping: liveTyping,
             canType: canType,
             hasStreamedDictation: hasStreamedDictation,
             isUtteranceActive: isUtteranceActive
         )
-        let featureAvailability = currentVoiceFeatureAvailability()
         let hudState = HUDManager.shared.state
         let nextTypingMode = Self.reconcileTypingContextWithVisibleHUD(
-            recognitionControlMode: recognitionControlMode,
+            recognitionControlMode: controlMode,
             computedTypingContext: computedTypingMode,
             hasStreamedDictation: hasStreamedDictation,
             hudRecognitionControlMode: hudState.recognitionControlMode,
@@ -982,20 +1042,20 @@ final class SpeechManager: ObservableObject {
             computedTypingContext: computedTypingMode,
             availability: featureAvailability
         )
-        if recognitionControlMode == .auto,
+        if controlMode == .auto,
            sessionTypingMode,
            !nextTypingMode,
            !liveTyping,
            !hasStreamedDictation {
             GlobalLogger.speech.info("[TypingMode] cleared stale auto typing state before routing partials")
         }
-        if recognitionControlMode == .auto,
+        if controlMode == .auto,
            computedTypingMode,
            !nextTypingMode,
            !hasStreamedDictation {
             GlobalLogger.speech.info("[TypingMode] HUD control state overrode stale typing context before partial injection")
         }
-        if recognitionControlMode == .auto,
+        if controlMode == .auto,
            !liveTyping,
            lockedTargetMatches,
            effectiveTypingMode {
@@ -1007,7 +1067,7 @@ final class SpeechManager: ObservableObject {
                 "[TypingMode] holding dictation on locked input target liveTyping=false currentPID=\(currentPID) targetPID=\(targetPID) currentBundle=\(currentBundle) targetBundle=\(targetBundle)"
             )
         }
-        if recognitionControlMode == .auto, sessionTypingMode != effectiveTypingMode {
+        if controlMode == .auto, sessionTypingMode != effectiveTypingMode {
             let currentPID = lockedFocusedSnapshot?.pid ?? 0
             let currentBundle = lockedFocusedSnapshot?.bundleID ?? "nil"
             let targetPID = sessionTargetPID ?? 0
@@ -1378,18 +1438,19 @@ final class SpeechManager: ObservableObject {
 
         let liveTyping = throttledTypingMode()
         let hasStreamedDictation = !dictationHandler.screenTypedText.isEmpty
+        let featureAvailability = currentVoiceFeatureAvailability()
+        let controlMode = effectiveRecognitionControlMode(for: featureAvailability)
         let computedTypingContext = Self.resolvedUtteranceTypingMode(
-            recognitionControlMode: recognitionControlMode,
+            recognitionControlMode: controlMode,
             sessionTypingMode: sessionTypingMode,
             liveTyping: liveTyping,
             canType: true,
             hasStreamedDictation: hasStreamedDictation,
             isUtteranceActive: isUtteranceActive
         )
-        let featureAvailability = currentVoiceFeatureAvailability()
         let hudState = HUDManager.shared.state
         var typingContext = Self.reconcileTypingContextWithVisibleHUD(
-            recognitionControlMode: recognitionControlMode,
+            recognitionControlMode: controlMode,
             computedTypingContext: computedTypingContext,
             hasStreamedDictation: hasStreamedDictation,
             hudRecognitionControlMode: hudState.recognitionControlMode,
@@ -1401,13 +1462,13 @@ final class SpeechManager: ObservableObject {
             computedTypingContext: computedTypingContext,
             availability: featureAvailability
         )
-        let hudBlocksDictation = featureAvailability.commandEnabled && recognitionControlMode == .auto &&
+        let hudBlocksDictation = featureAvailability.commandEnabled && controlMode == .auto &&
             (hudState.recognitionControlMode == .command || !hudState.isTypingContext)
         if typingContext != sessionTypingMode {
             sessionTypingMode = typingContext
         }
         isDictating = typingContext && featureAvailability.dictationEnabled
-        if recognitionControlMode == .auto,
+        if controlMode == .auto,
            computedTypingContext,
            !typingContext,
            !hasStreamedDictation {
@@ -1419,7 +1480,7 @@ final class SpeechManager: ObservableObject {
         var routingBias: VoiceCommandRouter.RoutingBias = .neutral
         var blockDictationWithoutInput = false
 
-        switch motion.effectiveRecognitionControlMode {
+        switch controlMode {
         case .command:
             routingBias = .forceCommand
         case .dictation:
@@ -1471,10 +1532,10 @@ final class SpeechManager: ObservableObject {
         var intent = decision.intent
 
         GlobalLogger.router.info(
-            "[Route] transcript='\(textToRoute)' mode=\(recognitionControlMode.rawValue) effective=\(motion.effectiveRecognitionControlMode.rawValue) typing=\(typingContext) bias=\(routingBiasSummary(routingBias)) confidence=\(decision.confidence.rawValue) intent=\(intentSummary(intent))"
+            "[Route] transcript='\(textToRoute)' mode=\(recognitionControlMode.rawValue) effective=\(controlMode.rawValue) typing=\(typingContext) bias=\(routingBiasSummary(routingBias)) confidence=\(decision.confidence.rawValue) intent=\(intentSummary(intent))"
         )
 
-        if recognitionControlMode == .command,
+        if controlMode == .command,
            featureAvailability.commandEnabled,
            case .dictation(let payload) = intent {
             intent = .unknown(payload)
@@ -1498,7 +1559,7 @@ final class SpeechManager: ObservableObject {
         }
 
         let isExplicitControlMode = featureAvailability.commandEnabled &&
-            (recognitionControlMode == .command || routingBias == .forceCommand)
+            (controlMode == .command || routingBias == .forceCommand)
         if decision.confidence == .low,
            !typingContext,
            isCommandIntent(intent),
@@ -1752,10 +1813,13 @@ final class SpeechManager: ObservableObject {
             )
             status = NSLocalizedString("speech.no_matching_command", comment: "")
             clearHandledCommandPreview()
+            let commandEnabled = isCommandExecutionEnabled?() ?? true
             let shouldSurfaceUnknownHUD =
-                !job.sessionTypingMode ||
-                recognitionControlMode == .command ||
-                job.routeReason == "forced-command-no-match"
+                commandEnabled && (
+                    !job.sessionTypingMode ||
+                    effectiveRecognitionControlMode(for: currentVoiceFeatureAvailability()) == .command ||
+                    job.routeReason == "forced-command-no-match"
+                )
             if shouldSurfaceUnknownHUD {
                 showUnknownCommandHUD(transcript)
             }
@@ -2111,19 +2175,54 @@ final class SpeechManager: ObservableObject {
     private func clearHUDOverride() { hudOverrideUntil = .distantPast; hudOverrideMessage = ""; hudOverrideIcon = "info.circle" }
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
-        let controlMode = hudRecognitionControlMode
+        let featureAvailability = currentVoiceFeatureAvailability()
+        let isDictationOnly =
+            featureAvailability.dictationEnabled
+            && !featureAvailability.commandEnabled
+        let liveTypingEvidence = liveTypingHUDEvidence()
+        let focusedTypingEvidence = focusedTypingHUDEvidence()
+        let stickyTypingHUDEligible =
+            isDictating
+            || sessionTypingMode
+            || hasLockedFocusedInputTarget()
+            || isTypingRecoveryHoldActive
+            || !dictationHandler.screenTypedText.isEmpty
+        let idleTypingEvidence = isDictationOnly ? focusedTypingEvidence : liveTypingEvidence
+        let typingHUDEligible = idleTypingEvidence || stickyTypingHUDEligible
+        let isContinuousActive = isAlwaysListeningEnabled
+        let controlMode = effectiveHUDRecognitionControlMode(
+            for: featureAvailability,
+            typingEligible: (isContinuousActive || recognitionSession.isRunning || isStopping || isDictating || isPTTHeld)
+                ? typingHUDEligible
+                : idleTypingEvidence
+        )
         let shouldHoldDictationHUD = isTypingRecoveryHoldActive && controlMode == .auto
         let effectiveDictating = isDictating || shouldHoldDictationHUD
+        let realHardware = availableInputDevices.filter { $0.id != 0 }
+        let shouldShowIdleDictationHUD =
+            featureAvailability.dictationEnabled
+            && !featureAvailability.commandEnabled
+            && focusedTypingEvidence
+        let shouldShowIdleCommandHUD =
+            featureAvailability.commandEnabled
+            && !featureAvailability.dictationEnabled
         if !isStopping && Date() < hudOverrideUntil {
             HUDManager.shared.update(mode: hudOverrideMode, message: hudOverrideMessage, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudOverrideIcon); return
         }
         if (isAlwaysListeningEnabled || isWakeWordEnabled), let hint = missingVoicePermissionHint() {
             HUDManager.shared.update(mode: .command, message: hint.message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hint.icon); return
         }
-        let isContinuousActive = isAlwaysListeningEnabled
         let isSessionActive = recognitionSession.isRunning || isStopping || effectiveDictating || isPTTHeld
         if !isContinuousActive && !isSessionActive {
             clearHUDOverride()
+            if realHardware.isEmpty {
+                HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon())
+                return
+            }
+            if shouldShowIdleDictationHUD || shouldShowIdleCommandHUD {
+                HUDManager.shared.update(mode: .command, message: "", language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon())
+                return
+            }
             // Keep the HUD visible briefly if a temporary toast or language indicator is active.
             if HUDManager.shared.isTemporaryHUDActive || HUDManager.shared.state.isLanguageIndicatorVisible {
                 return
@@ -2131,8 +2230,18 @@ final class SpeechManager: ObservableObject {
             HUDManager.shared.hide()
             return
         }
+        if featureAvailability.dictationEnabled,
+           !featureAvailability.commandEnabled,
+           !focusedTypingEvidence,
+           !effectiveDictating {
+            clearHUDOverride()
+            if HUDManager.shared.isTemporaryHUDActive || HUDManager.shared.state.isLanguageIndicatorVisible {
+                return
+            }
+            HUDManager.shared.hide()
+            return
+        }
 
-        let realHardware = availableInputDevices.filter { $0.id != 0 }
         if realHardware.isEmpty {
             HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon()); return
         }
@@ -2364,13 +2473,27 @@ final class SpeechManager: ObservableObject {
 
     // MARK: - Focus / Typing Detection (preserved from original)
     private var isTypingMode: Bool {
-        switch recognitionControlMode {
+        let availability = currentVoiceFeatureAvailability()
+        if availability.dictationEnabled && !availability.commandEnabled {
+            return focusedTypingHUDEvidence()
+        }
+        switch effectiveRecognitionControlMode(for: availability) {
         case .command:
             return false
         case .dictation:
             return true
         case .auto:
             break
+        }
+
+        let frontmostApp = NSWorkspace.shared.frontmostApplication
+        let liveTypingEvidence = liveTypingHUDEvidence()
+        if !isSystemSearchLikeApplication(frontmostApp),
+           !sessionTypingMode,
+           !isTypingRecoveryHoldActive,
+           !hasLockedFocusedInputTarget(),
+           dictationHandler.screenTypedText.isEmpty {
+            return liveTypingEvidence
         }
 
         if HUDManager.shared.lastKnownTypingState() { return true }
@@ -2394,6 +2517,32 @@ final class SpeechManager: ObservableObject {
             return currentFocusedInputSnapshot() != nil
         }
         return HUDManager.shared.currentAXTypingEvaluation().editableLikely
+    }
+
+    private func liveTypingHUDEvidence() -> Bool {
+        let frontmostApp = NSWorkspace.shared.frontmostApplication
+        if isSystemSearchLikeApplication(frontmostApp), HUDManager.shared.lastKnownTypingState() {
+            return true
+        }
+        if HUDManager.shared.hasRecentExplicitTypingClickReentry() {
+            return true
+        }
+        let axEvaluation = HUDManager.shared.currentAXTypingEvaluation()
+        if axEvaluation.insertionContextAvailable || axEvaluation.editableLikely || axEvaluation.looselyEditableForWeb {
+            return true
+        }
+        return currentFocusedInputSnapshot() != nil
+    }
+
+    private func focusedTypingHUDEvidence() -> Bool {
+        if HUDManager.shared.hasRecentExplicitTypingClickReentry() {
+            return true
+        }
+        let axEvaluation = HUDManager.shared.currentAXTypingEvaluation()
+        if axEvaluation.insertionContextAvailable || axEvaluation.editableLikely || axEvaluation.looselyEditableForWeb {
+            return true
+        }
+        return currentFocusedInputSnapshot() != nil
     }
 
     private func throttledTypingMode(interval: TimeInterval = 0.12) -> Bool {

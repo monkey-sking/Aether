@@ -1468,9 +1468,35 @@ final class VoiceCommandRouter {
         overrides: [VoiceCommandOverrideConfig]
     ) -> [String] {
         if let override = overrideEntry(for: preset, localeIdentifier: localeIdentifier, overrides: overrides) {
-            return uniqueAliases(override.aliases)
+            return compatibilityAliases(for: preset, localeIdentifier: localeIdentifier, base: override.aliases)
         }
-        return defaultAliases(for: preset, localeIdentifier: localeIdentifier)
+        return compatibilityAliases(
+            for: preset,
+            localeIdentifier: localeIdentifier,
+            base: defaultAliases(for: preset, localeIdentifier: localeIdentifier)
+        )
+    }
+
+    private static func compatibilityAliases(
+        for preset: VoiceCommandPreset,
+        localeIdentifier: String,
+        base: [String]
+    ) -> [String] {
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let extra: [String]
+        switch (preset, canonical) {
+        case (.dragStart, "zh-CN"):
+            extra = ["开始拖拽", "开始拖"]
+        case (.dragStart, "en-US"):
+            extra = ["start drag", "drag start"]
+        case (.dragEnd, "zh-CN"):
+            extra = ["结束拖拽", "结束拖"]
+        case (.dragEnd, "en-US"):
+            extra = ["end drag", "drag end"]
+        default:
+            extra = []
+        }
+        return uniqueAliases(base + extra)
     }
 
     func contextualStrings(for localeIdentifier: String) -> [String] {

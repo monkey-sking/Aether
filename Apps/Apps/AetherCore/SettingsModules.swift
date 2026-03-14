@@ -75,7 +75,9 @@ struct InputSettingsView: View {
     @State private var editingCustomRuleID: String?
     @State private var commandLocaleID: String = ""
     @State private var lexiconTransferStatus: String?
+    @State private var basicLexiconSectionExpanded = true
     @State private var expandedLexiconCommandSectionIDs: Set<String> = []
+    @State private var showingResetLexiconLanguageConfirm = false
     let section: VoiceSettingsSection
 
     private let supportedVoiceLocaleIDs = [
@@ -185,6 +187,13 @@ struct InputSettingsView: View {
         Locale.current.localizedString(forIdentifier: resolvedCommandLocaleID) ?? resolvedCommandLocaleID
     }
 
+    private var lexiconResetConfirmationMessage: String {
+        String(
+            format: NSLocalizedString("voice_lexicon.reset_language_confirm", comment: ""),
+            localeTitle(for: resolvedCommandLocaleID)
+        )
+    }
+
     private var mergedFrontmostSnapshot: FrontmostAppCommandSnapshot? {
         appState.mergedFrontmostAppCommandSnapshot(frontmostAppCommandCatalog.snapshot)
     }
@@ -234,6 +243,16 @@ struct InputSettingsView: View {
                 presets: [.mediaPlayPause, .mediaPrevious, .mediaNext]
             )
         ]
+    }
+
+    private var basicLexiconSection: VoiceLexiconSection {
+        VoiceLexiconSection(
+            title: NSLocalizedString("lexicon.basic_terms.title", comment: ""),
+            subtitle: NSLocalizedString("lexicon.basic_terms.subtitle", comment: ""),
+            systemImage: "waveform.badge.mic",
+            tint: .teal,
+            itemCount: 3
+        )
     }
 
     private func lexiconSectionExpandedBinding(for section: VoiceLexiconSection) -> Binding<Bool> {
@@ -538,36 +557,32 @@ struct InputSettingsView: View {
                 if section == .lexicon {
                     GlassCard {
                     VStack(alignment: .leading, spacing: 14) {
-                        Label(L10n.voiceLexiconTitle, systemImage: "list.bullet.clipboard")
-                        .font(.headline)
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label(L10n.voiceLexiconTitle, systemImage: "list.bullet.clipboard")
+                                    .font(.headline)
 
-                        Text(String(localized: "voice_lexicon.description"))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                        HStack(alignment: .center, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(L10n.voiceLexiconEditingLanguage)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundColor(.secondary)
-                                Text(NSLocalizedString("lexicon.editing_language.hint", comment: ""))
+                                Text(String(localized: "voice_lexicon.description"))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
-                            Spacer()
-                            FixedWidthPopUpMenu(
-                                options: popUpOptions(from: lexiconLanguageOptions),
-                                selection: Binding(
-                                    get: { resolvedCommandLocaleID },
-                                    set: { commandLocaleID = $0 }
+
+                            Spacer(minLength: 12)
+
+                            HStack(spacing: 8) {
+                                Button(L10n.voiceLexiconResetLanguage) {
+                                    showingResetLexiconLanguageConfirm = true
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                FixedWidthPopUpMenu(
+                                    options: popUpOptions(from: lexiconLanguageOptions),
+                                    selection: Binding(
+                                        get: { resolvedCommandLocaleID },
+                                        set: { commandLocaleID = $0 }
+                                    )
                                 )
-                            )
-                            Button(L10n.voiceLexiconResetLanguage) {
-                                appState.resetCommandOverrides(for: resolvedCommandLocaleID)
-                                appState.resetVoiceLanguageTermsOverrides(for: resolvedCommandLocaleID)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
                         }
 
                         HStack(spacing: 10) {
@@ -619,17 +634,11 @@ struct InputSettingsView: View {
                                 .foregroundColor(.secondary)
                         }
 
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label(
-                                NSLocalizedString("lexicon.basic_terms.title", comment: ""),
-                                systemImage: "waveform.badge.mic"
-                            )
-                            .font(.headline)
-
-                            Text(NSLocalizedString("lexicon.basic_terms.subtitle", comment: ""))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-
+                        VoiceLexiconSectionCard(
+                            section: basicLexiconSection,
+                            isExpanded: $basicLexiconSectionExpanded
+                        ) {
+                            VStack(spacing: 8) {
                             VoiceLexiconEditorRow(
                                 title: String(localized: "voice_lexicon.wake_words"),
                                 subtitle: NSLocalizedString("lexicon.wake_words.subtitle", comment: ""),
@@ -656,12 +665,13 @@ struct InputSettingsView: View {
                                     get: { appState.commandPrefixOverrideText(for: resolvedCommandLocaleID) },
                                     set: { appState.updateCommandPrefixOverrideText($0, for: resolvedCommandLocaleID) }
                                 ),
-                                actionTitle: String(localized: "hotkey.reset_single"),
-                                actionEnabled: appState.commandPrefixOverrideText(for: resolvedCommandLocaleID)
-                                    != appState.defaultCommandPrefixText(for: resolvedCommandLocaleID),
-                                requiresConfirmation: false,
+                                actionTitle: String(localized: "voice_lexicon.clear"),
+                                actionEnabled: !appState.commandPrefixOverrideText(for: resolvedCommandLocaleID)
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                    .isEmpty,
+                                requiresConfirmation: true,
                                 onReset: {
-                                    appState.restoreDefaultCommandPrefixes(for: resolvedCommandLocaleID)
+                                    appState.updateCommandPrefixOverrideText("", for: resolvedCommandLocaleID)
                                 }
                             )
 
@@ -674,105 +684,63 @@ struct InputSettingsView: View {
                                     get: { appState.dictationPrefixOverrideText(for: resolvedCommandLocaleID) },
                                     set: { appState.updateDictationPrefixOverrideText($0, for: resolvedCommandLocaleID) }
                                 ),
-                                actionTitle: String(localized: "hotkey.reset_single"),
-                                actionEnabled: appState.dictationPrefixOverrideText(for: resolvedCommandLocaleID)
-                                    != appState.defaultDictationPrefixText(for: resolvedCommandLocaleID),
-                                requiresConfirmation: false,
+                                actionTitle: String(localized: "voice_lexicon.clear"),
+                                actionEnabled: !appState.dictationPrefixOverrideText(for: resolvedCommandLocaleID)
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                    .isEmpty,
+                                requiresConfirmation: true,
                                 onReset: {
-                                    appState.restoreDefaultDictationPrefixes(for: resolvedCommandLocaleID)
+                                    appState.updateDictationPrefixOverrideText("", for: resolvedCommandLocaleID)
                                 }
                             )
+                        }
                         }
 
                         Divider()
 
-                        VStack(alignment: .leading, spacing: 12) {
-                            Label(
-                                NSLocalizedString("lexicon.command_aliases.title", comment: ""),
-                                systemImage: "command"
-                            )
-                            .font(.headline)
-
-                            Text(
-                                NSLocalizedString("lexicon.command_aliases.subtitle", comment: "")
-                            )
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                            ForEach(commandAliasSections) { aliasSection in
-                                DisclosureGroup(
-                                    isExpanded: lexiconSectionExpandedBinding(for: aliasSection),
-                                    content: {
-                                        VStack(spacing: 8) {
-                                            ForEach(Array(aliasSection.presets.enumerated()), id: \.element.id) { index, preset in
-                                                VoiceLexiconEditorRow(
-                                                    title: preset.editorTitle(),
-                                                    subtitle: preset.editorDescription(),
-                                                    text: Binding(
-                                                        get: { appState.commandOverrideText(for: preset, localeIdentifier: resolvedCommandLocaleID) },
-                                                        set: { appState.updateCommandOverrideText($0, for: preset, localeIdentifier: resolvedCommandLocaleID) }
-                                                    ),
-                                                    actionTitle: String(localized: "voice_lexicon.clear"),
-                                                    actionEnabled: !appState.commandOverrideText(for: preset, localeIdentifier: resolvedCommandLocaleID)
-                                                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                                                        .isEmpty,
-                                                    requiresConfirmation: true,
-                                                    onReset: {
-                                                        appState.updateCommandOverrideText("", for: preset, localeIdentifier: resolvedCommandLocaleID)
-                                                    }
-                                                )
-                                                if index < aliasSection.presets.count - 1 {
-                                                    Divider()
-                                                }
+                        ForEach(commandAliasSections) { aliasSection in
+                            VoiceLexiconSectionCard(
+                                section: aliasSection,
+                                isExpanded: lexiconSectionExpandedBinding(for: aliasSection)
+                            ) {
+                                VStack(spacing: 8) {
+                                    ForEach(Array(aliasSection.presets.enumerated()), id: \.element.id) { index, preset in
+                                        VoiceLexiconEditorRow(
+                                            title: preset.editorTitle(),
+                                            subtitle: preset.editorDescription(),
+                                            text: Binding(
+                                                get: { appState.commandOverrideText(for: preset, localeIdentifier: resolvedCommandLocaleID) },
+                                                set: { appState.updateCommandOverrideText($0, for: preset, localeIdentifier: resolvedCommandLocaleID) }
+                                            ),
+                                            actionTitle: String(localized: "voice_lexicon.clear"),
+                                            actionEnabled: !appState.commandOverrideText(for: preset, localeIdentifier: resolvedCommandLocaleID)
+                                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                                                .isEmpty,
+                                            requiresConfirmation: true,
+                                            onReset: {
+                                                appState.updateCommandOverrideText("", for: preset, localeIdentifier: resolvedCommandLocaleID)
                                             }
-                                        }
-                                        .padding(.top, 6)
-                                    },
-                                    label: {
-                                        HStack(alignment: .top, spacing: 12) {
-                                            ZStack {
-                                                Circle()
-                                                    .fill(aliasSection.tint.opacity(0.14))
-                                                    .frame(width: 34, height: 34)
-
-                                                Image(systemName: aliasSection.systemImage)
-                                                    .font(.system(size: 14, weight: .semibold))
-                                                    .foregroundColor(aliasSection.tint)
-                                            }
-
-                                            VStack(alignment: .leading, spacing: 4) {
-                                                HStack(spacing: 8) {
-                                                    Text(aliasSection.title)
-                                                        .font(.subheadline.weight(.semibold))
-                                                    Text("\(aliasSection.presets.count)")
-                                                        .font(.caption2.weight(.bold))
-                                                        .foregroundColor(aliasSection.tint)
-                                                        .padding(.horizontal, 6)
-                                                        .padding(.vertical, 2)
-                                                        .background(aliasSection.tint.opacity(0.14))
-                                                        .clipShape(Capsule())
-                                                }
-
-                                                Text(aliasSection.subtitle)
-                                                    .font(.caption)
-                                                    .foregroundColor(.secondary)
-                                                    .fixedSize(horizontal: false, vertical: true)
-                                            }
-
-                                            Spacer(minLength: 12)
+                                        )
+                                        if index < aliasSection.presets.count - 1 {
+                                            Divider()
                                         }
                                     }
-                                )
-                                .padding(14)
-                                .background(Color(nsColor: .controlBackgroundColor).opacity(0.42))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .stroke(aliasSection.tint.opacity(0.08), lineWidth: 1)
-                                )
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                }
                             }
                         }
 
+                    }
+                    .alert(
+                        String(localized: "voice_lexicon.reset_language_confirm_title"),
+                        isPresented: $showingResetLexiconLanguageConfirm
+                    ) {
+                        Button(String(localized: "voice_lexicon.reset_language"), role: .destructive) {
+                            appState.resetCommandOverrides(for: resolvedCommandLocaleID)
+                            appState.resetVoiceLanguageTermsOverrides(for: resolvedCommandLocaleID)
+                        }
+                        Button(String(localized: "lexicon.clear_confirm_cancel"), role: .cancel) {}
+                    } message: {
+                        Text(lexiconResetConfirmationMessage)
                     }
                 }
                 }
@@ -1133,6 +1101,25 @@ private struct VoiceLexiconSection: Identifiable {
     let systemImage: String
     let tint: Color
     let presets: [VoiceCommandPreset]
+    let itemCountOverride: Int?
+
+    init(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        tint: Color,
+        presets: [VoiceCommandPreset] = [],
+        itemCount: Int? = nil
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.systemImage = systemImage
+        self.tint = tint
+        self.presets = presets
+        self.itemCountOverride = itemCount
+    }
+
+    var itemCount: Int { itemCountOverride ?? presets.count }
 
     var id: String { title }
 }
@@ -1161,51 +1148,62 @@ private struct VoiceLexiconSectionChip: View {
     }
 }
 
+private struct VoiceLexiconSectionHeader: View {
+    let section: VoiceLexiconSection
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(section.tint.opacity(0.14))
+                    .frame(width: 34, height: 34)
+
+                Image(systemName: section.systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(section.tint)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(section.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text("\(section.itemCount)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundColor(section.tint)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(section.tint.opacity(0.14))
+                        .clipShape(Capsule())
+                }
+
+                Text(section.subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+        }
+    }
+}
+
 private struct VoiceLexiconSectionCard<Content: View>: View {
     let section: VoiceLexiconSection
+    @Binding var isExpanded: Bool
     let content: Content
 
-    init(section: VoiceLexiconSection, @ViewBuilder content: () -> Content) {
+    init(section: VoiceLexiconSection, isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content) {
         self.section = section
+        _isExpanded = isExpanded
         self.content = content()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(section.tint.opacity(0.14))
-                        .frame(width: 34, height: 34)
-
-                    Image(systemName: section.systemImage)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(section.tint)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(section.title)
-                            .font(.subheadline.weight(.semibold))
-                        Text("\(section.presets.count)")
-                            .font(.caption2.weight(.bold))
-                            .foregroundColor(section.tint)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(section.tint.opacity(0.14))
-                            .clipShape(Capsule())
-                    }
-
-                    Text(section.subtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 12)
-            }
-
+        DisclosureGroup(isExpanded: $isExpanded) {
             content
+                .padding(.top, 6)
+        } label: {
+            VoiceLexiconSectionHeader(section: section)
         }
         .padding(14)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.42))
@@ -1506,8 +1504,8 @@ private struct CustomAppShortcutRulesCard: View {
                     .font(.headline)
                     Text(
                         isChinese
-                            ? "给某个 App 手动补一条语音命令和对应快捷键。它会同时出现在语音路由、设置预览和快捷键面板里。"
-                            : "Manually add voice-triggered shortcuts for a specific app. They appear in routing, settings preview, and the shortcut panel."
+                            ? "给某个App手动补一条语言命令和对应的快捷键，可以使用语音触发快捷键。"
+                            : "Add a voice command and matching shortcut for a specific app, then trigger that shortcut by voice."
                     )
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -2044,6 +2042,31 @@ private struct VoiceLexiconEditorRow: View {
     let onReset: () -> Void
     @State private var isHovering: Bool = false
     @State private var showConfirm: Bool = false
+    @State private var draftText: String = ""
+    @FocusState private var isFocused: Bool
+
+    private var hasDraftContent: Bool {
+        !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func normalizedDraft(_ raw: String) -> String {
+        raw.replacingOccurrences(of: "，", with: ",")
+    }
+
+    private func commitDraft() {
+        let normalized = normalizedDraft(draftText)
+        if draftText != normalized {
+            draftText = normalized
+        }
+        if text != normalized {
+            text = normalized
+        }
+    }
+
+    private func performReset() {
+        onReset()
+        draftText = text
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -2061,30 +2084,63 @@ private struct VoiceLexiconEditorRow: View {
             }
 
             ZStack(alignment: .trailing) {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(nsColor: .textBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
+
                 TextField(
                     String(localized: "voice_lexicon.leave_empty"),
-                    text: $text
+                    text: $draftText
                 )
-                .textFieldStyle(.roundedBorder)
-                .padding(.trailing, 60)
+                .focused($isFocused)
+                .textFieldStyle(.plain)
+                .padding(.leading, 12)
+                .padding(.trailing, (actionEnabled || hasDraftContent) ? 54 : 12)
+                .padding(.vertical, 9)
+                .onSubmit {
+                    commitDraft()
+                }
 
                 Button(actionTitle) {
                     if requiresConfirmation {
                         showConfirm = true
                     } else {
-                        onReset()
+                        performReset()
                     }
                 }
                 .buttonStyle(.borderless)
                 .controlSize(.mini)
-                .disabled(!actionEnabled)
-                .opacity(isHovering && actionEnabled ? 1 : 0)
-                .allowsHitTesting(isHovering && actionEnabled)
+                .font(.caption.weight(.medium))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(Capsule())
+                .padding(.trailing, 8)
+                .disabled(!(actionEnabled || hasDraftContent))
+                .opacity(isHovering && (actionEnabled || hasDraftContent) ? 1 : 0)
+                .allowsHitTesting(isHovering && (actionEnabled || hasDraftContent))
             }
         }
         .padding(10)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
         .cornerRadius(10)
+        .onAppear {
+            draftText = text
+        }
+        .onChange(of: text) { _, newValue in
+            guard !isFocused else { return }
+            if draftText != newValue {
+                draftText = newValue
+            }
+        }
+        .onChange(of: isFocused) { _, focused in
+            if !focused {
+                commitDraft()
+            }
+        }
         .onHover { hovering in
             isHovering = hovering
         }
@@ -2094,7 +2150,7 @@ private struct VoiceLexiconEditorRow: View {
             titleVisibility: .visible
         ) {
             Button(String(localized: "lexicon.clear_confirm_action"), role: .destructive) {
-                onReset()
+                performReset()
             }
             Button(String(localized: "lexicon.clear_confirm_cancel"), role: .cancel) {}
         } message: {

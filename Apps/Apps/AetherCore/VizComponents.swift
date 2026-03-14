@@ -6,6 +6,7 @@ import AppKit
 enum AetherUI {
     static let cardCornerRadius: CGFloat = 22
     static let dashboardTileMinHeight: CGFloat = 214
+    static let dashboardCompactTileMinHeight: CGFloat = 164
     static let sidebarIconSize: CGFloat = 16
     static let sidebarIconFrame: CGFloat = 22
 

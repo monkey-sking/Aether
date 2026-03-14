@@ -606,3 +606,6 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "lexicon.common_commands.subtitle" = "Keep the high-frequency controls here. Undo and paste now come from the current app shortcut panel instead of built-in lexicon defaults.";
 "lexicon.all_commands.title" = "All Commands";
 "lexicon.all_commands.subtitle" = "Lower-frequency commands stay collapsed by default so the page remains easier to scan.";
+
+"voice_lexicon.reset_language_confirm_title" = "Réinitialiser les termes par défaut ?";
+"voice_lexicon.reset_language_confirm" = "Réinitialiser le lexique vocal pour %@ ?";
