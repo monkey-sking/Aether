@@ -206,7 +206,7 @@
 "settings.activation_methods" = "触发方式";
 "settings.activation.shortcut" = "按键说话 (PTT)";
 "settings.activation.shortcut_hint" = "按下快捷键以输入指令或进行听写。";
-"settings.activation.wakeword_hint" = "即便在后台，说出“Hey Aether”即可唤醒。";
+"settings.activation.wakeword_hint" = "仅在“唤醒词”模式下生效；先说“Hey Aether”，再继续讲话。";
 "settings.activation.always_hint" = "麦克风常驻开启，无需唤醒词，直接下达指令。";
 "settings.activation.always_warning" = "注意：此模式耗电量较高。";
 "settings.activation.hands_free" = "直接指令 (免唤醒)";
@@ -254,16 +254,18 @@
 
 /* Voice Lexicon */
 "voice_lexicon.title" = "语音词库";
-"voice_lexicon.description" = "按语言统一配置唤醒词、强制前缀和命令别名。多个说法可用逗号或换行分隔；默认词库已预填，可直接编辑，清空将禁用该项。";
+"voice_lexicon.description" = "按语言整理唤醒词、前缀和命令说法，词条仅支持用逗号分隔。";
 "voice_lexicon.editing_language" = "编辑语言";
 "voice_lexicon.current_target" = "当前目标";
-"voice_lexicon.reset_language" = "恢复该语言默认";
+"voice_lexicon.reset_language" = "重置";
+"voice_lexicon.reset_language_confirm_title" = "恢复默认词条？";
+"voice_lexicon.reset_language_confirm" = "是否重置%@语言的语音词库？";
 "voice_lexicon.export" = "导出 JSON";
 "voice_lexicon.import" = "导入 JSON";
 "voice_lexicon.wake_words" = "唤醒词";
 "voice_lexicon.command_prefixes" = "强制命令前缀";
 "voice_lexicon.dictation_prefixes" = "强制输入前缀";
-"voice_lexicon.leave_empty" = "清空以禁用该项";
+"voice_lexicon.leave_empty" = "多个词条请用逗号分隔";
 "voice_lexicon.default" = "默认";
 "voice_lexicon.custom" = "已自定义";
 "voice_lexicon.clear" = "清空";
@@ -289,12 +291,12 @@
 "main.overview.subtitle.ready" = "核心权限已经就绪，这里保留你最常用的控制和运行状态。";
 "main.overview.subtitle.pending_fmt" = "还差 %d 项设置完成即可更稳定地使用 Aether。";
 "main.readiness.title" = "准备情况";
-"main.readiness.subtitle" = "先把必需权限拉齐，再去调语音和指针体验。";
+"main.readiness.subtitle" = "先确认辅助功能、麦克风权限、语音识别和麦克风设备都已就绪。";
 "main.readiness.ready_count_fmt" = "%d/%d 已完成";
-"main.readiness.collapsed" = "核心权限都已就绪。需要时可展开查看详情。";
+"main.readiness.collapsed" = "四项准备都已就绪。需要时可展开查看详情。";
 "main.permission.accessibility.detail.ready" = "已允许控制系统输入";
 "main.permission.accessibility.detail.missing" = "未授权，头控和快捷键会受限";
-"main.permission.microphone.detail.ready" = "可以开始输入";
+"main.permission.microphone.detail.ready" = "麦克风权限已开启";
 "main.permission.microphone.detail.missing" = "未授权，无法监听语音";
 "main.permission.speech.detail.ready" = "识别引擎已可用";
 "main.permission.speech.detail.missing" = "未授权，无法转写语音";
@@ -302,9 +304,9 @@
 "main.action.open_settings" = "打开设置";
 "main.pointer.title" = "头控指针";
 "main.pointer.subtitle.active" = "头控已开启。";
-"main.pointer.subtitle.idle" = "开启后即可使用头控。";
+"main.pointer.subtitle.idle" = "开启后可用头控。";
 "main.pointer.auto_start.title" = "连接耳机后自动开启";
-"main.pointer.auto_start.subtitle" = "连接兼容耳机时自动开启。";
+"main.pointer.auto_start.subtitle" = "连接耳机时自动开启。";
 "main.pointer.disabled_hint" = "开启头控后，才可以设置连接耳机时自动开启。";
 "main.pointer.posture_guide.title" = "显示姿态引导";
 "main.pointer.posture_guide.subtitle" = "自动开启前提醒调整姿态。";
@@ -312,13 +314,13 @@
 "main.voice_basics.title" = "语音基础";
 "main.voice_basics.subtitle" = "设置语言和唤起方式。";
 "main.voice_input.title" = "语音输入";
-"main.voice_input.subtitle" = "控制语音输入文字。";
+"main.voice_input.subtitle" = "控制文字输入。";
 "main.voice_input.auto_enable.title" = "连接耳机后自动开启";
-"main.voice_input.auto_enable.subtitle" = "检测到耳机时自动开启输入。";
+"main.voice_input.auto_enable.subtitle" = "检测到耳机时自动开启。";
 "main.voice_control.title" = "语音控制";
-"main.voice_control.subtitle" = "控制语音命令执行。";
+"main.voice_control.subtitle" = "控制命令执行。";
 "main.voice_control.auto_enable.title" = "连接耳机后自动开启";
-"main.voice_control.auto_enable.subtitle" = "检测到耳机时自动开启控制。";
+"main.voice_control.auto_enable.subtitle" = "检测到耳机时自动开启。";
 "main.voice_feature.disabled_hint" = "开启后，才可以设置连接耳机时自动开启。";
 "main.voice_input_control.title" = "语音输入和控制";
 "main.voice_activation.title" = "语音唤起";
@@ -328,7 +330,7 @@
 "main.voice_mode.hands_free.short" = "免提";
 "main.voice_mode.push_to_talk.detail" = "按住快捷键时识别，松开即停止。";
 "main.voice_mode.push_to_talk.detail_fmt" = "按住 %@ 时识别，松开即停止。";
-"main.voice_mode.wake_word.detail" = "先说唤醒词，再继续讲话。";
+"main.voice_mode.wake_word.detail" = "仅在这个模式下，需要先说唤醒词，再继续讲话。";
 "main.voice_mode.hands_free.detail" = "持续待命；空闲时自动收起。";
 
 /* Menu bar */
@@ -491,21 +493,21 @@
 "settings.voice.open_speech_permission" = "去开启语音识别权限";
 "settings.voice.ptt_status_hint_fmt" = "当前按键为 %@。如需修改，请到“快捷键”页面统一设置。";
 
-"lexicon.editing_language.hint" = "按语言编辑唤醒词和命令别名。";
+"lexicon.editing_language.hint" = "按语言整理唤醒词、前缀和命令说法。";
 "lexicon.section.core_controls.title" = "基础控制";
 "lexicon.section.core_controls.subtitle" = "鼠标点击、滚动、拖拽与常用编辑动作。";
 "lexicon.section.media_panels.title" = "媒体与面板";
 "lexicon.section.media_panels.subtitle" = "播放控制和快捷键面板显示控制。";
 "lexicon.section.pointer_control.title" = "指针控制";
 "lexicon.section.pointer_control.subtitle" = "头控启停与回中操作。";
-"lexicon.wake_words.subtitle" = "先叫醒 Aether，再说后面的命令。适合免提常驻。";
+"lexicon.wake_words.subtitle" = "仅在“唤醒词”模式下生效；先说唤醒词，再继续讲话。";
 "lexicon.wake_words.example" = "例如：Aether、阿瑟、嘿 Aether";
 "lexicon.command_prefixes.subtitle" = "输入模式下，以这些前缀开头的语句会临时按命令执行，执行完继续编辑。";
 "lexicon.command_prefixes.example" = "例如：命令 粘贴、命令 清空输入、命令 确认发送";
 "lexicon.dictation_prefixes.subtitle" = "当你真的想把命令文字打进去时，用这些前缀强制按文本输入。";
 "lexicon.dictation_prefixes.example" = "例如：输入 命令 粘贴、输入 命令 确认发送";
 "lexicon.command_aliases.title" = "控制命令别名";
-"lexicon.command_aliases.subtitle" = "下面这些是内置控制命令。默认说法已预填，可直接编辑；清空后会禁用该命令。";
+"lexicon.command_aliases.subtitle" = "按语言调整内置控制命令的说法；清空后会停用该命令。";
 
 "panels.shortcuts.current_app" = "当前 App";
 "panels.shortcuts.current_app.description" = "这里展示前台 App 菜单暴露出的快捷键，并补充浏览器、编辑器、终端等常见默认快捷键。语音命中后会直接触发对应组合键。";
@@ -601,7 +603,7 @@
 "custom_app_rules.paste_empty" = "剪贴板里没有可导入的自定义 App 规则";
 "custom_app_rules.paste_failed" = "粘贴自定义 App 规则失败";
 "lexicon.basic_terms.title" = "基础词条";
-"lexicon.basic_terms.subtitle" = "先配置唤醒词和一次性前缀。前缀留空即禁用，点“恢复默认”才会带回默认值。";
+"lexicon.basic_terms.subtitle" = "按语言设置唤醒词和临时前缀；恢复可带回默认词条。";
 "lexicon.common_commands.title" = "常用命令";
 "lexicon.common_commands.subtitle" = "高频控制命令放在这里。撤销、粘贴改由当前 App 的快捷键面板提供，不再占用内置词库。";
 "lexicon.all_commands.title" = "全部命令";

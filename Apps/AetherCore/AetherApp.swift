@@ -1434,10 +1434,7 @@ class AppState: ObservableObject {
     }
 
     func updateCommandOverrideText(_ raw: String, for preset: VoiceCommandPreset, localeIdentifier: String) {
-        let aliases = raw
-            .components(separatedBy: CharacterSet(charactersIn: ",\n"))
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        let aliases = parseVoiceTermsText(raw)
 
         let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
         voiceCommandOverrides.removeAll {
@@ -1811,7 +1808,7 @@ class AppState: ObservableObject {
 
     private func parseVoiceTermsText(_ raw: String) -> [String] {
         raw
-            .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+            .components(separatedBy: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }

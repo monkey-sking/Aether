@@ -352,10 +352,19 @@ private struct OverviewReadinessCard: View {
     }
 
     private var microphoneButtonTitle: String {
+        guard hasMicrophoneDevice else {
+            return String(localized: "settings.no_microphone")
+        }
         guard let selected = appState.availableInputDevices.first(where: { $0.id == appState.selectedInputDeviceID }) else {
             return String(localized: "settings.default_device")
         }
         return selected.name
+    }
+
+    private var microphoneRowDetail: String {
+        hasMicrophoneDevice
+            ? microphoneButtonTitle
+            : String(localized: "speech.no_mic_detected")
     }
 
     var body: some View {
@@ -365,9 +374,11 @@ private struct OverviewReadinessCard: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(LocalizedStringKey("main.readiness.title"))
                             .font(.headline)
-                        Text(LocalizedStringKey("main.readiness.subtitle"))
+                        Text(String(localized: "main.readiness.subtitle"))
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     Spacer()
                     OverviewStateTag(
@@ -385,9 +396,9 @@ private struct OverviewReadinessCard: View {
 
                 if isCollapsed {
                     Text(LocalizedStringKey("main.readiness.collapsed"))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 2)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 2)
                 } else {
                     VStack(spacing: 10) {
                         ForEach(setupItems) { item in
@@ -422,7 +433,9 @@ private struct OverviewReadinessCard: View {
                         readinessMenuRow(
                             title: String(localized: "settings.microphone"),
                             value: microphoneButtonTitle,
-                            systemImage: "mic.fill"
+                            detail: microphoneRowDetail,
+                            systemImage: "mic.fill",
+                            isReady: hasMicrophoneDevice
                         ) {
                             if appState.availableInputDevices.isEmpty {
                                 Text(L10n.settingsNoMicrophone)
@@ -444,18 +457,20 @@ private struct OverviewReadinessCard: View {
     private func readinessMenuRow<Content: View>(
         title: String,
         value: String,
+        detail: String,
         systemImage: String,
+        isReady: Bool,
         @ViewBuilder content: () -> Content
     ) -> some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
                 .frame(width: 20)
-                .foregroundColor(.secondary)
+                .foregroundColor(isReady ? .green : .orange)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.subheadline.weight(.medium))
-                Text(value)
+                Text(detail)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
@@ -463,23 +478,34 @@ private struct OverviewReadinessCard: View {
 
             Spacer()
 
-            Menu {
-                content()
-            } label: {
+            if isReady {
+                Menu {
+                    content()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(value)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2)
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color(nsColor: .windowBackgroundColor).opacity(0.9))
+                    .cornerRadius(10)
+                }
+                .menuStyle(.borderlessButton)
+            } else {
                 HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(.orange)
                     Text(value)
                         .lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2)
                 }
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color(nsColor: .windowBackgroundColor).opacity(0.9))
-                .cornerRadius(10)
+                .font(.caption.weight(.medium))
+                .foregroundColor(.orange)
             }
-            .menuStyle(.borderlessButton)
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor))
@@ -564,19 +590,15 @@ private struct PointerControlTile: View {
                 .opacity(autoStartOnConnect ? 1 : 0.55)
             }
 
-            Text(LocalizedStringKey("main.pointer.footnote"))
-                .font(AetherUI.captionFont)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Text(headManager.attitudeText)
-                .font(AetherUI.captionFont)
-                .foregroundColor(headManager.isTracking ? .secondary : .orange)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            if !headManager.attitudeText.isEmpty {
+                Text(headManager.attitudeText)
+                    .font(AetherUI.captionFont)
+                    .foregroundColor(headManager.isTracking ? .secondary : .orange)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
         }
-        .frame(maxWidth: .infinity, minHeight: AetherUI.dashboardTileMinHeight, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: AetherUI.dashboardCompactTileMinHeight, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -635,7 +657,7 @@ private struct VoiceBasicsTile: View {
             VStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .center, spacing: 8) {
-                        Label(L10n.settingsSpeechLanguage, systemImage: "globe")
+                        Text(L10n.settingsSpeechLanguage)
                             .font(AetherUI.bodyFont)
                         Spacer()
                         compactSelectionMenu(

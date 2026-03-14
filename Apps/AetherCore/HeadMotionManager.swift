@@ -1217,6 +1217,7 @@ class HeadMotionManager: ObservableObject {
 
     func dragStart() {
         guard !isDragging else { return }
+        syncTrackedCursorToSystemCursor()
         isDragging = true
         // Use current cursor location (nil) to avoid coordinate flipping issues
         AutomationOutputs.shared.drag(start: true, at: nil)
@@ -1235,6 +1236,15 @@ class HeadMotionManager: ObservableObject {
             message: String(localized: "headset.hud.drag_drop"),
             icon: "hand.raised.fill"
         )
+    }
+
+    private func syncTrackedCursorToSystemCursor() {
+        guard let currentCursor = CGEvent(source: nil)?.location else { return }
+        let maxY = desktopFrame == .zero
+            ? NSScreen.screens.reduce(CGFloat(0)) { max($0, $1.frame.maxY) }
+            : desktopFrame.maxY
+        currentX = currentCursor.x
+        currentY = maxY - currentCursor.y
     }
 
     func recenter() {

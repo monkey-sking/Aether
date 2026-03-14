@@ -362,36 +362,44 @@
     },
     {
       "aliases": [
-        "拖",
+        "开始拖拽",
+        "开始拖",
+        "拖住",
         "抓住",
-        "drag"
+        "拖"
       ],
       "commandID": "dragStart",
       "localeIdentifier": "zh-CN"
     },
     {
       "aliases": [
+        "start drag",
+        "drag start",
+        "hold down",
         "drag",
-        "拖",
-        "抓住"
+        "grab"
       ],
       "commandID": "dragStart",
       "localeIdentifier": "en-US"
     },
     {
       "aliases": [
-        "放",
+        "结束拖拽",
+        "结束拖",
+        "放下",
         "松开",
-        "drop"
+        "放"
       ],
       "commandID": "dragEnd",
       "localeIdentifier": "zh-CN"
     },
     {
       "aliases": [
+        "end drag",
+        "drag end",
         "drop",
         "release",
-        "放"
+        "let go"
       ],
       "commandID": "dragEnd",
       "localeIdentifier": "en-US"

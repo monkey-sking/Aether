@@ -28,6 +28,28 @@ enum VoiceLexiconSupport {
 
         return ordered
     }
+
+    static func isDefaultTerm(_ term: String, compatibleWith localeIdentifier: String) -> Bool {
+        let canonical = canonicalLocaleIdentifier(localeIdentifier)
+        switch canonical {
+        case "zh-CN":
+            return term.unicodeScalars.contains(where: { $0.properties.isIdeographic })
+        case "ja-JP":
+            return term.unicodeScalars.contains(where: {
+                $0.properties.isIdeographic ||
+                (0x3040...0x309F).contains($0.value) ||
+                (0x30A0...0x30FF).contains($0.value)
+            })
+        case "ko-KR":
+            return term.unicodeScalars.contains(where: { (0xAC00...0xD7AF).contains($0.value) })
+        default:
+            return !term.unicodeScalars.contains(where: {
+                $0.properties.isIdeographic ||
+                (0x3040...0x30FF).contains($0.value) ||
+                (0xAC00...0xD7AF).contains($0.value)
+            })
+        }
+    }
 }
 
 struct VoiceLanguageTermsOverrideConfig: Codable, Identifiable, Equatable {

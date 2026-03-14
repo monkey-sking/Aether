@@ -45,6 +45,14 @@ final class OutputRouting: ObservableObject {
 
 final class CoreGraphicsAutomationOutput: AutomationOutput {
     private var isDragging: Bool = false
+    private let mouseSource = CGEventSource(stateID: .combinedSessionState)
+    private var lastPostedMouseLocation: CGPoint?
+    private var dragGlobalMouseMonitor: Any?
+    private var dragLocalMouseMonitor: Any?
+
+    deinit {
+        teardownSyntheticDragMouseMonitors()
+    }
 
     private func postKeyboardEvent(_ event: CGEvent?, targetPID: pid_t?) {
         guard let event else { return }
@@ -60,8 +68,13 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
         CGWarpMouseCursorPosition(cgPoint)
         let mouseType: CGEventType = isDragging ? .leftMouseDragged : .mouseMoved
         let tap: CGEventTapLocation = isDragging ? .cghidEventTap : .cgSessionEventTap
-        if let event = CGEvent(mouseEventSource: nil, mouseType: mouseType, mouseCursorPosition: cgPoint, mouseButton: .left) {
+        if let event = CGEvent(mouseEventSource: mouseSource, mouseType: mouseType, mouseCursorPosition: cgPoint, mouseButton: .left) {
+            if isDragging {
+                event.setDoubleValueField(.mouseEventPressure, value: 1.0)
+                applyMouseDelta(to: event, currentLocation: cgPoint)
+            }
             event.post(tap: tap)
+            lastPostedMouseLocation = cgPoint
         }
     }
 
@@ -212,7 +225,6 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
             return
         }
 
-        let source = CGEventSource(stateID: .combinedSessionState)
         var loc = point
         if loc == nil {
             loc = CGEvent(source: nil)?.location
@@ -220,11 +232,86 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
         guard let pos = loc else { return }
 
         let type: CGEventType = start ? .leftMouseDown : .leftMouseUp
-        if let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: pos, mouseButton: .left) {
+        if let event = CGEvent(mouseEventSource: mouseSource, mouseType: type, mouseCursorPosition: pos, mouseButton: .left) {
             event.setIntegerValueField(.mouseEventClickState, value: 1)
+            if start {
+                event.setDoubleValueField(.mouseEventPressure, value: 1.0)
+            }
             event.post(tap: .cghidEventTap)
             isDragging = start
+            lastPostedMouseLocation = pos
+            if start {
+                installSyntheticDragMouseMonitorsIfNeeded()
+                postSyntheticDraggedEvent(at: pos)
+            } else {
+                teardownSyntheticDragMouseMonitors()
+            }
         }
+    }
+
+    private func installSyntheticDragMouseMonitorsIfNeeded() {
+        guard dragGlobalMouseMonitor == nil, dragLocalMouseMonitor == nil else { return }
+
+        let handleMove: () -> Void = { [weak self] in
+            guard let self, self.isDragging else { return }
+            self.postSyntheticDraggedEvent(at: NSEvent.mouseLocation)
+        }
+
+        if Thread.isMainThread {
+            dragGlobalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { _ in
+                handleMove()
+            }
+            dragLocalMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { event in
+                handleMove()
+                return event
+            }
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.installSyntheticDragMouseMonitorsIfNeeded()
+            }
+        }
+    }
+
+    private func teardownSyntheticDragMouseMonitors() {
+        let removeMonitors = {
+            if let monitor = self.dragGlobalMouseMonitor {
+                NSEvent.removeMonitor(monitor)
+                self.dragGlobalMouseMonitor = nil
+            }
+            if let monitor = self.dragLocalMouseMonitor {
+                NSEvent.removeMonitor(monitor)
+                self.dragLocalMouseMonitor = nil
+            }
+        }
+
+        if Thread.isMainThread {
+            removeMonitors()
+        } else {
+            DispatchQueue.main.async(execute: removeMonitors)
+        }
+    }
+
+    private func postSyntheticDraggedEvent(at point: CGPoint) {
+        guard isDragging else { return }
+        guard let event = CGEvent(
+            mouseEventSource: mouseSource,
+            mouseType: .leftMouseDragged,
+            mouseCursorPosition: point,
+            mouseButton: .left
+        ) else { return }
+
+        event.setDoubleValueField(.mouseEventPressure, value: 1.0)
+        applyMouseDelta(to: event, currentLocation: point)
+        event.post(tap: .cghidEventTap)
+        lastPostedMouseLocation = point
+    }
+
+    private func applyMouseDelta(to event: CGEvent, currentLocation: CGPoint) {
+        let previous = lastPostedMouseLocation ?? currentLocation
+        let deltaX = Int64((currentLocation.x - previous.x).rounded())
+        let deltaY = Int64((currentLocation.y - previous.y).rounded())
+        event.setIntegerValueField(.mouseEventDeltaX, value: deltaX)
+        event.setIntegerValueField(.mouseEventDeltaY, value: deltaY)
     }
 
     func backspace(count: Int, targetPID: pid_t?) {
