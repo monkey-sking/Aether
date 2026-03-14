@@ -149,6 +149,8 @@
 
 /* HUD 提示与错误 */
 "speech.no_matching_command" = "未匹配到控制命令";
+"speech.voice_input_disabled" = "语音输入已关闭";
+"speech.voice_control_disabled" = "语音控制已关闭";
 "speech.no_editable_field" = "未检测到输入框";
 "speech.undo_done" = "已撤销";
 "speech.pasted_cmdv" = "已粘贴 (Cmd+V)";
@@ -299,21 +301,35 @@
 "main.action.enable" = "去开启";
 "main.action.open_settings" = "打开设置";
 "main.pointer.title" = "头控指针";
-"main.pointer.subtitle.active" = "头控正在运行";
-"main.pointer.subtitle.idle" = "开启后可使用头控控制指针";
+"main.pointer.subtitle.active" = "头控已开启。";
+"main.pointer.subtitle.idle" = "开启后即可使用头控。";
 "main.pointer.auto_start.title" = "连接耳机后自动开启";
-"main.pointer.auto_start.subtitle" = "检测到兼容耳机后自动开启头控";
+"main.pointer.auto_start.subtitle" = "连接兼容耳机时自动开启。";
+"main.pointer.disabled_hint" = "开启头控后，才可以设置连接耳机时自动开启。";
 "main.pointer.posture_guide.title" = "显示姿态引导";
-"main.pointer.posture_guide.subtitle" = "自动开启前先提示调整姿态";
-"main.pointer.footnote" = "仅支持带头部姿态传感器的耳机；不支持的设备连接后不会自动开启。";
+"main.pointer.posture_guide.subtitle" = "自动开启前提醒调整姿态。";
+"main.pointer.footnote" = "自动开启仅支持带头部姿态传感器的兼容耳机。";
+"main.voice_basics.title" = "语音基础";
+"main.voice_basics.subtitle" = "设置语言和唤起方式。";
+"main.voice_input.title" = "语音输入";
+"main.voice_input.subtitle" = "控制语音输入文字。";
+"main.voice_input.auto_enable.title" = "连接耳机后自动开启";
+"main.voice_input.auto_enable.subtitle" = "检测到耳机时自动开启输入。";
+"main.voice_control.title" = "语音控制";
+"main.voice_control.subtitle" = "控制语音命令执行。";
+"main.voice_control.auto_enable.title" = "连接耳机后自动开启";
+"main.voice_control.auto_enable.subtitle" = "检测到耳机时自动开启控制。";
+"main.voice_feature.disabled_hint" = "开启后，才可以设置连接耳机时自动开启。";
+"main.voice_input_control.title" = "语音输入和控制";
 "main.voice_activation.title" = "语音唤起";
-"main.voice_activation.subtitle" = "在这里切换最常用的输入方式。";
+"main.voice_activation.subtitle" = "统一管理语音输入、语音控制和唤起方式。";
 "main.voice_mode.push_to_talk.short" = "按住说话";
 "main.voice_mode.wake_word.short" = "唤醒词";
 "main.voice_mode.hands_free.short" = "免提";
-"main.voice_mode.push_to_talk.detail" = "按住快捷键时开始识别，松开后结束。";
-"main.voice_mode.wake_word.detail" = "先说唤醒词，再说后面的输入或控制内容。";
-"main.voice_mode.hands_free.detail" = "常驻监听，空闲时自动收起成小绿点。";
+"main.voice_mode.push_to_talk.detail" = "按住快捷键时识别，松开即停止。";
+"main.voice_mode.push_to_talk.detail_fmt" = "按住 %@ 时识别，松开即停止。";
+"main.voice_mode.wake_word.detail" = "先说唤醒词，再继续讲话。";
+"main.voice_mode.hands_free.detail" = "持续待命；空闲时自动收起。";
 
 /* Menu bar */
 "menu.toggle_input_control_mode" = "切换输入/控制模式";
@@ -457,8 +473,14 @@
 "settings.section.insights.subtitle" = "按 App 查看输入与控制使用记录。";
 
 "settings.voice.language_hint" = "固定语言最稳；双语模式用于两种语言之间快速切换和词库管理。";
+"settings.voice.language_compact_hint" = "从下拉里勾选语言，最多两个；勾选一个为固定语言，勾选两个为双语。";
+"settings.voice.language_selection" = "识别语言";
 "settings.voice.mode_single" = "固定语言";
 "settings.voice.mode_bilingual" = "双语模式";
+"settings.voice.enable" = "语音输入和控制";
+"settings.voice.enable_hint" = "关闭后将停用语音输入、语音控制和语言切换。";
+"settings.voice.auto_enable_headset" = "连接耳机后自动开启";
+"settings.voice.auto_enable_headset_hint" = "检测到耳机麦克风时自动开启语音唤起。";
 "settings.voice.primary_lang" = "主语言";
 "settings.voice.secondary_lang" = "次语言";
 "settings.voice.bilingual_hint" = "双语模式下，快捷切换会交换主语言和次语言；当前识别优先使用主语言。";
@@ -520,6 +542,10 @@
 "intent.unlock_connection" = "解锁连接";
 "intent.dictation" = "输入";
 "intent.unknown" = "未匹配命令";
+"lexicon.clear_confirm_title" = "确认清空？";
+"lexicon.clear_confirm_message" = "将删除此输入框内的所有自定义词条。";
+"lexicon.clear_confirm_action" = "清空";
+"lexicon.clear_confirm_cancel" = "取消";
 
 /* Permission Status */
 "status.permission.authorized" = "系统状态：已授权";

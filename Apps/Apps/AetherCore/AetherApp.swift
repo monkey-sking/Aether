@@ -108,6 +108,16 @@ final class VoiceService: ObservableObject {
         get { manager.onRecognitionFailure }
         set { manager.onRecognitionFailure = newValue }
     }
+
+    var isDictationExecutionEnabled: (() -> Bool)? {
+        get { manager.isDictationExecutionEnabled }
+        set { manager.isDictationExecutionEnabled = newValue }
+    }
+
+    var isCommandExecutionEnabled: (() -> Bool)? {
+        get { manager.isCommandExecutionEnabled }
+        set { manager.isCommandExecutionEnabled = newValue }
+    }
     
     var explicitLocaleIdentifier: String? {
         get { manager.explicitLocaleIdentifier }
@@ -151,6 +161,10 @@ final class VoiceService: ObservableObject {
 
     var effectiveLocaleIdentifier: String {
         manager.effectiveLocaleIdentifier
+    }
+
+    var isCurrentInputHeadsetLike: Bool {
+        manager.isCurrentInputHeadsetLike()
     }
 
     private let manager: SpeechManager
@@ -808,6 +822,28 @@ class AppState: ObservableObject {
         return .pushToTalk
     }
 
+    private static func loadVoiceFeatureEnabled(_ storageKey: String) -> Bool {
+        let defaults = UserDefaults.standard
+        if let stored = defaults.object(forKey: storageKey) as? Bool {
+            return stored
+        }
+        if let legacy = defaults.object(forKey: "isVoiceEnabled") as? Bool {
+            return legacy
+        }
+        return true
+    }
+
+    private static func loadAutoEnableVoiceFeature(_ storageKey: String) -> Bool {
+        let defaults = UserDefaults.standard
+        if let stored = defaults.object(forKey: storageKey) as? Bool {
+            return stored
+        }
+        if let legacy = defaults.object(forKey: "autoEnableVoiceOnHeadset") as? Bool {
+            return legacy
+        }
+        return false
+    }
+
     private static let hotkeyModifierMask: UInt64 =
         CGEventFlags.maskControl.rawValue |
         CGEventFlags.maskAlternate.rawValue |
@@ -852,6 +888,81 @@ class AppState: ObservableObject {
             applyVoiceActivationMode()
         }
     }
+
+    @Published var isVoiceInputEnabled: Bool = AppState.loadVoiceFeatureEnabled("isVoiceInputEnabled") {
+        didSet {
+            UserDefaults.standard.set(isVoiceInputEnabled, forKey: "isVoiceInputEnabled")
+            syncVoiceMasterStateFromFeatureToggles()
+            voiceService.syncHUDState()
+        }
+    }
+
+    @Published var isVoiceControlEnabled: Bool = AppState.loadVoiceFeatureEnabled("isVoiceControlEnabled") {
+        didSet {
+            UserDefaults.standard.set(isVoiceControlEnabled, forKey: "isVoiceControlEnabled")
+            syncVoiceMasterStateFromFeatureToggles()
+            voiceService.syncHUDState()
+        }
+    }
+
+    @Published var isVoiceEnabled: Bool = UserDefaults.standard.object(forKey: "isVoiceEnabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(isVoiceEnabled, forKey: "isVoiceEnabled")
+            if !isMutatingVoiceFeatureState {
+                isMutatingVoiceFeatureState = true
+                if isVoiceEnabled {
+                    if !isVoiceInputEnabled && !isVoiceControlEnabled {
+                        isVoiceInputEnabled = true
+                        isVoiceControlEnabled = true
+                    }
+                } else {
+                    if isVoiceInputEnabled {
+                        isVoiceInputEnabled = false
+                    }
+                    if isVoiceControlEnabled {
+                        isVoiceControlEnabled = false
+                    }
+                }
+                isMutatingVoiceFeatureState = false
+            }
+            applyVoiceEnabledState()
+        }
+    }
+
+    @Published var autoEnableVoiceInputOnHeadset: Bool = AppState.loadAutoEnableVoiceFeature("autoEnableVoiceInputOnHeadset") {
+        didSet {
+            UserDefaults.standard.set(autoEnableVoiceInputOnHeadset, forKey: "autoEnableVoiceInputOnHeadset")
+            if autoEnableVoiceInputOnHeadset,
+               voiceService.isCurrentInputHeadsetLike,
+               !isVoiceInputEnabled {
+                isVoiceInputEnabled = true
+            }
+        }
+    }
+
+    @Published var autoEnableVoiceControlOnHeadset: Bool = AppState.loadAutoEnableVoiceFeature("autoEnableVoiceControlOnHeadset") {
+        didSet {
+            UserDefaults.standard.set(autoEnableVoiceControlOnHeadset, forKey: "autoEnableVoiceControlOnHeadset")
+            if autoEnableVoiceControlOnHeadset,
+               voiceService.isCurrentInputHeadsetLike,
+               !isVoiceControlEnabled {
+                isVoiceControlEnabled = true
+            }
+        }
+    }
+
+    @Published var autoEnableVoiceOnHeadset: Bool = UserDefaults.standard.object(forKey: "autoEnableVoiceOnHeadset") as? Bool ?? false {
+        didSet {
+            UserDefaults.standard.set(autoEnableVoiceOnHeadset, forKey: "autoEnableVoiceOnHeadset")
+            if autoEnableVoiceOnHeadset,
+               voiceService.isCurrentInputHeadsetLike,
+               !isVoiceEnabled {
+                isVoiceEnabled = true
+            }
+        }
+    }
+    private var lastHeadsetLikeInput: Bool = false
+    private var isMutatingVoiceFeatureState: Bool = false
     
     // Voice Triggers
     @Published var isPTTEnabled: Bool = UserDefaults.standard.object(forKey: "isPTTEnabled") as? Bool ?? true {
@@ -924,6 +1035,12 @@ class AppState: ObservableObject {
     }()
     
     private func updateContinuousListeningState() {
+        guard isVoiceEnabled else {
+            voiceService.setAlwaysListeningEnabled(false)
+            voiceService.isDirectCommandEnabled = false
+            voiceService.isWakeWordEnabled = false
+            return
+        }
         // 1. Microphone State: Should be ON if EITHER "Wake Word" OR "Always Listening" is enabled.
         let shouldListen = isAlwaysListeningEnabled || isWakeWordEnabled
         voiceService.setAlwaysListeningEnabled(shouldListen)
@@ -936,6 +1053,10 @@ class AppState: ObservableObject {
     }
     
     private func applyVoiceActivationMode() {
+        guard isVoiceEnabled else {
+            disableVoiceFeatures()
+            return
+        }
         isApplyingActivationMode = true
         defer { isApplyingActivationMode = false }
         HeadMotionManager.shared.setVoiceActivationMode(voiceActivationMode)
@@ -1001,6 +1122,57 @@ class AppState: ObservableObject {
         voiceService.setWakeWordEnabled(voiceActivationMode == .wakeWord)
         voiceService.syncHUDState()
     }
+
+    private func applyVoiceEnabledState() {
+        if isVoiceEnabled {
+            applyVoiceActivationMode()
+        } else {
+            disableVoiceFeatures()
+        }
+    }
+
+    private func disableVoiceFeatures() {
+        if isPTTEnabled {
+            isPTTEnabled = false
+        }
+        if isWakeWordEnabled {
+            isWakeWordEnabled = false
+        }
+        if isAlwaysListeningEnabled {
+            isAlwaysListeningEnabled = false
+        }
+
+        voiceService.setPTTEnabled(false)
+        voiceService.setAlwaysListeningEnabled(false)
+        voiceService.setDirectCommandEnabled(false)
+        voiceService.setWakeWordEnabled(false)
+        voiceService.syncHUDState()
+
+        HeadMotionManager.shared.isPTTEnabled = false
+        HotkeyManager.shared.unregisterPTT()
+    }
+
+    private func syncVoiceMasterStateFromFeatureToggles() {
+        guard !isMutatingVoiceFeatureState else { return }
+        let shouldEnableVoice = isVoiceInputEnabled || isVoiceControlEnabled
+        guard shouldEnableVoice != isVoiceEnabled else { return }
+        isMutatingVoiceFeatureState = true
+        isVoiceEnabled = shouldEnableVoice
+        isMutatingVoiceFeatureState = false
+    }
+
+    private func handleHeadsetAutoEnable(source: String) {
+        let isHeadsetLike = voiceService.isCurrentInputHeadsetLike
+        if !lastHeadsetLikeInput, isHeadsetLike {
+            if autoEnableVoiceInputOnHeadset && !isVoiceInputEnabled {
+                isVoiceInputEnabled = true
+            }
+            if autoEnableVoiceControlOnHeadset && !isVoiceControlEnabled {
+                isVoiceControlEnabled = true
+            }
+        }
+        lastHeadsetLikeInput = isHeadsetLike
+    }
     
 
     
@@ -1011,16 +1183,34 @@ class AppState: ObservableObject {
         }
     }
     
-    @Published var isAutoPunctuationEnabled: Bool = UserDefaults.standard.object(forKey: "isAutoPunctuationEnabled") as? Bool ?? true {
+    @Published var isAutoPunctuationEnabled: Bool = {
+        UserDefaults.standard.set(true, forKey: "isAutoPunctuationEnabled")
+        return true
+    }() {
         didSet {
-            UserDefaults.standard.set(isAutoPunctuationEnabled, forKey: "isAutoPunctuationEnabled")
-            voiceService.setAutoPunctuationEnabled(isAutoPunctuationEnabled)
+            guard isAutoPunctuationEnabled else {
+                if oldValue != true {
+                    isAutoPunctuationEnabled = true
+                }
+                return
+            }
+            UserDefaults.standard.set(true, forKey: "isAutoPunctuationEnabled")
+            voiceService.setAutoPunctuationEnabled(true)
         }
     }
 
-    @Published var speechTermCorrectionEnabled: Bool = UserDefaults.standard.object(forKey: "speechTermCorrectionEnabled") as? Bool ?? true {
+    @Published var speechTermCorrectionEnabled: Bool = {
+        UserDefaults.standard.set(false, forKey: "speechTermCorrectionEnabled")
+        return false
+    }() {
         didSet {
-            UserDefaults.standard.set(speechTermCorrectionEnabled, forKey: "speechTermCorrectionEnabled")
+            guard !speechTermCorrectionEnabled else {
+                if oldValue != false {
+                    speechTermCorrectionEnabled = false
+                }
+                return
+            }
+            UserDefaults.standard.set(false, forKey: "speechTermCorrectionEnabled")
         }
     }
     @Published var speechTermGroups: [SpeechTermGroupConfig] = AppState.loadSpeechTermGroups() {
@@ -1760,7 +1950,12 @@ class AppState: ObservableObject {
         
         voiceService.$availableInputDevices
             .receive(on: DispatchQueue.main)
-            .assign(to: &$availableInputDevices)
+            .sink { [weak self] devices in
+                guard let self else { return }
+                self.availableInputDevices = devices
+                self.handleHeadsetAutoEnable(source: "input-devices")
+            }
+            .store(in: &cancellables)
             
         voiceService.$selectedInputDeviceID
             .receive(on: DispatchQueue.main)
@@ -1769,6 +1964,7 @@ class AppState: ObservableObject {
                  if self.selectedInputDeviceID != newVal {
                      self.selectedInputDeviceID = newVal
                  }
+                 self.handleHeadsetAutoEnable(source: "input-selection")
             }
             .store(in: &cancellables)
             
@@ -1783,6 +1979,7 @@ class AppState: ObservableObject {
             guard let self else { return }
             HeadMotionManager.shared.setVoiceActivationMode(self.voiceActivationMode)
             self.applyVoiceActivationMode()
+            self.handleHeadsetAutoEnable(source: "startup")
         }
         
         voiceService.setLLMEnhancementEnabled(self.isLLMEnhancementEnabled)
@@ -1819,6 +2016,12 @@ class AppState: ObservableObject {
             DispatchQueue.main.async {
                 self.applyVoiceIntent(intent, appName: appName, bundleIdentifier: bundleIdentifier)
             }
+        }
+        voiceService.isDictationExecutionEnabled = { [weak self] in
+            self?.isVoiceInputEnabled ?? true
+        }
+        voiceService.isCommandExecutionEnabled = { [weak self] in
+            self?.isVoiceControlEnabled ?? true
         }
         
         voiceService.onRecognitionFailure = { [weak self] transcript, reason, appName, bundleIdentifier in
@@ -2096,6 +2299,7 @@ class AppState: ObservableObject {
             recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .toggleLanguage:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleLanguage")
+            guard isVoiceControlEnabled else { return }
             NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
             recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .toggleConnectionLock:
@@ -2287,7 +2491,9 @@ class AppState: ObservableObject {
         bundleIdentifier: String? = nil
     ) {
         let action: String
-        if reason == "invalid-input-target" || reason == "post-injection-mismatch" {
+        if reason == "dictation-disabled" {
+            action = AppLocalization.isChinese ? "语音输入已关闭" : "Voice Input Off"
+        } else if reason == "invalid-input-target" || reason == "post-injection-mismatch" {
             action = AppLocalization.isChinese ? "输入失败" : "Input Failed"
         } else if reason == "post-injection-unverified" {
             action = AppLocalization.isChinese ? "输入未确认" : "Input Unverified"
@@ -3462,6 +3668,8 @@ private struct CurrentAppShortcutPanelView: View {
             case .toggleInputControlMode:
                 HeadMotionManager.shared.toggleRecognitionInputControlMode(source: "shortcut-panel", persist: false)
             case .toggleLanguage:
+                let appState = CurrentAppShortcutPanelManager.shared.appState
+                guard appState?.isVoiceInputEnabled == true || appState?.isVoiceControlEnabled == true else { return }
                 NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
             case .toggleShortcutPanel:
                 break

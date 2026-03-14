@@ -377,8 +377,31 @@ struct InputSettingsView: View {
                 if section == .basics {
                     GlassCard {
                     VStack(alignment: .leading, spacing: 20) {
-                        Label(L10n.activationMethods, systemImage: "bolt.fill")
-                            .font(.headline)
+                        ControlCard(
+                            title: LocalizedStringKey("main.voice_activation.title"),
+                            subtitle: appState.isVoiceEnabled ? L10n.statusActive : L10n.statusPaused,
+                            icon: "waveform.badge.mic",
+                            color: .blue,
+                            isOn: $appState.isVoiceEnabled
+                        )
+
+                        Text(L10n.settingsVoiceEnabledHint)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Toggle(isOn: $appState.autoEnableVoiceOnHeadset) {
+                                Text(L10n.settingsVoiceAutoEnableHeadset)
+                                    .font(.body)
+                            }
+                            Text(L10n.settingsVoiceAutoEnableHeadsetHint)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         
                         // Activation mode (single choice)
                         VStack(spacing: 10) {
@@ -401,15 +424,17 @@ struct InputSettingsView: View {
                                 icon: "ear.and.waveform"
                             )
                         }
+                        .disabled(!appState.isVoiceEnabled)
+                        .opacity(appState.isVoiceEnabled ? 1.0 : 0.5)
                         
-                        if appState.voiceActivationMode == .handsFree {
+                        if appState.isVoiceEnabled && appState.voiceActivationMode == .handsFree {
                             Text(L10n.activationAlwaysWarning)
                                 .font(.caption)
                                 .foregroundColor(.orange)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
 
-                        if appState.voiceActivationMode != .pushToTalk &&
+                        if appState.isVoiceEnabled && appState.voiceActivationMode != .pushToTalk &&
                             (!appState.microphoneAuthorized || !appState.speechAuthorized) {
                             VStack(alignment: .leading, spacing: 8) {
                                 Label(NSLocalizedString("settings.voice.permission_required", comment: ""), systemImage: "exclamationmark.triangle.fill")
@@ -457,6 +482,8 @@ struct InputSettingsView: View {
                                 .background(Color(nsColor: .controlBackgroundColor))
                                 .cornerRadius(8)
                         }
+                        .disabled(!appState.isVoiceEnabled)
+                        .opacity(appState.isVoiceEnabled ? 1.0 : 0.5)
 
                     }
                 }
@@ -465,84 +492,45 @@ struct InputSettingsView: View {
                 if section == .termCorrections {
                     GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label(L10n.settingsDictationMode, systemImage: "text.quote")
+                        Label(L10n.settingsAutoPunctuation, systemImage: "textformat.abc.dottedunderline")
                             .font(.headline)
 
-                        Text(NSLocalizedString("settings.dictation.refinement_hint", comment: ""))
+                        Text(isChinese ? "自动标点已固定开启。" : "Auto punctuation stays on.")
                             .font(.caption)
                             .foregroundColor(.secondary)
 
                         HStack(spacing: 12) {
                             ZStack {
                                 Circle()
-                                    .fill(Color.gray.opacity(0.16))
+                                    .fill(Color.green.opacity(0.16))
                                     .frame(width: 40, height: 40)
 
-                                Image(systemName: "sparkles")
+                                Image(systemName: "checkmark.circle.fill")
                                     .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(.green)
                             }
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(isChinese ? "大模型优化" : "LLM Enhancement")
+                                Text(L10n.settingsAutoPunctuation)
                                     .font(.subheadline.weight(.medium))
-                                Text(isChinese ? "敬请期待" : "Coming Soon")
+                                Text(isChinese ? "当前版本始终保持开启。" : "Always on in the current build.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
 
                             Spacer()
 
-                            Text(isChinese ? "敬请期待" : "Coming Soon")
+                            Text(L10n.statusActive)
                                 .font(.caption.weight(.semibold))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.green)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(Color(nsColor: .controlBackgroundColor))
+                                .background(Color.green.opacity(0.12))
                                 .clipShape(Capsule())
                         }
                         .padding(12)
                         .background(Color(nsColor: .controlBackgroundColor))
                         .cornerRadius(12)
-
-                        Toggle(isOn: $appState.isAutoPunctuationEnabled) {
-                            Text(L10n.settingsAutoPunctuation)
-                        }
-                    }
-                }
-
-                    GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label(LocalizedStringKey("settings.term_correction.title"), systemImage: "text.magnifyingglass")
-                            .font(.headline)
-
-                        Toggle(LocalizedStringKey("settings.term_correction.title"), isOn: $appState.speechTermCorrectionEnabled)
-                        Text(LocalizedStringKey("settings.term_correction.description"))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        HStack {
-                            Text(LocalizedStringKey("settings.term_correction.rule_format"))
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Button {
-                                appState.addSpeechTermGroup()
-                            } label: {
-                                Label(LocalizedStringKey("settings.term_correction.add_group"), systemImage: "plus")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .disabled(!appState.speechTermCorrectionEnabled)
-                        }
-
-                        ForEach($appState.speechTermGroups) { $group in
-                            SpeechTermGroupCard(
-                                group: $group,
-                                enabledAll: $appState.speechTermCorrectionEnabled,
-                                onEdit: { editingGroupID = group.id },
-                                onDelete: { appState.removeSpeechTermGroup(id: group.id) }
-                            )
-                        }
                     }
                 }
                 }
@@ -557,7 +545,7 @@ struct InputSettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                        HStack(alignment: .top) {
+                        HStack(alignment: .center, spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(L10n.voiceLexiconEditingLanguage)
                                     .font(.caption.weight(.semibold))
@@ -567,6 +555,13 @@ struct InputSettingsView: View {
                                     .foregroundColor(.secondary)
                             }
                             Spacer()
+                            FixedWidthPopUpMenu(
+                                options: popUpOptions(from: lexiconLanguageOptions),
+                                selection: Binding(
+                                    get: { resolvedCommandLocaleID },
+                                    set: { commandLocaleID = $0 }
+                                )
+                            )
                             Button(L10n.voiceLexiconResetLanguage) {
                                 appState.resetCommandOverrides(for: resolvedCommandLocaleID)
                                 appState.resetVoiceLanguageTermsOverrides(for: resolvedCommandLocaleID)
@@ -574,14 +569,6 @@ struct InputSettingsView: View {
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                         }
-
-                        FixedWidthPopUpMenu(
-                            options: popUpOptions(from: lexiconLanguageOptions),
-                            selection: Binding(
-                                get: { resolvedCommandLocaleID },
-                                set: { commandLocaleID = $0 }
-                            )
-                        )
 
                         HStack(spacing: 10) {
                             Button(L10n.voiceLexiconImport) {
@@ -632,7 +619,7 @@ struct InputSettingsView: View {
                                 .foregroundColor(.secondary)
                         }
 
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 10) {
                             Label(
                                 NSLocalizedString("lexicon.basic_terms.title", comment: ""),
                                 systemImage: "waveform.badge.mic"
@@ -654,10 +641,13 @@ struct InputSettingsView: View {
                                 actionEnabled: !appState.wakeWordOverrideText(for: resolvedCommandLocaleID)
                                     .trimmingCharacters(in: .whitespacesAndNewlines)
                                     .isEmpty,
+                                requiresConfirmation: true,
                                 onReset: {
                                     appState.updateWakeWordOverrideText("", for: resolvedCommandLocaleID)
                                 }
                             )
+
+                            Divider()
 
                             VoiceLexiconEditorRow(
                                 title: String(localized: "voice_lexicon.command_prefixes"),
@@ -669,10 +659,13 @@ struct InputSettingsView: View {
                                 actionTitle: String(localized: "hotkey.reset_single"),
                                 actionEnabled: appState.commandPrefixOverrideText(for: resolvedCommandLocaleID)
                                     != appState.defaultCommandPrefixText(for: resolvedCommandLocaleID),
+                                requiresConfirmation: false,
                                 onReset: {
                                     appState.restoreDefaultCommandPrefixes(for: resolvedCommandLocaleID)
                                 }
                             )
+
+                            Divider()
 
                             VoiceLexiconEditorRow(
                                 title: String(localized: "voice_lexicon.dictation_prefixes"),
@@ -684,6 +677,7 @@ struct InputSettingsView: View {
                                 actionTitle: String(localized: "hotkey.reset_single"),
                                 actionEnabled: appState.dictationPrefixOverrideText(for: resolvedCommandLocaleID)
                                     != appState.defaultDictationPrefixText(for: resolvedCommandLocaleID),
+                                requiresConfirmation: false,
                                 onReset: {
                                     appState.restoreDefaultDictationPrefixes(for: resolvedCommandLocaleID)
                                 }
@@ -709,8 +703,8 @@ struct InputSettingsView: View {
                                 DisclosureGroup(
                                     isExpanded: lexiconSectionExpandedBinding(for: aliasSection),
                                     content: {
-                                        VStack(spacing: 12) {
-                                            ForEach(aliasSection.presets) { preset in
+                                        VStack(spacing: 8) {
+                                            ForEach(Array(aliasSection.presets.enumerated()), id: \.element.id) { index, preset in
                                                 VoiceLexiconEditorRow(
                                                     title: preset.editorTitle(),
                                                     subtitle: preset.editorDescription(),
@@ -722,13 +716,17 @@ struct InputSettingsView: View {
                                                     actionEnabled: !appState.commandOverrideText(for: preset, localeIdentifier: resolvedCommandLocaleID)
                                                         .trimmingCharacters(in: .whitespacesAndNewlines)
                                                         .isEmpty,
+                                                    requiresConfirmation: true,
                                                     onReset: {
                                                         appState.updateCommandOverrideText("", for: preset, localeIdentifier: resolvedCommandLocaleID)
                                                     }
                                                 )
+                                                if index < aliasSection.presets.count - 1 {
+                                                    Divider()
+                                                }
                                             }
                                         }
-                                        .padding(.top, 10)
+                                        .padding(.top, 6)
                                     },
                                     label: {
                                         HStack(alignment: .top, spacing: 12) {
@@ -2042,10 +2040,13 @@ private struct VoiceLexiconEditorRow: View {
     @Binding var text: String
     let actionTitle: String
     let actionEnabled: Bool
+    let requiresConfirmation: Bool
     let onReset: () -> Void
+    @State private var isHovering: Bool = false
+    @State private var showConfirm: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top) {
                 Text(title)
                     .font(.body.weight(.medium))
@@ -2059,25 +2060,46 @@ private struct VoiceLexiconEditorRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            TextField(
-                String(localized: "voice_lexicon.leave_empty"),
-                text: $text
-            )
-            .textFieldStyle(.roundedBorder)
-
-            HStack(alignment: .firstTextBaseline) {
-                Spacer()
+            ZStack(alignment: .trailing) {
+                TextField(
+                    String(localized: "voice_lexicon.leave_empty"),
+                    text: $text
+                )
+                .textFieldStyle(.roundedBorder)
+                .padding(.trailing, 60)
 
                 Button(actionTitle) {
-                    onReset()
+                    if requiresConfirmation {
+                        showConfirm = true
+                    } else {
+                        onReset()
+                    }
                 }
                 .buttonStyle(.borderless)
+                .controlSize(.mini)
                 .disabled(!actionEnabled)
+                .opacity(isHovering && actionEnabled ? 1 : 0)
+                .allowsHitTesting(isHovering && actionEnabled)
             }
         }
-        .padding(12)
+        .padding(10)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
         .cornerRadius(10)
+        .onHover { hovering in
+            isHovering = hovering
+        }
+        .confirmationDialog(
+            String(localized: "lexicon.clear_confirm_title"),
+            isPresented: $showConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "lexicon.clear_confirm_action"), role: .destructive) {
+                onReset()
+            }
+            Button(String(localized: "lexicon.clear_confirm_cancel"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "lexicon.clear_confirm_message"))
+        }
     }
 }
 
