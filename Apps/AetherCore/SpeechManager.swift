@@ -407,16 +407,16 @@ final class SpeechManager: ObservableObject {
         isUtteranceActive: Bool
     ) -> Bool {
         guard recognitionControlMode == .auto else { return computedTypingContext }
-        
-        // Mid-utterance persistence
-        if isUtteranceActive && computedTypingContext { return true }
-        
-        guard computedTypingContext else { return false }
-        guard !hasStreamedDictation else { return true }
 
         // If the visible HUD is already in control semantics, trust that over a stale typing snapshot.
         if hudRecognitionControlMode == .command { return false }
         if hudRecognitionControlMode == .auto, !hudTypingContext { return false }
+
+        // Mid-utterance persistence (only after HUD allows typing semantics)
+        if isUtteranceActive && computedTypingContext { return true }
+
+        guard computedTypingContext else { return false }
+        guard !hasStreamedDictation else { return true }
         return true
     }
 
@@ -1372,6 +1372,8 @@ final class SpeechManager: ObservableObject {
             hudTypingContext: hudState.isTypingContext,
             isUtteranceActive: isUtteranceActive
         )
+        let hudBlocksDictation = recognitionControlMode == .auto &&
+            (hudState.recognitionControlMode == .command || !hudState.isTypingContext)
         if typingContext != sessionTypingMode { sessionTypingMode = typingContext; isDictating = typingContext }
         if recognitionControlMode == .auto,
            computedTypingContext,
@@ -1456,10 +1458,17 @@ final class SpeechManager: ObservableObject {
                 "[Route] blocked dictation without input -> unknown transcript='\(p)'"
             )
         }
+        if hudBlocksDictation, case .dictation(let payload) = intent {
+            intent = .unknown(payload)
+            GlobalLogger.router.info(
+                "[Route] hud command mode blocked dictation -> unknown transcript='\(payload)'"
+            )
+        }
         let isForcedCommandMiss = decision.reason == "forced-command-no-match"
         if !isAlwaysListeningEnabled,
            recognitionControlMode != .command,
            !blockDictationWithoutInput,
+           !hudBlocksDictation,
            case .unknown = intent,
            !textToRoute.isEmpty,
            typingContext,

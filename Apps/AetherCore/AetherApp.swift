@@ -1547,6 +1547,22 @@ class AppState: ObservableObject {
         }
     }
 
+    func copyVoiceUsageEvent(_ event: VoiceUsageEvent) throws {
+        let localeID = voiceService.effectiveLocaleIdentifier
+        let summaryLine = AppLocalization.isChinese
+            ? "使用统计（单条 locale=\(localeID)）："
+            : "Usage Event (locale=\(localeID)):"
+        let payload = try voiceUsageHistoryExportString(
+            summary: summaryLine,
+            events: [event]
+        )
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(payload, forType: .string) else {
+            throw NSError(domain: "AetherUsageEventExport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to copy usage event to pasteboard."])
+        }
+    }
+
     func copyCustomAppShortcutRulesToPasteboard() throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -2185,7 +2201,7 @@ class AppState: ObservableObject {
             recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .dictation(let text):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=dictation text=\(text)")
-            if HUDManager.shared.state.recognitionControlMode == .command {
+            if HUDManager.shared.state.recognitionControlMode == .command || !HUDManager.shared.state.isTypingContext {
                 GlobalLogger.lifecycle.info("[VoiceIntent] hud_control_mismatch text=\(text)")
                 recordVoiceDictationWhileHUDControl(text, appName: appName, bundleIdentifier: bundleIdentifier)
             } else {
@@ -2195,8 +2211,12 @@ class AppState: ObservableObject {
             GlobalLogger.lifecycle.info("[VoiceIntent] action=unknown")
             if case .unknown(let transcript) = intent {
                 let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
+                let hudState = HUDManager.shared.state
+                let isControlLike = hudState.recognitionControlMode == .command || !hudState.isTypingContext
+                if !trimmed.isEmpty, !isControlLike {
                     recordVoiceUnrecognized(trimmed, appName: appName, bundleIdentifier: bundleIdentifier)
+                } else if !trimmed.isEmpty {
+                    recordVoiceUnknownCommand(trimmed, appName: appName, bundleIdentifier: bundleIdentifier)
                 } else {
                     recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
                 }
@@ -2220,6 +2240,16 @@ class AppState: ObservableObject {
         )
     }
 
+    private func recordVoiceUnknownCommand(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
+        recordVoiceUsageEvent(
+            kind: .control,
+            action: NSLocalizedString("intent.unknown", comment: ""),
+            content: text,
+            appName: appName,
+            bundleIdentifier: bundleIdentifier
+        )
+    }
+
     private func recordVoiceDictation(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
         recordVoiceUsageEvent(
             kind: .dictation,
@@ -2233,7 +2263,7 @@ class AppState: ObservableObject {
     private func recordVoiceDictationWhileHUDControl(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
         recordVoiceUsageEvent(
             kind: .dictation,
-            action: AppLocalization.isChinese ? "控制模式下输入" : "Dictation While HUD Control",
+            action: AppLocalization.isChinese ? "控制模式误输入" : "Dictation While Control Mode",
             content: text,
             appName: appName,
             bundleIdentifier: bundleIdentifier
@@ -2243,7 +2273,7 @@ class AppState: ObservableObject {
     private func recordVoiceUnrecognized(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
         recordVoiceUsageEvent(
             kind: .dictation,
-            action: AppLocalization.isChinese ? "未识别" : "Unrecognized",
+            action: AppLocalization.isChinese ? "未输入（无输入框）" : "No Input Target",
             content: text,
             appName: appName,
             bundleIdentifier: bundleIdentifier
@@ -2258,9 +2288,9 @@ class AppState: ObservableObject {
     ) {
         let action: String
         if reason == "invalid-input-target" || reason == "post-injection-mismatch" {
-            action = AppLocalization.isChinese ? "注入失败" : "Injection Failed"
+            action = AppLocalization.isChinese ? "输入失败" : "Input Failed"
         } else if reason == "post-injection-unverified" {
-            action = AppLocalization.isChinese ? "注入未验证" : "Injection Unverified"
+            action = AppLocalization.isChinese ? "输入未确认" : "Input Unverified"
         } else {
             action = AppLocalization.isChinese ? "识别失败" : "Recognition Failed"
         }

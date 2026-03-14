@@ -1929,7 +1929,9 @@ private struct VoiceUsageAppSummaryRow: View {
 }
 
 private struct VoiceUsageEventRow: View {
+    @EnvironmentObject var appState: AppState
     let event: AppState.VoiceUsageEvent
+    @State private var isHovering: Bool = false
 
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -2001,6 +2003,36 @@ private struct VoiceUsageEventRow: View {
         .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
         .cornerRadius(10)
+        .overlay(alignment: .topTrailing) {
+            Button {
+                do {
+                    try appState.copyVoiceUsageEvent(event)
+                    HUDManager.shared.showTemporary(
+                        message: String(localized: "insights.copy_event_done"),
+                        icon: "doc.on.doc"
+                    )
+                } catch {
+                    HUDManager.shared.showTemporary(
+                        message: String(localized: "insights.copy_event_failed"),
+                        icon: "xmark.circle.fill"
+                    )
+                }
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.caption2)
+                    .padding(6)
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.mini)
+            .help(String(localized: "insights.copy_event"))
+            .opacity(isHovering ? 1 : 0)
+            .allowsHitTesting(isHovering)
+            .padding(.top, 2)
+            .padding(.trailing, 2)
+        }
+        .onHover { hovering in
+            isHovering = hovering
+        }
     }
 }
 
