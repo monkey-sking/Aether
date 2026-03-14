@@ -14,6 +14,9 @@ struct HUDView: View {
                     .fill(Color.green.opacity(0.8))
                     .frame(width: 8, height: 8)
                     .shadow(radius: 2)
+                if state.isLanguageIndicatorVisible {
+                    languageToggle(showDivider: true)
+                }
 
             case .listening:
                 micIcon
@@ -60,6 +63,9 @@ struct HUDView: View {
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.white.opacity(0.8))
                     .symbolEffect(.variableColor.iterative.reversing)
+                if state.isLanguageIndicatorVisible {
+                    languageToggle(showDivider: true)
+                }
             }
         }
         .padding(.horizontal, state.mode == .standby ? 8 : 16)
@@ -148,12 +154,20 @@ struct HUDView: View {
     }
 
     private var displayLanguage: String {
-        let localized = NSLocalizedString("speech.lang_indicator", comment: "HUD language indicator")
-        // If the key is not found or matches the key name (default behavior), fallback to prefix
-        if localized == "speech.lang_indicator" || localized.isEmpty {
-            return String(state.language.prefix(2)).capitalized
-        }
-        return localized
+        shortLanguageLabel(for: state.language)
+    }
+
+    private func shortLanguageLabel(for identifier: String) -> String {
+        let normalized = identifier.replacingOccurrences(of: "_", with: "-").lowercased()
+        if normalized.contains("hant") { return "繁" }
+        if normalized.hasPrefix("zh") { return "中" }
+        if normalized.hasPrefix("en") { return "En" }
+        if normalized.hasPrefix("ja") { return "日" }
+        if normalized.hasPrefix("ko") { return "한" }
+        if normalized.hasPrefix("fr") { return "Fr" }
+        if normalized.hasPrefix("de") { return "De" }
+        if normalized.hasPrefix("es") { return "Es" }
+        return String(identifier.prefix(2)).capitalized
     }
 
     private func languageToggle(showDivider: Bool) -> some View {
