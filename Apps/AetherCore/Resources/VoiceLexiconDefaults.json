@@ -398,40 +398,6 @@
     },
     {
       "aliases": [
-        "撤销",
-        "撤回",
-        "undo"
-      ],
-      "commandID": "undo",
-      "localeIdentifier": "zh-CN"
-    },
-    {
-      "aliases": [
-        "undo",
-        "撤销",
-        "撤回"
-      ],
-      "commandID": "undo",
-      "localeIdentifier": "en-US"
-    },
-    {
-      "aliases": [
-        "粘贴",
-        "paste"
-      ],
-      "commandID": "paste",
-      "localeIdentifier": "zh-CN"
-    },
-    {
-      "aliases": [
-        "paste",
-        "粘贴"
-      ],
-      "commandID": "paste",
-      "localeIdentifier": "en-US"
-    },
-    {
-      "aliases": [
         "锁定",
         "lock",
         "lock airpods"
@@ -471,12 +437,10 @@
   "languageTermsOverrides": [
     {
       "commandPrefixes": [
-        "指令",
         "命令"
       ],
       "dictationPrefixes": [
-        "输入",
-        "写"
+        "输入"
       ],
       "localeIdentifier": "zh-CN",
       "wakeWords": [
@@ -486,11 +450,9 @@
     },
     {
       "commandPrefixes": [
-        "command",
-        "control"
+        "command"
       ],
       "dictationPrefixes": [
-        "dictate",
         "type"
       ],
       "localeIdentifier": "en-US",

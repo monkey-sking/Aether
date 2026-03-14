@@ -523,9 +523,23 @@ final class HUDManager {
             return
         }
 
-        guard state.mode != .hidden else { return }
+        let shouldRevealHUD = state.mode == .hidden
         languageIndicatorHideTask?.cancel()
         state.isLanguageIndicatorVisible = true
+
+        if shouldRevealHUD {
+            let token = UUID()
+            activeTemporaryFallbackSnapshot = activeTemporaryFallbackSnapshot ?? lastPersistentSnapshot
+            update(
+                mode: .standby,
+                message: "",
+                language: state.language,
+                recognitionControlMode: state.recognitionControlMode,
+                inputDeviceIcon: state.inputDeviceIcon,
+                lifetime: .temporary(token)
+            )
+            scheduleHide(delay: max(0.4, duration), token: token)
+        }
 
         // If HUD is hidden or nearly hidden, briefly show it just for the language indicator
         if hudWindow?.isVisible == false || hudWindow?.alphaValue ?? 0 < 0.1 {

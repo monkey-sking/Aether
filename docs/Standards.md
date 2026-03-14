@@ -36,3 +36,4 @@ feat(driver): initial implementation of virtual mouse
 *   文案与模板必须放在 `Localizable.strings` 或资源文件中，并通过 key 引用。
 *   AI 提示词必须使用模板 + 占位符（如 `{{PLACEHOLDER}}`），由代码做替换。
 *   任何新增或修改文案，需同步更新对应的本地化资源与文档说明。
+*   语音词库、自定义 App 规则、默认前缀与覆盖语义，统一以 `docs/VOICE_LEXICON_RULES.md` 为准；改动前先更新该文档。

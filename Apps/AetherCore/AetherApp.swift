@@ -551,6 +551,12 @@ class AppState: ObservableObject {
         let controlCount: Int
     }
 
+    struct CustomAppShortcutRulesBackup: Codable {
+        var version: Int = 1
+        var exportedAt: Date = Date()
+        var rules: [CustomAppShortcutRule]
+    }
+
     private static let speechTermGroupsStorageKey = "speechTermGroupsV2"
     private static let voiceCommandOverridesStorageKey = "voiceCommandOverridesV1"
     private static let voiceLanguageTermsOverridesStorageKey = "voiceLanguageTermsOverridesV1"
@@ -646,15 +652,21 @@ class AppState: ObservableObject {
               let overrides = try? JSONDecoder().decode([VoiceCommandOverrideConfig].self, from: data),
               !overrides.isEmpty,
               !containsMojibake(overrides) else {
-            return VoiceLexiconDefaults.load()?.commandOverrides ?? []
+            return sanitizeVoiceCommandOverrides(VoiceLexiconDefaults.load()?.commandOverrides ?? [])
         }
-        return overrides
+        return sanitizeVoiceCommandOverrides(overrides)
     }
 
     private static func saveVoiceCommandOverrides(_ overrides: [VoiceCommandOverrideConfig]) {
-        if let data = try? JSONEncoder().encode(overrides) {
+        let sanitized = sanitizeVoiceCommandOverrides(overrides)
+        if let data = try? JSONEncoder().encode(sanitized) {
             UserDefaults.standard.set(data, forKey: voiceCommandOverridesStorageKey)
         }
+    }
+
+    private static func sanitizeVoiceCommandOverrides(_ overrides: [VoiceCommandOverrideConfig]) -> [VoiceCommandOverrideConfig] {
+        let retiredBuiltInCommands: Set<String> = ["undo", "paste"]
+        return overrides.filter { !retiredBuiltInCommands.contains($0.commandID) }
     }
 
     private static func loadVoiceLanguageTermsOverrides() -> [VoiceLanguageTermsOverrideConfig] {
@@ -748,6 +760,10 @@ class AppState: ObservableObject {
             languageTermsOverrides: voiceLanguageTermsOverrides
         )
         let lexiconJSON = (try? String(data: encoder.encode(currentLexicon), encoding: .utf8)) ?? "{}"
+        let customRulesJSON = (try? String(
+            data: encoder.encode(CustomAppShortcutRulesBackup(rules: customAppShortcutRules)),
+            encoding: .utf8
+        )) ?? "{}"
 
         let resolvedMaxEvents = maxEvents ?? Self.aiPromptMaxEventsDefault
         let recentEvents = Array(voiceUsageHistory.prefix(resolvedMaxEvents))
@@ -762,6 +778,7 @@ class AppState: ObservableObject {
         return template
             .replacingOccurrences(of: "{{COMMAND_IDS}}", with: commandIDs)
             .replacingOccurrences(of: "{{CURRENT_LEXICON_JSON}}", with: lexiconJSON)
+            .replacingOccurrences(of: "{{CUSTOM_APP_RULES_JSON}}", with: customRulesJSON)
             .replacingOccurrences(of: "{{USAGE_JSON}}", with: usageJSON)
             .replacingOccurrences(of: "{{SUMMARY_TOTAL}}", with: String(summary.total))
             .replacingOccurrences(of: "{{SUMMARY_DICTATION}}", with: String(summary.dictationCount))
@@ -1273,10 +1290,82 @@ class AppState: ObservableObject {
         return defaults?.wakeWords.joined(separator: ", ") ?? ""
     }
 
+    func defaultWakeWordText(for localeIdentifier: String) -> String {
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let defaults = VoiceLexiconDefaults.load()?.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        })
+        return defaults?.wakeWords.joined(separator: ", ") ?? ""
+    }
+
     func updateWakeWordOverrideText(_ raw: String, for localeIdentifier: String) {
         updateVoiceLanguageTermsOverride(for: localeIdentifier) { config in
             config.wakeWords = parseVoiceTermsText(raw)
         }
+    }
+
+    func commandPrefixOverrideText(for localeIdentifier: String) -> String {
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        if let override = voiceLanguageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        }) {
+            return override.commandPrefixes.joined(separator: ", ")
+        }
+        let defaults = VoiceLexiconDefaults.load()?.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        })
+        return defaults?.commandPrefixes.joined(separator: ", ") ?? ""
+    }
+
+    func defaultCommandPrefixText(for localeIdentifier: String) -> String {
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let defaults = VoiceLexiconDefaults.load()?.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        })
+        return defaults?.commandPrefixes.joined(separator: ", ") ?? ""
+    }
+
+    func updateCommandPrefixOverrideText(_ raw: String, for localeIdentifier: String) {
+        updateVoiceLanguageTermsOverride(for: localeIdentifier) { config in
+            config.commandPrefixes = parseVoiceTermsText(raw)
+        }
+    }
+
+    func restoreDefaultCommandPrefixes(for localeIdentifier: String) {
+        let defaults = defaultCommandPrefixText(for: localeIdentifier)
+        updateCommandPrefixOverrideText(defaults, for: localeIdentifier)
+    }
+
+    func dictationPrefixOverrideText(for localeIdentifier: String) -> String {
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        if let override = voiceLanguageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        }) {
+            return override.dictationPrefixes.joined(separator: ", ")
+        }
+        let defaults = VoiceLexiconDefaults.load()?.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        })
+        return defaults?.dictationPrefixes.joined(separator: ", ") ?? ""
+    }
+
+    func defaultDictationPrefixText(for localeIdentifier: String) -> String {
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let defaults = VoiceLexiconDefaults.load()?.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        })
+        return defaults?.dictationPrefixes.joined(separator: ", ") ?? ""
+    }
+
+    func updateDictationPrefixOverrideText(_ raw: String, for localeIdentifier: String) {
+        updateVoiceLanguageTermsOverride(for: localeIdentifier) { config in
+            config.dictationPrefixes = parseVoiceTermsText(raw)
+        }
+    }
+
+    func restoreDefaultDictationPrefixes(for localeIdentifier: String) {
+        let defaults = defaultDictationPrefixText(for: localeIdentifier)
+        updateDictationPrefixOverrideText(defaults, for: localeIdentifier)
     }
 
     func resetVoiceLanguageTermsOverrides(for localeIdentifier: String) {
@@ -1327,7 +1416,7 @@ class AppState: ObservableObject {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let payload = try decoder.decode(VoiceLexiconBackup.self, from: data)
-        voiceCommandOverrides = payload.commandOverrides
+        voiceCommandOverrides = Self.sanitizeVoiceCommandOverrides(payload.commandOverrides)
         voiceLanguageTermsOverrides = payload.languageTermsOverrides
         return url
     }
@@ -1361,14 +1450,14 @@ class AppState: ObservableObject {
         existing: [VoiceCommandOverrideConfig],
         incoming: [VoiceCommandOverrideConfig]
     ) -> [VoiceCommandOverrideConfig] {
-        var result = existing
+        var result = sanitizeVoiceCommandOverrides(existing)
         var indexByKey: [String: Int] = [:]
         for (idx, item) in result.enumerated() {
             let key = voiceCommandKey(locale: item.localeIdentifier, commandID: item.commandID)
             indexByKey[key] = idx
         }
 
-        for item in incoming {
+        for item in sanitizeVoiceCommandOverrides(incoming) {
             let key = voiceCommandKey(locale: item.localeIdentifier, commandID: item.commandID)
             if let idx = indexByKey[key] {
                 let merged = mergeAliases(base: result[idx].aliases, extra: item.aliases)
@@ -1456,6 +1545,62 @@ class AppState: ObservableObject {
         guard pasteboard.setString(payload, forType: .string) else {
             throw NSError(domain: "AetherUsageHistoryExport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to copy usage history to pasteboard."])
         }
+    }
+
+    func copyCustomAppShortcutRulesToPasteboard() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(CustomAppShortcutRulesBackup(rules: customAppShortcutRules))
+        guard let payload = String(data: data, encoding: .utf8) else {
+            throw NSError(domain: "AetherCustomRulesCopy", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to encode custom app rules."])
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(payload, forType: .string) else {
+            throw NSError(domain: "AetherCustomRulesCopy", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to copy custom app rules to pasteboard."])
+        }
+    }
+
+    func importCustomAppShortcutRulesFromPasteboard() throws -> Bool {
+        let pasteboard = NSPasteboard.general
+        guard let raw = pasteboard.string(forType: .string) else { return false }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let data = Data(trimmed.utf8)
+
+        if let backup = try? decoder.decode(CustomAppShortcutRulesBackup.self, from: data) {
+            mergeCustomAppShortcutRules(backup.rules)
+            return true
+        }
+
+        let rules = try decoder.decode([CustomAppShortcutRule].self, from: data)
+        mergeCustomAppShortcutRules(rules)
+        return true
+    }
+
+    private func mergeCustomAppShortcutRules(_ incoming: [CustomAppShortcutRule]) {
+        var merged = customAppShortcutRules
+        var keys = Set(merged.map(customAppShortcutRuleSemanticKey(_:)))
+        for rule in incoming {
+            let key = customAppShortcutRuleSemanticKey(rule)
+            guard !keys.contains(key) else { continue }
+            keys.insert(key)
+            merged.append(rule)
+        }
+        customAppShortcutRules = merged
+    }
+
+    private func customAppShortcutRuleSemanticKey(_ rule: CustomAppShortcutRule) -> String {
+        [
+            rule.bundleIdentifier.lowercased(),
+            rule.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            String(rule.shortcut.keyCode),
+            String(rule.shortcut.modifiers)
+        ].joined(separator: "::")
     }
 
     private func parseVoiceTermsText(_ raw: String) -> [String] {
@@ -2022,6 +2167,14 @@ class AppState: ObservableObject {
             GlobalLogger.lifecycle.info("[VoiceIntent] action=paste")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
             recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+        case .clearInput:
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=clearInput")
+            // Already applied inside SpeechManager. Keep this branch for usage tracking only.
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+        case .deleteBackward(let count):
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=deleteBackward count=\(count)")
+            // Already applied inside SpeechManager. Keep this branch for usage tracking only.
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .lockConnection:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=lockConnection")
             connectionLock.lock()
@@ -2203,6 +2356,9 @@ class AppState: ObservableObject {
         case .dragEnd: return NSLocalizedString("intent.drag_end", comment: "")
         case .undo: return NSLocalizedString("intent.undo", comment: "")
         case .paste: return NSLocalizedString("intent.paste", comment: "")
+        case .clearInput: return NSLocalizedString("intent.clear_input", comment: "")
+        case .deleteBackward(let count):
+            return AppLocalization.isChinese ? "删除\(count)个字" : "Delete \(count) chars"
         case .lockConnection: return NSLocalizedString("intent.lock_connection", comment: "")
         case .unlockConnection: return NSLocalizedString("intent.unlock_connection", comment: "")
         case .dictation: return NSLocalizedString("intent.dictation", comment: "")

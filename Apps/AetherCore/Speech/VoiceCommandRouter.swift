@@ -1011,6 +1011,7 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
     case dragEnd
     case undo
     case paste
+    case clearInput
     case lockConnection
     case unlockConnection
 
@@ -1039,7 +1040,8 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
         .dragStart,
         .dragEnd,
         .undo,
-        .paste
+        .paste,
+        .clearInput
     ]
 
     var intent: VoiceIntent {
@@ -1092,6 +1094,8 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return .undo
         case .paste:
             return .paste
+        case .clearInput:
+            return .clearInput
         case .lockConnection:
             return .lockConnection
         case .unlockConnection:
@@ -1101,7 +1105,7 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
 
     var isTypingSafe: Bool {
         switch self {
-        case .toggleShortcutPanel, .showShortcutPanel, .hideShortcutPanel, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .undo, .paste:
+        case .toggleShortcutPanel, .showShortcutPanel, .hideShortcutPanel, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .undo, .paste, .clearInput:
             return true
         default:
             return false
@@ -1159,6 +1163,8 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return isChinese ? "撤销" : "Undo"
         case .paste:
             return isChinese ? "粘贴" : "Paste"
+        case .clearInput:
+            return isChinese ? "清空输入" : "Clear Input"
         case .lockConnection:
             return isChinese ? "锁定连接" : "Lock Connection"
         case .unlockConnection:
@@ -1199,6 +1205,8 @@ enum VoiceIntent: Equatable {
     case dragEnd
     case undo
     case paste
+    case clearInput
+    case deleteBackward(Int)
     case lockConnection
     case unlockConnection
     case dictation(String)
@@ -1331,25 +1339,19 @@ final class VoiceCommandRouter {
         // --- 2. Explicit command forcing ---
         let isForceCommand = bias == .forceCommand || explicitCommandPayload != nil
 
-        // --- 3. Smart Routing Logic ---
-        // If we are in an input field (dictationPreferred) and NOT explicitly forcing a command,
-        // we should be very conservative about executing commands.
-        if bias == .dictationPreferred && !isForceCommand {
-            if let safeMatch = matchCommand(
-                normalized: s,
-                raw: commandText,
-                localeIdentifier: localeIdentifier,
-                overrides: currentState.overrides,
-                filter: { $0.isTypingSafe }
+        if isForceCommand || bias != .dictationPreferred {
+            if let deleteMatch = matchDeleteBackwardCommand(
+                text: commandText,
+                localeIdentifier: localeIdentifier
             ) {
-                return VoiceCommandDecision(
-                    intent: safeMatch.preset.intent,
-                    confidence: safeMatch.confidence,
-                    reason: "typing-safe-\(safeMatch.reason)"
-                )
+                return deleteMatch
             }
+        }
 
-            // Otherwise, everything is treated as dictation in an input field
+        // --- 3. Smart Routing Logic ---
+        // In an input field, bare speech should become dictation.
+        // Command execution in typing context requires an explicit command prefix or force-command gesture.
+        if bias == .dictationPreferred && !isForceCommand {
             return VoiceCommandDecision(intent: .dictation(trimmed), confidence: .high, reason: "typing-preferred")
         }
 
@@ -1431,8 +1433,7 @@ final class VoiceCommandRouter {
         for localeIdentifier: String,
         overrides: [VoiceLanguageTermsOverrideConfig]
     ) -> [String] {
-        if let override = languageTermsOverrideEntry(for: localeIdentifier, overrides: overrides),
-           !override.commandPrefixes.isEmpty {
+        if let override = languageTermsOverrideEntry(for: localeIdentifier, overrides: overrides) {
             return uniqueAliases(override.commandPrefixes)
         }
         return defaultCommandPrefixes(for: localeIdentifier)
@@ -1442,11 +1443,23 @@ final class VoiceCommandRouter {
         for localeIdentifier: String,
         overrides: [VoiceLanguageTermsOverrideConfig]
     ) -> [String] {
-        if let override = languageTermsOverrideEntry(for: localeIdentifier, overrides: overrides),
-           !override.dictationPrefixes.isEmpty {
+        if let override = languageTermsOverrideEntry(for: localeIdentifier, overrides: overrides) {
             return uniqueAliases(override.dictationPrefixes)
         }
         return defaultDictationPrefixes(for: localeIdentifier)
+    }
+
+    static func defaultDeletePrefixes(for localeIdentifier: String) -> [String] {
+        let raw = AppLocalization.localizedString(
+            "editing.delete_prefixes_default",
+            localeIdentifier: localeIdentifier
+        )
+        return uniqueAliases(
+            raw
+                .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
     }
 
     static func effectiveAliases(
@@ -1653,6 +1666,88 @@ final class VoiceCommandRouter {
 
     private func stateSnapshot() -> State {
         stateQueue.sync { state }
+    }
+
+    private func matchDeleteBackwardCommand(
+        text raw: String,
+        localeIdentifier: String
+    ) -> VoiceCommandDecision? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let prefixes = Self.defaultDeletePrefixes(for: localeIdentifier)
+            .sorted { $0.count > $1.count }
+
+        for prefix in prefixes {
+            guard trimmed.lowercased().hasPrefix(prefix.lowercased()) else { continue }
+            let suffix = String(trimmed.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if suffix.isEmpty {
+                return VoiceCommandDecision(intent: .deleteBackward(1), confidence: .high, reason: "delete-prefix-default")
+            }
+            if let count = parseDeleteCount(from: suffix) {
+                return VoiceCommandDecision(intent: .deleteBackward(count), confidence: .high, reason: "delete-prefix-count")
+            }
+        }
+
+        return nil
+    }
+
+    private func parseDeleteCount(from raw: String) -> Int? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 1 }
+
+        if let number = trimmed.firstMatch(of: #/\d+/#), let count = Int(number.0), count > 0 {
+            return min(count, 200)
+        }
+
+        let normalized = trimmed
+            .replacingOccurrences(of: "个字", with: "")
+            .replacingOccurrences(of: "个字符", with: "")
+            .replacingOccurrences(of: "字符", with: "")
+            .replacingOccurrences(of: "个", with: "")
+            .replacingOccurrences(of: "字", with: "")
+            .replacingOccurrences(of: "chars", with: "")
+            .replacingOccurrences(of: "char", with: "")
+            .replacingOccurrences(of: "characters", with: "")
+            .replacingOccurrences(of: "character", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if normalized.isEmpty {
+            return 1
+        }
+
+        if let count = parseChineseNumeral(normalized) {
+            return min(max(count, 1), 200)
+        }
+
+        return nil
+    }
+
+    private func parseChineseNumeral(_ raw: String) -> Int? {
+        let digits: [Character: Int] = [
+            "零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+            "五": 5, "六": 6, "七": 7, "八": 8, "九": 9
+        ]
+
+        if raw == "十" { return 10 }
+        if raw.hasSuffix("十"), let leading = raw.first, let value = digits[leading] {
+            return value * 10
+        }
+        if raw.hasPrefix("十"), raw.count == 2, let trailing = raw.last, let value = digits[trailing] {
+            return 10 + value
+        }
+        if raw.contains("十") {
+            let parts = raw.split(separator: "十", omittingEmptySubsequences: false)
+            let tens = parts.first.flatMap { $0.isEmpty ? 1 : digits[$0.first!] } ?? 0
+            let ones = parts.count > 1 ? (parts[1].first.flatMap { digits[$0] } ?? 0) : 0
+            if tens > 0 {
+                return tens * 10 + ones
+            }
+        }
+        if raw.count == 1, let first = raw.first, let value = digits[first] {
+            return value
+        }
+        return nil
     }
 }
 

@@ -8,6 +8,7 @@ import ApplicationServices
 import Combine
 import CoreAudio
 import IOKit
+import Carbon.HIToolbox
 
 struct AudioInputDevice: Identifiable, Hashable {
     let id: AudioDeviceID
@@ -53,6 +54,7 @@ final class SpeechManager: ObservableObject {
         let sessionTypingMode: Bool; let streamedTextSnapshot: String; let screenTypedCount: Int
         let targetPID: pid_t?; let targetBundleID: String?; let targetElementFingerprint: String?
         let verificationSnapshot: InputVerificationSnapshot?
+        let routeReason: String
     }
     private struct ProcessedJob: Sendable {
         let seq: Int; let intent: VoiceIntent; let localeIdentifier: String
@@ -61,6 +63,7 @@ final class SpeechManager: ObservableObject {
         let targetPID: pid_t?; let targetBundleID: String?; let targetElementFingerprint: String?
         let verificationSnapshot: InputVerificationSnapshot?
         let diagnostics: String?
+        let routeReason: String
     }
     private struct InputVerificationSnapshot: Sendable {
         let pid: pid_t
@@ -108,6 +111,20 @@ final class SpeechManager: ObservableObject {
         didSet {
             if oldValue.identifier != activeLocale.identifier {
                 if isAlwaysListeningEnabled { startContinuous() }
+                if hasCompletedInitialLocaleSetup {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        let hud = HUDManager.shared
+                        hud.update(
+                            mode: hud.state.mode,
+                            message: hud.state.message,
+                            language: self.activeLocale.identifier,
+                            recognitionControlMode: self.hudRecognitionControlMode,
+                            inputDeviceIcon: self.hudInputIcon()
+                        )
+                        hud.showTemporaryLanguageIndicator()
+                    }
+                }
             }
         }
     }
@@ -295,6 +312,7 @@ final class SpeechManager: ObservableObject {
     private var finalizationWorkItem: DispatchWorkItem?
     private var pendingEngineRestartWorkItem: DispatchWorkItem?
     private var lastEngineRestartAt: Date = .distantPast
+    private var hasCompletedInitialLocaleSetup = false
     private var headsetVoiceProcessingSuppressedUntil: Date = .distantPast
     private var headsetVoiceProcessingFaultTimes: [Date] = []
     private var customAppShortcutRules: [CustomAppShortcutRule] = []
@@ -556,6 +574,7 @@ final class SpeechManager: ObservableObject {
         NotificationCenter.default.addObserver(self, selector: #selector(handleAirPodsChange), name: .AirPodsStateChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleRecognitionControlModeChanged(_:)), name: HeadMotionManager.recognitionControlModeChangedNotification, object: nil)
         refreshLocale()
+        hasCompletedInitialLocaleSetup = true
         DispatchQueue.main.async { [weak self] in self?.syncRecognitionState() }
         setupAudioDeviceListeners()
 
@@ -697,7 +716,6 @@ final class SpeechManager: ObservableObject {
             recognitionControlMode: hudRecognitionControlMode,
             inputDeviceIcon: hudInputIcon()
         )
-        hud.showTemporaryLanguageIndicator()
         if recognitionSession.isRunning {
             stopAndFinalize()
             startOnce()
@@ -1435,12 +1453,14 @@ final class SpeechManager: ObservableObject {
                 "[Route] blocked dictation without input -> unknown transcript='\(p)'"
             )
         }
+        let isForcedCommandMiss = decision.reason == "forced-command-no-match"
         if !isAlwaysListeningEnabled,
            recognitionControlMode != .command,
            !blockDictationWithoutInput,
            case .unknown = intent,
            !textToRoute.isEmpty,
-           typingContext {
+           typingContext,
+           !isForcedCommandMiss {
             intent = .dictation(textToRoute)
             GlobalLogger.router.info(
                 "[Route] fallback unknown -> dictation transcript='\(textToRoute)'"
@@ -1458,10 +1478,22 @@ final class SpeechManager: ObservableObject {
         lastHandledSessionGeneration = sessionGeneration; lastHandledUtteranceID = resolvedUID
         lastHandledTranscript = textToRoute; lastHandledAt = now
 
-        enqueueIntentForParallelExecution(intent, typingContext: typingContext, utteranceID: resolvedUID, originSessionGeneration: sessionGeneration)
+        enqueueIntentForParallelExecution(
+            intent,
+            typingContext: typingContext,
+            utteranceID: resolvedUID,
+            originSessionGeneration: sessionGeneration,
+            routeReason: decision.reason
+        )
     }
 
-    private func enqueueIntentForParallelExecution(_ intent: VoiceIntent, typingContext: Bool, utteranceID: Int, originSessionGeneration: Int) {
+    private func enqueueIntentForParallelExecution(
+        _ intent: VoiceIntent,
+        typingContext: Bool,
+        utteranceID: Int,
+        originSessionGeneration: Int,
+        routeReason: String
+    ) {
         let localeID = activeLocale.identifier
         let fallback: FocusedInputSnapshot? = typingContext && (sessionTargetPID == nil || sessionTargetPID == 0) ? currentFocusedInputSnapshot() : nil
         let resolvedPID = typingContext ? (sessionTargetPID ?? fallback?.pid) : nil
@@ -1474,7 +1506,8 @@ final class SpeechManager: ObservableObject {
         let job = IntentJob(seq: -1, intent: intent, localeIdentifier: localeID, llmEnhancementEnabled: isLLMEnhancementEnabled,
                             originSessionGeneration: originSessionGeneration, utteranceID: utteranceID, sessionTypingMode: typingContext,
                             streamedTextSnapshot: dictationHandler.screenTypedText, screenTypedCount: dictationHandler.screenTypedText.count,
-                            targetPID: pid, targetBundleID: bid, targetElementFingerprint: fp, verificationSnapshot: verificationSnapshot)
+                            targetPID: pid, targetBundleID: bid, targetElementFingerprint: fp, verificationSnapshot: verificationSnapshot,
+                            routeReason: routeReason)
         let targetBundleLog = bid ?? "nil"
         GlobalLogger.speech.info(
             "[IntentPipeline] enqueue utterance=\(utteranceID) session=\(originSessionGeneration) typing=\(typingContext) intent=\(intentSummary(intent)) targetPID=\(pid ?? 0) targetBundle=\(targetBundleLog)"
@@ -1486,7 +1519,7 @@ final class SpeechManager: ObservableObject {
                                    originSessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID, sessionTypingMode: job.sessionTypingMode,
                                    streamedTextSnapshot: job.streamedTextSnapshot, screenTypedCount: job.screenTypedCount,
                                    targetPID: job.targetPID, targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
-                                   verificationSnapshot: job.verificationSnapshot)
+                                   verificationSnapshot: job.verificationSnapshot, routeReason: job.routeReason)
             Task.detached(priority: .userInitiated) { [weak self] in
                 guard let self else { return }
                 let processed = await self.processIntentJob(seeded)
@@ -1506,7 +1539,8 @@ final class SpeechManager: ObservableObject {
                                     sessionTypingMode: job.sessionTypingMode, streamedTextSnapshot: job.streamedTextSnapshot,
                                     screenTypedCount: job.screenTypedCount, targetPID: job.targetPID,
                                     targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
-                                    verificationSnapshot: job.verificationSnapshot, diagnostics: "llm=ok")
+                                    verificationSnapshot: job.verificationSnapshot, diagnostics: "llm=ok",
+                                    routeReason: job.routeReason)
             } catch { /* fallthrough */ }
         }
         return ProcessedJob(seq: job.seq, intent: job.intent, localeIdentifier: job.localeIdentifier,
@@ -1514,7 +1548,8 @@ final class SpeechManager: ObservableObject {
                             sessionTypingMode: job.sessionTypingMode, streamedTextSnapshot: job.streamedTextSnapshot,
                             screenTypedCount: job.screenTypedCount, targetPID: job.targetPID,
                             targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
-                            verificationSnapshot: job.verificationSnapshot, diagnostics: nil)
+                            verificationSnapshot: job.verificationSnapshot, diagnostics: nil,
+                            routeReason: job.routeReason)
     }
 
     private func applyProcessedJob(_ job: ProcessedJob) {
@@ -1535,6 +1570,20 @@ final class SpeechManager: ObservableObject {
             AutomationOutputs.shared.pasteFromClipboard()
             status = "Pasted (Cmd+V)"
             onIntent?(.paste, usageContext.appName, usageContext.bundleIdentifier)
+            clearHandledCommandPreview()
+        case .clearInput:
+            let selectAll = HotkeyBinding(keyCode: kVK_ANSI_A, modifiers: CGEventFlags.maskCommand.rawValue)
+            let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
+            AutomationOutputs.shared.pressShortcut(selectAll, targetPID: injectionPID)
+            AutomationOutputs.shared.backspace(count: 1, targetPID: injectionPID)
+            status = NSLocalizedString("speech.done", comment: "")
+            onIntent?(.clearInput, usageContext.appName, usageContext.bundleIdentifier)
+            clearHandledCommandPreview()
+        case .deleteBackward(let count):
+            let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
+            AutomationOutputs.shared.backspace(count: count, targetPID: injectionPID)
+            status = NSLocalizedString("speech.done", comment: "")
+            onIntent?(.deleteBackward(count), usageContext.appName, usageContext.bundleIdentifier)
             clearHandledCommandPreview()
         case .dictation(let text):
             guard isJobInputTargetValidForInjection(job) else {
@@ -1601,7 +1650,11 @@ final class SpeechManager: ObservableObject {
             )
             status = NSLocalizedString("speech.no_matching_command", comment: "")
             clearHandledCommandPreview()
-            if !job.sessionTypingMode || recognitionControlMode == .command {
+            let shouldSurfaceUnknownHUD =
+                !job.sessionTypingMode ||
+                recognitionControlMode == .command ||
+                job.routeReason == "forced-command-no-match"
+            if shouldSurfaceUnknownHUD {
                 showUnknownCommandHUD(transcript)
             }
             onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier)
@@ -1780,6 +1833,8 @@ final class SpeechManager: ObservableObject {
         case .dragEnd: return "dragEnd"
         case .undo: return "undo"
         case .paste: return "paste"
+        case .clearInput: return "clearInput"
+        case .deleteBackward(let count): return "deleteBackward(\(count))"
         case .lockConnection: return "lockConnection"
         case .unlockConnection: return "unlockConnection"
         case .frontmostAppCommand(let command):
