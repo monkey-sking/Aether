@@ -689,13 +689,16 @@ final class SpeechManager: ObservableObject {
 
     @objc func toggleLanguage() {
         if speechLanguageMode != .bilingual {
-            HUDManager.shared.showTemporary(
+            let hud = HUDManager.shared
+            hud.showTemporary(
                 message: activeLocale.identifier.starts(with: "zh")
                     ? "仅双语模式支持切换"
                     : "Bilingual mode only",
+                language: activeLocale.identifier,
                 recognitionControlMode: hudRecognitionControlMode,
                 icon: "globe",
             )
+            hud.showTemporaryLanguageIndicator()
             return
         }
         let previousPrimary = primaryLocaleIdentifier
