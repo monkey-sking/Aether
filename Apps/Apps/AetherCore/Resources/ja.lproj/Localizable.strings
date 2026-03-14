@@ -524,6 +524,9 @@
 "insights.copy_diagnostic_history_done" = "Diagnostic history copied";
 "insights.copy_diagnostic_history" = "Copy Diagnostic History";
 "insights.copy_ai_prompt_done" = "AI prompt copied";
+"insights.copy_event" = "Copy Entry";
+"insights.copy_event_done" = "Entry copied";
+"insights.copy_event_failed" = "Copy failed";
 "insights.export_ai_prompt" = "Copy AI Analysis Prompt";
 "insights.export_ai_prompt_done" = "AI analysis prompt copied";
 "insights.export_ai_prompt_failed" = "コピーに失敗しました";

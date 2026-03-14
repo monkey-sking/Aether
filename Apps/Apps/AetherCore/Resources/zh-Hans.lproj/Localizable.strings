@@ -355,6 +355,9 @@
 "insights.copy_diagnostic_history_done" = "已复制诊断历史";
 "insights.copy_diagnostic_history" = "复制诊断历史";
 "insights.copy_ai_prompt_done" = "已复制 AI 提示词";
+"insights.copy_event" = "复制单条";
+"insights.copy_event_done" = "已复制该条";
+"insights.copy_event_failed" = "复制失败";
 "insights.export_ai_prompt" = "复制 AI 分析提示";
 "insights.export_ai_prompt_done" = "已复制 AI 分析提示";
 "insights.export_ai_prompt_failed" = "复制失败";
@@ -516,7 +519,7 @@
 "intent.lock_connection" = "锁定连接";
 "intent.unlock_connection" = "解锁连接";
 "intent.dictation" = "输入";
-"intent.unknown" = "未知命令";
+"intent.unknown" = "未匹配命令";
 
 /* Permission Status */
 "status.permission.authorized" = "系统状态：已授权";
