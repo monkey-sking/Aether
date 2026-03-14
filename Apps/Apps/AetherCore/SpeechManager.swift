@@ -1986,7 +1986,13 @@ final class SpeechManager: ObservableObject {
         }
         let isContinuousActive = isAlwaysListeningEnabled
         let isSessionActive = recognitionSession.isRunning || isStopping || effectiveDictating || isPTTHeld
-        if !isContinuousActive && !isSessionActive { clearHUDOverride(); HUDManager.shared.hide(); return }
+        if !isContinuousActive && !isSessionActive {
+            clearHUDOverride()
+            // Keep the HUD visible briefly if we just toggled the language indicator.
+            if HUDManager.shared.state.isLanguageIndicatorVisible { return }
+            HUDManager.shared.hide()
+            return
+        }
 
         let realHardware = availableInputDevices.filter { $0.id != 0 }
         if realHardware.isEmpty {
