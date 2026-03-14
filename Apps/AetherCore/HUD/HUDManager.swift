@@ -39,6 +39,29 @@ struct AXFocusedTypingEvaluation {
     )
 }
 
+private final class CaretDebugDotView: NSView {
+    static let dotSize: CGFloat = 8
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.systemRed.cgColor
+        layer?.cornerRadius = Self.dotSize / 2
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.8).cgColor
+        layer?.borderWidth = 1
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override var isOpaque: Bool { false }
+
+    func updateColor(_ color: NSColor) {
+        layer?.backgroundColor = color.cgColor
+    }
+}
+
 enum AXFocusedTypingContextDetector {
     static func evaluate(
         focusedRect: CGRect?,
@@ -310,6 +333,7 @@ final class HUDManager {
     private var requiresExplicitTypingReentry: Bool = false
     private var explicitTypingReentryBundleID: String?
     private var hudWindow: NSPanel?
+    private var caretDebugWindow: NSPanel?
     private var hideTask: DispatchWorkItem?
     private var languageIndicatorHideTask: DispatchWorkItem?
     private var pendingRepositionWorkItem: DispatchWorkItem?
@@ -594,9 +618,11 @@ final class HUDManager {
         if state.isTypingContext {
             guard let panel = hudWindow, panel.isVisible else { return }
             let mouseLoc = currentCursorLocation()
-            if panel.frame.insetBy(dx: -6, dy: -6).contains(mouseLoc) {
+            let minDim = min(panel.frame.width, panel.frame.height)
+            let avoidPadding = max(CGFloat(16), min(CGFloat(32), minDim * 0.2))
+            if panel.frame.insetBy(dx: -avoidPadding, dy: -avoidPadding).contains(mouseLoc) {
                 typingMouseAvoidUntil = now.addingTimeInterval(0.3)
-                guard now.timeIntervalSince(lastPointerFollowAt) >= 0.06 else { return }
+                guard now.timeIntervalSince(lastPointerFollowAt) >= 0.035 else { return }
                 lastPointerFollowAt = now
                 requestReposition(immediate: true)
             }
@@ -922,7 +948,7 @@ final class HUDManager {
             lastGoodTypingRectAt = now
             return c
         }
-        if let last = lastGoodTypingRect, now.timeIntervalSince(lastGoodTypingRectAt) < 1.2 {
+        if let last = lastGoodTypingRect, now.timeIntervalSince(lastGoodTypingRectAt) < 0.8 {
             return last
         }
         return nil
@@ -1306,10 +1332,58 @@ final class HUDManager {
         
         self.hudWindow = panel
     }
+
+    private func ensureCaretDebugWindow() {
+        guard caretDebugWindow == nil else { return }
+
+        let size = CaretDebugDotView.dotSize
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: size, height: size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isFloatingPanel = true
+        panel.level = .screenSaver
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        panel.ignoresMouseEvents = true
+        panel.contentView = CaretDebugDotView(frame: NSRect(x: 0, y: 0, width: size, height: size))
+        caretDebugWindow = panel
+    }
+
+    private func updateCaretDebugDot(point: CGPoint?, enabled: Bool, color: NSColor = .systemRed) {
+        guard enabled, let point else {
+            caretDebugWindow?.orderOut(nil)
+            return
+        }
+        ensureCaretDebugWindow()
+        guard let panel = caretDebugWindow else { return }
+        if let dotView = panel.contentView as? CaretDebugDotView {
+            dotView.updateColor(color)
+        }
+        let size = CaretDebugDotView.dotSize
+        let origin = CGPoint(x: point.x - size / 2, y: point.y - size / 2)
+        let rect = CGRect(origin: origin, size: CGSize(width: size, height: size))
+        if panel.frame.size != rect.size {
+            panel.setFrame(rect, display: false)
+        } else {
+            panel.setFrameOrigin(rect.origin)
+        }
+        if !panel.isVisible {
+            panel.alphaValue = 1.0
+            panel.orderFront(nil)
+        }
+    }
     
     private func ensureWindowVisible() {
         ensureWindow()
-        guard let panel = hudWindow else { return }
+        guard let panel = hudWindow else {
+            updateCaretDebugDot(point: nil, enabled: false)
+            return
+        }
         guard !shouldSuppressHUDForAetherForegroundWindow() else {
             panel.orderOut(nil)
             return
@@ -1324,18 +1398,23 @@ final class HUDManager {
         // [Ghost Keyboard Fix] Accessing mode from state should be main-thread safe enough here
         // If hidden, DO NOT move or update content (prevents "Ghost Keyboard" when fading out)
         os_log("HUDManager: repositionWindow called, mode=%{public}@", log: log, type: .default, String(describing: state.mode))
-        if state.mode == .hidden { return }
+        if state.mode == .hidden {
+            updateCaretDebugDot(point: nil, enabled: false)
+            return
+        }
 
         guard let panel = hudWindow else { return }
 
         if shouldSuppressHUDForAetherForegroundWindow() {
             panel.orderOut(nil)
+            updateCaretDebugDot(point: nil, enabled: false)
             return
         }
         
         // --- Fullscreen Video Check ---
         if shouldSuppressHUDForFullscreenVideo() {
             hideForHiddenCursor()
+            updateCaretDebugDot(point: nil, enabled: false)
             return
         }
         // Restore alpha if returning from fullscreen suppression
@@ -1365,12 +1444,13 @@ final class HUDManager {
         var preferBelowInput = false
         var typingRect: CGRect? = nil
         let hudAnchorTraceEnabled = UserDefaults.standard.object(forKey: "hudAnchorTraceEnabled") as? Bool ?? false
+        let caretDebugEnabled = UserDefaults.standard.object(forKey: "hudCaretDebugEnabled") as? Bool ?? true
         var axFocusRect: CGRect?
         var axCaret: CGRect?
         var axEstimated: (point: CGPoint, bounds: CGRect)?
         var axFocusInfo: String = ""
         var axTrusted = false
-        if uiTypingMode || hudAnchorTraceEnabled {
+        if uiTypingMode || hudAnchorTraceEnabled || caretDebugEnabled {
             axFocusRect = axFocusedElementRectThrottled()
             axCaret = axCaretRectThrottled()
             axEstimated = axEstimatedCaretContextThrottled()
@@ -1524,42 +1604,92 @@ final class HUDManager {
         }
         
         // 4. Candidate Position Evaluation
-        let padding: CGFloat = 16
+        let padding: CGFloat = layoutTypingMode ? 18 : 16
         
+        var effectiveCaretRect = update.caretRect ?? axCaret
+        let caretDebugPoint: CGPoint?
+        let caretDebugColor: NSColor
+        if let caret = update.caretRect {
+            caretDebugPoint = CGPoint(x: caret.midX, y: caret.midY)
+            caretDebugColor = .systemGreen
+        } else if let caret = axCaret {
+            caretDebugPoint = CGPoint(x: caret.midX, y: caret.midY)
+            caretDebugColor = .systemYellow
+        } else if let estimated = axEstimated {
+            caretDebugPoint = estimated.point
+            caretDebugColor = .systemRed
+            if effectiveCaretRect == nil {
+                let width: CGFloat = 2
+                let height: CGFloat = 18
+                effectiveCaretRect = CGRect(
+                    x: estimated.point.x - width / 2,
+                    y: estimated.point.y - height / 2,
+                    width: width,
+                    height: height
+                )
+            }
+        } else {
+            caretDebugPoint = caretDebugEnabled ? anchor : nil
+            caretDebugColor = .systemRed
+        }
+        let hasCaretAnchor = effectiveCaretRect != nil
+        updateCaretDebugDot(point: caretDebugPoint, enabled: caretDebugEnabled, color: caretDebugColor)
+        if caretDebugEnabled {
+            state.caretDebugIndicatorVisible = true
+            state.caretDebugIndicatorColor = Color(caretDebugColor)
+        } else if state.caretDebugIndicatorVisible {
+            state.caretDebugIndicatorVisible = false
+        }
+
         // [Legacy Order]
         // Typing Mode: Prefer Right-Center (input-adjacent), then fall back to corners.
         // Command Mode: Prefer Bottom-Right (Natural mouse follow)
         let candidates: [(BindingPosition, String)]
         if layoutTypingMode {
-            if preferBelowInput {
+            if hasCaretAnchor {
+                // Caret-first: below center, then above center, then other options.
+                candidates = [
+                    (.bottomCenter, "BC"),
+                    (.topCenter, "TC"),
+                    (.bottomRight, "BR"),
+                    (.bottomLeft, "BL"),
+                    (.topRight, "TR"),
+                    (.topLeft, "TL"),
+                    (.rightCenter, "RC"),
+                    (.leftCenter, "LC")
+                ]
+            } else if preferBelowInput {
                 candidates = [
                     (.bottomRight, "BR"),
                     (.bottomCenter, "BC"),
                     (.bottomLeft, "BL"),
                     (.rightCenter, "RC"),
                     (.leftCenter, "LC"),
-                    (.topCenter, "TC"),
                     (.topRight, "TR"),
+                    (.topCenter, "TC"),
                     (.topLeft, "TL")
                 ]
             } else if preferAboveInput {
                 candidates = [
-                    (.topCenter, "TC"),
                     (.topRight, "TR"),
+                    (.topCenter, "TC"),
                     (.topLeft, "TL"),
                     (.rightCenter, "RC"),
                     (.leftCenter, "LC"),
                     (.bottomRight, "BR"),
+                    (.bottomCenter, "BC"),
                     (.bottomLeft, "BL")
                 ]
             } else {
                 candidates = [
-                    (.rightCenter, "RC"),
-                    (.leftCenter, "LC"),
-                    (.topRight, "TR"),
                     (.bottomRight, "BR"),
-                    (.topLeft, "TL"),
-                    (.bottomLeft, "BL")
+                    (.rightCenter, "RC"),
+                    (.bottomCenter, "BC"),
+                    (.topRight, "TR"),
+                    (.topCenter, "TC"),
+                    (.leftCenter, "LC"),
+                    (.bottomLeft, "BL"),
+                    (.topLeft, "TL")
                 ]
             }
         } else {
@@ -1573,7 +1703,7 @@ final class HUDManager {
         // [Legacy] Avoidance Zones
         var zones: [CGRect] = []
         let isInputMode = state.recognitionControlMode != .command
-        let hasRecentCaretSignal = update.caretRect != nil || detector.recentCaretRect() != nil
+        let hasRecentCaretSignal = update.caretRect != nil || detector.recentCaretRect() != nil || axCaret != nil || axEstimated != nil
         let hasRecentTypingSignal = hasRecentCaretSignal || now.timeIntervalSince(lastInputInteractionAt) < 1.0
         let shouldAvoidMouse = isInputMode && uiTypingMode && now < typingMouseAvoidUntil
         let shouldAvoidTypingContext = isInputMode && uiTypingMode && hasRecentTypingSignal
@@ -1585,15 +1715,25 @@ final class HUDManager {
             }
 
             // Avoid Caret itself (Legacy: caret.insetBy(dx: -5, dy: -2))
-            if shouldAvoidTypingContext, let caret = update.caretRect {
-                zones.append(caret.insetBy(dx: -5, dy: -2))
+            if shouldAvoidTypingContext, let caret = effectiveCaretRect {
+                zones.append(caret.insetBy(dx: -8, dy: -6))
             }
 
             // Avoid Input Context (Text Area)
             if layoutTypingMode, let inputRect = typingRect ?? update.inputRect {
-                 // Keep the HUD fully outside the active input region, even when caret
-                 // updates are sparse, so the newest typed characters remain visible.
-                 zones.append(inputRect.insetBy(dx: -14, dy: -12))
+                 // When we have a caret anchor, avoid only the caret itself so the HUD can center below/above it.
+                 // Otherwise, keep the HUD outside the input region.
+                 if !hasCaretAnchor {
+                     let largeInput = inputRect.height >= 220 || inputRect.width >= visibleFrame.width * 0.75
+                     if largeInput {
+                         let bandHeight: CGFloat = 36
+                         let bandY = min(max(anchor.y - bandHeight / 2, inputRect.minY), inputRect.maxY - bandHeight)
+                         let band = CGRect(x: inputRect.minX, y: bandY, width: inputRect.width, height: bandHeight)
+                         zones.append(band.insetBy(dx: -8, dy: -6))
+                     } else {
+                         zones.append(inputRect.insetBy(dx: -14, dy: -12))
+                     }
+                 }
             }
         }
         
@@ -1619,7 +1759,32 @@ final class HUDManager {
             }
         }
         
-        // 5. Fallback: Edge Clamping & Smart Vertical Jump
+        // 5. Fallback: choose the least-overlapping candidate when all collide
+        if bestPos == nil {
+            var bestOverlap = CGFloat.greatestFiniteMagnitude
+            var bestOverlapPos: CGPoint? = nil
+            for (cand, _) in candidates {
+                let p = calculateCandidate(cand, anchor: anchor, size: size, padding: padding, isTyping: layoutTypingMode)
+                let rect = CGRect(origin: p, size: size)
+                if !visibleFrame.contains(rect) { continue }
+                var overlap: CGFloat = 0
+                for zone in zones {
+                    let inter = rect.intersection(zone)
+                    if !inter.isNull {
+                        overlap += inter.width * inter.height
+                    }
+                }
+                if overlap < bestOverlap {
+                    bestOverlap = overlap
+                    bestOverlapPos = p
+                }
+            }
+            if let p = bestOverlapPos {
+                bestPos = p
+            }
+        }
+
+        // 6. Fallback: Edge Clamping & Smart Vertical Jump
         if bestPos == nil {
             var p = calculateCandidate(.bottomRight, anchor: anchor, size: size, padding: padding, isTyping: layoutTypingMode)
             

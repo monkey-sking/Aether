@@ -75,6 +75,18 @@ struct HUDView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+        .overlay(alignment: .topLeading) {
+            if state.caretDebugIndicatorVisible {
+                Circle()
+                    .fill(state.caretDebugIndicatorColor)
+                    .frame(width: 8, height: 8)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                    )
+                    .offset(x: 6, y: 6)
+            }
+        }
     }
 
     // MARK: - Reusable Components
