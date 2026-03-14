@@ -6,12 +6,12 @@ import AppKit
 enum AetherUI {
     static let cardCornerRadius: CGFloat = 22
     static let dashboardTileMinHeight: CGFloat = 214
-    static let sidebarIconSize: CGFloat = 18
+    static let sidebarIconSize: CGFloat = 16
     static let sidebarIconFrame: CGFloat = 22
 
-    static let pageTitleFont = Font.system(size: 28, weight: .bold, design: .rounded)
+    static let pageTitleFont = Font.system(size: 22, weight: .bold, design: .rounded)
     static let sectionHeaderFont = Font.system(size: 13, weight: .semibold, design: .rounded)
-    static let sidebarItemFont = Font.system(size: 17, weight: .semibold, design: .rounded)
+    static let sidebarItemFont = Font.system(size: 15, weight: .semibold, design: .rounded)
     static let cardTitleFont = Font.system(size: 17, weight: .semibold, design: .rounded)
     static let bodyFont = Font.system(size: 14, weight: .medium, design: .default)
     static let captionFont = Font.system(size: 12, weight: .medium, design: .default)
@@ -193,7 +193,7 @@ struct SidebarItemLabel: View {
     }
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             if let iconView {
                 iconView
                     .frame(width: AetherUI.sidebarIconFrame, alignment: .center)
@@ -209,7 +209,7 @@ struct SidebarItemLabel: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
     }
 }
 
@@ -247,11 +247,17 @@ struct DashboardTileHeader: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(AetherUI.cardTitleFont)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
                 Text(subtitle)
                     .font(AetherUI.bodyFont)
                     .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .allowsTightening(true)
+                    .minimumScaleFactor(0.88)
             }
+            .layoutPriority(1)
 
             Spacer(minLength: 12)
         }
@@ -303,59 +309,85 @@ struct ControlCard: View {
     }
 }
 
-struct SettingsPage<Content: View, HeaderTrailing: View>: View {
+struct SettingsPage<Content: View, HeaderTrailing: View, FooterOverlay: View>: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let title: String
     let subtitle: String
     let headerTrailing: HeaderTrailing
+    let showsInlineHeader: Bool
+    let footerOverlay: FooterOverlay
     var content: Content
 
     init(
         title: String,
         subtitle: String,
+        showsInlineHeader: Bool = false,
         @ViewBuilder content: () -> Content
-    ) where HeaderTrailing == EmptyView {
+    ) where HeaderTrailing == EmptyView, FooterOverlay == EmptyView {
         self.title = title
         self.subtitle = subtitle
         self.headerTrailing = EmptyView()
+        self.showsInlineHeader = showsInlineHeader
+        self.footerOverlay = EmptyView()
         self.content = content()
     }
 
     init(
         title: String,
         subtitle: String,
+        showsInlineHeader: Bool = false,
         @ViewBuilder headerTrailing: () -> HeaderTrailing,
+        @ViewBuilder content: () -> Content
+    ) where FooterOverlay == EmptyView {
+        self.title = title
+        self.subtitle = subtitle
+        self.headerTrailing = headerTrailing()
+        self.showsInlineHeader = showsInlineHeader
+        self.footerOverlay = EmptyView()
+        self.content = content()
+    }
+
+    init(
+        title: String,
+        subtitle: String,
+        showsInlineHeader: Bool = false,
+        @ViewBuilder headerTrailing: () -> HeaderTrailing,
+        @ViewBuilder footerOverlay: () -> FooterOverlay,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
         self.subtitle = subtitle
         self.headerTrailing = headerTrailing()
+        self.showsInlineHeader = showsInlineHeader
+        self.footerOverlay = footerOverlay()
         self.content = content()
     }
 
-    var body: some View {
+    private var baseContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack(alignment: .top, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(title)
-                            .font(AetherUI.pageTitleFont)
-                        Text(subtitle)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 16) {
+                if showsInlineHeader {
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(title)
+                                .font(AetherUI.pageTitleFont)
+                            Text(subtitle)
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        headerTrailing
                     }
-
-                    Spacer()
-
-                    headerTrailing
                 }
 
                 content
             }
             .frame(maxWidth: 960, alignment: .leading)
-            .padding(.horizontal, 28)
-            .padding(.vertical, 24)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 18)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
@@ -384,6 +416,27 @@ struct SettingsPage<Content: View, HeaderTrailing: View>: View {
                 .offset(x: -120, y: -90)
             }
             .ignoresSafeArea()
+        }
+        .overlay(alignment: .bottomTrailing) {
+            footerOverlay
+                .padding(.trailing, 22)
+                .padding(.bottom, 18)
+        }
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if showsInlineHeader {
+            baseContent
+                .navigationTitle(title)
+        } else {
+            baseContent
+                .navigationTitle(title)
+                .toolbar {
+                    ToolbarItem(placement: .automatic) {
+                        headerTrailing
+                    }
+                }
         }
     }
 }

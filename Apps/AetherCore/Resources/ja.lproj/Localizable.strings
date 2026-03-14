@@ -142,6 +142,8 @@
 
 /* HUD Hints & Errors */
 "speech.no_matching_command" = "コマンドが見つかりません";
+"speech.voice_input_disabled" = "音声入力はオフです";
+"speech.voice_control_disabled" = "音声コントロールはオフです";
 "speech.no_editable_field" = "入力可能な項目が見つかりません";
 "speech.undo_done" = "取り消しました";
 "speech.pasted_cmdv" = "貼り付けました (Cmd+V)";
@@ -297,16 +299,30 @@
 "main.pointer.subtitle.active" = "ヘッドトラッキングが稼働中";
 "main.pointer.subtitle.idle" = "ポインターを制御するにはヘッドトラッキングを開始してください";
 "main.pointer.auto_start.title" = "ヘッドセット接続時に自動開始";
+"main.pointer.disabled_hint" = "ヘッドセット接続時の自動開始は、先にポインタ操作をオンにしてから設定します。";
 "main.pointer.auto_start.subtitle" = "互換性のあるヘッドセットが接続されると自動的にヘッドトラッキングを開始します";
 "main.pointer.posture_guide.title" = "姿勢ガイドを表示";
 "main.pointer.posture_guide.subtitle" = "自動開始前に簡単な姿勢確認プロンプトを表示します";
 "main.pointer.footnote" = "自動開始はヘッドモーション対応のヘッドセットでのみ機能します。";
+"main.voice_basics.title" = "Voice Basics";
+"main.voice_basics.subtitle" = "Set the microphone, languages, and wake behavior.";
+"main.voice_input.title" = "Voice Input";
+"main.voice_input.subtitle" = "Control whether spoken text can be inserted.";
+"main.voice_input.auto_enable.title" = "Auto-enable when headset connects";
+"main.voice_input.auto_enable.subtitle" = "Turn on voice input when a headset microphone is detected.";
+"main.voice_control.title" = "Voice Control";
+"main.voice_control.subtitle" = "Control whether voice commands can run.";
+"main.voice_control.auto_enable.title" = "Auto-enable when headset connects";
+"main.voice_control.auto_enable.subtitle" = "Turn on voice control when a headset microphone is detected.";
+"main.voice_feature.disabled_hint" = "ヘッドセット接続時の自動有効化は、先にオンにしてから設定します。";
+"main.voice_input_control.title" = "音声入力と操作";
 "main.voice_activation.title" = "音声起動";
 "main.voice_activation.subtitle" = "最もよく使用する音声モードを切り替えます。";
 "main.voice_mode.push_to_talk.short" = "PTT";
 "main.voice_mode.wake_word.short" = "ウェイク";
 "main.voice_mode.hands_free.short" = "ハンズフリー";
 "main.voice_mode.push_to_talk.detail" = "ショートカットが押されている間のみ認識を実行します。";
+"main.voice_mode.push_to_talk.detail_fmt" = "%1$@ を押している間だけ認識します。";
 "main.voice_mode.wake_word.detail" = "まずウェイクワードを言い、その後にディクテーションまたはコマンドを続けてください。";
 "main.voice_mode.hands_free.detail" = "常にリスニング状態です。アイドル時にはHUDが虚脱します。";
 
@@ -412,8 +428,14 @@
 "settings.section.insights.subtitle" = "アプリごとの音声入力とコントロールの使用履歴。";
 
 "settings.voice.language_hint" = "固定言語モードが最も安定しています。2ヶ国語モードは、2つの言語間の素早い切り替えやレキシコン管理に使用します。";
+"settings.voice.language_compact_hint" = "メニューから最大2言語を選択します。1つなら固定、2つならバイリンガルです。";
+"settings.voice.language_selection" = "認識言語";
 "settings.voice.mode_single" = "固定言語";
 "settings.voice.mode_bilingual" = "2ヶ国語モード";
+"settings.voice.enable" = "音声起動";
+"settings.voice.enable_hint" = "オフにすると音声入力とコマンドが無効になります。";
+"settings.voice.auto_enable_headset" = "ヘッドセット接続時に自動で有効化";
+"settings.voice.auto_enable_headset_hint" = "ヘッドセットのマイクが検出されると音声起動を再有効化します。";
 "settings.voice.primary_lang" = "主言語";
 "settings.voice.secondary_lang" = "副言語";
 "settings.voice.bilingual_hint" = "2ヶ国語モードでは、切り替えによって主言語と副言語が入れ替わります。現在の認識は主言語が優先されます。";
@@ -530,6 +552,10 @@
 "insights.export_ai_prompt" = "Copy AI Analysis Prompt";
 "insights.export_ai_prompt_done" = "AI analysis prompt copied";
 "insights.export_ai_prompt_failed" = "コピーに失敗しました";
+"lexicon.clear_confirm_title" = "Clear this entry?";
+"lexicon.clear_confirm_message" = "This will remove all custom terms in this field.";
+"lexicon.clear_confirm_action" = "Clear";
+"lexicon.clear_confirm_cancel" = "Cancel";
 "insights.usage_description" = "Off by default. When enabled, Aether stores local speech content + app context to generate importable lexicon/command suggestions.";
 "ai.prompt.template" = "You are an Aether configuration assistant. Goal: based on the usage history below, output an Aether voice-lexicon config that can be imported directly to improve accuracy and command coverage.
 

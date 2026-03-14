@@ -16,12 +16,10 @@ struct AetherMainView: View {
 
     enum Panel: Hashable {
         case overview
-        case voiceBasics
         case voiceTerms
         case voiceLexicon
         case voiceAppControls
         case voiceInsights
-        case pointer
         case headGestures
         case shortcuts
     }
@@ -42,12 +40,6 @@ struct AetherMainView: View {
                 }
 
                 Section {
-                    NavigationLink(value: Panel.voiceBasics) {
-                        panelLabel(.voiceBasics)
-                    }
-                    NavigationLink(value: Panel.voiceTerms) {
-                        panelLabel(.voiceTerms)
-                    }
                     NavigationLink(value: Panel.voiceLexicon) {
                         panelLabel(.voiceLexicon)
                     }
@@ -62,9 +54,6 @@ struct AetherMainView: View {
                 }
 
                 Section {
-                    NavigationLink(value: Panel.pointer) {
-                        panelLabel(.pointer)
-                    }
                     NavigationLink(value: Panel.headGestures) {
                         panelLabel(.headGestures)
                     }
@@ -77,24 +66,20 @@ struct AetherMainView: View {
 
             }
             .listStyle(.sidebar)
-            .environment(\.defaultMinListRowHeight, 46)
-            .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
+            .environment(\.defaultMinListRowHeight, 40)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
         } detail: {
             switch selection {
             case .overview:
                 OverviewDashboardView()
-            case .voiceBasics:
-                InputSettingsView(section: .basics)
             case .voiceTerms:
-                InputSettingsView(section: .termCorrections)
+                OverviewDashboardView()
             case .voiceLexicon:
                 InputSettingsView(section: .lexicon)
             case .voiceAppControls:
                 InputSettingsView(section: .appControls)
             case .voiceInsights:
                 InputSettingsView(section: .insights)
-            case .pointer:
-                OutputSettingsView()
             case .headGestures:
                 HeadGestureSettingsView()
             case .shortcuts:
@@ -107,9 +92,14 @@ struct AetherMainView: View {
         .background(
             StandardWindowConfigurator(
                 title: "Aether",
-                subtitle: panelTitle(currentPanel)
+                subtitle: ""
             )
         )
+        .onAppear {
+            if selection == .voiceTerms {
+                selection = .overview
+            }
+        }
     }
 
     @ViewBuilder
@@ -130,8 +120,6 @@ struct AetherMainView: View {
         switch panel {
         case .overview:
             return String(localized: "main.panel.overview")
-        case .voiceBasics:
-            return NSLocalizedString("settings.section.basics.page_title", comment: "")
         case .voiceTerms:
             return NSLocalizedString("settings.section.term_corrections.page_title", comment: "")
         case .voiceLexicon:
@@ -140,8 +128,6 @@ struct AetherMainView: View {
             return NSLocalizedString("settings.section.app_controls.page_title", comment: "")
         case .voiceInsights:
             return NSLocalizedString("settings.section.insights.page_title", comment: "")
-        case .pointer:
-            return String(localized: "main.panel.pointer")
         case .headGestures:
             return String(localized: "main.panel.head_gestures")
         case .shortcuts:
@@ -153,8 +139,6 @@ struct AetherMainView: View {
         switch panel {
         case .overview:
             return "square.grid.2x2.fill"
-        case .voiceBasics:
-            return "mic.fill"
         case .voiceTerms:
             return "text.magnifyingglass"
         case .voiceLexicon:
@@ -163,8 +147,6 @@ struct AetherMainView: View {
             return "app.badge"
         case .voiceInsights:
             return "chart.bar.xaxis"
-        case .pointer:
-            return "cursorarrow.and.square.on.square.dashed"
         case .headGestures:
             return "person.crop.circle"
         case .shortcuts:
@@ -300,7 +282,10 @@ private struct OverviewDashboardView: View {
             title: String(localized: "main.overview.title"),
             subtitle: overviewSubtitle,
             headerTrailing: {
-                AppLanguageHeader()
+                EmptyView()
+            },
+            footerOverlay: {
+                OverviewFooterControls()
             }
         ) {
             OverviewReadinessCard(
@@ -323,19 +308,20 @@ private struct OverviewDashboardView: View {
                 }
 
                 GlassCard {
-                    VoiceModeTile(
+                    VoiceBasicsTile(
                         mode: $appState.voiceActivationMode
                     )
                 }
+
+                GlassCard {
+                    VoiceInputTile()
+                }
+
+                GlassCard {
+                    VoiceControlTile()
+                }
             }
 
-            HStack {
-                Spacer()
-                Text(appState.appVersionDisplay)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .textSelection(.enabled)
-            }
         }
         .onAppear {
             readinessExpanded = !readinessCanCollapse
@@ -347,13 +333,29 @@ private struct OverviewDashboardView: View {
 }
 
 private struct OverviewReadinessCard: View {
+    @EnvironmentObject private var appState: AppState
     let setupItems: [OverviewSetupItem]
     let isCollapsed: Bool
     let canCollapse: Bool
     let onToggle: () -> Void
 
+    private var hasMicrophoneDevice: Bool {
+        !appState.availableInputDevices.isEmpty
+    }
+
+    private var readinessTotalCount: Int {
+        setupItems.count + 1
+    }
+
     private var readyCount: Int {
-        setupItems.filter(\.isReady).count
+        setupItems.filter(\.isReady).count + (hasMicrophoneDevice ? 1 : 0)
+    }
+
+    private var microphoneButtonTitle: String {
+        guard let selected = appState.availableInputDevices.first(where: { $0.id == appState.selectedInputDeviceID }) else {
+            return String(localized: "settings.default_device")
+        }
+        return selected.name
     }
 
     var body: some View {
@@ -369,8 +371,8 @@ private struct OverviewReadinessCard: View {
                     }
                     Spacer()
                     OverviewStateTag(
-                        title: String(format: String(localized: "main.readiness.ready_count_fmt"), readyCount, setupItems.count),
-                        tint: readyCount == setupItems.count ? .green : .orange
+                        title: String(format: String(localized: "main.readiness.ready_count_fmt"), readyCount, readinessTotalCount),
+                        tint: readyCount == readinessTotalCount ? .green : .orange
                     )
                     if canCollapse {
                         Button(action: onToggle) {
@@ -417,10 +419,71 @@ private struct OverviewReadinessCard: View {
                             .cornerRadius(12)
                         }
 
+                        readinessMenuRow(
+                            title: String(localized: "settings.microphone"),
+                            value: microphoneButtonTitle,
+                            systemImage: "mic.fill"
+                        ) {
+                            if appState.availableInputDevices.isEmpty {
+                                Text(L10n.settingsNoMicrophone)
+                            } else {
+                                ForEach(appState.availableInputDevices) { device in
+                                    Button(device.name) {
+                                        appState.selectedInputDeviceID = device.id
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func readinessMenuRow<Content: View>(
+        title: String,
+        value: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .frame(width: 20)
+                .foregroundColor(.secondary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                Text(value)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Menu {
+                content()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(value)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color(nsColor: .windowBackgroundColor).opacity(0.9))
+                .cornerRadius(10)
+            }
+            .menuStyle(.borderlessButton)
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(12)
     }
 }
 
@@ -452,7 +515,8 @@ private struct OverviewToggleTile: View {
                 Text(subtitle)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 148, alignment: .topLeading)
@@ -460,6 +524,7 @@ private struct OverviewToggleTile: View {
 }
 
 private struct PointerControlTile: View {
+    @ObservedObject private var headManager = HeadMotionManager.shared
     let subtitle: String
     @Binding var isOn: Bool
     @Binding var autoStartOnConnect: Bool
@@ -502,6 +567,14 @@ private struct PointerControlTile: View {
             Text(LocalizedStringKey("main.pointer.footnote"))
                 .font(AetherUI.captionFont)
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Text(headManager.attitudeText)
+                .font(AetherUI.captionFont)
+                .foregroundColor(headManager.isTracking ? .secondary : .orange)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
         .frame(maxWidth: .infinity, minHeight: AetherUI.dashboardTileMinHeight, alignment: .topLeading)
     }
@@ -515,8 +588,12 @@ private struct PointerControlTile: View {
                 Text(subtitle)
                     .font(AetherUI.captionFont)
                     .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .allowsTightening(true)
+                    .minimumScaleFactor(0.88)
             }
+            .layoutPriority(1)
             Spacer()
             Toggle("", isOn: isOn)
                 .labelsHidden()
@@ -530,30 +607,89 @@ private struct PointerControlTile: View {
     }
 }
 
-private struct VoiceModeTile: View {
+private struct VoiceBasicsTile: View {
+    @EnvironmentObject private var appState: AppState
     @Binding var mode: AppState.VoiceActivationMode
+
+    private let supportedVoiceLocaleIDs = [
+        "zh-CN", "en-US", "ja-JP", "ko-KR", "fr-FR", "de-DE", "es-ES"
+    ]
+
+    private var selectedVoiceLocaleIDs: [String] {
+        if appState.voiceService.speechLanguageMode == .bilingual {
+            return [appState.voiceService.primaryLocaleIdentifier, appState.voiceService.secondaryLocaleIdentifier]
+        }
+        return [appState.voiceService.primaryLocaleIdentifier]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             DashboardTileHeader(
-                title: String(localized: "main.voice_activation.title"),
-                subtitle: String(localized: "main.voice_activation.subtitle"),
+                title: String(localized: "main.voice_basics.title"),
+                subtitle: String(localized: "main.voice_basics.subtitle"),
                 systemImage: "waveform.badge.mic",
                 iconBackground: Color.blue.opacity(0.18),
                 iconForeground: .blue
             )
 
-            Picker("", selection: $mode) {
-                ForEach(AppState.VoiceActivationMode.allCases, id: \.self) { item in
-                    Text(shortLabel(for: item)).tag(item)
+            VStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .center, spacing: 8) {
+                        Label(L10n.settingsSpeechLanguage, systemImage: "globe")
+                            .font(AetherUI.bodyFont)
+                        Spacer()
+                        compactSelectionMenu(
+                            value: selectedVoiceLocaleIDs.map(localeTitle(for:)).joined(separator: " + ")
+                        ) {
+                            ForEach(supportedVoiceLocaleIDs, id: \.self) { localeID in
+                                Button {
+                                    toggleVoiceLocaleSelection(localeID)
+                                } label: {
+                                    HStack {
+                                        Text(localeTitle(for: localeID))
+                                        Spacer()
+                                        if selectedVoiceLocaleIDs.contains(localeID) {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                                .disabled(selectedVoiceLocaleIDs.count == 1 && selectedVoiceLocaleIDs.contains(localeID))
+                            }
+                        }
+                    }
                 }
-            }
-            .pickerStyle(.segmented)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+                .cornerRadius(12)
 
-            Text(selectedModeDescription)
-                .font(AetherUI.captionFont)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .center, spacing: 8) {
+                        Label(String(localized: "main.voice_activation.title"), systemImage: "bolt.badge.waveform")
+                            .font(AetherUI.bodyFont)
+                        Spacer()
+                    }
+
+                    HStack(spacing: 8) {
+                        activationModeButton(.pushToTalk)
+                        activationModeButton(.wakeWord)
+                        activationModeButton(.handsFree)
+                    }
+
+                    Text(selectedModeDescription)
+                        .font(AetherUI.captionFont)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .allowsTightening(true)
+                        .minimumScaleFactor(0.88)
+                        .frame(height: 18, alignment: .leading)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+                .cornerRadius(12)
+            }
         }
         .frame(maxWidth: .infinity, minHeight: AetherUI.dashboardTileMinHeight, alignment: .topLeading)
     }
@@ -569,15 +705,259 @@ private struct VoiceModeTile: View {
         }
     }
 
+    private func localeTitle(for localeIdentifier: String) -> String {
+        switch localeIdentifier {
+        case "zh-CN":
+            return String(localized: "language.zh_CN")
+        case "en-US":
+            return String(localized: "language.en_US")
+        case "ja-JP":
+            return String(localized: "language.ja_JP")
+        case "ko-KR":
+            return String(localized: "language.ko_KR")
+        case "fr-FR":
+            return String(localized: "language.fr_FR")
+        case "de-DE":
+            return String(localized: "language.de_DE")
+        case "es-ES":
+            return String(localized: "language.es_ES")
+        default:
+            return Locale.current.localizedString(forIdentifier: localeIdentifier) ?? localeIdentifier
+        }
+    }
+
+    private func toggleVoiceLocaleSelection(_ localeID: String) {
+        var selection = selectedVoiceLocaleIDs
+
+        if let index = selection.firstIndex(of: localeID) {
+            guard selection.count > 1 else { return }
+            selection.remove(at: index)
+        } else {
+            guard selection.count < 2 else {
+                selection = [selection.last ?? selection.first ?? appState.voiceService.primaryLocaleIdentifier, localeID]
+                applyVoiceLocaleSelection(selection)
+                return
+            }
+            selection.append(localeID)
+        }
+
+        applyVoiceLocaleSelection(selection)
+    }
+
+    private func applyVoiceLocaleSelection(_ selection: [String]) {
+        guard let primary = selection.first else { return }
+        appState.voiceService.followsSystemLanguage = false
+        appState.voiceService.primaryLocaleIdentifier = primary
+
+        if selection.count > 1, let secondary = selection.last, secondary != primary {
+            appState.voiceService.speechLanguageMode = .bilingual
+            appState.voiceService.secondaryLocaleIdentifier = secondary
+        } else {
+            appState.voiceService.speechLanguageMode = .single
+        }
+    }
+
+    @ViewBuilder
+    private func settingsMenuRow<Content: View>(
+        title: String,
+        value: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(spacing: 10) {
+            Label(title, systemImage: systemImage)
+                .font(AetherUI.bodyFont)
+            Spacer()
+            Menu {
+                content()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(value)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                }
+                .font(AetherUI.captionFont)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color(nsColor: .windowBackgroundColor).opacity(0.9))
+                .cornerRadius(10)
+            }
+            .menuStyle(.borderlessButton)
+        }
+    }
+
+    @ViewBuilder
+    private func compactSelectionMenu<Content: View>(
+        value: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Menu {
+            content()
+        } label: {
+            HStack(spacing: 8) {
+                Text(value)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+            }
+            .font(AetherUI.bodyFont)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Color(nsColor: .windowBackgroundColor).opacity(0.9))
+            .cornerRadius(10)
+        }
+        .menuStyle(.borderlessButton)
+    }
+
+    @ViewBuilder
+    private func activationModeButton(_ item: AppState.VoiceActivationMode) -> some View {
+        Button {
+            mode = item
+        } label: {
+            Text(shortLabel(for: item))
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(mode == item ? .white : .primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(
+                    mode == item
+                        ? Color.accentColor
+                        : Color(nsColor: .windowBackgroundColor).opacity(0.98)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(
+                            mode == item
+                                ? Color.accentColor.opacity(0.95)
+                                : Color.primary.opacity(0.14),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(
+                    color: mode == item ? Color.accentColor.opacity(0.22) : Color.black.opacity(0.08),
+                    radius: mode == item ? 8 : 3,
+                    x: 0,
+                    y: 1
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
     private var selectedModeDescription: String {
         switch mode {
         case .pushToTalk:
-            return String(localized: "main.voice_mode.push_to_talk.detail")
+            return String(
+                format: String(localized: "main.voice_mode.push_to_talk.detail_fmt"),
+                appState.voicePTTBinding.displayString
+            )
         case .wakeWord:
             return String(localized: "main.voice_mode.wake_word.detail")
         case .handsFree:
             return String(localized: "main.voice_mode.hands_free.detail")
         }
+    }
+}
+
+private struct VoiceInputTile: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        VoiceFeatureToggleTile(
+            title: String(localized: "main.voice_input.title"),
+            subtitle: String(localized: "main.voice_input.subtitle"),
+            systemImage: "text.cursor",
+            iconBackground: appState.isVoiceInputEnabled ? Color.green.opacity(0.18) : Color.gray.opacity(0.16),
+            iconForeground: appState.isVoiceInputEnabled ? .green : .secondary,
+            isOn: $appState.isVoiceInputEnabled,
+            autoEnableTitle: String(localized: "main.voice_input.auto_enable.title"),
+            autoEnableSubtitle: String(localized: "main.voice_input.auto_enable.subtitle"),
+            autoEnableOnHeadset: $appState.autoEnableVoiceInputOnHeadset
+        )
+    }
+}
+
+private struct VoiceControlTile: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        VoiceFeatureToggleTile(
+            title: String(localized: "main.voice_control.title"),
+            subtitle: String(localized: "main.voice_control.subtitle"),
+            systemImage: "command",
+            iconBackground: appState.isVoiceControlEnabled ? Color.orange.opacity(0.18) : Color.gray.opacity(0.16),
+            iconForeground: appState.isVoiceControlEnabled ? .orange : .secondary,
+            isOn: $appState.isVoiceControlEnabled,
+            autoEnableTitle: String(localized: "main.voice_control.auto_enable.title"),
+            autoEnableSubtitle: String(localized: "main.voice_control.auto_enable.subtitle"),
+            autoEnableOnHeadset: $appState.autoEnableVoiceControlOnHeadset
+        )
+    }
+}
+
+private struct VoiceFeatureToggleTile: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let iconBackground: Color
+    let iconForeground: Color
+    @Binding var isOn: Bool
+    let autoEnableTitle: String
+    let autoEnableSubtitle: String
+    @Binding var autoEnableOnHeadset: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 16) {
+                DashboardTileHeader(
+                    title: title,
+                    subtitle: subtitle,
+                    systemImage: systemImage,
+                    iconBackground: iconBackground,
+                    iconForeground: iconForeground
+                )
+                Toggle("", isOn: $isOn)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            inlineToggle(
+                title: autoEnableTitle,
+                subtitle: autoEnableSubtitle,
+                isOn: $autoEnableOnHeadset
+            )
+        }
+        .frame(maxWidth: .infinity, minHeight: AetherUI.dashboardTileMinHeight, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func inlineToggle(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(AetherUI.bodyFont)
+                Text(subtitle)
+                    .font(AetherUI.captionFont)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .allowsTightening(true)
+                    .minimumScaleFactor(0.88)
+            }
+            .layoutPriority(1)
+            Spacer()
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+        .cornerRadius(12)
     }
 }
 
@@ -614,29 +994,79 @@ private struct AppLanguageTile: View {
 
 private struct AppLanguageHeader: View {
     @EnvironmentObject private var appState: AppState
+    var compact: Bool = false
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 6) {
+        if compact {
             HStack(spacing: 6) {
                 Image(systemName: "globe")
                     .foregroundColor(.secondary)
-                Text(String(localized: "settings.app_language.title"))
-                    .font(.subheadline.weight(.semibold))
+                Picker("", selection: $appState.appLanguageMode) {
+                    ForEach(AppLanguageMode.allCases) { mode in
+                        Text(AppLocalization.localizedString(mode.localizedTitleKey))
+                            .tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            .controlSize(.small)
+        } else {
+            VStack(alignment: .trailing, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "globe")
+                        .foregroundColor(.secondary)
+                    Text(String(localized: "settings.app_language.title"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.secondary)
+                }
+
+                Picker("", selection: $appState.appLanguageMode) {
+                    ForEach(AppLanguageMode.allCases) { mode in
+                        Text(AppLocalization.localizedString(mode.localizedTitleKey))
+                            .tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+
+                Text(String(localized: "settings.app_language.restart_hint"))
+                    .font(.caption2)
                     .foregroundColor(.secondary)
             }
+        }
+    }
+}
 
-            Picker("", selection: $appState.appLanguageMode) {
+private struct OverviewFooterControls: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Menu {
                 ForEach(AppLanguageMode.allCases) { mode in
-                    Text(AppLocalization.localizedString(mode.localizedTitleKey))
-                        .tag(mode)
+                    Button(AppLocalization.localizedString(mode.localizedTitleKey)) {
+                        appState.appLanguageMode = mode
+                    }
                 }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-
-            Text(String(localized: "settings.app_language.restart_hint"))
-                .font(.caption2)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "globe")
+                    Text(AppLocalization.localizedString(appState.appLanguageMode.localizedTitleKey))
+                }
+                .font(.caption)
                 .foregroundColor(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.92))
+                .clipShape(Capsule())
+            }
+            .menuStyle(.borderlessButton)
+
+            Text(appState.appVersionDisplay)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .textSelection(.enabled)
         }
     }
 }

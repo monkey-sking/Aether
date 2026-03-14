@@ -202,6 +202,12 @@ struct HUDView: View {
             }
 
             Button(action: {
+                let defaults = UserDefaults.standard
+                let inputEnabled = defaults.object(forKey: "isVoiceInputEnabled") as? Bool
+                let controlEnabled = defaults.object(forKey: "isVoiceControlEnabled") as? Bool
+                let anyVoiceEnabled = inputEnabled == true || controlEnabled == true ||
+                    (defaults.object(forKey: "isVoiceEnabled") as? Bool ?? true)
+                guard anyVoiceEnabled else { return }
                 NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
             }) {
                 Text(displayLanguage)

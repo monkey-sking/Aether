@@ -1,9 +1,14 @@
 import Foundation
 
-enum AppLanguageMode: String, CaseIterable, Identifiable {
+enum AppLanguageMode: String, Identifiable, CaseIterable {
     case system = "system"
     case zhHans = "zh-Hans"
     case en = "en"
+
+    static let allCases: [AppLanguageMode] = [
+        .zhHans,
+        .en
+    ]
 
     var id: String { rawValue }
 
@@ -33,10 +38,18 @@ enum AppLanguageMode: String, CaseIterable, Identifiable {
 enum AppLocalization {
     static let appLanguageKey = "appLanguageModeV1"
 
+    private static func preferredSupportedMode(for localeIdentifier: String) -> AppLanguageMode {
+        localeIdentifier.hasPrefix("zh") ? .zhHans : .en
+    }
+
     static func storedAppLanguage() -> AppLanguageMode {
         guard let raw = UserDefaults.standard.string(forKey: appLanguageKey),
               let mode = AppLanguageMode(rawValue: raw) else {
-            return .system
+            return preferredSupportedMode(for: Locale.current.identifier)
+        }
+
+        if mode == .system {
+            return preferredSupportedMode(for: Locale.current.identifier)
         }
         return mode
     }

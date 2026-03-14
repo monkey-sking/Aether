@@ -189,6 +189,7 @@
 "main.permission.speech.detail.ready" = "인식 엔진 사용 가능";
 "main.pointer.auto_start.subtitle" = "호환되는 헤드셋이 연결되면 자동으로 헤드 트래킹을 시작합니다";
 "main.pointer.auto_start.title" = "헤드셋 연결 시 자동 시작";
+"main.pointer.disabled_hint" = "헤드셋 자동 시작은 먼저 포인터 제어를 켠 뒤 설정할 수 있습니다.";
 "main.pointer.footnote" = "자동 시작은 헤드 모션 기능이 있는 헤드셋에서만 작동합니다.";
 "main.pointer.posture_guide.subtitle" = "자동 시작 전에 빠른 자세 확인 프롬프트를 표시합니다";
 "main.pointer.posture_guide.title" = "자세 가이드 표시";
@@ -202,11 +203,24 @@
 "main.section.controls" = "컨트롤";
 "main.section.voice" = "음성";
 "main.section.workspace" = "워크스페이스";
+"main.voice_basics.title" = "Voice Basics";
+"main.voice_basics.subtitle" = "Set the microphone, languages, and wake behavior.";
+"main.voice_input.title" = "Voice Input";
+"main.voice_input.subtitle" = "Control whether spoken text can be inserted.";
+"main.voice_input.auto_enable.title" = "Auto-enable when headset connects";
+"main.voice_input.auto_enable.subtitle" = "Turn on voice input when a headset microphone is detected.";
+"main.voice_control.title" = "Voice Control";
+"main.voice_control.subtitle" = "Control whether voice commands can run.";
+"main.voice_control.auto_enable.title" = "Auto-enable when headset connects";
+"main.voice_control.auto_enable.subtitle" = "Turn on voice control when a headset microphone is detected.";
+"main.voice_feature.disabled_hint" = "헤드셋 연결 시 자동 활성화는 먼저 켠 뒤 설정할 수 있습니다.";
+"main.voice_input_control.title" = "음성 입력 및 제어";
 "main.voice_activation.subtitle" = "가장 많이 사용하는 음성 모드 간에 전환합니다.";
 "main.voice_activation.title" = "음성 활성화";
 "main.voice_mode.hands_free.detail" = "항상 듣고 있습니다. 유휴 상태일 때 HUD가 축소됩니다.";
 "main.voice_mode.hands_free.short" = "핸즈프리";
 "main.voice_mode.push_to_talk.detail" = "단축키를 누르고 있는 동안에만 인식이 실행됩니다.";
+"main.voice_mode.push_to_talk.detail_fmt" = "%1$@ 를 누르고 있는 동안에만 인식됩니다.";
 "main.voice_mode.push_to_talk.short" = "PTT";
 "main.voice_mode.wake_word.detail" = "먼저 호출어를 말한 다음, 받아쓰기나 제어를 계속하세요.";
 "main.voice_mode.wake_word.short" = "호출어";
@@ -353,8 +367,14 @@
 "settings.voice.bilingual_hint" = "이중 언어 모드에서 토글은 기본 언어와 보조 언어를 바꿉니다. 인식은 현재 기본 언원을 우선시합니다.";
 "settings.voice.bilingual_lang_status_fmt" = "기본: %1$@ · 보조: %2$@";
 "settings.voice.language_hint" = "단일 언어가 가장 안정적입니다. 이중 언어 모드는 빠른 전환 및 언어별 어휘 설정을 위한 것입니다.";
+"settings.voice.language_compact_hint" = "메뉴에서 최대 두 개 언어를 고르세요. 하나면 고정, 둘이면 이중 언어입니다.";
+"settings.voice.language_selection" = "인식 언어";
 "settings.voice.mode_bilingual" = "이중 언어";
 "settings.voice.mode_single" = "단일";
+"settings.voice.enable" = "음성 호출";
+"settings.voice.enable_hint" = "끄면 음성 입력과 명령이 비활성화됩니다.";
+"settings.voice.auto_enable_headset" = "헤드셋 연결 시 자동 활성화";
+"settings.voice.auto_enable_headset_hint" = "헤드셋 마이크가 감지되면 음성 호출을 다시 켭니다.";
 "settings.voice.open_mic_permission" = "마이크 권한 열기";
 "settings.voice.open_speech_permission" = "음성 인식 권한 열기";
 "settings.voice.permission_required" = "권한 필요";
@@ -374,6 +394,8 @@
 "speech.need_recognition_permission" = "음성 인식 권한을 허용해 주세요";
 "speech.no_editable_field" = "입력 가능한 텍스트 필드를 찾을 수 없습니다";
 "speech.no_matching_command" = "일치하는 명령어를 찾을 수 없습니다";
+"speech.voice_input_disabled" = "음성 입력이 꺼져 있습니다";
+"speech.voice_control_disabled" = "음성 제어가 꺼져 있습니다";
 "speech.no_mic_detected" = "마이크를 찾을 수 없습니다";
 "speech.pasted" = "붙여넣기";
 "speech.pasted_cmdv" = "붙여넣기 완료 (Cmd+V)";
@@ -457,6 +479,10 @@
 "insights.export_ai_prompt" = "Copy AI Analysis Prompt";
 "insights.export_ai_prompt_done" = "AI analysis prompt copied";
 "insights.export_ai_prompt_failed" = "복사 실패";
+"lexicon.clear_confirm_title" = "Clear this entry?";
+"lexicon.clear_confirm_message" = "This will remove all custom terms in this field.";
+"lexicon.clear_confirm_action" = "Clear";
+"lexicon.clear_confirm_cancel" = "Cancel";
 "insights.usage_description" = "Off by default. When enabled, Aether stores local speech content + app context to generate importable lexicon/command suggestions.";
 "ai.prompt.template" = "You are an Aether configuration assistant. Goal: based on the usage history below, output an Aether voice-lexicon config that can be imported directly to improve accuracy and command coverage.
 

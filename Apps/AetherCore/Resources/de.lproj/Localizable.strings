@@ -142,6 +142,8 @@
 
 /* HUD Hints & Errors */
 "speech.no_matching_command" = "Kein passender Befehl gefunden";
+"speech.voice_input_disabled" = "Spracheingabe ist ausgeschaltet";
+"speech.voice_control_disabled" = "Sprachsteuerung ist ausgeschaltet";
 "speech.no_editable_field" = "Kein Eingabefeld erkannt";
 "speech.undo_done" = "Rückgängig gemacht";
 "speech.pasted_cmdv" = "Eingefügt (Cmd+V)";
@@ -295,16 +297,30 @@
 "main.pointer.subtitle.active" = "Head-Tracking läuft";
 "main.pointer.subtitle.idle" = "Starten Sie das Head-Tracking, um den Zeiger zu steuern";
 "main.pointer.auto_start.title" = "Autostart bei Headset-Verbindung";
+"main.pointer.disabled_hint" = "Schalten Sie die Zeigersteuerung zuerst ein, um den Auto-Start mit dem Headset einzustellen.";
 "main.pointer.auto_start.subtitle" = "Startet automatisch das Head-Tracking, wenn ein kompatibles Headset verbunden wird";
 "main.pointer.posture_guide.title" = "Haltungshilfe anzeigen";
 "main.pointer.posture_guide.subtitle" = "Zeigt vor dem Autostart eine kurze Haltungshilfe an";
 "main.pointer.footnote" = "Autostart funktioniert nur mit Headsets, die Kopfbewegungen unterstützen.";
+"main.voice_basics.title" = "Voice Basics";
+"main.voice_basics.subtitle" = "Set the microphone, languages, and wake behavior.";
+"main.voice_input.title" = "Voice Input";
+"main.voice_input.subtitle" = "Control whether spoken text can be inserted.";
+"main.voice_input.auto_enable.title" = "Auto-enable when headset connects";
+"main.voice_input.auto_enable.subtitle" = "Turn on voice input when a headset microphone is detected.";
+"main.voice_control.title" = "Voice Control";
+"main.voice_control.subtitle" = "Control whether voice commands can run.";
+"main.voice_control.auto_enable.title" = "Auto-enable when headset connects";
+"main.voice_control.auto_enable.subtitle" = "Turn on voice control when a headset microphone is detected.";
+"main.voice_feature.disabled_hint" = "Zum Einstellen der automatischen Aktivierung bei Headset-Verbindung zuerst einschalten.";
+"main.voice_input_control.title" = "Spracheingabe und Steuerung";
 "main.voice_activation.title" = "Sprachaktivierung";
 "main.voice_activation.subtitle" = "Zwischen den am häufigsten verwendeten Sprachmodi wechseln.";
 "main.voice_mode.push_to_talk.short" = "PTT";
 "main.voice_mode.wake_word.short" = "Aktivieren";
 "main.voice_mode.hands_free.short" = "Mundfrei";
 "main.voice_mode.push_to_talk.detail" = "Erkennung läuft nur, während der Kurzbefehl gehalten wird.";
+"main.voice_mode.push_to_talk.detail_fmt" = "Erkennung läuft nur, während %1$@ gehalten wird.";
 "main.voice_mode.wake_word.detail" = "Sagen Sie zuerst das Aktivierungswort, dann fahren Sie mit Diktat oder Steuerung fort.";
 "main.voice_mode.hands_free.detail" = "Dauerhaftes Zuhören. Das HUD klappt im Leerlauf zusammen.";
 
@@ -410,8 +426,14 @@
 "settings.section.insights.subtitle" = "Aktivitätshistorie für Sprachdiktat und Steuerung pro App.";
 
 "settings.voice.language_hint" = "Eine einzelne Sprache ist am stabilsten. Der zweisprachige Modus dient dem schnellen Umschalten und der Lexikon-Einrichtung pro Sprache.";
+"settings.voice.language_compact_hint" = "Wählen Sie im Menü bis zu zwei Sprachen. Eine Auswahl bleibt fest; zwei aktivieren den zweisprachigen Modus.";
+"settings.voice.language_selection" = "Erkennungssprachen";
 "settings.voice.mode_single" = "Einzeln";
 "settings.voice.mode_bilingual" = "Zweisprachig";
+"settings.voice.enable" = "Sprachaktivierung";
+"settings.voice.enable_hint" = "Deaktivieren, um Spracheingabe und Befehle auszuschalten.";
+"settings.voice.auto_enable_headset" = "Beim Verbinden eines Headsets automatisch aktivieren";
+"settings.voice.auto_enable_headset_hint" = "Wenn ein Headset-Mikrofon erkannt wird, wird die Sprachaktivierung wieder eingeschaltet.";
 "settings.voice.primary_lang" = "Primärsprache";
 "settings.voice.secondary_lang" = "Sekundärsprache";
 "settings.voice.bilingual_hint" = "Im zweisprachigen Modus vertauscht der Umschalter Primär- und Sekundärsprache. Die Erkennung bevorzugt derzeit die Primärsprache.";
@@ -529,6 +551,10 @@
 "insights.export_ai_prompt" = "Copy AI Analysis Prompt";
 "insights.export_ai_prompt_done" = "AI analysis prompt copied";
 "insights.export_ai_prompt_failed" = "Kopieren fehlgeschlagen";
+"lexicon.clear_confirm_title" = "Clear this entry?";
+"lexicon.clear_confirm_message" = "This will remove all custom terms in this field.";
+"lexicon.clear_confirm_action" = "Clear";
+"lexicon.clear_confirm_cancel" = "Cancel";
 "insights.usage_description" = "Off by default. When enabled, Aether stores local speech content + app context to generate importable lexicon/command suggestions.";
 "ai.prompt.template" = "You are an Aether configuration assistant. Goal: based on the usage history below, output an Aether voice-lexicon config that can be imported directly to improve accuracy and command coverage.
 

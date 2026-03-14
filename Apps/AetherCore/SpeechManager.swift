@@ -139,8 +139,19 @@ final class SpeechManager: ObservableObject {
         didSet { UserDefaults.standard.set(isGazeWakeEnabled, forKey: "isGazeWakeEnabled") }
     }
     @Published var isLLMEnhancementEnabled: Bool = false
-    @Published var isAutoPunctuationEnabled: Bool = UserDefaults.standard.object(forKey: "isAutoPunctuationEnabled") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(isAutoPunctuationEnabled, forKey: "isAutoPunctuationEnabled") }
+    @Published var isAutoPunctuationEnabled: Bool = {
+        UserDefaults.standard.set(true, forKey: "isAutoPunctuationEnabled")
+        return true
+    }() {
+        didSet {
+            guard isAutoPunctuationEnabled else {
+                if oldValue != true {
+                    isAutoPunctuationEnabled = true
+                }
+                return
+            }
+            UserDefaults.standard.set(true, forKey: "isAutoPunctuationEnabled")
+        }
     }
     @Published var isDictating: Bool = false
     @Published var lastWakeTime: Date?
@@ -158,6 +169,8 @@ final class SpeechManager: ObservableObject {
     // MARK: - Internal State
     var onIntent: ((VoiceIntent, String?, String?) -> Void)?
     var onRecognitionFailure: ((String?, String?, String?, String?) -> Void)?
+    var isDictationExecutionEnabled: (() -> Bool)?
+    var isCommandExecutionEnabled: (() -> Bool)?
     var llmProvider: LLMProvider?
     private let speechLocaleStorageKey = "speechLocaleIdentifier"
     private let speechLanguageModeStorageKey = "speechLanguageMode"
@@ -456,6 +469,10 @@ final class SpeechManager: ObservableObject {
             || name.contains("earphone")
             || name.contains("bluetooth")
             || name.contains("耳机")
+    }
+
+    func isCurrentInputHeadsetLike() -> Bool {
+        isHeadsetLikeInputDevice
     }
 
     private var shouldSuppressSystemHeadsetMicControl: Bool {
@@ -864,9 +881,9 @@ final class SpeechManager: ObservableObject {
         }
 
         // Start EOS detection
-        eosDetector.trailingSilenceMs = UserDefaults.standard.object(forKey: "trailingSilenceMs") as? Double ?? 900
-        eosDetector.minUtteranceMs = UserDefaults.standard.object(forKey: "minUtteranceMs") as? Double ?? 450
-        eosDetector.maxUtteranceMs = UserDefaults.standard.object(forKey: "maxUtteranceMs") as? Double ?? 15000
+        eosDetector.trailingSilenceMs = UserDefaults.standard.object(forKey: "trailingSilenceMs") as? Double ?? 1500
+        eosDetector.minUtteranceMs = UserDefaults.standard.object(forKey: "minUtteranceMs") as? Double ?? 700
+        eosDetector.maxUtteranceMs = UserDefaults.standard.object(forKey: "maxUtteranceMs") as? Double ?? 30000
         eosDetector.maxSegmentSec = maxRecordingSegmentSeconds()
         eosDetector.start()
 
@@ -950,6 +967,7 @@ final class SpeechManager: ObservableObject {
             hasStreamedDictation: hasStreamedDictation,
             isUtteranceActive: isUtteranceActive
         )
+        let featureAvailability = currentVoiceFeatureAvailability()
         let hudState = HUDManager.shared.state
         let nextTypingMode = Self.reconcileTypingContextWithVisibleHUD(
             recognitionControlMode: recognitionControlMode,
@@ -958,6 +976,11 @@ final class SpeechManager: ObservableObject {
             hudRecognitionControlMode: hudState.recognitionControlMode,
             hudTypingContext: hudState.isTypingContext,
             isUtteranceActive: isUtteranceActive
+        )
+        let effectiveTypingMode = effectiveTypingContext(
+            reconciledTypingContext: nextTypingMode,
+            computedTypingContext: computedTypingMode,
+            availability: featureAvailability
         )
         if recognitionControlMode == .auto,
            sessionTypingMode,
@@ -975,7 +998,7 @@ final class SpeechManager: ObservableObject {
         if recognitionControlMode == .auto,
            !liveTyping,
            lockedTargetMatches,
-           nextTypingMode {
+           effectiveTypingMode {
             let currentPID = lockedFocusedSnapshot?.pid ?? 0
             let currentBundle = lockedFocusedSnapshot?.bundleID ?? "nil"
             let targetPID = sessionTargetPID ?? 0
@@ -984,29 +1007,29 @@ final class SpeechManager: ObservableObject {
                 "[TypingMode] holding dictation on locked input target liveTyping=false currentPID=\(currentPID) targetPID=\(targetPID) currentBundle=\(currentBundle) targetBundle=\(targetBundle)"
             )
         }
-        if recognitionControlMode == .auto, sessionTypingMode != nextTypingMode {
+        if recognitionControlMode == .auto, sessionTypingMode != effectiveTypingMode {
             let currentPID = lockedFocusedSnapshot?.pid ?? 0
             let currentBundle = lockedFocusedSnapshot?.bundleID ?? "nil"
             let targetPID = sessionTargetPID ?? 0
             let targetBundle = sessionTargetBundleID ?? "nil"
             GlobalLogger.speech.info(
-                "[TypingMode] transition \(sessionTypingMode)->\(nextTypingMode) liveTyping=\(liveTyping) computed=\(computedTypingMode) reconciled=\(nextTypingMode) hasStreamed=\(hasStreamedDictation) utteranceActive=\(isUtteranceActive) lockedTarget=\(lockedTargetMatches) currentPID=\(currentPID) targetPID=\(targetPID) currentBundle=\(currentBundle) targetBundle=\(targetBundle)"
+                "[TypingMode] transition \(sessionTypingMode)->\(effectiveTypingMode) liveTyping=\(liveTyping) computed=\(computedTypingMode) reconciled=\(nextTypingMode) hasStreamed=\(hasStreamedDictation) utteranceActive=\(isUtteranceActive) lockedTarget=\(lockedTargetMatches) dictationEnabled=\(featureAvailability.dictationEnabled) commandEnabled=\(featureAvailability.commandEnabled) currentPID=\(currentPID) targetPID=\(targetPID) currentBundle=\(currentBundle) targetBundle=\(targetBundle)"
             )
         }
-        if isTypingRecoveryHoldActive, nextTypingMode, (liveTyping || lockedTargetMatches) {
+        if isTypingRecoveryHoldActive, effectiveTypingMode, (liveTyping || lockedTargetMatches) {
             endTypingRecoveryHold(reason: "typing-restored")
         }
-        sessionTypingMode = nextTypingMode
-        isDictating = sessionTypingMode
+        sessionTypingMode = effectiveTypingMode
+        isDictating = effectiveTypingMode && featureAvailability.dictationEnabled
 
         if text.count > 2 && isAwake { lastWakeTime = Date() }
         if (!isStopping || isAlwaysListeningEnabled) { refreshContinuousHUD(isDictating: isDictating) }
         else if isStopping { refreshContinuousHUD() }
 
         // Dispatch to handler
-        if sessionTypingMode {
+        if sessionTypingMode && featureAvailability.dictationEnabled {
             dictationHandler.onPartial(text)
-        } else {
+        } else if featureAvailability.commandEnabled {
             commandHandler.onPartial(text)
         }
     }
@@ -1363,8 +1386,9 @@ final class SpeechManager: ObservableObject {
             hasStreamedDictation: hasStreamedDictation,
             isUtteranceActive: isUtteranceActive
         )
+        let featureAvailability = currentVoiceFeatureAvailability()
         let hudState = HUDManager.shared.state
-        let typingContext = Self.reconcileTypingContextWithVisibleHUD(
+        var typingContext = Self.reconcileTypingContextWithVisibleHUD(
             recognitionControlMode: recognitionControlMode,
             computedTypingContext: computedTypingContext,
             hasStreamedDictation: hasStreamedDictation,
@@ -1372,9 +1396,17 @@ final class SpeechManager: ObservableObject {
             hudTypingContext: hudState.isTypingContext,
             isUtteranceActive: isUtteranceActive
         )
-        let hudBlocksDictation = recognitionControlMode == .auto &&
+        typingContext = effectiveTypingContext(
+            reconciledTypingContext: typingContext,
+            computedTypingContext: computedTypingContext,
+            availability: featureAvailability
+        )
+        let hudBlocksDictation = featureAvailability.commandEnabled && recognitionControlMode == .auto &&
             (hudState.recognitionControlMode == .command || !hudState.isTypingContext)
-        if typingContext != sessionTypingMode { sessionTypingMode = typingContext; isDictating = typingContext }
+        if typingContext != sessionTypingMode {
+            sessionTypingMode = typingContext
+        }
+        isDictating = typingContext && featureAvailability.dictationEnabled
         if recognitionControlMode == .auto,
            computedTypingContext,
            !typingContext,
@@ -1405,6 +1437,15 @@ final class SpeechManager: ObservableObject {
             }
         }
 
+        if featureAvailability.dictationEnabled && !featureAvailability.commandEnabled {
+            if typingContext {
+                routingBias = .forceDictation
+            }
+        } else if !featureAvailability.dictationEnabled && featureAvailability.commandEnabled {
+            routingBias = .forceCommand
+            blockDictationWithoutInput = true
+        }
+
         let correctionScope: SpeechCorrectionScope = switch routingBias {
         case .forceCommand, .commandPreferred:
             .command
@@ -1433,14 +1474,31 @@ final class SpeechManager: ObservableObject {
             "[Route] transcript='\(textToRoute)' mode=\(recognitionControlMode.rawValue) effective=\(motion.effectiveRecognitionControlMode.rawValue) typing=\(typingContext) bias=\(routingBiasSummary(routingBias)) confidence=\(decision.confidence.rawValue) intent=\(intentSummary(intent))"
         )
 
-        if recognitionControlMode == .command, case .dictation(let payload) = intent {
+        if recognitionControlMode == .command,
+           featureAvailability.commandEnabled,
+           case .dictation(let payload) = intent {
             intent = .unknown(payload)
             GlobalLogger.router.info(
                 "[Route] explicit command mode downgraded dictation -> unknown transcript='\(payload)'"
             )
         }
 
-        let isExplicitControlMode = recognitionControlMode == .command || routingBias == .forceCommand
+        if featureAvailability.dictationEnabled,
+           !featureAvailability.commandEnabled,
+           typingContext {
+            switch intent {
+            case .dictation:
+                break
+            default:
+                intent = .dictation(textToRoute)
+                GlobalLogger.router.info(
+                    "[Route] voice control disabled -> dictation transcript='\(textToRoute)'"
+                )
+            }
+        }
+
+        let isExplicitControlMode = featureAvailability.commandEnabled &&
+            (recognitionControlMode == .command || routingBias == .forceCommand)
         if decision.confidence == .low,
            !typingContext,
            isCommandIntent(intent),
@@ -1572,6 +1630,38 @@ final class SpeechManager: ObservableObject {
             "[IntentPipeline] apply seq=\(job.seq) utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) intent=\(intentSummary(job.intent)) diagnostics=\(diagnosticsLog)"
         )
         revertStreamedDictationIfNeeded(for: job)
+        if case .dictation(let text) = job.intent,
+           !(isDictationExecutionEnabled?() ?? true) {
+            revertBlockedDictationIfNeeded(for: job)
+            GlobalLogger.speech.info(
+                "[IntentPipeline] dictation blocked: voice input disabled utterance=\(job.utteranceID)"
+            )
+            onRecognitionFailure?(text, "dictation-disabled", usageContext.appName, usageContext.bundleIdentifier)
+            let disabledMessage = NSLocalizedString("speech.voice_input_disabled", comment: "")
+            status = disabledMessage
+            HUDManager.shared.showTemporary(
+                message: disabledMessage,
+                recognitionControlMode: .dictation,
+                icon: "text.cursor"
+            )
+            clearHandledCommandPreview()
+            return
+        }
+        if isCommandIntent(job.intent),
+           !(isCommandExecutionEnabled?() ?? true) {
+            GlobalLogger.speech.info(
+                "[IntentPipeline] command blocked: voice control disabled utterance=\(job.utteranceID) intent=\(intentSummary(job.intent))"
+            )
+            let disabledMessage = NSLocalizedString("speech.voice_control_disabled", comment: "")
+            status = disabledMessage
+            clearHandledCommandPreview()
+            HUDManager.shared.showTemporary(
+                message: disabledMessage,
+                recognitionControlMode: .command,
+                icon: "command.circle"
+            )
+            return
+        }
         switch job.intent {
         case .undo:
             injector.undoPasteIfRecent()
@@ -1705,6 +1795,14 @@ final class SpeechManager: ObservableObject {
         dictationHandler.reset(targetPID: injectionPID)
     }
 
+    private func revertBlockedDictationIfNeeded(for job: ProcessedJob) {
+        let streamedCount = max(job.screenTypedCount, job.streamedTextSnapshot.count)
+        guard streamedCount > 0 else { return }
+        let injectionPID = normalizedInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
+        injector.deleteBackward(count: streamedCount, targetPID: injectionPID)
+        dictationHandler.reset(targetPID: injectionPID)
+    }
+
     private func clearHandledCommandPreview() {
         lastTranscript = ""
         lastChangeAt = nil
@@ -1810,6 +1908,32 @@ final class SpeechManager: ObservableObject {
 
         targetTrailingMs = min(max(targetTrailingMs, 450), 1400)
         eosDetector.trailingSilenceMs = eosDetector.trailingSilenceMs * 0.65 + targetTrailingMs * 0.35
+    }
+
+    private struct VoiceFeatureAvailability {
+        let dictationEnabled: Bool
+        let commandEnabled: Bool
+    }
+
+    private func currentVoiceFeatureAvailability() -> VoiceFeatureAvailability {
+        VoiceFeatureAvailability(
+            dictationEnabled: isDictationExecutionEnabled?() ?? true,
+            commandEnabled: isCommandExecutionEnabled?() ?? true
+        )
+    }
+
+    private func effectiveTypingContext(
+        reconciledTypingContext: Bool,
+        computedTypingContext: Bool,
+        availability: VoiceFeatureAvailability
+    ) -> Bool {
+        if availability.dictationEnabled && !availability.commandEnabled {
+            return reconciledTypingContext || computedTypingContext
+        }
+        if !availability.dictationEnabled && availability.commandEnabled {
+            return false
+        }
+        return reconciledTypingContext
     }
 
     private func isCommandIntent(_ intent: VoiceIntent) -> Bool {
@@ -2714,11 +2838,7 @@ final class SpeechManager: ObservableObject {
         let to: String
         let scope: SpeechCorrectionScope?
     }
-    private func shouldEnableSpeechTermCorrection() -> Bool {
-        if UserDefaults.standard.object(forKey: "speechTermCorrectionEnabled") != nil { return UserDefaults.standard.bool(forKey: "speechTermCorrectionEnabled") }
-        if UserDefaults.standard.object(forKey: "speechFixDevTerms") == nil { return true }
-        return UserDefaults.standard.bool(forKey: "speechFixDevTerms")
-    }
+    private func shouldEnableSpeechTermCorrection() -> Bool { false }
     private func groupAppWhitelist(_ raw: String) -> [String] { raw.components(separatedBy: CharacterSet(charactersIn: ",\n")).map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty } }
     private func loadSpeechTermGroups() -> [SpeechTermGroup] {
         if let data = UserDefaults.standard.data(forKey: "speechTermGroupsV2"), let g = try? JSONDecoder().decode([SpeechTermGroup].self, from: data) { return g }; return []
