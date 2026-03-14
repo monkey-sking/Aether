@@ -1991,8 +1991,10 @@ final class SpeechManager: ObservableObject {
         let isSessionActive = recognitionSession.isRunning || isStopping || effectiveDictating || isPTTHeld
         if !isContinuousActive && !isSessionActive {
             clearHUDOverride()
-            // Keep the HUD visible briefly if we just toggled the language indicator.
-            if HUDManager.shared.state.isLanguageIndicatorVisible { return }
+            // Keep the HUD visible briefly if a temporary toast or language indicator is active.
+            if HUDManager.shared.isTemporaryHUDActive || HUDManager.shared.state.isLanguageIndicatorVisible {
+                return
+            }
             HUDManager.shared.hide()
             return
         }
