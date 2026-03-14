@@ -275,6 +275,10 @@ final class HUDManager {
     }
     
     let state = HUDState()
+
+    var isTemporaryHUDActive: Bool {
+        activeTemporaryToken != nil
+    }
     private let detector = CaretDetector()
     private var lastAXTypingEvaluationAt: Date = .distantPast
     private var cachedAXTypingEvaluation: AXFocusedTypingEvaluation = .unavailable
