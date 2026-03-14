@@ -77,14 +77,25 @@ struct HUDView: View {
         .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
         .overlay(alignment: .topLeading) {
             if state.caretDebugIndicatorVisible {
-                Circle()
-                    .fill(state.caretDebugIndicatorColor)
-                    .frame(width: 8, height: 8)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.white.opacity(0.8), lineWidth: 1)
-                    )
-                    .offset(x: 6, y: 6)
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(state.caretDebugIndicatorColor)
+                        .frame(width: 8, height: 8)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                        )
+                    if !state.caretDebugIndicatorLabel.isEmpty {
+                        Text(state.caretDebugIndicatorLabel)
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.9))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.black.opacity(0.28))
+                            .clipShape(Capsule())
+                    }
+                }
+                .offset(x: 6, y: 6)
             }
         }
     }

@@ -3,6 +3,7 @@ import AppKit
 import Combine
 import ApplicationServices
 import OSLog
+import CoreText
 
 @_silgen_name("CGSMainConnectionID")
 func CGSMainConnectionID() -> Int32
@@ -309,6 +310,9 @@ final class HUDManager {
     private var cachedAXFocusRect: CGRect?
     private var lastAXCaretRectCheckAt: Date = .distantPast
     private var cachedAXCaretRect: CGRect?
+    private var lastAXLineRectCheckAt: Date = .distantPast
+    private var cachedAXLineRect: CGRect?
+    private var cachedAXLineRectCaretIndex: Int = -1
     private var lastAXEstimatedCaretCheckAt: Date = .distantPast
     private var cachedAXEstimatedCaretPoint: CGPoint?
     private var cachedAXEstimatedCaretBounds: CGRect?
@@ -714,6 +718,24 @@ final class HUDManager {
         let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let explicitTypingClickReentry = hasRecentExplicitTypingClickReentry(at: now)
 
+        if isSiriLikeBundle(frontBundle) {
+            if detector.currentUpdate.caretRect != nil || detector.recentCaretRect() != nil {
+                requiresExplicitTypingReentry = false
+                explicitTypingReentryBundleID = nil
+                return true
+            }
+            if axCaretRectThrottled() != nil || axEstimatedCaretContextThrottled() != nil {
+                requiresExplicitTypingReentry = false
+                explicitTypingReentryBundleID = nil
+                return true
+            }
+            if let r = axFocusedElementRectThrottled(), !isProbablyWholeWindowRect(r) {
+                requiresExplicitTypingReentry = false
+                explicitTypingReentryBundleID = nil
+                return true
+            }
+        }
+
         if Date() < typingSuppressedUntil, !explicitTypingClickReentry {
             return false
         }
@@ -904,6 +926,287 @@ final class HUDManager {
         )
     }
 
+    private func normalizeCaretRect(_ rect: CGRect) -> CGRect {
+        if rect.width <= 0 {
+            return CGRect(x: rect.minX, y: rect.minY, width: 2, height: rect.height)
+        }
+        return rect
+    }
+
+    private func isLikelyCaretRect(_ rect: CGRect) -> Bool {
+        guard rect.height > 0 else { return false }
+        let maxWidth = max(6.0, min(12.0, rect.height * 0.6))
+        return rect.width <= maxWidth && rect.height <= 60
+    }
+
+    private func selectedTextRange(from value: CFTypeRef) -> CFRange? {
+        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        let ax = value as! AXValue
+        guard AXValueGetType(ax) == .cfRange else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(ax, .cfRange, &range) else { return nil }
+        if range.location < 0 { return nil }
+        return range
+    }
+
+    private func visibleCharacterRange(_ element: AXUIElement) -> CFRange? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, "AXVisibleCharacterRange" as CFString, &value) == .success,
+              let value else {
+            return nil
+        }
+        return selectedTextRange(from: value)
+    }
+
+    private func intersectRange(_ a: CFRange, _ b: CFRange) -> CFRange? {
+        let aEnd = a.location + a.length
+        let bEnd = b.location + b.length
+        let start = max(a.location, b.location)
+        let end = min(aEnd, bEnd)
+        if end <= start { return nil }
+        return CFRange(location: start, length: end - start)
+    }
+
+    private func boundsForRange(_ element: AXUIElement, range: CFRange) -> CGRect? {
+        var r = range
+        guard let rangeValue = AXValueCreate(.cfRange, &r) else { return nil }
+        var boundsRef: CFTypeRef?
+        let err = AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXBoundsForRangeParameterizedAttribute as CFString,
+            rangeValue,
+            &boundsRef
+        )
+        guard err == .success, let boundsRef else { return nil }
+        guard CFGetTypeID(boundsRef) == AXValueGetTypeID() else { return nil }
+        var axRect = CGRect.zero
+        let axV = boundsRef as! AXValue
+        guard AXValueGetValue(axV, .cgRect, &axRect) else { return nil }
+        return appKitRectFromAX(axRect)
+    }
+
+    private func axFocusedElement() -> AXUIElement? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
+              let focusedElement else {
+            return nil
+        }
+        return focusedElement as! AXUIElement
+    }
+
+    private func axSelectedTextRange(for element: AXUIElement) -> CFRange? {
+        var rangeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
+              let rangeRef else {
+            return nil
+        }
+        return selectedTextRange(from: rangeRef)
+    }
+
+    private func axLineRect(for element: AXUIElement, caretIndex: Int) -> CGRect? {
+        let now = Date()
+        if now.timeIntervalSince(lastAXLineRectCheckAt) < 0.12,
+           cachedAXLineRectCaretIndex == caretIndex,
+           let cached = cachedAXLineRect {
+            return cached
+        }
+        lastAXLineRectCheckAt = now
+        cachedAXLineRectCaretIndex = caretIndex
+
+        let indexNumber = NSNumber(value: caretIndex)
+        var lineRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(element, "AXLineForIndex" as CFString, indexNumber, &lineRef) == .success,
+              let lineNumber = lineRef as? NSNumber else {
+            cachedAXLineRect = nil
+            return nil
+        }
+        var rangeRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(element, "AXRangeForLine" as CFString, lineNumber, &rangeRef) == .success,
+              let rangeRef,
+              let lineRange = selectedTextRange(from: rangeRef) else {
+            cachedAXLineRect = nil
+            return nil
+        }
+        let rect = boundsForRange(element, range: lineRange)
+        cachedAXLineRect = rect
+        return rect
+    }
+
+    private func adjustCaretRectByLineHeight(_ rect: CGRect, element: AXUIElement, caretIndex: Int) -> CGRect {
+        guard let lineRect = axLineRect(for: element, caretIndex: caretIndex),
+              lineRect.height > 0 else { return rect }
+        let width = rect.width > 0 ? rect.width : 2
+        let needsAdjust =
+            rect.height < lineRect.height * 0.5 ||
+            rect.midY < lineRect.minY + lineRect.height * 0.35 ||
+            rect.midY > lineRect.maxY + 2
+        if needsAdjust {
+            return CGRect(x: rect.minX, y: lineRect.minY, width: width, height: lineRect.height)
+        }
+        return rect
+    }
+
+    private func adjustCaretRectByLineHeight(_ rect: CGRect) -> CGRect {
+        guard let element = axFocusedElement(),
+              let range = axSelectedTextRange(for: element) else {
+            return rect
+        }
+        let caretIndex = max(0, range.location + range.length)
+        return adjustCaretRectByLineHeight(rect, element: element, caretIndex: caretIndex)
+    }
+
+    private func caretRectFromLineInfo(_ element: AXUIElement, caretIndex: Int) -> CGRect? {
+        let indexNumber = NSNumber(value: caretIndex)
+        var lineRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(element, "AXLineForIndex" as CFString, indexNumber, &lineRef) == .success,
+              let lineNumber = lineRef as? NSNumber else {
+            return nil
+        }
+
+        var rangeRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(element, "AXRangeForLine" as CFString, lineNumber, &rangeRef) == .success,
+              let rangeRef,
+              let lineRange = selectedTextRange(from: rangeRef) else {
+            return nil
+        }
+
+        guard let lineRect = boundsForRange(element, range: lineRange) else { return nil }
+
+        let visibleRange = visibleCharacterRange(element)
+        let effectiveRange = visibleRange.flatMap { intersectRange(lineRange, $0) } ?? lineRange
+
+        var baseRect = lineRect
+        if let effectiveRect = boundsForRange(element, range: effectiveRange) {
+            baseRect = effectiveRect
+        } else if let elementBounds = axFocusedElementRectThrottled() {
+            baseRect = CGRect(x: elementBounds.minX, y: lineRect.minY, width: elementBounds.width, height: lineRect.height)
+        }
+
+        let firstCharRect: CGRect? = {
+            guard effectiveRange.length > 0 else { return nil }
+            let r = CFRange(location: effectiveRange.location, length: 1)
+            return boundsForRange(element, range: r)
+        }()
+        let lastCharRect: CGRect? = {
+            guard effectiveRange.length > 0 else { return nil }
+            let lastIndex = effectiveRange.location + max(0, effectiveRange.length - 1)
+            let r = CFRange(location: lastIndex, length: 1)
+            return boundsForRange(element, range: r)
+        }()
+
+        if let first = firstCharRect, isLikelyCharRect(first) {
+            if let last = lastCharRect, isLikelyCharRect(last) {
+                baseRect = CGRect(
+                    x: first.minX,
+                    y: first.minY,
+                    width: max(2, last.maxX - first.minX),
+                    height: first.height
+                )
+            } else {
+                baseRect = CGRect(
+                    x: first.minX,
+                    y: first.minY,
+                    width: max(2, baseRect.maxX - first.minX),
+                    height: first.height
+                )
+            }
+        }
+
+        let visibleStart = effectiveRange.location
+        let visibleEnd = effectiveRange.location + effectiveRange.length
+        if caretIndex <= visibleStart {
+            return CGRect(x: baseRect.minX - 1, y: baseRect.minY, width: 2, height: baseRect.height)
+        }
+        if caretIndex >= visibleEnd {
+            return CGRect(x: baseRect.maxX - 1, y: baseRect.minY, width: 2, height: baseRect.height)
+        }
+
+        let offset = max(0, caretIndex - visibleStart)
+        var prefixAttr: NSAttributedString?
+        if offset > 0 {
+            let prefixRange = CFRange(location: visibleStart, length: offset)
+            prefixAttr = attributedStringForRange(element, range: prefixRange)
+            if prefixAttr == nil {
+                if let lineAttr = attributedStringForRange(element, range: lineRange) {
+                    let startInLine = max(0, min(visibleStart - lineRange.location, lineAttr.length))
+                    let len = max(0, min(offset, lineAttr.length - startInLine))
+                    if len > 0 {
+                        prefixAttr = lineAttr.attributedSubstring(from: NSRange(location: startInLine, length: len))
+                    }
+                }
+            }
+        }
+
+        let width: CGFloat
+        if let prefixAttr {
+            let ctLine = CTLineCreateWithAttributedString(prefixAttr)
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            var leading: CGFloat = 0
+            width = CGFloat(CTLineGetTypographicBounds(ctLine, &ascent, &descent, &leading))
+        } else {
+            width = 0
+        }
+
+        let x = min(max(baseRect.minX + width, baseRect.minX), baseRect.maxX)
+        return CGRect(x: x - 1, y: baseRect.minY, width: 2, height: baseRect.height)
+    }
+
+    private func attributedStringForRange(_ element: AXUIElement, range: CFRange) -> NSAttributedString? {
+        var r = range
+        guard let rangeValue = AXValueCreate(.cfRange, &r) else { return nil }
+        var attrRef: CFTypeRef?
+        let err = AXUIElementCopyParameterizedAttributeValue(
+            element,
+            "AXAttributedStringForRange" as CFString,
+            rangeValue,
+            &attrRef
+        )
+        guard err == .success, let attrRef else { return nil }
+        return attrRef as? NSAttributedString
+    }
+
+    private func isLikelyCharRect(_ rect: CGRect) -> Bool {
+        if rect.width <= 0 || rect.height <= 0 { return false }
+        if rect.width > 80 || rect.height > 80 { return false }
+        return true
+    }
+
+    private func refineCaretRect(_ element: AXUIElement, selectedRange: CFRange) -> CGRect? {
+        let caretIndex = max(0, selectedRange.location + selectedRange.length)
+        let caretRange = CFRange(location: caretIndex, length: 0)
+        if let caretRect = boundsForRange(element, range: caretRange) {
+            let normalized = normalizeCaretRect(caretRect)
+            if isLikelyCaretRect(normalized) {
+                return normalized
+            }
+            if caretRect.width > max(80, caretRect.height * 6),
+               let lineCaret = caretRectFromLineInfo(element, caretIndex: caretIndex) {
+                return lineCaret
+            }
+        }
+
+        let candidates: [(CFRange, Bool)] = [
+            (CFRange(location: max(0, caretIndex - 1), length: 1), true),
+            (CFRange(location: caretIndex, length: 1), false)
+        ]
+
+        for (range, useMaxX) in candidates {
+            if range.location < 0 || range.length <= 0 { continue }
+            if let charRect = boundsForRange(element, range: range) {
+                if charRect.height <= 0 { continue }
+                if charRect.width > max(80, charRect.height * 6),
+                   let lineCaret = caretRectFromLineInfo(element, caretIndex: caretIndex) {
+                    return lineCaret
+                }
+                let x = useMaxX ? charRect.maxX : charRect.minX
+                return CGRect(x: x - 1, y: charRect.minY, width: 2, height: charRect.height)
+            }
+        }
+        return nil
+    }
+
     private func isProbablyWholeWindowRect(_ r: CGRect) -> Bool {
         guard r.width > 0, r.height > 0 else { return true }
         // Use intersection rather than midpoint: some bogus AX rects have insane origins and midpoints off-screen.
@@ -1028,8 +1331,10 @@ final class HUDManager {
         // 1) SelectedTextRange -> BoundsForRange (parameterized) => caret/selection rect in screen coords.
         var axRect: CGRect? = nil
         var rangeRef: CFTypeRef?
+        var selectedRange: CFRange?
         if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
            let rangeVal = rangeRef {
+            selectedRange = selectedTextRange(from: rangeVal)
             axRect = rectFromParameterizedBounds(parameter: rangeVal, attr: kAXBoundsForRangeParameterizedAttribute as CFString)
         }
 
@@ -1055,9 +1360,34 @@ final class HUDManager {
             cachedAXCaretRect = nil
             return nil
         }
+        var candidate = normalizeCaretRect(r)
+        if isLikelyCaretRect(candidate) {
+            if let range = selectedRange {
+                let caretIndex = max(0, range.location + range.length)
+                candidate = adjustCaretRectByLineHeight(candidate, element: element, caretIndex: caretIndex)
+            }
+            cachedAXCaretRect = candidate
+            return candidate
+        }
 
-        cachedAXCaretRect = r
-        return r
+        var refineRange: CFRange?
+        if let rangeRef, let range = selectedTextRange(from: rangeRef) {
+            refineRange = range
+        } else {
+            var tmp: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &tmp) == .success,
+               let tmp,
+               let range = selectedTextRange(from: tmp) {
+                refineRange = range
+            }
+        }
+        if let range = refineRange, let refined = refineCaretRect(element, selectedRange: range) {
+            cachedAXCaretRect = refined
+            return refined
+        }
+
+        cachedAXCaretRect = nil
+        return nil
     }
 
     // Estimate caret point inside the focused element by using its value + selected range.
@@ -1204,6 +1534,37 @@ final class HUDManager {
         cachedAXEstimatedCaretPoint = pt
         cachedAXEstimatedCaretBounds = bounds
         return (point: pt, bounds: bounds)
+    }
+
+    private func isSiriLikeBundle(_ bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        let lowered = bundleID.lowercased()
+        if lowered.contains("apple.siri") { return true }
+        if lowered.contains("spotlight") { return true }
+        if lowered.contains("notificationcenterui") { return true }
+        return false
+    }
+
+    private func adjustedCaretRectForSiri(_ rect: CGRect, focusRect: CGRect?) -> CGRect {
+        guard let focus = focusRect, focus.height > 0 else { return rect }
+        let width = rect.width > 0 ? rect.width : 2
+        let baseHeight = rect.height > 0 ? rect.height : min(18, focus.height * 0.6)
+        var height = baseHeight
+        var y = rect.minY
+
+        // If the caret rect is clearly outside the focused bounds, recenter within the focus.
+        let outOfBounds = rect.midY < focus.minY - 2 || rect.midY > focus.maxY + 2
+        if outOfBounds {
+            height = min(max(baseHeight, 12), max(14, focus.height * 0.6))
+            let targetY = focus.midY - height / 2
+            y = min(max(targetY, focus.minY), focus.maxY - height)
+        } else if rect.height <= 2 {
+            // Expand tiny rects but keep the original vertical alignment.
+            height = min(max(baseHeight, 12), max(14, focus.height * 0.6))
+            y = min(max(rect.midY - height / 2, focus.minY), focus.maxY - height)
+        }
+
+        return CGRect(x: rect.minX, y: y, width: width, height: height)
     }
 
     private func axFocusedElementDebugSignatureThrottled() -> String {
@@ -1512,15 +1873,30 @@ final class HUDManager {
         }
         
         if uiTypingMode {
-            if let caret = update.caretRect {
-                anchor = CGPoint(x: caret.midX, y: caret.midY)
+            let strongCaret = update.caretRect.flatMap { isLikelyCaretRect($0) ? $0 : nil }
+            let siriLike = isSiriLikeBundle(update.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+            if siriLike, let estimated = axEstimated {
+                anchor = estimated.point
                 layoutTypingMode = true
-            } else if update.isSticky, let last = detector.recentCaretRect() {
-                anchor = CGPoint(x: last.midX, y: last.midY)
+                // Keep the typing rect so we avoid covering the input when no other signal exists.
+                if typingRect == nil {
+                    typingRect = estimated.bounds
+                    typingRect = stableTypingRect(now: now, candidate: typingRect)
+                }
+            } else if let caret = strongCaret {
+                let adjusted = siriLike ? adjustedCaretRectForSiri(caret, focusRect: axFocusRect) : caret
+                anchor = CGPoint(x: adjusted.midX, y: adjusted.midY)
+                layoutTypingMode = true
+            } else if update.isSticky,
+                      let last = detector.recentCaretRect(),
+                      isLikelyCaretRect(last) {
+                let adjusted = siriLike ? adjustedCaretRectForSiri(last, focusRect: axFocusRect) : last
+                anchor = CGPoint(x: adjusted.midX, y: adjusted.midY)
                 layoutTypingMode = true
             } else if let axCaret {
                 // Web-based UIs (Codex/Antigravity) often fail caret detection but expose bounds-for-range.
-                anchor = CGPoint(x: axCaret.midX, y: axCaret.midY)
+                let adjusted = siriLike ? adjustedCaretRectForSiri(axCaret, focusRect: axFocusRect) : axCaret
+                anchor = CGPoint(x: adjusted.midX, y: adjusted.midY)
                 layoutTypingMode = true
             } else if let axEstimated {
                 // If bounds-for-range is unavailable, fall back to an estimated caret X within focused bounds.
@@ -1606,13 +1982,40 @@ final class HUDManager {
         // 4. Candidate Position Evaluation
         let padding: CGFloat = layoutTypingMode ? 18 : 16
         
-        var effectiveCaretRect = update.caretRect ?? axCaret
+        let siriLike = isSiriLikeBundle(update.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+        let strongCaretRect = update.caretRect.flatMap { isLikelyCaretRect($0) ? $0 : nil }
+        let siriPreferEstimated = siriLike && axEstimated != nil
+        let adjustedStrongCaretRect = strongCaretRect.map { rect -> CGRect in
+            var r = rect
+            if update.caretSourceLabel == "AX" {
+                r = adjustCaretRectByLineHeight(r)
+            }
+            if siriLike {
+                r = adjustedCaretRectForSiri(r, focusRect: axFocusRect)
+            }
+            return r
+        }
+        let adjustedAxCaret = axCaret.map { siriLike ? adjustedCaretRectForSiri($0, focusRect: axFocusRect) : $0 }
+        var effectiveCaretRect = siriPreferEstimated ? nil : (adjustedStrongCaretRect ?? adjustedAxCaret)
         let caretDebugPoint: CGPoint?
         let caretDebugColor: NSColor
-        if let caret = update.caretRect {
+        if siriPreferEstimated, let estimated = axEstimated {
+            caretDebugPoint = estimated.point
+            caretDebugColor = .systemRed
+            if effectiveCaretRect == nil {
+                let width: CGFloat = 2
+                let height: CGFloat = 18
+                effectiveCaretRect = CGRect(
+                    x: estimated.point.x - width / 2,
+                    y: estimated.point.y - height / 2,
+                    width: width,
+                    height: height
+                )
+            }
+        } else if let caret = adjustedStrongCaretRect {
             caretDebugPoint = CGPoint(x: caret.midX, y: caret.midY)
             caretDebugColor = .systemGreen
-        } else if let caret = axCaret {
+        } else if let caret = adjustedAxCaret {
             caretDebugPoint = CGPoint(x: caret.midX, y: caret.midY)
             caretDebugColor = .systemYellow
         } else if let estimated = axEstimated {
@@ -1637,8 +2040,27 @@ final class HUDManager {
         if caretDebugEnabled {
             state.caretDebugIndicatorVisible = true
             state.caretDebugIndicatorColor = Color(caretDebugColor)
+            let sourceLabel: String = {
+                if siriPreferEstimated, axEstimated != nil {
+                    return "EST"
+                }
+                if adjustedStrongCaretRect != nil {
+                    return update.caretSourceLabel ?? "AX"
+                }
+                if adjustedAxCaret != nil {
+                    return "AX"
+                }
+                if axEstimated != nil {
+                    return "EST"
+                }
+                return "ANCHOR"
+            }()
+            if state.caretDebugIndicatorLabel != sourceLabel {
+                state.caretDebugIndicatorLabel = sourceLabel
+            }
         } else if state.caretDebugIndicatorVisible {
             state.caretDebugIndicatorVisible = false
+            state.caretDebugIndicatorLabel = ""
         }
 
         // [Legacy Order]
@@ -1736,25 +2158,40 @@ final class HUDManager {
                  }
             }
         }
-        
-        for (cand, _) in candidates {
-            let p = calculateCandidate(cand, anchor: anchor, size: size, padding: padding, isTyping: layoutTypingMode)
-            let rect = CGRect(origin: p, size: size)
-            
-            // Rule 1: Must be within visible frame
-            if visibleFrame.contains(rect) {
-                // Rule 2: Avoid Collision
-                var collision = false
-                for zone in zones {
-                    if rect.intersects(zone) {
-                        collision = true
-                        break
-                    }
-                }
-                
-                if !collision {
+
+        if hasCaretAnchor {
+            let centerCandidates: [BindingPosition] = [.bottomCenter, .topCenter]
+            for cand in centerCandidates {
+                var p = calculateCandidate(cand, anchor: anchor, size: size, padding: padding, isTyping: layoutTypingMode)
+                p.x = min(max(p.x, visibleFrame.minX + 2), visibleFrame.maxX - size.width - 2)
+                let rect = CGRect(origin: p, size: size)
+                if visibleFrame.contains(rect) {
                     bestPos = p
                     break
+                }
+            }
+        }
+
+        if bestPos == nil {
+            for (cand, _) in candidates {
+                let p = calculateCandidate(cand, anchor: anchor, size: size, padding: padding, isTyping: layoutTypingMode)
+                let rect = CGRect(origin: p, size: size)
+                
+                // Rule 1: Must be within visible frame
+                if visibleFrame.contains(rect) {
+                    // Rule 2: Avoid Collision
+                    var collision = false
+                    for zone in zones {
+                        if rect.intersects(zone) {
+                            collision = true
+                            break
+                        }
+                    }
+                    
+                    if !collision {
+                        bestPos = p
+                        break
+                    }
                 }
             }
         }
@@ -1881,6 +2318,10 @@ final class HUDManager {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let front = app.bundleIdentifier?.lowercased() else {
             os_log("Fullscreen Suppression: No frontmost app", log: log, type: .default)
+            return false
+        }
+        if isSiriLikeBundle(front) {
+            os_log("Fullscreen Suppression: Bailed for Siri/Spotlight", log: log, type: .default)
             return false
         }
         // Never suppress while user is in typing context.

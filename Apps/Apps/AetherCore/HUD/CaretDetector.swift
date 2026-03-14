@@ -3,6 +3,7 @@ import Combine
 import Carbon
 import ApplicationServices
 import OSLog
+import CoreText
 
 final class CaretDetector: ObservableObject {
     struct Update {
@@ -10,9 +11,10 @@ final class CaretDetector: ObservableObject {
         let inputRect: CGRect?
         let sourceBundleID: String?
         let isSticky: Bool
+        let caretSourceLabel: String?
     }
     
-    @Published var currentUpdate: Update = Update(caretRect: nil, inputRect: nil, sourceBundleID: nil, isSticky: false)
+    @Published var currentUpdate: Update = Update(caretRect: nil, inputRect: nil, sourceBundleID: nil, isSticky: false, caretSourceLabel: nil)
     
     // Internal State
     private var eventMonitors: [Any] = []
@@ -32,6 +34,7 @@ final class CaretDetector: ObservableObject {
     private var lastCaretRectAt: Date?
     private var inputContextRect: CGRect?
     private var caretSourceBundleID: String?
+    private var caretSourceLabel: String?
     
     private var isFetchingCaret = false
     private var singleLineStepBySource: [String: CGFloat] = [:]
@@ -44,6 +47,9 @@ final class CaretDetector: ObservableObject {
     // Fallback
     private var followTimer: Timer?
     private var lastFollowPollAt: Date = .distantPast
+    private var imeBridgeEnabled: Bool {
+        UserDefaults.standard.object(forKey: "hudImeBridgeEnabled") as? Bool ?? false
+    }
 
     // Diagnostics
     private var currentAppName: String?
@@ -148,7 +154,9 @@ final class CaretDetector: ObservableObject {
     
     private func startFollowTimer() {
         setupAXObserver()
-        inputMethodBridge.start()
+        if imeBridgeEnabled {
+            inputMethodBridge.start()
+        }
         lastFollowPollAt = .distantPast
         
         // Mouse Click
@@ -336,6 +344,7 @@ final class CaretDetector: ObservableObject {
         self.lastCaretRectAt = nil
         self.caretSourceBundleID = nil
         self.inputContextRect = nil
+        self.caretSourceLabel = nil
         self.isCaretStickyActive = false
         self.caretStickyTimer?.invalidate()
         self.caretStickyTimer = nil
@@ -358,40 +367,29 @@ final class CaretDetector: ObservableObject {
         var focusedIsEditable = false
         var shouldTemporarilyKeepLastCaret = false
         var usedInputMethodBridge = false // Simplified: always try AX first, or IME if preferred
+        var imeRect: CGRect? = nil
+        var imeContextRect: CGRect? = nil
+        var imeBundleID: String? = nil
+        var imeSourceLabel: String? = nil
 
         // 1. IME Bridge Check (fresh bridge update wins when AX is flaky across app/focus switches).
-        if let bridgedAt = bridgedCaretAt,
+        if imeBridgeEnabled,
+           let bridgedAt = bridgedCaretAt,
            Date().timeIntervalSince(bridgedAt) <= 0.45,
            let rawBridgeCaret = bridgedCaretRect,
            let bridgeCaret = normalizeBridgeRect(rawBridgeCaret) {
             let frontBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             let bundleMatches = (bridgedBundleID == nil) || (frontBundle == nil) || (bridgedBundleID == frontBundle)
             if bundleMatches {
-                newRect = bridgeCaret
+                imeRect = normalizeCaretRect(bridgeCaret)
                 if let rawContext = bridgedInputContextRect {
-                    newInputContextRect = normalizeBridgeRect(rawContext) ?? rawContext
+                    imeContextRect = normalizeBridgeRect(rawContext) ?? rawContext
                 }
-                newCaretSourceBundleID = bridgedBundleID ?? frontBundle
+                imeBundleID = bridgedBundleID ?? frontBundle
+                imeSourceLabel = "IME"
                 focusedIsEditable = true
                 usedInputMethodBridge = true
             }
-        }
-
-        if usedInputMethodBridge {
-            DispatchQueue.main.async {
-                self.isFetchingCaret = false
-                self.isCaretStickyActive = false
-                self.caretStickyTimer?.invalidate()
-                self.caretStickyTimer = nil
-
-                self.caretRect = newRect
-                self.lastCaretRect = newRect
-                self.lastCaretRectAt = Date()
-                self.caretSourceBundleID = newCaretSourceBundleID
-                self.inputContextRect = newInputContextRect
-                self.updateState()
-            }
-            return
         }
         
         // 2. AX System Wide
@@ -507,11 +505,21 @@ final class CaretDetector: ObservableObject {
                               if (rawR.origin.x == 0 && rawR.origin.y == 0) || (rawR.width <= 1 && rawR.height <= 1) {
                                   // Bogus
                               } else if rawR.width > 80 || rawR.height > 80 {
-                                  // Selection/Bound (Not a caret)
+                                  // Selection/Bound (Not a caret) -> try to refine via CFRange if available.
+                                  var selectedRangeValue: CFTypeRef?
+                                  if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue) == .success,
+                                     let selectedRangeValue,
+                                     let range = selectedTextRange(from: selectedRangeValue),
+                                     let refined = refineCaretRect(element, selectedRange: range) {
+                                      newRect = refined
+                                  }
                               } else {
                                   if let r = extractRect(from: boundsValue!) {
                                       if isValid(r, in: windowFrame) {
-                                          newRect = r
+                                          let candidate = normalizeCaretRect(r)
+                                          if isLikelyCaretRect(candidate) {
+                                              newRect = candidate
+                                          }
                                       }
                                   }
                               }
@@ -537,12 +545,23 @@ final class CaretDetector: ObservableObject {
                                   // 2. Non-Caret Geometry (Selection)
                                   // Codex often returns the whole line/block as selection range
                                   else if rawR.width > 80 || rawR.height > 80 {
-                                      self.logger.debug("[NON-CARET] Rejecting large selection range: \(rawR.debugDescription)")
-                                  } 
-                                  else {
+                                      self.logger.debug("[NON-CARET] Large selection range: \(rawR.debugDescription)")
+                                      if let range = selectedTextRange(from: selectedRangeValue!) {
+                                          if let refined = refineCaretRect(element, selectedRange: range) {
+                                              newRect = refined
+                                          }
+                                      }
+                                  } else {
                                       if let r = extractRect(from: boundsValue!) {
                                           if isValid(r, in: windowFrame) {
-                                              newRect = r
+                                              let candidate = normalizeCaretRect(r)
+                                              if isLikelyCaretRect(candidate) {
+                                                  newRect = candidate
+                                              } else if let range = selectedTextRange(from: selectedRangeValue!) {
+                                                  if let refined = refineCaretRect(element, selectedRange: range) {
+                                                      newRect = refined
+                                                  }
+                                              }
                                           }
                                       }
                                   }
@@ -669,6 +688,27 @@ final class CaretDetector: ObservableObject {
         if newRect != nil {
             newCaretSourceBundleID = self.currentAppBundleID
         }
+
+        // Prefer AX caret when present; fall back to IME only when AX is unavailable/unlikely.
+        let axLikely = newRect.map { self.isLikelyCaretRect(self.normalizeCaretRect($0)) } ?? false
+        let imeLikely = imeRect.map { self.isLikelyCaretRect(self.normalizeCaretRect($0)) } ?? false
+        if axLikely {
+            newRect = newRect.map { self.normalizeCaretRect($0) }
+        } else if imeLikely {
+            newRect = imeRect
+            newInputContextRect = imeContextRect ?? newInputContextRect
+            newCaretSourceBundleID = imeBundleID ?? newCaretSourceBundleID
+        } else if newRect == nil, let fallbackIme = imeRect {
+            newRect = fallbackIme
+            newInputContextRect = imeContextRect ?? newInputContextRect
+            newCaretSourceBundleID = imeBundleID ?? newCaretSourceBundleID
+        }
+        let newSourceLabel: String? = {
+            if newRect == nil { return nil }
+            if axLikely || (!imeLikely && newCaretSourceBundleID == self.currentAppBundleID) { return "AX" }
+            if imeRect != nil { return imeSourceLabel ?? "IME" }
+            return "AX"
+        }()
         
         DispatchQueue.main.async {
             self.isFetchingCaret = false
@@ -731,17 +771,20 @@ final class CaretDetector: ObservableObject {
             self.lastCaretRectAt = Date()
             self.caretSourceBundleID = newCaretSourceBundleID
             self.inputContextRect = newInputContextRect
+            self.caretSourceLabel = newSourceLabel
             
             self.updateState()
         }
     }
     
     private func updateState() {
+        let focusBundleID = caretSourceBundleID ?? lastFocusedBundleID ?? currentAppBundleID
         let update = Update(
             caretRect: caretRect,
             inputRect: inputContextRect,
-            sourceBundleID: caretSourceBundleID,
-            isSticky: isCaretStickyActive
+            sourceBundleID: focusBundleID,
+            isSticky: isCaretStickyActive,
+            caretSourceLabel: caretSourceLabel
         )
         self.currentUpdate = update
     }
@@ -794,7 +837,7 @@ final class CaretDetector: ObservableObject {
     
     private func isValid(_ r: CGRect, in w: CGRect?) -> Bool {
         if r.origin.x == 0 && r.origin.y == 0 { return false }
-        if r.width <= 0 || r.height <= 0 { return false } // [Fix] Reject empty rects (Codex 0,1050,0,0)
+        if r.width < 0 || r.height <= 0 { return false } // Allow zero-width carets; reject negative/empty.
 
         if let win = w {
             let expanded = win.insetBy(dx: -50, dy: -50)
@@ -826,6 +869,216 @@ final class CaretDetector: ObservableObject {
             }
         }
         return nil
+    }
+
+    private func selectedTextRange(from value: CFTypeRef) -> CFRange? {
+        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        let ax = value as! AXValue
+        guard AXValueGetType(ax) == .cfRange else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(ax, .cfRange, &range) else { return nil }
+        if range.location < 0 { return nil }
+        return range
+    }
+
+    private func visibleCharacterRange(_ element: AXUIElement) -> CFRange? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, "AXVisibleCharacterRange" as CFString, &value) == .success,
+              let value else {
+            return nil
+        }
+        return selectedTextRange(from: value)
+    }
+
+    private func intersectRange(_ a: CFRange, _ b: CFRange) -> CFRange? {
+        let aEnd = a.location + a.length
+        let bEnd = b.location + b.length
+        let start = max(a.location, b.location)
+        let end = min(aEnd, bEnd)
+        if end <= start { return nil }
+        return CFRange(location: start, length: end - start)
+    }
+
+    private func boundsForRange(_ element: AXUIElement, range: CFRange) -> CGRect? {
+        var r = range
+        guard let rangeValue = AXValueCreate(.cfRange, &r) else { return nil }
+        var boundsRef: CFTypeRef?
+        let err = AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXBoundsForRangeParameterizedAttribute as CFString,
+            rangeValue,
+            &boundsRef
+        )
+        guard err == .success, let boundsRef else { return nil }
+        return extractRect(from: boundsRef)
+    }
+
+    private func caretRectFromLineInfo(_ element: AXUIElement, caretIndex: Int) -> CGRect? {
+        let indexNumber = NSNumber(value: caretIndex)
+        var lineRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(element, "AXLineForIndex" as CFString, indexNumber, &lineRef) == .success,
+              let lineNumber = lineRef as? NSNumber else {
+            return nil
+        }
+
+        var rangeRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(element, "AXRangeForLine" as CFString, lineNumber, &rangeRef) == .success,
+              let rangeRef,
+              let lineRange = selectedTextRange(from: rangeRef) else {
+            return nil
+        }
+
+        guard let lineRect = boundsForRange(element, range: lineRange) else { return nil }
+
+        let elementBounds = elementBoundsRect(element)
+        let visibleRange = visibleCharacterRange(element)
+        let effectiveRange = visibleRange.flatMap { intersectRange(lineRange, $0) } ?? lineRange
+
+        var baseRect = lineRect
+        if let effectiveRect = boundsForRange(element, range: effectiveRange) {
+            baseRect = effectiveRect
+        } else if let elementBounds {
+            baseRect = CGRect(x: elementBounds.minX, y: lineRect.minY, width: elementBounds.width, height: lineRect.height)
+        }
+
+        let firstCharRect: CGRect? = {
+            guard effectiveRange.length > 0 else { return nil }
+            let r = CFRange(location: effectiveRange.location, length: 1)
+            return boundsForRange(element, range: r)
+        }()
+        let lastCharRect: CGRect? = {
+            guard effectiveRange.length > 0 else { return nil }
+            let lastIndex = effectiveRange.location + max(0, effectiveRange.length - 1)
+            let r = CFRange(location: lastIndex, length: 1)
+            return boundsForRange(element, range: r)
+        }()
+
+        if let first = firstCharRect, isLikelyCharRect(first) {
+            if let last = lastCharRect, isLikelyCharRect(last) {
+                baseRect = CGRect(
+                    x: first.minX,
+                    y: first.minY,
+                    width: max(2, last.maxX - first.minX),
+                    height: first.height
+                )
+            } else {
+                baseRect = CGRect(
+                    x: first.minX,
+                    y: first.minY,
+                    width: max(2, baseRect.maxX - first.minX),
+                    height: first.height
+                )
+            }
+        }
+
+        let visibleStart = effectiveRange.location
+        let visibleEnd = effectiveRange.location + effectiveRange.length
+        if caretIndex <= visibleStart {
+            return CGRect(x: baseRect.minX - 1, y: baseRect.minY, width: 2, height: baseRect.height)
+        }
+        if caretIndex >= visibleEnd {
+            return CGRect(x: baseRect.maxX - 1, y: baseRect.minY, width: 2, height: baseRect.height)
+        }
+
+        let offset = max(0, caretIndex - visibleStart)
+        var prefixAttr: NSAttributedString?
+        if offset > 0 {
+            let prefixRange = CFRange(location: visibleStart, length: offset)
+            prefixAttr = attributedStringForRange(element, range: prefixRange)
+            if prefixAttr == nil {
+                if let lineAttr = attributedStringForRange(element, range: lineRange) {
+                    let startInLine = max(0, min(visibleStart - lineRange.location, lineAttr.length))
+                    let len = max(0, min(offset, lineAttr.length - startInLine))
+                    if len > 0 {
+                        prefixAttr = lineAttr.attributedSubstring(from: NSRange(location: startInLine, length: len))
+                    }
+                }
+            }
+        }
+
+        let width: CGFloat
+        if let prefixAttr {
+            let ctLine = CTLineCreateWithAttributedString(prefixAttr)
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            var leading: CGFloat = 0
+            width = CGFloat(CTLineGetTypographicBounds(ctLine, &ascent, &descent, &leading))
+        } else {
+            width = 0
+        }
+
+        let x = min(max(baseRect.minX + width, baseRect.minX), baseRect.maxX)
+        return CGRect(x: x - 1, y: baseRect.minY, width: 2, height: baseRect.height)
+    }
+
+    private func attributedStringForRange(_ element: AXUIElement, range: CFRange) -> NSAttributedString? {
+        var r = range
+        guard let rangeValue = AXValueCreate(.cfRange, &r) else { return nil }
+        var attrRef: CFTypeRef?
+        let err = AXUIElementCopyParameterizedAttributeValue(
+            element,
+            "AXAttributedStringForRange" as CFString,
+            rangeValue,
+            &attrRef
+        )
+        guard err == .success, let attrRef else { return nil }
+        return attrRef as? NSAttributedString
+    }
+
+    private func isLikelyCharRect(_ rect: CGRect) -> Bool {
+        if rect.width <= 0 || rect.height <= 0 { return false }
+        if rect.width > 80 || rect.height > 80 { return false }
+        return true
+    }
+
+    private func refineCaretRect(_ element: AXUIElement, selectedRange: CFRange) -> CGRect? {
+        let caretIndex = max(0, selectedRange.location + selectedRange.length)
+        let caretRange = CFRange(location: caretIndex, length: 0)
+        if let caretRect = boundsForRange(element, range: caretRange) {
+            let normalized = normalizeCaretRect(caretRect)
+            if isLikelyCaretRect(normalized) {
+                return normalized
+            }
+            if caretRect.width > max(80, caretRect.height * 6),
+               let lineCaret = caretRectFromLineInfo(element, caretIndex: caretIndex) {
+                return lineCaret
+            }
+        }
+
+        let candidates: [(CFRange, Bool)] = [
+            (CFRange(location: max(0, caretIndex - 1), length: 1), true),
+            (CFRange(location: caretIndex, length: 1), false)
+        ]
+
+        for (range, useMaxX) in candidates {
+            if range.location < 0 || range.length <= 0 { continue }
+            if let charRect = boundsForRange(element, range: range) {
+                if charRect.height <= 0 { continue }
+                if charRect.width > max(80, charRect.height * 6),
+                   let lineCaret = caretRectFromLineInfo(element, caretIndex: caretIndex) {
+                    return lineCaret
+                }
+                let x = useMaxX ? charRect.maxX : charRect.minX
+                let caret = CGRect(x: x - 1, y: charRect.minY, width: 2, height: charRect.height)
+                if isValid(caret, in: nil) {
+                    return caret
+                }
+            }
+        }
+        return nil
+    }
+
+    private func normalizeCaretRect(_ rect: CGRect) -> CGRect {
+        if rect.width <= 0 {
+            return CGRect(x: rect.minX, y: rect.minY, width: 2, height: rect.height)
+        }
+        return rect
+    }
+
+    private func isLikelyCaretRect(_ rect: CGRect) -> Bool {
+        guard rect.height > 0 else { return false }
+        let maxWidth = max(6.0, min(12.0, rect.height * 0.6))
+        return rect.width <= maxWidth && rect.height <= 60
     }
 
     private func elementBoundsRect(_ element: AXUIElement) -> CGRect? {

@@ -30,6 +30,7 @@ final class HUDState: ObservableObject {
     @Published var isMicProgressVisible: Bool = false
     @Published var caretDebugIndicatorVisible: Bool = false
     @Published var caretDebugIndicatorColor: Color = .clear
+    @Published var caretDebugIndicatorLabel: String = ""
 
     func update(
         mode: HUDMode,
