@@ -130,7 +130,7 @@
 
 /* Speech Status */
 "speech.listening" = "待機中...";
-"speech.recognizing" = "認識中…";
+"speech.recognizing" = "認識中";
 "speech.waiting_command" = "コマンド待ち...";
 "speech.waiting_wakeword" = "ウェイクワード待ち...";
 "speech.idle" = "待機";

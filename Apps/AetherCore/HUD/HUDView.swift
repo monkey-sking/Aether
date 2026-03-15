@@ -65,10 +65,6 @@ struct HUDView: View {
                     .foregroundColor(.white)
                     .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
                     .fixedSize()
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white.opacity(0.8))
-                    .symbolEffect(.variableColor.iterative.reversing)
                 contextIcon
                 if state.isLanguageIndicatorVisible {
                     languageToggle(showDivider: true)

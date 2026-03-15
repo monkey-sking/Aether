@@ -503,7 +503,7 @@ final class SpeechManager: ObservableObject {
         typingEligible: Bool
     ) -> HUDRecognitionControlMode {
         if availability.dictationEnabled && !availability.commandEnabled {
-            return typingEligible ? .dictation : .auto
+            return .dictation
         }
         if !availability.dictationEnabled && availability.commandEnabled {
             return .command
@@ -622,6 +622,12 @@ final class SpeechManager: ObservableObject {
     // MARK: - Init
     init() {
         self.dictationHandler = DictationHandler(injector: injector)
+        self.dictationHandler.onStatusUpdate = { [weak self] _ in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                self.refreshContinuousHUD(isDictating: self.isDictating)
+            }
+        }
         GlobalLogger.lifecycle.info("SpeechManager Initialized")
         refreshInputDevices()
         DispatchQueue.main.async { [weak self] in self?.refreshContinuousHUD() }
@@ -1100,6 +1106,10 @@ final class SpeechManager: ObservableObject {
             }
         } else if featureAvailability.commandEnabled {
             commandHandler.onPartial(text)
+        }
+
+        if sessionTypingMode && featureAvailability.dictationEnabled {
+            refreshContinuousHUD(isDictating: isDictating)
         }
     }
 
@@ -2279,8 +2289,7 @@ final class SpeechManager: ObservableObject {
         }
         if featureAvailability.dictationEnabled,
            !featureAvailability.commandEnabled,
-           !focusedTypingEvidence,
-           !effectiveDictating {
+           !focusedTypingEvidence {
             clearHUDOverride()
             HUDManager.shared.hide()
             return
@@ -2293,6 +2302,8 @@ final class SpeechManager: ObservableObject {
         let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
         let mode: HUDMode; var message = ""
         let shouldShowProcessingDots = isStopping && shouldShowProcessingDotsDuringStop
+        let shouldShowRecognizingWhileDictating =
+            effectiveDictating && dictationHandler.isAwaitingPartialReconciliation
         if isWakeGated && !isAwake && !isStopping && !effectiveDictating {
             clearHUDOverride()
             clearUnarmedWakePreview()
@@ -2300,8 +2311,8 @@ final class SpeechManager: ObservableObject {
             return
         }
         else if shouldCollapseHandsFreeHUDToStandby { mode = .standby }
+        else if shouldShowProcessingDots || shouldShowRecognizingWhileDictating { mode = .processing }
         else if effectiveDictating { mode = .dictation }
-        else if shouldShowProcessingDots { mode = .processing }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
         else { mode = .listening }
         HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon())
