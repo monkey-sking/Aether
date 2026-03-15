@@ -538,3 +538,4 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 
 "voice_lexicon.reset_language_confirm_title" = "기본 용어로 재설정할까요?";
 "voice_lexicon.reset_language_confirm" = "%@ 음성 어휘를 재설정할까요?";
+"speech.dragging" = "Dragging";

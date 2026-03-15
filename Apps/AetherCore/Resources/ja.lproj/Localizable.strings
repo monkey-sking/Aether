@@ -611,3 +611,4 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 
 "voice_lexicon.reset_language_confirm_title" = "デフォルト語句に戻しますか？";
 "voice_lexicon.reset_language_confirm" = "%@ の音声語彙をリセットしますか？";
+"speech.dragging" = "Dragging";

@@ -609,3 +609,4 @@
 "lexicon.common_commands.subtitle" = "高频控制命令放在这里。撤销、粘贴改由当前 App 的快捷键面板提供，不再占用内置词库。";
 "lexicon.all_commands.title" = "全部命令";
 "lexicon.all_commands.subtitle" = "低频命令默认折叠，减少页面高度，按需展开即可。";
+"speech.dragging" = "拖动中";
