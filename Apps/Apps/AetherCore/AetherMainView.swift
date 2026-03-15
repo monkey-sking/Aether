@@ -339,8 +339,12 @@ private struct OverviewReadinessCard: View {
     let canCollapse: Bool
     let onToggle: () -> Void
 
+    private var realInputDevices: [AudioInputDevice] {
+        appState.availableInputDevices.filter { $0.id != 0 }
+    }
+
     private var hasMicrophoneDevice: Bool {
-        !appState.availableInputDevices.isEmpty
+        !realInputDevices.isEmpty
     }
 
     private var readinessTotalCount: Int {
