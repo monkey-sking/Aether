@@ -1554,6 +1554,9 @@ final class VoiceCommandRouter {
         }
 
         for preset in candidates {
+            if preset == .clearInput {
+                continue
+            }
             for alias in normalizedAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides) {
                 if normalized.contains(alias) {
                     return CommandMatch(preset: preset, confidence: .medium, reason: "contains-\(preset.rawValue)")
@@ -1563,6 +1566,9 @@ final class VoiceCommandRouter {
 
         let pinyin = raw.pinyin
         for preset in candidates {
+            if preset == .clearInput {
+                continue
+            }
             for alias in pinyinAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides) {
                 if pinyin.contains(alias) {
                     return CommandMatch(preset: preset, confidence: .low, reason: "pinyin-\(preset.rawValue)")

@@ -333,6 +333,9 @@ final class SpeechManager: ObservableObject {
     private let engineRestartMinInterval: TimeInterval = 1.5
     private var continuousRecoveryGraceUntil: Date = .distantPast
     private var lastContinuousStartAt: Date = .distantPast
+    private var isContinuousDictationWaitingForInputFocus: Bool = false
+    private var pendingExplicitCommandPrefixExpiry: Date?
+    private let pendingExplicitCommandPrefixWindow: TimeInterval = 1.8
     private var cancellables = Set<AnyCancellable>()
     private let intentPipeline = IntentPipeline()
     private var utteranceExecutionGuard = UtteranceExecutionGuard(maxHistory: 128)
@@ -867,11 +870,12 @@ final class SpeechManager: ObservableObject {
         if featureAvailability.dictationEnabled,
            !featureAvailability.commandEnabled,
            !focusedTypingEvidence {
+            isContinuousDictationWaitingForInputFocus = isAlwaysListeningEnabled
             clearHUDOverride()
-            showMissingInputTargetHUD()
             refreshContinuousHUD(isDictating: false)
             return
         }
+        isContinuousDictationWaitingForInputFocus = false
 
         // Start audio capture
         refreshHeadsetVoiceProcessingPolicy()
@@ -1088,7 +1092,12 @@ final class SpeechManager: ObservableObject {
 
         // Dispatch to handler
         if sessionTypingMode && featureAvailability.dictationEnabled {
-            dictationHandler.onPartial(text)
+            if featureAvailability.commandEnabled,
+               (partialHasExplicitCommandPrefix(text) || partialMayBecomeExplicitCommandPrefix(text)) {
+                commandHandler.onPartial(text)
+            } else {
+                dictationHandler.onPartial(text)
+            }
         } else if featureAvailability.commandEnabled {
             commandHandler.onPartial(text)
         }
@@ -1231,6 +1240,7 @@ final class SpeechManager: ObservableObject {
                 self.resetHUDTransientState()
             } else {
                 self.handleTranscript(textToUse, utteranceID: self.activeUtteranceID)
+                self.resetUtteranceTrackingForNextPhrase()
             }
             self.isStopping = false
             self.shouldShowProcessingDotsDuringStop = false
@@ -1375,6 +1385,16 @@ final class SpeechManager: ObservableObject {
 
         // Health check
         if !recognitionSession.isRunning || !audioCapture.isRunning {
+            if shouldWaitForInputFocusBeforeContinuousDictationStart() {
+                isContinuousDictationWaitingForInputFocus = true
+                refreshContinuousHUD()
+                return
+            }
+            if isContinuousDictationWaitingForInputFocus {
+                isContinuousDictationWaitingForInputFocus = false
+                startOnce()
+                return
+            }
             if Date() < continuousRecoveryGraceUntil { return }
             if !audioCapture.isRunning {
                 if pendingEngineRestartWorkItem == nil { scheduleEngineRestart(reason: "continuous-health-check-engine-down") }
@@ -1400,6 +1420,11 @@ final class SpeechManager: ObservableObject {
         continuousRecoveryGraceUntil = Date().addingTimeInterval(delay + 0.6)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.isAlwaysListeningEnabled, !self.recognitionSession.isRunning else { return }
+            if self.shouldWaitForInputFocusBeforeContinuousDictationStart() {
+                self.isContinuousDictationWaitingForInputFocus = true
+                self.refreshContinuousHUD()
+                return
+            }
             self.startOnce()
         }
     }
@@ -1507,6 +1532,16 @@ final class SpeechManager: ObservableObject {
             blockDictationWithoutInput = true
         }
 
+        if typingContext,
+           featureAvailability.commandEnabled,
+           consumePendingExplicitCommandPrefixIfNeeded() {
+            routingBias = .forceCommand
+            blockDictationWithoutInput = false
+            GlobalLogger.router.info(
+                "[Route] consumed pending explicit command prefix transcript='\(textToRoute)'"
+            )
+        }
+
         let correctionScope: SpeechCorrectionScope = switch routingBias {
         case .forceCommand, .commandPreferred:
             .command
@@ -1516,6 +1551,16 @@ final class SpeechManager: ObservableObject {
 
         textToRoute = normalizeRecognizedText(textToRoute, scope: correctionScope).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !textToRoute.isEmpty else { return }
+
+        if typingContext,
+           featureAvailability.commandEnabled,
+           isExplicitCommandPrefixOnly(textToRoute) {
+            armPendingExplicitCommandPrefix()
+            status = NSLocalizedString("speech.waiting_command", comment: "")
+            clearHUDOverride()
+            refreshContinuousHUD(isDictating: false)
+            return
+        }
 
         let candidateUtteranceID = utteranceID ?? activeUtteranceID
         let now = Date()
@@ -1880,6 +1925,11 @@ final class SpeechManager: ObservableObject {
     }
 
     private func showMissingInputTargetHUD() {
+        guard shouldShowMissingInputTargetHUD() else {
+            clearHUDOverride()
+            refreshContinuousHUD(isDictating: false)
+            return
+        }
         HUDManager.shared.showTemporary(
             message: NSLocalizedString("speech.no_editable_field", comment: ""),
             recognitionControlMode: .command,
@@ -2235,9 +2285,6 @@ final class SpeechManager: ObservableObject {
            !focusedTypingEvidence,
            !effectiveDictating {
             clearHUDOverride()
-            if HUDManager.shared.isTemporaryHUDActive || HUDManager.shared.state.isLanguageIndicatorVisible {
-                return
-            }
             HUDManager.shared.hide()
             return
         }
@@ -2545,6 +2592,88 @@ final class SpeechManager: ObservableObject {
         return currentFocusedInputSnapshot() != nil
     }
 
+    private func resetUtteranceTrackingForNextPhrase() {
+        activeUtteranceID = 0
+        isUtteranceActive = false
+        lastTranscript = ""
+        lastChangeAt = nil
+        lastStableText = ""
+        dictationHandler.reset(
+            targetPID: preferredTypingInjectionTargetPID(
+                sessionTargetPID,
+                bundleID: sessionTargetBundleID
+            )
+        )
+    }
+
+    private func partialHasExplicitCommandPrefix(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let prefixes = VoiceCommandRouter.effectiveCommandPrefixes(
+            for: activeLocale.identifier,
+            overrides: commandRouter.languageTermsOverrides
+        ).sorted { $0.count > $1.count }
+
+        let lowered = trimmed.lowercased()
+        for prefix in prefixes {
+            let candidate = prefix.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !candidate.isEmpty else { continue }
+            if lowered.hasPrefix(candidate) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func partialMayBecomeExplicitCommandPrefix(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let prefixes = VoiceCommandRouter.effectiveCommandPrefixes(
+            for: activeLocale.identifier,
+            overrides: commandRouter.languageTermsOverrides
+        ).sorted { $0.count > $1.count }
+
+        let lowered = trimmed.lowercased()
+        for prefix in prefixes {
+            let candidate = prefix.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !candidate.isEmpty, lowered.count < candidate.count else { continue }
+            if candidate.hasPrefix(lowered) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func isExplicitCommandPrefixOnly(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return false }
+
+        return VoiceCommandRouter.effectiveCommandPrefixes(
+            for: activeLocale.identifier,
+            overrides: commandRouter.languageTermsOverrides
+        ).contains {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == trimmed
+        }
+    }
+
+    private func armPendingExplicitCommandPrefix() {
+        pendingExplicitCommandPrefixExpiry = Date().addingTimeInterval(pendingExplicitCommandPrefixWindow)
+        GlobalLogger.router.info("[Route] armed pending explicit command prefix window")
+    }
+
+    private func consumePendingExplicitCommandPrefixIfNeeded() -> Bool {
+        guard let expiry = pendingExplicitCommandPrefixExpiry else { return false }
+        let now = Date()
+        if now > expiry {
+            pendingExplicitCommandPrefixExpiry = nil
+            return false
+        }
+        pendingExplicitCommandPrefixExpiry = nil
+        return true
+    }
+
     private func throttledTypingMode(interval: TimeInterval = 0.12) -> Bool {
         let now = Date()
         if now.timeIntervalSince(lastTypingCheckAt) < interval { return cachedTypingMode }
@@ -2554,6 +2683,22 @@ final class SpeechManager: ObservableObject {
     private func resetTypingStateCache() {
         cachedTypingMode = false
         lastTypingCheckAt = .distantPast
+    }
+
+    private func shouldWaitForInputFocusBeforeContinuousDictationStart(
+        availability: VoiceFeatureAvailability? = nil
+    ) -> Bool {
+        guard isAlwaysListeningEnabled else { return false }
+        let availability = availability ?? currentVoiceFeatureAvailability()
+        guard availability.dictationEnabled, !availability.commandEnabled else { return false }
+        return !focusedTypingHUDEvidence()
+    }
+
+    private func shouldShowMissingInputTargetHUD(
+        availability: VoiceFeatureAvailability? = nil
+    ) -> Bool {
+        let availability = availability ?? currentVoiceFeatureAvailability()
+        return availability.commandEnabled || !availability.dictationEnabled
     }
 
     private func beginTypingRecoveryHold(reason: String) {
