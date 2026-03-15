@@ -443,7 +443,7 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "speech.idle" = "Idle";
 "speech.lang_indicator" = "En";
 "speech.listening" = "Standing by...";
-"speech.recognizing" = "Recognizing...";
+"speech.recognizing" = "Recognizing";
 "speech.need_mic_permission" = "Grant Microphone permission first.";
 "speech.need_recognition_permission" = "Grant Speech Recognition permission first.";
 "speech.no_editable_field" = "No input field detected";

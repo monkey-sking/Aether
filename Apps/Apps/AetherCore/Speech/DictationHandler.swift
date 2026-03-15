@@ -19,8 +19,11 @@ final class DictationHandler {
 
     /// What we have actually typed on screen (ground truth).
     private(set) var screenTypedText: String = ""
+    private(set) var isAwaitingPartialReconciliation: Bool = false
     private var targetPID: pid_t?
     private var currentUtteranceID: UUID = UUID()
+    private var pendingPartialCorrectionText: String?
+    private var pendingPartialCorrectionWorkItem: DispatchWorkItem?
     private let injector: any TextInjecting
     private let log = GlobalLogger.speech
 
@@ -40,6 +43,7 @@ final class DictationHandler {
 
     /// Call at the start of each utterance to reset tracking state.
     func reset(targetPID: pid_t?) {
+        cancelPendingPartialCorrection()
         self.screenTypedText = ""
         self.targetPID = targetPID
         self.currentUtteranceID = UUID()
@@ -52,8 +56,14 @@ final class DictationHandler {
     func onPartial(_ text: String) {
         guard !text.isEmpty else { return }
 
+        if text == screenTypedText {
+            cancelPendingPartialCorrection()
+            return
+        }
+
         if text.hasPrefix(screenTypedText) {
             // Safe extension: engine output starts with everything we've already typed.
+            cancelPendingPartialCorrection()
             let suffix = String(text.dropFirst(screenTypedText.count))
             if !suffix.isEmpty {
                 injector.type(suffix, targetPID: targetPID)
@@ -61,8 +71,10 @@ final class DictationHandler {
                 os_log("DictationHandler stream append: +'%{public}@' (screen: %d chars)",
                        log: log, type: .info, suffix, screenTypedText.count)
             }
+            return
         }
-        // else: STT revised earlier content → do nothing, wait for onFinal to correct.
+
+        schedulePartialCorrection(to: text)
     }
 
     /// Called when isFinal fires or EOS is detected.
@@ -86,15 +98,55 @@ final class DictationHandler {
             os_log("DictationHandler onFinal: utterance expired, dropping correction.", log: log, type: .info)
             return
         }
+        cancelPendingPartialCorrection()
         applyCorrection(corrected)
     }
 
     /// Synchronous finalization (no LLM). Used when LLM is disabled.
     func onFinalSync(_ text: String) {
+        cancelPendingPartialCorrection()
         applyCorrection(text)
     }
 
     // MARK: - Private
+
+    private func setAwaitingPartialReconciliation(_ awaiting: Bool) {
+        guard isAwaitingPartialReconciliation != awaiting else { return }
+        isAwaitingPartialReconciliation = awaiting
+        onStatusUpdate?(awaiting ? "speech.recognizing" : "speech.listening")
+    }
+
+    private func cancelPendingPartialCorrection() {
+        pendingPartialCorrectionWorkItem?.cancel()
+        pendingPartialCorrectionWorkItem = nil
+        pendingPartialCorrectionText = nil
+        setAwaitingPartialReconciliation(false)
+    }
+
+    private func schedulePartialCorrection(to text: String) {
+        pendingPartialCorrectionWorkItem?.cancel()
+        pendingPartialCorrectionText = text
+        setAwaitingPartialReconciliation(true)
+        let utteranceID = currentUtteranceID
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.currentUtteranceID == utteranceID else { return }
+            guard self.pendingPartialCorrectionText == text else { return }
+            self.pendingPartialCorrectionText = nil
+            self.pendingPartialCorrectionWorkItem = nil
+            self.setAwaitingPartialReconciliation(false)
+            self.applyCorrection(text)
+            os_log(
+                "DictationHandler stream reconcile: '%{public}@' (screen: %d chars)",
+                log: self.log,
+                type: .info,
+                text,
+                self.screenTypedText.count
+            )
+        }
+        pendingPartialCorrectionWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: workItem)
+    }
 
     private func applyCorrection(_ finalText: String) {
         guard !finalText.isEmpty else { return }

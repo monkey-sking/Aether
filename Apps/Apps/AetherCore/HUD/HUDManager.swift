@@ -621,6 +621,9 @@ final class HUDManager {
         lastPointerMoveAt = now
 
         guard state.mode != .hidden else { return }
+        if state.recognitionControlMode == .dictation {
+            return
+        }
         if state.isTypingContext {
             guard let panel = hudWindow, panel.isVisible else { return }
             let mouseLoc = currentCursorLocation()
@@ -1950,6 +1953,12 @@ final class HUDManager {
         // Sync to State for UI icons
         if state.isTypingContext != uiTypingMode {
             state.isTypingContext = uiTypingMode
+        }
+
+        if state.recognitionControlMode == .dictation && !layoutTypingMode {
+            panel.orderOut(nil)
+            updateCaretDebugDot(point: nil, enabled: false)
+            return
         }
 
         // If we are in a typing context (keyboard icon) but we don't have a reliable caret/sticky anchor,
