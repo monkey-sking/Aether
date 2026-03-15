@@ -610,3 +610,4 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 
 "voice_lexicon.reset_language_confirm_title" = "Réinitialiser les termes par défaut ?";
 "voice_lexicon.reset_language_confirm" = "Réinitialiser le lexique vocal pour %@ ?";
+"speech.dragging" = "Dragging";

@@ -58,6 +58,18 @@ struct HUDView: View {
                     languageToggle(showDivider: true)
                 }
 
+            case .dragging:
+                micIcon
+                Text(LocalizedStringKey("speech.dragging"))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+                    .fixedSize()
+                contextIcon
+                if state.isLanguageIndicatorVisible {
+                    languageToggle(showDivider: true)
+                }
+
             case .processing:
                 micIcon
                 Text(LocalizedStringKey("speech.recognizing"))

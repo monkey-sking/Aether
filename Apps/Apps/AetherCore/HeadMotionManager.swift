@@ -429,7 +429,6 @@ class HeadMotionManager: ObservableObject {
     private var baseYaw: Double = 0
     private var basePitch: Double = 0
     private var isCalibrated: Bool = false
-    private var isDragging: Bool = false
     
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -821,9 +820,9 @@ class HeadMotionManager: ObservableObject {
         connectionTimer?.invalidate()
         connectionTimer = nil
 
-        if isDragging {
+        if AutomationOutputs.shared.isDraggingActive {
             AutomationOutputs.shared.drag(start: false, at: nil)
-            isDragging = false
+            HUDManager.shared.setDragStatusActive(false, language: AppLocalization.resolvedLocaleIdentifier)
         }
 
         Task { @MainActor in
@@ -1216,22 +1215,23 @@ class HeadMotionManager: ObservableObject {
     }
 
     func dragStart() {
-        guard !isDragging else { return }
+        guard !AutomationOutputs.shared.isDraggingActive else { return }
         syncTrackedCursorToSystemCursor()
-        isDragging = true
         // Use current cursor location (nil) to avoid coordinate flipping issues
         AutomationOutputs.shared.drag(start: true, at: nil)
-        HUDManager.shared.showTemporary(
-            message: String(localized: "headset.hud.drag_start"),
+        HUDManager.shared.setDragStatusActive(
+            true,
+            language: AppLocalization.resolvedLocaleIdentifier,
+            recognitionControlMode: .command,
             icon: "hand.draw.fill"
         )
     }
 
     func dragEnd() {
-        guard isDragging else { return }
-        isDragging = false
+        guard AutomationOutputs.shared.isDraggingActive else { return }
         // Use current cursor location (nil) to avoid coordinate flipping issues
         AutomationOutputs.shared.drag(start: false, at: nil)
+        HUDManager.shared.setDragStatusActive(false, language: AppLocalization.resolvedLocaleIdentifier)
         HUDManager.shared.showTemporary(
             message: String(localized: "headset.hud.drag_drop"),
             icon: "hand.raised.fill"

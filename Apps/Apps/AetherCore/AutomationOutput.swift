@@ -4,6 +4,7 @@ import Foundation
 import os.log
 
 protocol AutomationOutput {
+    var isDraggingActive: Bool { get }
     func moveCursor(to point: CGPoint, desktopMaxY: CGFloat)
     func mouseClick(at point: CGPoint, button: CGMouseButton, clickCount: Int)
     func pasteText(_ text: String)
@@ -48,11 +49,14 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
     private let mouseSource = CGEventSource(stateID: .combinedSessionState)
     private var lastPostedMouseLocation: CGPoint?
     private var lastProgrammaticMoveAt: Date = .distantPast
-    private var dragGlobalMouseMonitor: Any?
-    private var dragLocalMouseMonitor: Any?
+    private var dragEventTap: CFMachPort?
+    private var dragEventTapRunLoopSource: CFRunLoopSource?
+    private let dragSyntheticEventMarker: Int64 = 0xA37E42
+
+    var isDraggingActive: Bool { isDragging }
 
     deinit {
-        teardownSyntheticDragMouseMonitors()
+        teardownSyntheticDragEventTap()
     }
 
     private func postKeyboardEvent(_ event: CGEvent?, targetPID: pid_t?) {
@@ -67,9 +71,11 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
     func moveCursor(to point: CGPoint, desktopMaxY: CGFloat) {
         let cgPoint = CGPoint(x: point.x, y: desktopMaxY - point.y)
         lastProgrammaticMoveAt = Date()
-        CGWarpMouseCursorPosition(cgPoint)
         let mouseType: CGEventType = isDragging ? .leftMouseDragged : .mouseMoved
         let tap: CGEventTapLocation = isDragging ? .cghidEventTap : .cgSessionEventTap
+        if !isDragging {
+            CGWarpMouseCursorPosition(cgPoint)
+        }
         if let event = CGEvent(mouseEventSource: mouseSource, mouseType: mouseType, mouseCursorPosition: cgPoint, mouseButton: .left) {
             if isDragging {
                 event.setDoubleValueField(.mouseEventPressure, value: 1.0)
@@ -233,72 +239,110 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
         }
         guard let pos = loc else { return }
 
-        if !start {
-            isDragging = false
-            teardownSyntheticDragMouseMonitors()
-        }
-
         let type: CGEventType = start ? .leftMouseDown : .leftMouseUp
         if let event = CGEvent(mouseEventSource: mouseSource, mouseType: type, mouseCursorPosition: pos, mouseButton: .left) {
             event.setIntegerValueField(.mouseEventClickState, value: 1)
             if start {
                 event.setDoubleValueField(.mouseEventPressure, value: 1.0)
             }
+            event.setIntegerValueField(.eventSourceUserData, value: dragSyntheticEventMarker)
             event.post(tap: .cghidEventTap)
             lastPostedMouseLocation = pos
             if start {
                 isDragging = true
-                installSyntheticDragMouseMonitorsIfNeeded()
+                installSyntheticDragEventTapIfNeeded()
                 postSyntheticDraggedEvent(at: pos)
+            } else {
+                isDragging = false
+                teardownSyntheticDragEventTap()
             }
         }
     }
 
-    private func installSyntheticDragMouseMonitorsIfNeeded() {
+    private func installSyntheticDragEventTapIfNeeded() {
         guard shouldUsePhysicalMouseDragContinuation() else {
-            teardownSyntheticDragMouseMonitors()
+            teardownSyntheticDragEventTap()
             return
         }
-        guard dragGlobalMouseMonitor == nil, dragLocalMouseMonitor == nil else { return }
+        guard dragEventTap == nil, dragEventTapRunLoopSource == nil else { return }
 
-        let handleMove: () -> Void = { [weak self] in
-            guard let self, self.isDragging else { return }
-            let point = NSEvent.mouseLocation
-            guard !self.shouldIgnoreSyntheticDragMonitorEvent(at: point) else { return }
-            self.postSyntheticDraggedEvent(at: point)
+        let install = { [weak self] in
+            guard let self else { return }
+            guard self.dragEventTap == nil, self.dragEventTapRunLoopSource == nil else { return }
+
+            var mask: CGEventMask = 0
+            mask |= (1 << CGEventType.mouseMoved.rawValue)
+            mask |= (1 << CGEventType.leftMouseDragged.rawValue)
+            mask |= (1 << CGEventType.otherMouseDragged.rawValue)
+
+            func callback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
+                guard let refcon else { return Unmanaged.passUnretained(event) }
+                let output = Unmanaged<CoreGraphicsAutomationOutput>.fromOpaque(refcon).takeUnretainedValue()
+
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    if let tap = output.dragEventTap {
+                        CGEvent.tapEnable(tap: tap, enable: true)
+                    }
+                    return Unmanaged.passUnretained(event)
+                }
+
+                guard output.isDragging else { return Unmanaged.passUnretained(event) }
+                guard output.shouldUsePhysicalMouseDragContinuation() else { return Unmanaged.passUnretained(event) }
+                guard event.getIntegerValueField(.eventSourceUserData) != output.dragSyntheticEventMarker else {
+                    return Unmanaged.passUnretained(event)
+                }
+
+                event.type = .leftMouseDragged
+                event.setDoubleValueField(.mouseEventPressure, value: 1.0)
+                output.applyMouseDelta(to: event, currentLocation: event.location)
+                output.lastPostedMouseLocation = event.location
+                return Unmanaged.passUnretained(event)
+            }
+
+            let unsafeSelf = Unmanaged.passUnretained(self).toOpaque()
+            guard let tap = CGEvent.tapCreate(
+                tap: .cgSessionEventTap,
+                place: .headInsertEventTap,
+                options: .defaultTap,
+                eventsOfInterest: mask,
+                callback: callback,
+                userInfo: unsafeSelf
+            ) else {
+                os_log("Failed to create drag event tap", type: .error)
+                return
+            }
+
+            let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            self.dragEventTap = tap
+            self.dragEventTapRunLoopSource = source
         }
 
         if Thread.isMainThread {
-            dragGlobalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { _ in
-                handleMove()
-            }
-            dragLocalMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { event in
-                handleMove()
-                return event
-            }
+            install()
         } else {
-            DispatchQueue.main.async { [weak self] in
-                self?.installSyntheticDragMouseMonitorsIfNeeded()
-            }
+            DispatchQueue.main.async(execute: install)
         }
     }
 
-    private func teardownSyntheticDragMouseMonitors() {
-        let removeMonitors = {
-            if let monitor = self.dragGlobalMouseMonitor {
-                NSEvent.removeMonitor(monitor)
-                self.dragGlobalMouseMonitor = nil
+    private func teardownSyntheticDragEventTap() {
+        let teardown = {
+            if let tap = self.dragEventTap {
+                CGEvent.tapEnable(tap: tap, enable: false)
+                CFMachPortInvalidate(tap)
+                self.dragEventTap = nil
             }
-            if let monitor = self.dragLocalMouseMonitor {
-                NSEvent.removeMonitor(monitor)
-                self.dragLocalMouseMonitor = nil
+            if let source = self.dragEventTapRunLoopSource {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+                self.dragEventTapRunLoopSource = nil
             }
         }
 
         if Thread.isMainThread {
-            removeMonitors()
+            teardown()
         } else {
-            DispatchQueue.main.async(execute: removeMonitors)
+            DispatchQueue.main.async(execute: teardown)
         }
     }
 
@@ -312,6 +356,7 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
         ) else { return }
 
         event.setDoubleValueField(.mouseEventPressure, value: 1.0)
+        event.setIntegerValueField(.eventSourceUserData, value: dragSyntheticEventMarker)
         applyMouseDelta(to: event, currentLocation: point)
         event.post(tap: .cghidEventTap)
         lastPostedMouseLocation = point
@@ -321,16 +366,12 @@ final class CoreGraphicsAutomationOutput: AutomationOutput {
         !HeadMotionManager.shared.isTracking
     }
 
-    private func shouldIgnoreSyntheticDragMonitorEvent(at point: CGPoint) -> Bool {
-        guard Date().timeIntervalSince(lastProgrammaticMoveAt) < 0.08 else { return false }
-        guard let lastPoint = lastPostedMouseLocation else { return false }
-        return hypot(point.x - lastPoint.x, point.y - lastPoint.y) <= 2
-    }
-
     private func applyMouseDelta(to event: CGEvent, currentLocation: CGPoint) {
         let previous = lastPostedMouseLocation ?? currentLocation
         let deltaX = Int64((currentLocation.x - previous.x).rounded())
-        let deltaY = Int64((currentLocation.y - previous.y).rounded())
+        // CG dragged events expect positive deltaY for upward movement, which is
+        // the inverse of the screen-space Y coordinates we use here.
+        let deltaY = Int64((previous.y - currentLocation.y).rounded())
         event.setIntegerValueField(.mouseEventDeltaX, value: deltaX)
         event.setIntegerValueField(.mouseEventDeltaY, value: deltaY)
     }
@@ -377,6 +418,8 @@ enum AutomationOutputs {
 
 final class PreferredAutomationOutput: AutomationOutput {
     private let fallback = CoreGraphicsAutomationOutput()
+
+    var isDraggingActive: Bool { fallback.isDraggingActive }
 
     func moveCursor(to point: CGPoint, desktopMaxY: CGFloat) {
         fallback.moveCursor(to: point, desktopMaxY: desktopMaxY)

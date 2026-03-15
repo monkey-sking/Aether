@@ -347,6 +347,8 @@ final class HUDManager {
     private var lastPersistentSnapshot: HUDPresentationSnapshot?
     private var activeTemporaryToken: UUID?
     private var activeTemporaryFallbackSnapshot: HUDPresentationSnapshot?
+    private var isDragStatusForced: Bool = false
+    private var dragStatusFallbackSnapshot: HUDPresentationSnapshot?
     private var cancellables = Set<AnyCancellable>()
     private var backgroundFullscreenCheckTimer: Timer?
     private var appNapActivityToken: NSObjectProtocol?
@@ -427,6 +429,10 @@ final class HUDManager {
             }
             return
         }
+
+        if isDragStatusForced && mode != .dragging {
+            return
+        }
         
         let effectiveTypingContext: Bool
         switch recognitionControlMode {
@@ -488,7 +494,7 @@ final class HUDManager {
             cancelHide()
             requestReposition(immediate: true)
             ensureWindowVisible()
-        case .listening, .command, .dictation, .processing:
+        case .listening, .command, .dictation, .dragging, .processing:
             // Keep temporary HUD hide timer alive when refreshes are semantic no-ops.
             // Otherwise short toasts can become "always visible" under periodic updates.
             if !isNoopVisibleRefresh {
@@ -545,6 +551,51 @@ final class HUDManager {
         )
         let resolvedDuration = duration ?? suggestedTemporaryDuration(for: message)
         scheduleHide(delay: max(0.4, resolvedDuration), token: token)
+    }
+
+    func setDragStatusActive(
+        _ active: Bool,
+        language: String,
+        recognitionControlMode: HUDRecognitionControlMode = .command,
+        icon: String = "hand.draw.fill"
+    ) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async {
+                self.setDragStatusActive(
+                    active,
+                    language: language,
+                    recognitionControlMode: recognitionControlMode,
+                    icon: icon
+                )
+            }
+            return
+        }
+
+        isDragStatusForced = active
+        if active {
+            dragStatusFallbackSnapshot = lastPersistentSnapshot
+            update(
+                mode: .dragging,
+                message: NSLocalizedString("speech.dragging", comment: ""),
+                language: language,
+                recognitionControlMode: recognitionControlMode,
+                inputDeviceIcon: icon,
+                lifetime: .persistent
+            )
+        } else if let snapshot = dragStatusFallbackSnapshot {
+            dragStatusFallbackSnapshot = nil
+            update(
+                mode: snapshot.mode,
+                message: snapshot.message,
+                language: snapshot.language,
+                recognitionControlMode: snapshot.recognitionControlMode,
+                inputDeviceIcon: snapshot.inputDeviceIcon,
+                lifetime: .persistent
+            )
+        } else {
+            dragStatusFallbackSnapshot = nil
+            hide()
+        }
     }
     
     func hide() {
