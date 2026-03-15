@@ -945,8 +945,8 @@ final class SpeechManager: ObservableObject {
         }
 
         // Start EOS detection
-        eosDetector.trailingSilenceMs = UserDefaults.standard.object(forKey: "trailingSilenceMs") as? Double ?? 1500
-        eosDetector.minUtteranceMs = UserDefaults.standard.object(forKey: "minUtteranceMs") as? Double ?? 700
+        eosDetector.trailingSilenceMs = UserDefaults.standard.object(forKey: "trailingSilenceMs") as? Double ?? 1000
+        eosDetector.minUtteranceMs = UserDefaults.standard.object(forKey: "minUtteranceMs") as? Double ?? 550
         eosDetector.maxUtteranceMs = UserDefaults.standard.object(forKey: "maxUtteranceMs") as? Double ?? 30000
         eosDetector.maxSegmentSec = maxRecordingSegmentSeconds()
         eosDetector.start()
@@ -1266,7 +1266,7 @@ final class SpeechManager: ObservableObject {
             }
         }
         finalizationWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: workItem)
     }
 
     private func stopAudioCapture() {
@@ -2008,13 +2008,13 @@ final class SpeechManager: ObservableObject {
         case .command:
             targetTrailingMs = min(targetTrailingMs, 700)
         case .dictation:
-            targetTrailingMs = max(targetTrailingMs, 920)
+            targetTrailingMs = max(targetTrailingMs, 780)
         case .auto:
             break
         }
 
         if sessionTypingMode {
-            targetTrailingMs = max(targetTrailingMs, 980)
+            targetTrailingMs = max(targetTrailingMs, 840)
         }
 
         targetTrailingMs = min(max(targetTrailingMs, 450), 1400)
