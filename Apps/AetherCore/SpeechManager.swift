@@ -1403,16 +1403,9 @@ final class SpeechManager: ObservableObject {
             scheduleContinuousRecovery(delay: 0.12); return
         }
 
-        // Utterance boundary detection (1s silence)
-        guard let lastChange = lastChangeAt, !lastTranscript.isEmpty else { return }
-        if Date().timeIntervalSince(lastChange) < 1.0 { return }
-        if lastStableText == lastTranscript { return }
-        lastStableText = lastTranscript
-        let text = lastTranscript
-        lastTranscript = ""; lastChangeAt = nil; isUtteranceActive = false
-        handleTranscript(text, utteranceID: activeUtteranceID)
-        cleanup()
-        if isAlwaysListeningEnabled { startOnce() }
+        // EOSDetector is the single source of truth for utterance boundaries.
+        // Avoid a second transcript-stability splitter here; it can cut a continuous
+        // sentence into multiple fragments even when the user never paused.
     }
 
     private func scheduleContinuousRecovery(delay: TimeInterval = 0.25) {
@@ -2015,9 +2008,13 @@ final class SpeechManager: ObservableObject {
         case .command:
             targetTrailingMs = min(targetTrailingMs, 700)
         case .dictation:
-            targetTrailingMs = max(targetTrailingMs, 760)
+            targetTrailingMs = max(targetTrailingMs, 920)
         case .auto:
             break
+        }
+
+        if sessionTypingMode {
+            targetTrailingMs = max(targetTrailingMs, 980)
         }
 
         targetTrailingMs = min(max(targetTrailingMs, 450), 1400)
