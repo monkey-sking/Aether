@@ -59,7 +59,11 @@ final class EOSDetector {
 
     /// Called whenever the partial transcript changes.
     func noteTranscriptChanged() {
-        // Currently informational; may be used for silence-since-last-word tracking.
+        guard hasUtterance else { return }
+        // Transcript is still evolving, so treat this as fresh speech activity too.
+        // This makes endpointing less sensitive to short VAD dropouts while the user
+        // is still speaking a continuous sentence.
+        lastSpeechAt = Date()
     }
 
     /// Call when the first non-empty partial arrives (utterance has started).
