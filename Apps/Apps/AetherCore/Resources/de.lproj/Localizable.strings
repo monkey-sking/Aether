@@ -130,6 +130,7 @@
 
 /* Speech Status */
 "speech.listening" = "Bereit...";
+"speech.recognizing" = "Erkennung läuft...";
 "speech.waiting_command" = "Warte auf Befehl...";
 "speech.waiting_wakeword" = "Warte auf Aktivierungswort...";
 "speech.idle" = "Bereit";

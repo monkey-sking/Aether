@@ -137,6 +137,7 @@
 
 /* Speech Status */
 "speech.listening" = "待命中...";
+"speech.recognizing" = "识别中…";
 "speech.waiting_command" = "等待操作指令…";
 "speech.waiting_wakeword" = "等待唤醒词…";
 "speech.idle" = "空闲";
