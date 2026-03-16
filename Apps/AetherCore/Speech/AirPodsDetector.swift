@@ -22,12 +22,16 @@ final class AirPodsDetector {
     private var pollingTimer: Timer?
     
     private func startPolling() {
-        // Polling in background to keep UI icon responsive.
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
-            _ = self?.currentSide()
+        // Keep this conservative: AirPods side detection is only a UI/headset hint,
+        // so it should not add noticeable startup or steady-state overhead.
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.pollIfNeeded()
         }
         // Ensure it runs even if UI is busy
         RunLoop.main.add(pollingTimer!, forMode: .common)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.pollIfNeeded(forceFast: true)
+        }
     }
     
     private var lastState: AirPodSide = .none
@@ -42,8 +46,10 @@ final class AirPodsDetector {
     private let evidenceWindowShort: TimeInterval = 2.0
     private let evidenceWindowLong: TimeInterval = 2.0
     private let registryUnionWindow: TimeInterval = 0.85
-    private let plcmPollInterval: TimeInterval = 1.2
+    private let plcmPollInterval: TimeInterval = 8.0
     private let startupGuardWindow: TimeInterval = 4.0
+    private let startupSlowRefreshDelay: TimeInterval = 8.0
+    private let startupPlcmRefreshDelay: TimeInterval = 2.0
     private let upToBothDelay: TimeInterval = 0.3
     private let bothToSingleDelay: TimeInterval = 0.6
     private let singleToNoneDelay: TimeInterval = 1.2
@@ -114,7 +120,7 @@ final class AirPodsDetector {
             if isRightPresent { return .right }
             
             // Serial exists but neither side is present in IORegistry.
-            return .none
+            return AirPodSide.none
             
         } catch {
             return nil
@@ -123,8 +129,8 @@ final class AirPodsDetector {
 
     private var isRefreshingFast = false
     private var isRefreshingSlow = false
-    private let fastInterval: TimeInterval = 0.8
-    private let slowInterval: TimeInterval = 30.0
+    private let fastInterval: TimeInterval = 2.0
+    private let slowInterval: TimeInterval = 120.0
     private var lastFastTime: Date = .distantPast
     private var lastSlowTime: Date = .distantPast
     
@@ -299,6 +305,7 @@ final class AirPodsDetector {
 
     private func updateBothStateFromBluetoothLog() {
         let now = Date()
+        if now.timeIntervalSince(startupAt) < startupPlcmRefreshDelay { return }
         if now.timeIntervalSince(lastPlcmPollAt) < plcmPollInterval { return }
         lastPlcmPollAt = now
 
@@ -327,20 +334,21 @@ final class AirPodsDetector {
         }
     }
     
-    // Non-blocking accessor
-    func currentSide() -> AirPodSide {
+    private func pollIfNeeded(forceFast: Bool = false) {
         let now = Date()
-        
-        // 1. Trigger Fast Check (ioreg)
-        if !isRefreshingFast && now.timeIntervalSince(lastFastTime) > fastInterval {
+
+        if !isRefreshingFast && (forceFast || now.timeIntervalSince(lastFastTime) > fastInterval) {
             refreshFast()
         }
-        
-        // 2. Trigger Slow Check (system_profiler)
+
+        guard now.timeIntervalSince(startupAt) >= startupSlowRefreshDelay else { return }
         if !isRefreshingSlow && now.timeIntervalSince(lastSlowTime) > slowInterval {
             refreshSlow()
         }
-        
+    }
+
+    // Non-blocking accessor
+    func currentSide() -> AirPodSide {
         return lastState
     }
     

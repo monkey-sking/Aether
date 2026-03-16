@@ -715,6 +715,14 @@ private struct VoiceBasicsTile: View {
                 .padding(.vertical, 11)
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
                 .cornerRadius(12)
+
+                inlineToggle(
+                    title: appState.isChineseUI ? "Siri 激活时暂停 Aether" : "Pause Aether During Siri",
+                    subtitle: appState.isChineseUI
+                        ? "检测到 Siri 正在听或说话时，临时暂停 Aether，结束后自动恢复。"
+                        : "Temporarily pause Aether while Siri is listening or speaking, then resume automatically.",
+                    isOn: $appState.pauseForSiriEnabled
+                )
             }
         }
         .frame(maxWidth: .infinity, minHeight: AetherUI.dashboardTileMinHeight, alignment: .topLeading)
@@ -836,6 +844,37 @@ private struct VoiceBasicsTile: View {
             .cornerRadius(10)
         }
         .menuStyle(.borderlessButton)
+    }
+
+    @ViewBuilder
+    private func inlineToggle(
+        title: String,
+        subtitle: String,
+        isOn: Binding<Bool>
+    ) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(AetherUI.bodyFont)
+                Text(subtitle)
+                    .font(AetherUI.captionFont)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .allowsTightening(true)
+                    .minimumScaleFactor(0.88)
+            }
+            .layoutPriority(1)
+            Spacer()
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+        .cornerRadius(12)
     }
 
     @ViewBuilder

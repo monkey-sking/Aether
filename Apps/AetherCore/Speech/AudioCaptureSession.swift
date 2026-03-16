@@ -13,6 +13,7 @@ final class AudioCaptureSession {
     var selectedDeviceID: AudioDeviceID = 0
     var useVoiceProcessing: Bool = false
     var allowAutomaticHeadsetVoiceProcessing: Bool = true
+    var preferSystemManagedHeadsetRoute: Bool = false
 
     // MARK: - Callbacks
     /// Called on the audio thread for every buffer. Feed this to RecognitionSession.append().
@@ -29,6 +30,11 @@ final class AudioCaptureSession {
     private var adaptiveVADThreshold: Float = 0.07
     private var lastVoiceActivity: Bool = false
     private var lastLoggedAdaptiveThreshold: Float = -1
+    private var diagnosticsWindowUntil: Date = .distantPast
+    private var diagnosticsLastLogAt: Date = .distantPast
+    private var diagnosticsPeakRMS: Float = 0
+    private var diagnosticsVoiceActiveCount: Int = 0
+    private var diagnosticsBufferCount: Int = 0
     private let log = GlobalLogger.speech
 
     // MARK: - Public API
@@ -42,9 +48,7 @@ final class AudioCaptureSession {
         setInputDevice(for: engine)
 
         if #available(macOS 10.15, *) {
-            let enable = useVoiceProcessing
-                || shouldAutoEnableVoiceProcessingIO()
-                || (allowAutomaticHeadsetVoiceProcessing && shouldEnableVoiceProcessingForHeadsetMicMode())
+            let enable = useVoiceProcessing || shouldAutoEnableVoiceProcessingIO()
             if enable {
                 do {
                     try inputNode.setVoiceProcessingEnabled(true)
@@ -52,6 +56,12 @@ final class AudioCaptureSession {
                 } catch {
                     os_log("VoiceProcessingIO set failed: %{public}@", log: log, type: .error, error.localizedDescription)
                 }
+            } else if allowAutomaticHeadsetVoiceProcessing && shouldEnableVoiceProcessingForHeadsetMicMode() {
+                os_log(
+                    "VoiceProcessingIO: skip headset auto-enable to preserve AirPods microphone reliability",
+                    log: log,
+                    type: .info
+                )
             } else {
                 // Avoid explicitly forcing "off" on every engine start, which can
                 // reset the user's current Mic Mode back to Standard in Control Center.
@@ -74,6 +84,7 @@ final class AudioCaptureSession {
             self.onBuffer?(mono)
 
             let isActive = self.classifyVoiceActivity(rms: rms)
+            self.logCaptureDiagnostics(rms: rms, isActive: isActive, format: mono.format)
 
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -89,6 +100,8 @@ final class AudioCaptureSession {
         engine.prepare()
         try engine.start()
         isRunning = true
+        resetCaptureDiagnostics()
+        logRouteSnapshot(context: "after-start")
         logMicrophoneMode(context: "after-start")
         os_log("AudioCaptureSession started.", log: log, type: .info)
     }
@@ -102,7 +115,9 @@ final class AudioCaptureSession {
         adaptiveVADThreshold = Float(UserDefaults.standard.object(forKey: "micProgressVADThreshold") as? Double ?? 0.07)
         lastVoiceActivity = false
         lastLoggedAdaptiveThreshold = -1
+        diagnosticsWindowUntil = .distantPast
         isRunning = false
+        logRouteSnapshot(context: "after-stop")
         logMicrophoneMode(context: "after-stop")
         os_log("AudioCaptureSession stopped.", log: log, type: .info)
     }
@@ -177,6 +192,17 @@ final class AudioCaptureSession {
 
     private func setInputDevice(for engine: AVAudioEngine) {
         guard selectedDeviceID != 0 else { return }
+        let selectedName = deviceName(selectedDeviceID)
+        if preferSystemManagedHeadsetRoute && shouldUseSystemManagedHeadsetRoute(selectedName: selectedName) {
+            os_log(
+                "AudioCaptureSession using system-managed headset route for input id=%d name=%{public}@",
+                log: log,
+                type: .info,
+                selectedDeviceID,
+                selectedName
+            )
+            return
+        }
         guard let au = engine.inputNode.audioUnit else { return }
         var deviceID = selectedDeviceID
         let err = AudioUnitSetProperty(
@@ -189,13 +215,56 @@ final class AudioCaptureSession {
         )
         if err != noErr {
             os_log("Failed to set input device %d: err=%d", log: log, type: .error, deviceID, err)
+        } else {
+            os_log(
+                "AudioCaptureSession selected input device id=%d name=%{public}@",
+                log: log,
+                type: .info,
+                deviceID,
+                deviceName(deviceID)
+            )
         }
     }
 
+    private func shouldUseSystemManagedHeadsetRoute(selectedName: String) -> Bool {
+        guard isHeadsetLikeInputName(selectedName) else { return false }
+
+        let defaultInputID = defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice) ?? 0
+        let defaultOutputID = defaultDeviceID(kAudioHardwarePropertyDefaultOutputDevice) ?? 0
+        let defaultInputName = deviceName(defaultInputID)
+        let defaultOutputName = deviceName(defaultOutputID)
+
+        let sameAsDefaultInput = normalizedDeviceName(defaultInputName) == normalizedDeviceName(selectedName)
+        let outputIsHeadset = isHeadsetLikeInputName(defaultOutputName)
+
+        return sameAsDefaultInput || outputIsHeadset
+    }
+
+    private func normalizedDeviceName(_ raw: String) -> String {
+        raw
+            .lowercased()
+            .replacingOccurrences(of: "麦克风", with: "")
+            .replacingOccurrences(of: "microphone", with: "")
+            .replacingOccurrences(of: "(输入)", with: "")
+            .replacingOccurrences(of: "(input)", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func isHeadsetLikeInputName(_ raw: String) -> Bool {
+        let name = raw.lowercased()
+        return name.contains("airpods")
+            || name.contains("beats")
+            || name.contains("headphone")
+            || name.contains("earphone")
+            || name.contains("bluetooth")
+            || name.contains("耳机")
+    }
+
     private func shouldAutoEnableVoiceProcessingIO() -> Bool {
-        // Default OFF: avoid unexpectedly forcing system Mic Mode back to "Standard"
-        // when a new capture engine starts. Teams can opt-in via UserDefaults.
-        guard UserDefaults.standard.object(forKey: "autoVoiceProcessingForSpeakers") as? Bool ?? false else { return false }
+        // Default ON for built-in mic + speaker playback. This is the most common
+        // setup where video/audio playback leaks back into speech recognition.
+        // Teams can still opt out via UserDefaults if needed.
+        guard UserDefaults.standard.object(forKey: "autoVoiceProcessingForSpeakers") as? Bool ?? true else { return false }
 
         let inputID = selectedDeviceID != 0 ? selectedDeviceID : (defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice) ?? 0)
         let outputID = defaultDeviceID(kAudioHardwarePropertyDefaultOutputDevice) ?? 0
@@ -261,10 +330,16 @@ final class AudioCaptureSession {
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var ref: CFString = "" as CFString
-        var size = UInt32(MemoryLayout<CFString>.size)
-        guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &ref) == noErr else { return "" }
-        return ref as String
+        let ref = UnsafeMutablePointer<CFString?>.allocate(capacity: 1)
+        ref.initialize(to: nil)
+        defer {
+            ref.deinitialize(count: 1)
+            ref.deallocate()
+        }
+        var size = UInt32(MemoryLayout<CFString?>.size)
+        guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, ref) == noErr,
+              let resolved = ref.pointee else { return "" }
+        return resolved as String
     }
 
     private func logMicrophoneMode(context: String) {
@@ -279,6 +354,58 @@ final class AudioCaptureSession {
             context,
             microphoneModeLabel(preferred),
             microphoneModeLabel(active)
+        )
+    }
+
+    private func resetCaptureDiagnostics() {
+        diagnosticsWindowUntil = Date().addingTimeInterval(8)
+        diagnosticsLastLogAt = .distantPast
+        diagnosticsPeakRMS = 0
+        diagnosticsVoiceActiveCount = 0
+        diagnosticsBufferCount = 0
+    }
+
+    private func logCaptureDiagnostics(rms: Float, isActive: Bool, format: AVAudioFormat) {
+        let now = Date()
+        guard now < diagnosticsWindowUntil else { return }
+
+        diagnosticsPeakRMS = max(diagnosticsPeakRMS, rms)
+        diagnosticsBufferCount += 1
+        if isActive { diagnosticsVoiceActiveCount += 1 }
+
+        guard now.timeIntervalSince(diagnosticsLastLogAt) >= 1.0 else { return }
+        diagnosticsLastLogAt = now
+
+        let effectiveInputID = selectedDeviceID != 0 ? selectedDeviceID : (defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice) ?? 0)
+        os_log(
+            "AudioCapture diag: selectedID=%d input='%{public}@' peakRMS=%.3f activeBuffers=%d/%d sampleRate=%.1f channels=%d",
+            log: log,
+            type: .info,
+            selectedDeviceID,
+            deviceName(effectiveInputID),
+            diagnosticsPeakRMS,
+            diagnosticsVoiceActiveCount,
+            diagnosticsBufferCount,
+            format.sampleRate,
+            Int(format.channelCount)
+        )
+    }
+
+    private func logRouteSnapshot(context: String) {
+        let selectedID = selectedDeviceID
+        let defaultInputID = defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice) ?? 0
+        let defaultOutputID = defaultDeviceID(kAudioHardwarePropertyDefaultOutputDevice) ?? 0
+        os_log(
+            "AudioCapture route (%{public}@): selectedID=%d selectedName=%{public}@ defaultInputID=%d defaultInputName=%{public}@ defaultOutputID=%d defaultOutputName=%{public}@",
+            log: log,
+            type: .info,
+            context,
+            selectedID,
+            deviceName(selectedID),
+            defaultInputID,
+            deviceName(defaultInputID),
+            defaultOutputID,
+            deviceName(defaultOutputID)
         )
     }
 

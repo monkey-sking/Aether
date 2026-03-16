@@ -1201,11 +1201,11 @@ private struct VoiceLexiconSectionCard<Content: View>: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             content
-                .padding(.top, 6)
+                .padding(.top, 4)
         } label: {
             VoiceLexiconSectionHeader(section: section)
         }
-        .padding(14)
+        .padding(12)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.42))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -2068,20 +2068,30 @@ private struct VoiceLexiconEditorRow: View {
         draftText = text
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top) {
+    @ViewBuilder
+    private var headerText: some View {
+        if let subtitle, !subtitle.isEmpty {
+            (
                 Text(title)
                     .font(.body.weight(.medium))
-                Spacer()
-            }
-
-            if let subtitle, !subtitle.isEmpty {
+                +
+                Text("  ")
+                +
                 Text(subtitle)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            )
+            .lineSpacing(1)
+        } else {
+            Text(title)
+                .font(.body.weight(.medium))
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            headerText
+                .fixedSize(horizontal: false, vertical: true)
 
             ZStack(alignment: .trailing) {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -2099,7 +2109,7 @@ private struct VoiceLexiconEditorRow: View {
                 .textFieldStyle(.plain)
                 .padding(.leading, 12)
                 .padding(.trailing, (actionEnabled || hasDraftContent) ? 54 : 12)
-                .padding(.vertical, 9)
+                .padding(.vertical, 8)
                 .onSubmit {
                     commitDraft()
                 }
@@ -2124,7 +2134,8 @@ private struct VoiceLexiconEditorRow: View {
                 .allowsHitTesting(isHovering && (actionEnabled || hasDraftContent))
             }
         }
-        .padding(10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
         .cornerRadius(10)
         .onAppear {
