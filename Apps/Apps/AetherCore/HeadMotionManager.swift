@@ -450,7 +450,10 @@ class HeadMotionManager: ObservableObject {
     
     // Attention Awareness
     @Published var isLookingAtScreen: Bool = true
-    private let attentionThresholdYaw: Double = 0.65 // ~37 degrees (0.65 radians)
+    private let attentionAwayThresholdYaw: Double = 0.82   // ~47 degrees before marking "away"
+    private let attentionReturnThresholdYaw: Double = 0.72 // ~41 degrees to recover "looking"
+    private let attentionAwayDebounceFrames: Int = 18
+    private let attentionReturnDebounceFrames: Int = 8
     private var lastAttentionCheckTime: Date = Date()
     private var attentionHysteresisBuffer: Int = 0 
     
@@ -1262,21 +1265,22 @@ class HeadMotionManager: ObservableObject {
     }
     
     private func updateAttentionState(yaw: Double) {
-        let isCurrentlyLooking = abs(yaw) < attentionThresholdYaw
-        
-        // Simple debouncing/hysteresis
+        let absYaw = abs(yaw)
+        let isCurrentlyLooking = isLookingAtScreen
+            ? absYaw < attentionAwayThresholdYaw
+            : absYaw < attentionReturnThresholdYaw
+
         if isCurrentlyLooking != isLookingAtScreen {
             attentionHysteresisBuffer += 1
-            if attentionHysteresisBuffer > 10 { // Approx 0.1-0.2s at 60Hz
+            let requiredFrames = isCurrentlyLooking ? attentionReturnDebounceFrames : attentionAwayDebounceFrames
+            if attentionHysteresisBuffer >= requiredFrames {
                 isLookingAtScreen = isCurrentlyLooking
                 attentionHysteresisBuffer = 0
-                
+
                 if isLookingAtScreen {
                     os_log("Attention: Regained", log: log)
-                    // Optional: Play subtle feedback sound
                 } else {
                     os_log("Attention: Lost", log: log)
-                    // Optional: Play subtle feedback sound
                 }
             }
         } else {

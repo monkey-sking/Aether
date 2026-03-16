@@ -97,10 +97,31 @@ final class SpeechManager: ObservableObject {
     @Published private(set) var accessibilityTrustedSnapshot: Bool = false
     @Published var availableInputDevices: [AudioInputDevice] = []
     @Published var selectedInputDeviceID: AudioDeviceID = 0 {
+        willSet {
+            if newValue != selectedInputDeviceID {
+                pendingSelectedInputRouteSnapshot = currentAudioRouteSnapshot()
+            }
+        }
         didSet {
             if oldValue != selectedInputDeviceID {
+                if selectedInputDeviceID == 0 {
+                    selectedInputDeviceUIDHint = nil
+                    selectedInputDeviceNameHint = nil
+                } else if let selected = availableInputDevices.first(where: { $0.id == selectedInputDeviceID }) {
+                    selectedInputDeviceUIDHint = selected.uid
+                    selectedInputDeviceNameHint = selected.name
+                }
+                GlobalLogger.speech.info(
+                    "[AudioRoute] selection changed oldID=\(oldValue) newID=\(selectedInputDeviceID) selectedName=\(availableInputDevices.first(where: { $0.id == selectedInputDeviceID })?.name ?? "system-default") uidHint=\(selectedInputDeviceUIDHint ?? "nil")"
+                )
                 let active = audioCapture.isRunning || recognitionSession.isRunning || isAlwaysListeningEnabled
-                if active { scheduleEngineRestart(reason: "input-device-selection") }
+                let before = pendingSelectedInputRouteSnapshot
+                pendingSelectedInputRouteSnapshot = nil
+                if active && !suppressInputSelectionRestart,
+                   let before,
+                   shouldRestartForAudioRouteChange(from: before, to: currentAudioRouteSnapshot()) {
+                    scheduleEngineRestart(reason: "input-device-selection")
+                }
             }
         }
     }
@@ -134,6 +155,12 @@ final class SpeechManager: ObservableObject {
     @Published var isDirectCommandEnabled: Bool = false
     @Published var isWakeWordEnabled: Bool = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(isWakeWordEnabled, forKey: "isWakeWordEnabled"); syncRecognitionState() }
+    }
+    @Published var pauseForSiriEnabled: Bool = UserDefaults.standard.object(forKey: "pauseForSiriEnabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(pauseForSiriEnabled, forKey: "pauseForSiriEnabled")
+            syncRecognitionState()
+        }
     }
     @Published var isGazeWakeEnabled: Bool = UserDefaults.standard.object(forKey: "isGazeWakeEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(isGazeWakeEnabled, forKey: "isGazeWakeEnabled") }
@@ -385,6 +412,18 @@ final class SpeechManager: ObservableObject {
     }
 
     private var metrics = RuntimeSpeechMetrics()
+    private var isSuspendedForSiri: Bool = false
+    private var selectedInputDeviceUIDHint: String?
+    private var selectedInputDeviceNameHint: String?
+    private var pendingSelectedInputRouteSnapshot: AudioRouteSnapshot?
+    private var suppressInputSelectionRestart = false
+
+    private struct AudioRouteSnapshot: Equatable {
+        let selectedInputID: AudioDeviceID
+        let effectiveInputID: AudioDeviceID
+        let defaultInputID: AudioDeviceID
+        let defaultOutputID: AudioDeviceID
+    }
 
     // MARK: - Computed Properties (preserved)
     private typealias RecognitionControlMode = HeadMotionManager.RecognitionControlMode
@@ -440,24 +479,324 @@ final class SpeechManager: ObservableObject {
         HeadMotionManager.shared.effectiveRecognitionControlMode
     }
 
-    private var currentResolvedInputDeviceName: String {
-        var deviceIDToUse = selectedInputDeviceID
-        if deviceIDToUse == 0 {
-            var address = AudioObjectPropertyAddress(
-                mSelector: kAudioHardwarePropertyDefaultInputDevice,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-            var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-            AudioObjectGetPropertyData(
-                AudioObjectID(kAudioObjectSystemObject),
-                &address,
-                0,
-                nil,
-                &size,
-                &deviceIDToUse
-            )
+    private func audioDeviceID(for selector: AudioObjectPropertySelector) -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var id: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id) == noErr,
+              id != 0 else {
+            return nil
         }
+        return id
+    }
+
+    private func audioDeviceName(_ id: AudioDeviceID) -> String {
+        guard id != 0 else { return "" }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let ref = UnsafeMutablePointer<CFString?>.allocate(capacity: 1)
+        ref.initialize(to: nil)
+        defer {
+            ref.deinitialize(count: 1)
+            ref.deallocate()
+        }
+        var size = UInt32(MemoryLayout<CFString?>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, ref) == noErr,
+              let resolved = ref.pointee else {
+            return ""
+        }
+        return resolved as String
+    }
+
+    private func isHeadsetLikeDeviceName(_ raw: String) -> Bool {
+        let name = raw.lowercased()
+        return name.contains("airpods")
+            || name.contains("beats")
+            || name.contains("headphone")
+            || name.contains("earphone")
+            || name.contains("bluetooth")
+            || name.contains("耳机")
+    }
+
+    private func normalizedInputDeviceName(_ raw: String) -> String {
+        raw
+            .lowercased()
+            .replacingOccurrences(of: "麦克风", with: "")
+            .replacingOccurrences(of: "microphone", with: "")
+            .replacingOccurrences(of: "(输入)", with: "")
+            .replacingOccurrences(of: "(input)", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func isVirtualOrAggregateAudioDevice(name: String, uid: String) -> Bool {
+        let lowerName = name.lowercased()
+        let lowerUID = uid.lowercased()
+        return lowerName.contains("aggregate")
+            || lowerUID.contains("aggregate")
+            || lowerUID.contains("vpa")
+            || lowerUID.contains("cadefaultdeviceaggregate")
+            || lowerName.contains("blackhole")
+            || lowerName.contains("soundflower")
+            || lowerUID.contains("blackhole")
+            || lowerUID.contains("soundflower")
+    }
+
+    private func audioDeviceTransportType(_ id: AudioDeviceID) -> UInt32? {
+        guard id != 0 else { return nil }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var transport: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &transport) == noErr else {
+            return nil
+        }
+        return transport
+    }
+
+    private func audioTransportLabel(_ transport: UInt32?) -> String {
+        switch transport {
+        case kAudioDeviceTransportTypeBuiltIn?: return "built-in"
+        case kAudioDeviceTransportTypeUSB?: return "usb"
+        case kAudioDeviceTransportTypeBluetooth?: return "bluetooth"
+        case kAudioDeviceTransportTypeBluetoothLE?: return "bluetooth-le"
+        case kAudioDeviceTransportTypeHDMI?: return "hdmi"
+        case kAudioDeviceTransportTypeDisplayPort?: return "displayport"
+        case kAudioDeviceTransportTypeAirPlay?: return "airplay"
+        case kAudioDeviceTransportTypeAggregate?: return "aggregate"
+        case kAudioDeviceTransportTypeVirtual?: return "virtual"
+        case kAudioDeviceTransportTypeThunderbolt?: return "thunderbolt"
+        case kAudioDeviceTransportTypeContinuityCapture?: return "continuity"
+        case kAudioDeviceTransportTypeContinuityCaptureWired?: return "continuity-wired"
+        case kAudioDeviceTransportTypeContinuityCaptureWireless?: return "continuity-wireless"
+        case nil: return "unknown"
+        default: return String(transport ?? 0)
+        }
+    }
+
+    private func logVisibleInputDevices(_ devices: [AudioInputDevice], context: String) {
+        let summary = devices
+            .filter { $0.id != 0 }
+            .map {
+                "\($0.name){id=\($0.id),uid=\($0.uid),transport=\(audioTransportLabel(audioDeviceTransportType($0.id)))}"
+            }
+            .joined(separator: " | ")
+        GlobalLogger.speech.info("[AudioRoute] \(context) visible inputs => \(summary)")
+    }
+
+    private func realCaptureDeviceUIDs() -> Set<String> {
+        Set(AVCaptureDevice.devices(for: .audio).map(\.uniqueID))
+    }
+
+    private func realCaptureDeviceNames() -> Set<String> {
+        Set(AVCaptureDevice.devices(for: .audio).map { normalizedInputDeviceName($0.localizedName) })
+    }
+
+    private func shouldKeepInputDeviceCandidate(
+        name: String,
+        uid: String,
+        transportType: UInt32?,
+        realCaptureUIDs: Set<String>,
+        realCaptureNames: Set<String>
+    ) -> Bool {
+        let lowerName = name.lowercased()
+        if lowerName.contains("speaker") || lowerName.contains("扬声器") {
+            return false
+        }
+
+        switch transportType {
+        case kAudioDeviceTransportTypeVirtual?,
+             kAudioDeviceTransportTypeAggregate?,
+             kAudioDeviceTransportTypeHDMI?,
+             kAudioDeviceTransportTypeDisplayPort?,
+             kAudioDeviceTransportTypeAirPlay?:
+            return false
+        default:
+            break
+        }
+
+        if isVirtualOrAggregateAudioDevice(name: name, uid: uid) { return false }
+        if realCaptureUIDs.contains(uid) || realCaptureNames.contains(normalizedInputDeviceName(name)) { return true }
+
+        if isHeadsetLikeDeviceName(name) { return true }
+        if lowerName.contains("mic") || lowerName.contains("microphone") || lowerName.contains("麦") {
+            return true
+        }
+
+        switch transportType {
+        case kAudioDeviceTransportTypeBuiltIn?,
+             kAudioDeviceTransportTypeUSB?,
+             kAudioDeviceTransportTypeBluetooth?,
+             kAudioDeviceTransportTypeBluetoothLE?,
+             kAudioDeviceTransportTypeThunderbolt?,
+             kAudioDeviceTransportTypeContinuityCapture?,
+             kAudioDeviceTransportTypeContinuityCaptureWired?,
+             kAudioDeviceTransportTypeContinuityCaptureWireless?:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func shouldReplaceInputDeviceCandidate(
+        existing: AudioInputDevice,
+        replacementName: String,
+        replacementUID: String,
+        replacementTransportType: UInt32?
+    ) -> Bool {
+        if isVirtualOrAggregateAudioDevice(name: existing.name, uid: existing.uid)
+            && !isVirtualOrAggregateAudioDevice(name: replacementName, uid: replacementUID) {
+            return true
+        }
+
+        let existingTransport = audioDeviceTransportType(existing.id)
+        let existingIsBluetooth = existingTransport == kAudioDeviceTransportTypeBluetooth
+        let replacementIsBluetooth = replacementTransportType == kAudioDeviceTransportTypeBluetooth
+        if replacementIsBluetooth && !existingIsBluetooth { return true }
+
+        let existingIsBuiltIn = existingTransport == kAudioDeviceTransportTypeBuiltIn
+        let replacementIsBuiltIn = replacementTransportType == kAudioDeviceTransportTypeBuiltIn
+        if replacementIsBuiltIn && !existingIsBuiltIn { return true }
+
+        let existingLooksHeadset = isHeadsetLikeDeviceName(existing.name)
+        let replacementLooksHeadset = isHeadsetLikeDeviceName(replacementName)
+        if replacementLooksHeadset && !existingLooksHeadset { return true }
+
+        return false
+    }
+
+    private func canonicalInputDevices(from candidates: [AudioInputDevice]) -> [AudioInputDevice] {
+        let captureDevices = AVCaptureDevice.devices(for: .audio)
+        guard !captureDevices.isEmpty else { return candidates }
+
+        var canonicalByName: [String: AudioInputDevice] = [:]
+        for captureDevice in captureDevices {
+            let normalizedName = normalizedInputDeviceName(captureDevice.localizedName)
+            let match = candidates.first(where: { $0.uid == captureDevice.uniqueID })
+                ?? candidates.first(where: { normalizedInputDeviceName($0.name) == normalizedName })
+            guard let match else { continue }
+
+            let canonical = AudioInputDevice(
+                id: match.id,
+                name: captureDevice.localizedName,
+                uid: captureDevice.uniqueID.isEmpty ? match.uid : captureDevice.uniqueID,
+                iconName: match.iconName
+            )
+
+            if let existing = canonicalByName[normalizedName] {
+                if shouldReplaceInputDeviceCandidate(
+                    existing: existing,
+                    replacementName: canonical.name,
+                    replacementUID: canonical.uid,
+                    replacementTransportType: audioDeviceTransportType(canonical.id)
+                ) {
+                    canonicalByName[normalizedName] = canonical
+                }
+            } else {
+                canonicalByName[normalizedName] = canonical
+            }
+        }
+
+        let canonical = canonicalByName.values.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        return canonical.isEmpty ? candidates : canonical
+    }
+
+    private func remapSelectedInputDeviceIfNeeded(using devices: [AudioInputDevice]) -> AudioDeviceID? {
+        guard selectedInputDeviceID != 0 else { return nil }
+
+        if let uidHint = selectedInputDeviceUIDHint,
+           let uidMatch = devices.first(where: { $0.uid == uidHint }) {
+            return uidMatch.id
+        }
+
+        if let nameHint = selectedInputDeviceNameHint {
+            let normalizedHint = normalizedInputDeviceName(nameHint)
+            if let nameMatch = devices.first(where: { normalizedInputDeviceName($0.name) == normalizedHint }) {
+                return nameMatch.id
+            }
+        }
+
+        if devices.contains(where: { $0.id == selectedInputDeviceID }) {
+            return selectedInputDeviceID
+        }
+
+        return nil
+    }
+
+    private func preferredHeadsetInputDeviceID() -> AudioDeviceID? {
+        guard selectedInputDeviceID == 0 else { return nil }
+        guard let outputID = audioDeviceID(for: kAudioHardwarePropertyDefaultOutputDevice) else { return nil }
+
+        let outputName = audioDeviceName(outputID)
+        guard isHeadsetLikeDeviceName(outputName) else { return nil }
+
+        let headsetInputs = availableInputDevices.filter { $0.id != 0 && isHeadsetLikeDeviceName($0.name) }
+        guard !headsetInputs.isEmpty else { return nil }
+
+        let lowerOutput = outputName.lowercased()
+        if lowerOutput.contains("airpods"),
+           let airPodsInput = headsetInputs.first(where: { $0.name.lowercased().contains("airpods") }) {
+            return airPodsInput.id
+        }
+
+        if lowerOutput.contains("beats"),
+           let beatsInput = headsetInputs.first(where: { $0.name.lowercased().contains("beats") }) {
+            return beatsInput.id
+        }
+
+        return headsetInputs.first?.id
+    }
+
+    private func effectiveCaptureInputDeviceID() -> AudioDeviceID {
+        if selectedInputDeviceID != 0 {
+            if let remappedID = remapSelectedInputDeviceIfNeeded(using: availableInputDevices) {
+                return remappedID
+            }
+            return selectedInputDeviceID
+        }
+        if let headsetInput = preferredHeadsetInputDeviceID() {
+            return headsetInput
+        }
+        return audioDeviceID(for: kAudioHardwarePropertyDefaultInputDevice) ?? 0
+    }
+
+    private func currentAudioRouteSnapshot() -> AudioRouteSnapshot {
+        AudioRouteSnapshot(
+            selectedInputID: selectedInputDeviceID,
+            effectiveInputID: effectiveCaptureInputDeviceID(),
+            defaultInputID: audioDeviceID(for: kAudioHardwarePropertyDefaultInputDevice) ?? 0,
+            defaultOutputID: audioDeviceID(for: kAudioHardwarePropertyDefaultOutputDevice) ?? 0
+        )
+    }
+
+    private func applySelectedInputDeviceID(_ newValue: AudioDeviceID, allowRestart: Bool, reason: String) {
+        guard selectedInputDeviceID != newValue else { return }
+        let previous = suppressInputSelectionRestart
+        suppressInputSelectionRestart = !allowRestart
+        GlobalLogger.speech.info(
+            "[AudioRoute] apply selection reason=\(reason) newID=\(newValue) allowRestart=\(allowRestart)"
+        )
+        selectedInputDeviceID = newValue
+        suppressInputSelectionRestart = previous
+    }
+
+    private func shouldRestartForAudioRouteChange(from before: AudioRouteSnapshot, to after: AudioRouteSnapshot) -> Bool {
+        before.effectiveInputID != after.effectiveInputID
+    }
+
+    private var currentResolvedInputDeviceName: String {
+        let deviceIDToUse = effectiveCaptureInputDeviceID()
         return availableInputDevices.first(where: { $0.id == deviceIDToUse })?.name ?? ""
     }
 
@@ -486,6 +825,11 @@ final class SpeechManager: ObservableObject {
         recognitionControlMode == .auto && Date() < typingRecoveryHoldUntil
     }
 
+    private enum SessionSpeechStyle {
+        case dictation
+        case command
+    }
+
     private func effectiveRecognitionControlMode(
         for availability: VoiceFeatureAvailability
     ) -> RecognitionControlMode {
@@ -496,6 +840,27 @@ final class SpeechManager: ObservableObject {
             return .command
         }
         return recognitionControlMode
+    }
+
+    private func currentSessionSpeechStyle(
+        for availability: VoiceFeatureAvailability,
+        sessionTypingModeOverride: Bool? = nil
+    ) -> SessionSpeechStyle {
+        if availability.dictationEnabled && !availability.commandEnabled {
+            return .dictation
+        }
+        if !availability.dictationEnabled && availability.commandEnabled {
+            return .command
+        }
+
+        switch recognitionControlMode {
+        case .dictation:
+            return .dictation
+        case .command:
+            return .command
+        case .auto:
+            return (sessionTypingModeOverride ?? sessionTypingMode) ? .dictation : .command
+        }
     }
 
     private func effectiveHUDRecognitionControlMode(
@@ -529,13 +894,11 @@ final class SpeechManager: ObservableObject {
 
     private func recognitionTaskHint() -> SFSpeechRecognitionTaskHint {
         let availability = currentVoiceFeatureAvailability()
-        switch effectiveRecognitionControlMode(for: availability) {
+        switch currentSessionSpeechStyle(for: availability) {
         case .command:
-            return .confirmation
+            return .search
         case .dictation:
             return .dictation
-        case .auto:
-            return sessionTypingMode ? .dictation : .unspecified
         }
     }
 
@@ -543,9 +906,35 @@ final class SpeechManager: ObservableObject {
         let preferOnDevice = UserDefaults.standard.object(forKey: "preferOnDeviceRecognition") as? Bool ?? true
         if !preferOnDevice { return false }
         // Command mode benefits from lowest latency and deterministic behavior.
-        if effectiveRecognitionControlMode(for: currentVoiceFeatureAvailability()) == .command { return true }
+        if currentSessionSpeechStyle(for: currentVoiceFeatureAvailability()) == .command { return true }
         let preferForDictation = UserDefaults.standard.object(forKey: "preferOnDeviceForDictation") as? Bool ?? false
         return preferForDictation
+    }
+
+    private func configureEOSParameters(
+        for availability: VoiceFeatureAvailability,
+        sessionTypingMode: Bool
+    ) {
+        let baseTrailing = UserDefaults.standard.object(forKey: "trailingSilenceMs") as? Double ?? 1000
+        let baseMinimum = UserDefaults.standard.object(forKey: "minUtteranceMs") as? Double ?? 550
+        let style = currentSessionSpeechStyle(
+            for: availability,
+            sessionTypingModeOverride: sessionTypingMode
+        )
+
+        switch style {
+        case .command:
+            let commandTrailing = UserDefaults.standard.object(forKey: "commandTrailingSilenceMs") as? Double ?? 620
+            let commandMinimum = UserDefaults.standard.object(forKey: "commandMinUtteranceMs") as? Double ?? 320
+            eosDetector.trailingSilenceMs = min(baseTrailing, commandTrailing)
+            eosDetector.minUtteranceMs = min(baseMinimum, commandMinimum)
+        case .dictation:
+            eosDetector.trailingSilenceMs = baseTrailing
+            eosDetector.minUtteranceMs = baseMinimum
+        }
+
+        eosDetector.maxUtteranceMs = UserDefaults.standard.object(forKey: "maxUtteranceMs") as? Double ?? 30000
+        eosDetector.maxSegmentSec = maxRecordingSegmentSeconds()
     }
 
     private var isAwake: Bool {
@@ -565,12 +954,7 @@ final class SpeechManager: ObservableObject {
     var currentInputDeviceIcon: String {
         let realHardware = availableInputDevices.filter { $0.id != 0 }
         if realHardware.isEmpty { return "mic.slash.fill" }
-        var deviceIDToUse = selectedInputDeviceID
-        if deviceIDToUse == 0 {
-            var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-            var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-            AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceIDToUse)
-        }
+        let deviceIDToUse = effectiveCaptureInputDeviceID()
         if let matched = availableInputDevices.first(where: { $0.id == deviceIDToUse }) {
             let lowerName = matched.name.lowercased()
             let isAP = lowerName.contains("airpods") || matched.iconName.contains("airpod")
@@ -594,12 +978,7 @@ final class SpeechManager: ObservableObject {
         let icon = currentInputDeviceIcon
         let side = AirPodsDetector.shared.currentSide()
         if icon != lastLoggedHUDIcon || side != lastLoggedAirPodSide {
-            var deviceIDToUse = selectedInputDeviceID
-            if deviceIDToUse == 0 {
-                var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-                var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-                AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceIDToUse)
-            }
+            let deviceIDToUse = effectiveCaptureInputDeviceID()
             let activeName = availableInputDevices.first(where: { $0.id == deviceIDToUse })?.name ?? "unknown"
             GlobalLogger.speech.info("[HUD Icon] icon=\(icon), side=\(side.rawValue), selectedID=\(selectedInputDeviceID), activeID=\(deviceIDToUse), activeName=\(activeName)")
             lastLoggedHUDIcon = icon
@@ -637,6 +1016,12 @@ final class SpeechManager: ObservableObject {
         NotificationCenter.default.addObserver(self, selector: #selector(toggleLanguage), name: Notification.Name("AetherToggleLanguage"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAirPodsChange), name: .AirPodsStateChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleRecognitionControlModeChanged(_:)), name: HeadMotionManager.recognitionControlModeChangedNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleFrontmostApplicationChanged),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
         refreshLocale()
         hasCompletedInitialLocaleSetup = true
         DispatchQueue.main.async { [weak self] in self?.syncRecognitionState() }
@@ -665,6 +1050,8 @@ final class SpeechManager: ObservableObject {
             .autoconnect()
             .sink { [weak self] _ in
                 guard let self else { return }
+                self.updateSiriSuspensionStateIfNeeded()
+                guard !self.isSuspendedForSiri else { return }
                 let availability = self.currentVoiceFeatureAvailability()
                 guard availability.dictationEnabled || availability.commandEnabled else { return }
                 HeadMotionManager.shared.refreshTransientRecognitionControlModeIfNeeded(source: "speech-hud-poll")
@@ -673,7 +1060,19 @@ final class SpeechManager: ObservableObject {
             .store(in: &cancellables)
     }
 
-    @objc private func handleAirPodsChange() { refreshContinuousHUD() }
+    @objc private func handleAirPodsChange(_ note: Notification) {
+        let side = (note.object as? AirPodSide) ?? AirPodsDetector.shared.currentSide()
+        refreshContinuousHUD()
+
+        let effectiveInputID = effectiveCaptureInputDeviceID()
+        let effectiveInputName = audioDeviceName(effectiveInputID)
+        GlobalLogger.speech.info(
+            "[AudioRoute] AirPods side changed side=\(side.rawValue) selectedInputID=\(selectedInputDeviceID) effectiveInputID=\(effectiveInputID) effectiveInputName=\(effectiveInputName)"
+        )
+    }
+    @objc private func handleFrontmostApplicationChanged() {
+        updateSiriSuspensionStateIfNeeded()
+    }
     @objc private func handleRecognitionControlModeChanged(_ note: Notification) {
         let source = note.userInfo?["source"] as? String ?? "unknown"
         noteHandsFreeHUDActivity()
@@ -842,8 +1241,109 @@ final class SpeechManager: ObservableObject {
         return Date().timeIntervalSince(lastHandsFreeHUDActivityAt) >= handsFreeHUDCollapseDelay
     }
 
+    private var siriPauseStatusText: String {
+        activeLocale.identifier.starts(with: "zh")
+            ? "Siri 使用中，Aether 已暂停"
+            : "Paused while Siri is active"
+    }
+
+    private func bundleIsSiriVoiceHost(_ bundleID: String?) -> Bool {
+        guard let bundleID = bundleID?.lowercased() else { return false }
+        return bundleID.contains("apple.siri")
+            || bundleID == "com.apple.siri"
+            || bundleID == "com.apple.siri.launcher"
+            || bundleID == "com.apple.notificationcenterui"
+    }
+
+    private func isSiriVoiceHostApplication(_ app: NSRunningApplication?) -> Bool {
+        guard let app else { return false }
+        let appName = app.localizedName?.lowercased() ?? ""
+        return bundleIsSiriVoiceHost(app.bundleIdentifier) || appName.contains("siri")
+    }
+
+    private func hasVisibleSiriHostWindow() -> Bool {
+        let options = CGWindowListOption(arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements)
+        guard let windowInfos = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return false
+        }
+
+        for info in windowInfos {
+            let alpha = info[kCGWindowAlpha as String] as? Double ?? 0
+            guard alpha > 0.05 else { continue }
+
+            if let ownerPIDNumber = info[kCGWindowOwnerPID as String] as? NSNumber {
+                let pid = pid_t(ownerPIDNumber.int32Value)
+                if isSiriVoiceHostApplication(NSRunningApplication(processIdentifier: pid)) {
+                    return true
+                }
+            }
+
+            let ownerName = (info[kCGWindowOwnerName as String] as? String ?? "").lowercased()
+            let windowName = (info[kCGWindowName as String] as? String ?? "").lowercased()
+            if ownerName.contains("siri")
+                || windowName.contains("siri")
+                || ownerName.contains("notification center")
+                || ownerName.contains("通知中心")
+                || windowName.contains("通知中心") {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func isSiriInteractionActive() -> Bool {
+        if isSiriVoiceHostApplication(NSWorkspace.shared.frontmostApplication) {
+            return true
+        }
+
+        if NSWorkspace.shared.runningApplications.contains(where: { app in
+            isSiriVoiceHostApplication(app) && app.isActive
+        }) {
+            return true
+        }
+
+        return hasVisibleSiriHostWindow()
+    }
+
+    private func suspendForSiriIfNeeded() {
+        guard !isSuspendedForSiri else { return }
+        isSuspendedForSiri = true
+        GlobalLogger.speech.info("[SiriPause] suspending Aether while Siri is active")
+        finalizationWorkItem?.cancel()
+        finalizationWorkItem = nil
+        stopTimer?.invalidate()
+        stopTimer = nil
+        cleanup()
+        stopAudioCapture()
+        clearHUDOverride()
+        HUDManager.shared.hide()
+        status = siriPauseStatusText
+    }
+
+    private func resumeAfterSiriIfNeeded() {
+        guard isSuspendedForSiri else { return }
+        isSuspendedForSiri = false
+        GlobalLogger.speech.info("[SiriPause] resuming Aether after Siri")
+    }
+
+    private func updateSiriSuspensionStateIfNeeded() {
+        let siriActive = pauseForSiriEnabled && isSiriInteractionActive()
+        if siriActive {
+            suspendForSiriIfNeeded()
+        } else if isSuspendedForSiri {
+            resumeAfterSiriIfNeeded()
+            syncRecognitionState()
+        }
+    }
+
     // MARK: - State Sync
     private func syncRecognitionState() {
+        if pauseForSiriEnabled, isSiriInteractionActive() {
+            suspendForSiriIfNeeded()
+            return
+        }
+        resumeAfterSiriIfNeeded()
         let anyActive = isAlwaysListeningEnabled || isWakeWordEnabled || isPTTEnabled
         if !anyActive {
             resetHUDTransientState(); stopAndFinalize(); stopAudioCapture(); HUDManager.shared.hide()
@@ -885,7 +1385,8 @@ final class SpeechManager: ObservableObject {
 
         // Start audio capture
         refreshHeadsetVoiceProcessingPolicy()
-        audioCapture.selectedDeviceID = selectedInputDeviceID
+        audioCapture.selectedDeviceID = effectiveCaptureInputDeviceID()
+        audioCapture.preferSystemManagedHeadsetRoute = (selectedInputDeviceID == 0)
         do { try audioCapture.start() } catch {
             status = NSLocalizedString("speech.error", comment: ""); lastError = error.localizedDescription
             if isAlwaysListeningEnabled { refreshContinuousHUD(); scheduleContinuousRecovery(delay: 0.8) }
@@ -931,9 +1432,9 @@ final class SpeechManager: ObservableObject {
                 taskHint: taskHint,
                 preferOnDevice: preferOnDevice
             )
-            let selectedDeviceName = availableInputDevices.first(where: { $0.id == selectedInputDeviceID })?.name ?? "system-default"
+            let selectedDeviceName = availableInputDevices.first(where: { $0.id == effectiveCaptureInputDeviceID() })?.name ?? "system-default"
             GlobalLogger.speech.info(
-                "[ASR Session] start locale=\(activeLocale.identifier) mode=\(recognitionControlMode.rawValue) taskHint=\(String(describing: taskHint)) preferOnDevice=\(preferOnDevice) selectedInputID=\(selectedInputDeviceID) selectedInputName=\(selectedDeviceName) autoPunctuation=\(isAutoPunctuationEnabled) contextualCount=\(contextual.count)"
+                "[ASR Session] start locale=\(activeLocale.identifier) mode=\(recognitionControlMode.rawValue) taskHint=\(String(describing: taskHint)) preferOnDevice=\(preferOnDevice) selectedInputID=\(selectedInputDeviceID) effectiveInputID=\(effectiveCaptureInputDeviceID()) selectedInputName=\(selectedDeviceName) autoPunctuation=\(isAutoPunctuationEnabled) contextualCount=\(contextual.count)"
             )
             if shouldSuppressSystemHeadsetMicControl {
                 headsetInputMuteRouter.activate { [weak self] inputShouldBeMuted in
@@ -951,10 +1452,10 @@ final class SpeechManager: ObservableObject {
         }
 
         // Start EOS detection
-        eosDetector.trailingSilenceMs = UserDefaults.standard.object(forKey: "trailingSilenceMs") as? Double ?? 1000
-        eosDetector.minUtteranceMs = UserDefaults.standard.object(forKey: "minUtteranceMs") as? Double ?? 550
-        eosDetector.maxUtteranceMs = UserDefaults.standard.object(forKey: "maxUtteranceMs") as? Double ?? 30000
-        eosDetector.maxSegmentSec = maxRecordingSegmentSeconds()
+        configureEOSParameters(
+            for: currentVoiceFeatureAvailability(),
+            sessionTypingMode: sessionTypingMode
+        )
         eosDetector.start()
 
         lastTranscript = ""; lastError = ""
@@ -2014,13 +2515,16 @@ final class SpeechManager: ObservableObject {
             targetTrailingMs = 560
         }
 
-        switch recognitionControlMode {
+        let style = currentSessionSpeechStyle(
+            for: currentVoiceFeatureAvailability(),
+            sessionTypingModeOverride: sessionTypingMode
+        )
+
+        switch style {
         case .command:
-            targetTrailingMs = min(targetTrailingMs, 700)
+            targetTrailingMs = min(targetTrailingMs, 620)
         case .dictation:
             targetTrailingMs = max(targetTrailingMs, 780)
-        case .auto:
-            break
         }
 
         if sessionTypingMode {
@@ -2413,7 +2917,9 @@ final class SpeechManager: ObservableObject {
     }
 
     static func shouldDiscardTranscriptOnEngineRestart(reason: String) -> Bool {
-        reason == "input-device-selection" || reason == "default-input-device-changed"
+        reason == "input-device-selection"
+            || reason == "default-input-device-changed"
+            || reason == "audio-route-changed"
     }
 
     private func refreshHeadsetVoiceProcessingPolicy() {
@@ -2447,6 +2953,9 @@ final class SpeechManager: ObservableObject {
     // MARK: - Device Management
     func refreshInputDevices() {
         var devices: [AudioInputDevice] = [.defaultSystem]
+        let realCaptureUIDs = realCaptureDeviceUIDs()
+        let realCaptureNames = realCaptureDeviceNames()
+        var dedupedByName: [String: AudioInputDevice] = [:]
         var propAddr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         var dataSize: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &propAddr, 0, nil, &dataSize) == noErr else { return }
@@ -2488,16 +2997,57 @@ final class SpeechManager: ObservableObject {
                     if AudioObjectGetPropertyData(id, &uidAddr, 0, nil, &uidSize, uidRef) == noErr, let resolvedUID = uidRef.pointee {
                         uid = resolvedUID as String
                     }
+                    let transportType = audioDeviceTransportType(id)
+                    guard shouldKeepInputDeviceCandidate(
+                        name: name,
+                        uid: uid,
+                        transportType: transportType,
+                        realCaptureUIDs: realCaptureUIDs,
+                        realCaptureNames: realCaptureNames
+                    ) else { continue }
                     var icon = "mic.fill"; let ln = name.lowercased()
                     if ln.contains("airpods") { icon = "airpods"; if ln.contains("pro") { icon = "airpodspro" }; if ln.contains("max") { icon = "airpodsmax" } }
                     else if ln.contains("studio display") { icon = "monitor" }
                     else if ln.contains("external") { icon = "mic.badge.plus" }
                     else if ln.contains("macbook") || ln.contains("built-in") { icon = "laptopcomputer" }
-                    devices.append(AudioInputDevice(id: id, name: name, uid: uid, iconName: icon))
+                    let candidate = AudioInputDevice(id: id, name: name, uid: uid, iconName: icon)
+                    let key = normalizedInputDeviceName(name)
+                    if let existing = dedupedByName[key] {
+                        if shouldReplaceInputDeviceCandidate(
+                            existing: existing,
+                            replacementName: name,
+                            replacementUID: uid,
+                            replacementTransportType: transportType
+                        ) {
+                            dedupedByName[key] = candidate
+                        }
+                    } else {
+                        dedupedByName[key] = candidate
+                    }
                 }
             }
         }
-        DispatchQueue.main.async { self.availableInputDevices = devices; self.refreshContinuousHUD() }
+        let coreDevices = dedupedByName.values.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        devices.append(contentsOf: canonicalInputDevices(from: coreDevices))
+        availableInputDevices = devices
+        logVisibleInputDevices(devices, context: "refresh")
+
+        if let remappedID = remapSelectedInputDeviceIfNeeded(using: devices) {
+            if remappedID != selectedInputDeviceID {
+                GlobalLogger.speech.info("[AudioRoute] remapped selected input to replacement device id=\(remappedID)")
+                applySelectedInputDeviceID(remappedID, allowRestart: false, reason: "refresh-remap")
+            }
+        } else if selectedInputDeviceID != 0 && !devices.contains(where: { $0.id == selectedInputDeviceID }) {
+            GlobalLogger.speech.info("[AudioRoute] selected input disappeared, falling back to system default")
+            applySelectedInputDeviceID(0, allowRestart: false, reason: "refresh-fallback")
+        } else if selectedInputDeviceID != 0,
+                  let selected = devices.first(where: { $0.id == selectedInputDeviceID }) {
+            selectedInputDeviceUIDHint = selected.uid
+            selectedInputDeviceNameHint = selected.name
+        }
+        refreshContinuousHUD()
     }
 
     func syncHUDState() {
@@ -2505,25 +3055,36 @@ final class SpeechManager: ObservableObject {
     }
 
     private func setupAudioDeviceListeners() {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        let addresses: [AudioObjectPropertyAddress] = [
+            AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain),
+            AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain),
+            AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        ]
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             DispatchQueue.main.async { guard let self else { return }
+                let before = self.currentAudioRouteSnapshot()
                 self.refreshInputDevices()
-                if self.selectedInputDeviceID == 0 {
-                    let hud = HUDManager.shared
-                    hud.update(
-                        mode: hud.state.mode,
-                        message: hud.state.message,
-                        language: hud.state.language,
-                        recognitionControlMode: self.hudRecognitionControlMode,
-                        inputDeviceIcon: self.hudInputIcon()
-                    )
-                }
+                let after = self.currentAudioRouteSnapshot()
+                GlobalLogger.speech.info(
+                    "[AudioRoute] selectedInputID=\(self.selectedInputDeviceID) effectiveInputID=\(after.effectiveInputID) defaultInputID=\(after.defaultInputID) defaultOutputID=\(after.defaultOutputID) effectiveInputName=\(self.audioDeviceName(after.effectiveInputID)) defaultOutputName=\(self.audioDeviceName(after.defaultOutputID))"
+                )
+                let hud = HUDManager.shared
+                hud.update(
+                    mode: hud.state.mode,
+                    message: hud.state.message,
+                    language: hud.state.language,
+                    recognitionControlMode: self.hudRecognitionControlMode,
+                    inputDeviceIcon: self.hudInputIcon()
+                )
                 let active = self.audioCapture.isRunning || self.recognitionSession.isRunning || self.isAlwaysListeningEnabled
-                if active { self.scheduleEngineRestart(reason: "default-input-device-changed") }
+                if active && self.shouldRestartForAudioRouteChange(from: before, to: after) {
+                    self.scheduleEngineRestart(reason: "audio-route-changed")
+                }
             }
         }
-        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, nil, block)
+        for var address in addresses {
+            AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, nil, block)
+        }
     }
 
     // MARK: - Focus / Typing Detection (preserved from original)
