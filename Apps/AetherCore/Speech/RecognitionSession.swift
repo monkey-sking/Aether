@@ -34,7 +34,16 @@ final class RecognitionSession {
     ) throws {
         cancel()
 
-        guard let rec = SFSpeechRecognizer(locale: locale), rec.isAvailable else {
+        guard let rec = SFSpeechRecognizer(locale: locale) else {
+            GlobalLogger.speech.info(
+                "[ASR Session] recognizer init failed locale=\(locale.identifier)"
+            )
+            throw RecognitionSessionError.unavailable
+        }
+        guard rec.isAvailable else {
+            GlobalLogger.speech.info(
+                "[ASR Session] recognizer unavailable locale=\(locale.identifier) supportsOnDevice=\(rec.supportsOnDeviceRecognition) preferOnDevice=\(preferOnDevice)"
+            )
             throw RecognitionSessionError.unavailable
         }
         recognizer = rec
@@ -76,6 +85,9 @@ final class RecognitionSession {
                     let isNoSpeech = (ns.domain == "kAFAssistantErrorDomain" && ns.code == 203)
                         || error.localizedDescription.contains("No speech detected")
                     let isRecoverable = isCancelled || isNoSpeech
+                    GlobalLogger.speech.info(
+                        "[ASR Session] task error domain=\(ns.domain) code=\(ns.code) recoverable=\(isRecoverable) cancelled=\(isCancelled) description=\(error.localizedDescription)"
+                    )
                     if !isCancelled {
                         self.onError?(error, isRecoverable)
                     }

@@ -6,6 +6,13 @@ import Carbon
 import UniformTypeIdentifiers
 import IOKit.hidsystem
 
+final class HeadsetRouteState {
+    static let shared = HeadsetRouteState()
+    private init() {}
+
+    var isConnected: Bool = false
+}
+
 enum OnboardingStep: Equatable {
     case accessibility
     case microphone
@@ -1179,15 +1186,29 @@ class AppState: ObservableObject {
 
     private func handleHeadsetAutoEnable(source: String) {
         let isHeadsetLike = voiceService.isCurrentInputHeadsetLike
-        if !lastHeadsetLikeInput, isHeadsetLike {
+        let isStartupCheck = source == "startup"
+        let shouldAutoEnableForCurrentRoute = isHeadsetLike && (!lastHeadsetLikeInput || isStartupCheck)
+        if shouldAutoEnableForCurrentRoute {
             if autoEnableVoiceInputOnHeadset && !isVoiceInputEnabled {
                 isVoiceInputEnabled = true
             }
             if autoEnableVoiceControlOnHeadset && !isVoiceControlEnabled {
                 isVoiceControlEnabled = true
             }
+            if autoEnableVoiceOnHeadset && !isVoiceEnabled {
+                isVoiceEnabled = true
+            }
         }
         lastHeadsetLikeInput = isHeadsetLike
+        HeadsetRouteState.shared.isConnected = isHeadsetLike
+        NotificationCenter.default.post(
+            name: .aetherHeadsetRouteChanged,
+            object: nil,
+            userInfo: [
+                "connected": isHeadsetLike,
+                "source": source
+            ]
+        )
     }
     
 
@@ -1351,14 +1372,23 @@ class AppState: ObservableObject {
         return entry.action == "输入" || entry.action == "Dictation"
     }
 
+    private func localizedVoiceUsageAction(_ key: String, fallback: String) -> String {
+        let value = NSLocalizedString(key, comment: "")
+        return value == key ? fallback : value
+    }
+
     private func isVoiceUsageFailure(_ entry: VoiceUsageEvent) -> Bool {
         guard entry.kind == .dictation else { return false }
-        return entry.action == "识别失败"
-            || entry.action == "Recognition Failed"
-            || entry.action == "注入失败"
-            || entry.action == "Injection Failed"
-            || entry.action == "注入未验证"
-            || entry.action == "Injection Unverified"
+        let failureActions = Set([
+            localizedVoiceUsageAction("voice_usage.failure.recognition_failed", fallback: "Recognition Failed"),
+            localizedVoiceUsageAction("voice_usage.failure.no_speech", fallback: "No Speech Detected"),
+            localizedVoiceUsageAction("voice_usage.failure.interrupted", fallback: "Recognition Interrupted"),
+            localizedVoiceUsageAction("voice_usage.failure.unavailable", fallback: "Recognition Unavailable"),
+            localizedVoiceUsageAction("voice_usage.failure.injection_failed", fallback: "Input Failed"),
+            localizedVoiceUsageAction("voice_usage.failure.injection_unverified", fallback: "Input Unverified"),
+            localizedVoiceUsageAction("voice_usage.failure.dictation_disabled", fallback: "Voice Input Off")
+        ])
+        return failureActions.contains(entry.action)
     }
 
     private func isVoiceUsageUnrecognized(_ entry: VoiceUsageEvent) -> Bool {
@@ -2506,13 +2536,19 @@ class AppState: ObservableObject {
     ) {
         let action: String
         if reason == "dictation-disabled" {
-            action = AppLocalization.isChinese ? "语音输入已关闭" : "Voice Input Off"
+            action = localizedVoiceUsageAction("voice_usage.failure.dictation_disabled", fallback: "Voice Input Off")
+        } else if reason == "no-speech-detected" {
+            action = localizedVoiceUsageAction("voice_usage.failure.no_speech", fallback: "No Speech Detected")
+        } else if reason == "recognition-interrupted" {
+            action = localizedVoiceUsageAction("voice_usage.failure.interrupted", fallback: "Recognition Interrupted")
+        } else if reason == "recognition-unavailable" {
+            action = localizedVoiceUsageAction("voice_usage.failure.unavailable", fallback: "Recognition Unavailable")
         } else if reason == "invalid-input-target" || reason == "post-injection-mismatch" {
-            action = AppLocalization.isChinese ? "输入失败" : "Input Failed"
+            action = localizedVoiceUsageAction("voice_usage.failure.injection_failed", fallback: "Input Failed")
         } else if reason == "post-injection-unverified" {
-            action = AppLocalization.isChinese ? "输入未确认" : "Input Unverified"
+            action = localizedVoiceUsageAction("voice_usage.failure.injection_unverified", fallback: "Input Unverified")
         } else {
-            action = AppLocalization.isChinese ? "识别失败" : "Recognition Failed"
+            action = localizedVoiceUsageAction("voice_usage.failure.recognition_failed", fallback: "Recognition Failed")
         }
         recordVoiceUsageEvent(
             kind: .dictation,
@@ -3243,6 +3279,7 @@ private struct CurrentAppShortcutPanelView: View {
     @State private var blurWorkItem: DispatchWorkItem?
     @State private var searchText: String = ""
     @State private var measuredSectionHeights: [String: CGFloat] = [:]
+    @State private var isCloseButtonHovered: Bool = false
 
     private var snapshot: FrontmostAppCommandSnapshot? {
         panelManager.appState?.mergedFrontmostAppCommandSnapshot(catalog.snapshot)
@@ -3319,10 +3356,10 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private var panelGradient: LinearGradient {
-        let top = Color(nsColor: colorScheme == .dark ? .windowBackgroundColor : .controlBackgroundColor)
-        let bottom = Color(nsColor: .windowBackgroundColor)
-        let topOpacity = isPanelFocused ? 0.98 : 0.86
-        let bottomOpacity = isPanelFocused ? 0.96 : 0.82
+        let top = Color.white.opacity(colorScheme == .dark ? 0.12 : 0.5)
+        let bottom = Color.white.opacity(colorScheme == .dark ? 0.08 : 0.28)
+        let topOpacity = isPanelFocused ? 0.9 : 0.76
+        let bottomOpacity = isPanelFocused ? 0.84 : 0.68
         return LinearGradient(colors: [top.opacity(topOpacity), bottom.opacity(bottomOpacity)], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
@@ -3331,13 +3368,13 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private var chromeBackground: Color {
-        let base = colorScheme == .dark ? 0.12 : 0.04
+        let base = colorScheme == .dark ? 0.16 : 0.08
         return Color.primary.opacity(isPanelFocused ? base : base * 1.35)
     }
 
     private var cardBackground: Color {
-        let focusedOpacity = colorScheme == .dark ? 0.84 : 0.9
-        let blurredOpacity = colorScheme == .dark ? 0.7 : 0.76
+        let focusedOpacity = colorScheme == .dark ? 0.62 : 0.72
+        let blurredOpacity = colorScheme == .dark ? 0.54 : 0.64
         return Color(nsColor: colorScheme == .dark ? .controlBackgroundColor : .textBackgroundColor)
             .opacity(isPanelFocused ? focusedOpacity : blurredOpacity)
     }
@@ -3352,7 +3389,7 @@ private struct CurrentAppShortcutPanelView: View {
 
     var body: some View {
         ZStack {
-            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
+            VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow)
 
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(panelGradient)
@@ -3360,7 +3397,7 @@ private struct CurrentAppShortcutPanelView: View {
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .stroke(panelStroke, lineWidth: 1)
                 )
-                .shadow(color: .black.opacity(isPanelFocused ? 0.12 : 0.08), radius: isPanelFocused ? 28 : 18, y: isPanelFocused ? 18 : 10)
+                .shadow(color: .black.opacity(isPanelFocused ? 0.10 : 0.06), radius: isPanelFocused ? 22 : 14, y: isPanelFocused ? 14 : 8)
 
             VStack(alignment: .leading, spacing: 20) {
                 header
@@ -3431,6 +3468,9 @@ private struct CurrentAppShortcutPanelView: View {
             }
             .padding(26)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .compositingGroup()
         .onPreferenceChange(CurrentAppShortcutSectionHeightPreferenceKey.self) { heights in
             guard !heights.isEmpty else { return }
             var next = measuredSectionHeights
@@ -3477,6 +3517,8 @@ private struct CurrentAppShortcutPanelView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 14) {
+                macCloseButton
+
                 Group {
                     if let appIcon {
                         Image(nsImage: appIcon)
@@ -3570,19 +3612,28 @@ private struct CurrentAppShortcutPanelView: View {
                     _ = FrontmostAppCommandCatalog.shared.refresh(force: true)
                 }
                 .buttonStyle(.bordered)
-
-                Button {
-                    CurrentAppShortcutPanelManager.shared.hide()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.headline.weight(.semibold))
-                        .frame(width: 30, height: 30)
-                }
-                .buttonStyle(.borderless)
-                .background(chromeBackground)
-                .clipShape(Circle())
             }
         }
+    }
+
+    private var macCloseButton: some View {
+        Button {
+            CurrentAppShortcutPanelManager.shared.hide()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(Color(red: 1.0, green: 0.37, blue: 0.33))
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.black.opacity(isCloseButtonHovered ? 0.62 : 0.28))
+            }
+            .frame(width: 14, height: 14)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isCloseButtonHovered = hovering
+        }
+        .padding(.top, 4)
     }
 
     private func emptyState(title: String, detail: String) -> some View {
@@ -3936,4 +3987,5 @@ struct AetherApp: App {
 extension Notification.Name {
     static let toggleConnectionLock = Notification.Name("AetherToggleConnectionLock")
     static let toggleShortcutPanel = Notification.Name("AetherToggleShortcutPanel")
+    static let aetherHeadsetRouteChanged = Notification.Name("AetherHeadsetRouteChanged")
 }

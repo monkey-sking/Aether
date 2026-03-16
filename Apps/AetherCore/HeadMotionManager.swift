@@ -239,10 +239,21 @@ class HeadMotionManager: ObservableObject {
                 self?.handleAirPodsStateChanged(notification)
             }
         }
+        headsetRouteObserver = NotificationCenter.default.addObserver(
+            forName: .aetherHeadsetRouteChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                self?.handleHeadsetRouteChanged(notification)
+            }
+        }
         startStabilityTimer()
         updateAirPodsRemoteCommandRegistration()
         DispatchQueue.main.async { [weak self] in
-            self?.refreshHeadGestureMonitoringState(source: "initial-load")
+            guard let self else { return }
+            self.applyHeadsetRouteConnectionUpdate(HeadsetRouteState.shared.isConnected, source: "startup")
+            self.applyAirPodsSideUpdate(self.lastObservedAirPodSide, source: "startup")
         }
     }
     
@@ -325,9 +336,9 @@ class HeadMotionManager: ObservableObject {
                 pendingAutoTrackingStart = nil
                 return
             }
-            guard lastObservedAirPodSide != .none, !isTracking else { return }
+            guard hasActiveHeadsetConnection, !isTracking else { return }
             DispatchQueue.main.async { [weak self] in
-                self?.scheduleAutoTrackingStartAfterConnection()
+                self?.scheduleAutoTrackingStartAfterConnection(trigger: "settings-enabled")
             }
         }
     }
@@ -471,8 +482,16 @@ class HeadMotionManager: ObservableObject {
     private var lastHeadsetTriplePressAt: Date = .distantPast
     private let headsetRemoteActionDebounce: TimeInterval = 0.75
     private var lastObservedAirPodSide: AirPodSide = .none
+    private var lastObservedHeadsetRouteConnected: Bool = false
     private var pendingAutoTrackingStart: DispatchWorkItem?
+    private var pendingAutoTrackingRetry: DispatchWorkItem?
+    private var autoTrackingRetryAttempts: Int = 0
     private var airPodsStateObserver: NSObjectProtocol?
+    private var headsetRouteObserver: NSObjectProtocol?
+
+    private var hasActiveHeadsetConnection: Bool {
+        lastObservedHeadsetRouteConnected || lastObservedAirPodSide != .none
+    }
 
     // MARK: - Recognition Mode Override Persistence
     private static func loadRecognitionControlModeFromDefaults() -> RecognitionControlMode {
@@ -582,8 +601,13 @@ class HeadMotionManager: ObservableObject {
     
     func startTracking() {
         guard !isTracking else { return }
+        GlobalLogger.lifecycle.info(
+            "HeadMotion startTracking requested autoStart=\(autoStartTrackingOnHeadsetConnection) routeConnected=\(lastObservedHeadsetRouteConnected) airPodsSide=\(lastObservedAirPodSide.rawValue) hasHeadset=\(hasActiveHeadsetConnection) motionAvailable=\(motionManager.isDeviceMotionAvailable)"
+        )
         pendingAutoTrackingStart?.cancel()
         pendingAutoTrackingStart = nil
+        pendingAutoTrackingRetry?.cancel()
+        pendingAutoTrackingRetry = nil
         stopPassiveHeadGestureMonitoring(source: "tracking-start")
         
         // CRITICAL: Verify AirPods are actually available before starting
@@ -592,12 +616,18 @@ class HeadMotionManager: ObservableObject {
         if !motionManager.isDeviceMotionAvailable {
             let msg = String(localized: "motion.error.airpods_not_detected")
             attitudeText = String(localized: "headset.status.no_compatible")
+            GlobalLogger.lifecycle.info(
+                "HeadMotion startTracking aborted motionUnavailable routeConnected=\(lastObservedHeadsetRouteConnected) airPodsSide=\(lastObservedAirPodSide.rawValue)"
+            )
             os_log("Cannot start tracking: AirPods not available", log: log, type: .error)
             HUDManager.shared.showTemporary(
                 message: String(localized: "headset.hud.no_compatible"),
                 icon: "xmark.circle.fill"
             )
             onError?(msg)
+            Task { @MainActor [weak self] in
+                self?.scheduleAutoTrackingRetryIfNeeded(reason: "motion-unavailable")
+            }
             return // BLOCK tracking if AirPods not available
         }
         
@@ -638,6 +668,9 @@ class HeadMotionManager: ObservableObject {
                         error.localizedDescription
                     )
                 }
+                Task { @MainActor [weak self] in
+                    self?.scheduleAutoTrackingRetryIfNeeded(reason: "motion-error")
+                }
                 self.stopTrackingInternal() // Clean up
                 return
             }
@@ -653,7 +686,11 @@ class HeadMotionManager: ObservableObject {
                 // We received the first valid data packet! Connection successful.
                 self.connectionTimer?.invalidate()
                 self.connectionTimer = nil
+                self.autoTrackingRetryAttempts = 0
                 self.isTracking = true
+                GlobalLogger.lifecycle.info(
+                    "HeadMotion first packet received routeConnected=\(self.lastObservedHeadsetRouteConnected) airPodsSide=\(self.lastObservedAirPodSide.rawValue)"
+                )
                 Task { @MainActor in
                     ConnectionLockService.shared.setTrackingLockEnabled(true)
                 }
@@ -797,6 +834,9 @@ class HeadMotionManager: ObservableObject {
     
     private func handleConnectionTimeout() {
         guard !isTracking else { return } // Already connected
+        GlobalLogger.lifecycle.info(
+            "HeadMotion connection timeout routeConnected=\(lastObservedHeadsetRouteConnected) airPodsSide=\(lastObservedAirPodSide.rawValue) motionAvailable=\(motionManager.isDeviceMotionAvailable)"
+        )
         os_log("Aether: Connection Timeout - No data received", log: log, type: .error)
         
         let msg = String(localized: "motion.error.connection_timeout")
@@ -807,21 +847,56 @@ class HeadMotionManager: ObservableObject {
         onError?(msg)
         
         stopTrackingInternal()
+        Task { @MainActor [weak self] in
+            self?.scheduleAutoTrackingRetryIfNeeded(reason: "connection-timeout")
+        }
         
         DispatchQueue.main.async {
             self.attitudeText = String(localized: "headset.status.connection_failed")
         }
     }
+
+    @MainActor
+    private func scheduleAutoTrackingRetryIfNeeded(reason: String) {
+        guard autoStartTrackingOnHeadsetConnection, !isTracking, hasActiveHeadsetConnection else { return }
+        guard autoTrackingRetryAttempts < 3 else { return }
+
+        autoTrackingRetryAttempts += 1
+        pendingAutoTrackingRetry?.cancel()
+
+        let retryDelay = 0.8 + (Double(autoTrackingRetryAttempts - 1) * 0.6)
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.autoStartTrackingOnHeadsetConnection, !self.isTracking, self.hasActiveHeadsetConnection else { return }
+            self.startTracking()
+        }
+        pendingAutoTrackingRetry = workItem
+        os_log(
+            "Head tracking auto-start retry scheduled (%{public}@) attempt=%{public}d delay=%.2f",
+            log: log,
+            type: .info,
+            reason,
+            autoTrackingRetryAttempts,
+            retryDelay
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay, execute: workItem)
+    }
     
     func stopTracking() {
         pendingAutoTrackingStart?.cancel()
         pendingAutoTrackingStart = nil
+        GlobalLogger.lifecycle.info("HeadMotion stopTracking requested")
         stopTrackingInternal()
     }
 
     private func stopTrackingInternal() {
+        GlobalLogger.lifecycle.info(
+            "HeadMotion stopTrackingInternal isTracking=\(isTracking) routeConnected=\(lastObservedHeadsetRouteConnected) airPodsSide=\(lastObservedAirPodSide.rawValue)"
+        )
         connectionTimer?.invalidate()
         connectionTimer = nil
+        pendingAutoTrackingRetry?.cancel()
+        pendingAutoTrackingRetry = nil
 
         if AutomationOutputs.shared.isDraggingActive {
             AutomationOutputs.shared.drag(start: false, at: nil)
@@ -852,6 +927,9 @@ class HeadMotionManager: ObservableObject {
         isCalibratingRange = false
         isAirPodsStreamActive = false
         isLookingAtScreen = false
+        if !hasActiveHeadsetConnection {
+            autoTrackingRetryAttempts = 0
+        }
         refreshHeadsetRemoteStatus()
         resetHeadGestureRecognition()
         os_log("Aether: Stopped tracking", log: log)
@@ -863,17 +941,19 @@ class HeadMotionManager: ObservableObject {
             return
         }
 
-        let shouldMonitor = headGestureToggleEnabled && lastObservedAirPodSide != .none && motionManager.isDeviceMotionAvailable
+        let shouldMonitor = headGestureToggleEnabled && hasActiveHeadsetConnection && motionManager.isDeviceMotionAvailable
         if shouldMonitor {
             startPassiveHeadGestureMonitoring(source: source)
         } else {
             os_log(
-                "Head gesture monitor idle (%{public}@): enabled=%{public}@ connected=%{public}@ motionAvailable=%{public}@",
+                "Head gesture monitor idle (%{public}@): enabled=%{public}@ connected=%{public}@ routeConnected=%{public}@ side=%{public}@ motionAvailable=%{public}@",
                 log: log,
                 type: .info,
                 source,
                 String(headGestureToggleEnabled),
-                String(lastObservedAirPodSide != .none),
+                String(hasActiveHeadsetConnection),
+                String(lastObservedHeadsetRouteConnected),
+                lastObservedAirPodSide.rawValue,
                 String(motionManager.isDeviceMotionAvailable)
             )
             stopPassiveHeadGestureMonitoring(source: source)
@@ -883,7 +963,7 @@ class HeadMotionManager: ObservableObject {
     private func startPassiveHeadGestureMonitoring(source: String) {
         guard !isTracking else { return }
         guard headGestureToggleEnabled else { return }
-        guard lastObservedAirPodSide != .none else { return }
+        guard hasActiveHeadsetConnection else { return }
         guard motionManager.isDeviceMotionAvailable else { return }
         guard !isPassiveHeadGestureMonitoring else { return }
 
@@ -1291,14 +1371,51 @@ class HeadMotionManager: ObservableObject {
     @MainActor
     private func handleAirPodsStateChanged(_ notification: Notification) {
         let newSide = (notification.object as? AirPodSide) ?? AirPodsDetector.shared.currentSide()
+        applyAirPodsSideUpdate(newSide, source: "notification")
+    }
+
+    @MainActor
+    private func handleHeadsetRouteChanged(_ notification: Notification) {
+        let connected = notification.userInfo?["connected"] as? Bool ?? false
+        let source = notification.userInfo?["source"] as? String ?? "route"
+        applyHeadsetRouteConnectionUpdate(connected, source: source)
+    }
+
+    @MainActor
+    private func applyHeadsetRouteConnectionUpdate(_ connected: Bool, source: String) {
+        let wasConnected = hasActiveHeadsetConnection
+        guard connected != lastObservedHeadsetRouteConnected || source == "startup" else { return }
+        lastObservedHeadsetRouteConnected = connected
+        GlobalLogger.lifecycle.info(
+            "HeadMotion headset route update source=\(source) connected=\(connected) airPodsSide=\(lastObservedAirPodSide.rawValue) hasHeadset=\(hasActiveHeadsetConnection)"
+        )
+
+        if !hasActiveHeadsetConnection {
+            pendingAutoTrackingStart?.cancel()
+            pendingAutoTrackingStart = nil
+            stopPassiveHeadGestureMonitoring(source: "headset-route-disconnected-\(source)")
+            return
+        }
+
+        refreshHeadGestureMonitoringState(source: "headset-route-\(source)")
+        guard autoStartTrackingOnHeadsetConnection, !wasConnected else { return }
+        scheduleAutoTrackingStartAfterConnection(trigger: source == "startup" ? "startup" : "connected")
+    }
+
+    @MainActor
+    private func applyAirPodsSideUpdate(_ newSide: AirPodSide, source: String) {
         let wasConnected = lastObservedAirPodSide != .none
         let isConnected = newSide != .none
+        guard newSide != lastObservedAirPodSide || source == "startup" else { return }
         lastObservedAirPodSide = newSide
+        GlobalLogger.lifecycle.info(
+            "HeadMotion airpods side update source=\(source) side=\(newSide.rawValue) routeConnected=\(lastObservedHeadsetRouteConnected) hasHeadset=\(hasActiveHeadsetConnection)"
+        )
 
         if !isConnected {
             pendingAutoTrackingStart?.cancel()
             pendingAutoTrackingStart = nil
-            stopPassiveHeadGestureMonitoring(source: "airpods-disconnected")
+            stopPassiveHeadGestureMonitoring(source: "airpods-disconnected-\(source)")
             if isTracking {
                 let msg = String(localized: "motion.error.airpods_disconnected")
                 HUDManager.shared.showTemporary(
@@ -1312,18 +1429,23 @@ class HeadMotionManager: ObservableObject {
             return
         }
 
-        refreshHeadGestureMonitoringState(source: "airpods-connected")
+        refreshHeadGestureMonitoringState(source: "airpods-connected-\(source)")
         guard autoStartTrackingOnHeadsetConnection, !wasConnected else { return }
-        scheduleAutoTrackingStartAfterConnection()
+        scheduleAutoTrackingStartAfterConnection(trigger: source == "startup" ? "startup" : "connected")
     }
 
     @MainActor
-    private func scheduleAutoTrackingStartAfterConnection() {
+    private func scheduleAutoTrackingStartAfterConnection(trigger: String = "connected") {
         guard autoStartTrackingOnHeadsetConnection, !isTracking else { return }
 
         pendingAutoTrackingStart?.cancel()
 
-        let baseDelay: TimeInterval = showPostureGuideBeforeTracking ? 1.2 : 0.35
+        let baseDelay: TimeInterval
+        if trigger == "startup" {
+            baseDelay = showPostureGuideBeforeTracking ? 0.85 : 0.12
+        } else {
+            baseDelay = showPostureGuideBeforeTracking ? 1.2 : 0.35
+        }
         if showPostureGuideBeforeTracking {
             HUDManager.shared.showTemporary(
                 message: String(localized: "headset.hud.posture_guide"),
@@ -1332,8 +1454,11 @@ class HeadMotionManager: ObservableObject {
 
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            guard self.autoStartTrackingOnHeadsetConnection, !self.isTracking, self.lastObservedAirPodSide != .none else { return }
+            guard self.autoStartTrackingOnHeadsetConnection, !self.isTracking, self.hasActiveHeadsetConnection else { return }
             guard self.motionManager.isDeviceMotionAvailable else {
+                GlobalLogger.lifecycle.info(
+                    "HeadMotion auto-start blocked trigger=\(trigger) motionUnavailable routeConnected=\(self.lastObservedHeadsetRouteConnected) airPodsSide=\(self.lastObservedAirPodSide.rawValue)"
+                )
                 HUDManager.shared.showTemporary(
                     message: String(localized: "headset.hud.unsupported"),
                 )
@@ -1343,6 +1468,9 @@ class HeadMotionManager: ObservableObject {
         }
 
         pendingAutoTrackingStart = workItem
+        GlobalLogger.lifecycle.info(
+            "HeadMotion auto-start scheduled trigger=\(trigger) delay=\(String(format: "%.2f", baseDelay)) routeConnected=\(lastObservedHeadsetRouteConnected) airPodsSide=\(lastObservedAirPodSide.rawValue)"
+        )
         DispatchQueue.main.asyncAfter(deadline: .now() + baseDelay, execute: workItem)
     }
 
@@ -2222,6 +2350,19 @@ class HeadMotionManager: ObservableObject {
             if self.isHotkeyRegistered, let tap = self.eventTap, !CGEvent.tapIsEnabled(tap: tap) {
                 GlobalLogger.lifecycle.error("HeadMotionManager: Event tap unexpectedly disabled; attempting auto-reenable.")
                 CGEvent.tapEnable(tap: tap, enable: true)
+            }
+
+            let detectorSide = AirPodsDetector.shared.currentSide()
+            if detectorSide != self.lastObservedAirPodSide {
+                Task { @MainActor [weak self] in
+                    self?.applyAirPodsSideUpdate(detectorSide, source: "stability-sync")
+                }
+            }
+            let routeConnected = HeadsetRouteState.shared.isConnected
+            if routeConnected != self.lastObservedHeadsetRouteConnected {
+                Task { @MainActor [weak self] in
+                    self?.applyHeadsetRouteConnectionUpdate(routeConnected, source: "stability-sync")
+                }
             }
 
             guard self.isTracking else { return }
