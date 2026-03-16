@@ -351,7 +351,10 @@ final class SpeechManager: ObservableObject {
     private var stopTimer: Timer?
     private var finalizationWorkItem: DispatchWorkItem?
     private var pendingEngineRestartWorkItem: DispatchWorkItem?
+    private var continuousRecoveryWorkItem: DispatchWorkItem?
     private var lastEngineRestartAt: Date = .distantPast
+    private var suppressRecognitionFailuresUntil: Date = .distantPast
+    private var suppressRecognitionFailuresReason: String?
     private var hasCompletedInitialLocaleSetup = false
     private var headsetVoiceProcessingSuppressedUntil: Date = .distantPast
     private var headsetVoiceProcessingFaultTimes: [Date] = []
@@ -359,8 +362,14 @@ final class SpeechManager: ObservableObject {
     private let engineRestartDebounce: TimeInterval = 0.55
     private let engineRestartMinInterval: TimeInterval = 1.5
     private var continuousRecoveryGraceUntil: Date = .distantPast
+    private var routeRebuildGraceUntil: Date = .distantPast
+    private var recognitionStartupGraceUntil: Date = .distantPast
+    private var recognitionUnavailableUntil: Date = .distantPast
+    private var consecutiveRecognitionUnavailableCount: Int = 0
     private var lastContinuousStartAt: Date = .distantPast
+    private var nextAllowedStartOnceAt: Date = .distantPast
     private var isContinuousDictationWaitingForInputFocus: Bool = false
+    private var lastRecognitionBufferWithoutSessionAt: Date = .distantPast
     private var pendingExplicitCommandPrefixExpiry: Date?
     private let pendingExplicitCommandPrefixWindow: TimeInterval = 1.8
     private var cancellables = Set<AnyCancellable>()
@@ -1028,7 +1037,28 @@ final class SpeechManager: ObservableObject {
         setupAudioDeviceListeners()
 
         // Wire sub-module callbacks
-        audioCapture.onBuffer = { [weak self] buffer in self?.recognitionSession.append(buffer) }
+        audioCapture.onBuffer = { [weak self] buffer in
+            guard let self else { return }
+            if !self.recognitionSession.isRunning {
+                let now = Date()
+                let inRestartGrace = now < self.routeRebuildGraceUntil
+                    || now < self.continuousRecoveryGraceUntil
+                    || now < self.recognitionStartupGraceUntil
+                if !inRestartGrace, now.timeIntervalSince(self.lastRecognitionBufferWithoutSessionAt) >= 0.5 {
+                    self.lastRecognitionBufferWithoutSessionAt = now
+                    GlobalLogger.speech.info(
+                        "[ASR Session] buffer arrived while recognition inactive alwaysListening=\(self.isAlwaysListeningEnabled) audioRunning=\(self.audioCapture.isRunning) selectedInputID=\(self.selectedInputDeviceID) effectiveInputID=\(self.effectiveCaptureInputDeviceID())"
+                    )
+                }
+                if !inRestartGrace,
+                   self.isAlwaysListeningEnabled,
+                   now >= self.continuousRecoveryGraceUntil,
+                   self.pendingEngineRestartWorkItem == nil {
+                    self.scheduleContinuousRecovery(delay: 0.05)
+                }
+            }
+            self.recognitionSession.append(buffer)
+        }
         audioCapture.onVoiceActivityChanged = { [weak self] active, rms in
             guard let self else { return }
             self.latestVoiceActivity = active
@@ -1317,8 +1347,14 @@ final class SpeechManager: ObservableObject {
         cleanup()
         stopAudioCapture()
         clearHUDOverride()
-        HUDManager.shared.hide()
         status = siriPauseStatusText
+        HUDManager.shared.update(
+            mode: .command,
+            message: siriPauseStatusText,
+            language: activeLocale.identifier,
+            recognitionControlMode: .auto,
+            inputDeviceIcon: "pause.circle.fill"
+        )
     }
 
     private func resumeAfterSiriIfNeeded() {
@@ -1358,6 +1394,27 @@ final class SpeechManager: ObservableObject {
     // MARK: - Core Session Lifecycle
 
     func startOnce() {
+        let now = Date()
+        if now < recognitionUnavailableUntil {
+            let remaining = recognitionUnavailableUntil.timeIntervalSince(now)
+            if remaining > 0.05 {
+                GlobalLogger.speech.info(
+                    "[ASR Session] defer startOnce while recognizer unavailable remaining=\(String(format: "%.2f", remaining)) selectedInputID=\(selectedInputDeviceID) effectiveInputID=\(effectiveCaptureInputDeviceID())"
+                )
+                return
+            }
+        }
+        if now < nextAllowedStartOnceAt {
+            GlobalLogger.speech.info(
+                "[ASR Session] skip duplicate startOnce remaining=\(String(format: "%.2f", nextAllowedStartOnceAt.timeIntervalSince(now)))"
+            )
+            return
+        }
+        nextAllowedStartOnceAt = now.addingTimeInterval(0.18)
+        routeRebuildGraceUntil = .distantPast
+        recognitionStartupGraceUntil = now.addingTimeInterval(1.1)
+        continuousRecoveryWorkItem?.cancel()
+        continuousRecoveryWorkItem = nil
         cancelDeferredAudioStop()
         isStopping = false
         activeUtteranceID = 0
@@ -1385,11 +1442,25 @@ final class SpeechManager: ObservableObject {
 
         // Start audio capture
         refreshHeadsetVoiceProcessingPolicy()
-        audioCapture.selectedDeviceID = effectiveCaptureInputDeviceID()
-        audioCapture.preferSystemManagedHeadsetRoute = (selectedInputDeviceID == 0)
+        let selectedInputID = selectedInputDeviceID
+        let effectiveInputID = effectiveCaptureInputDeviceID()
+        audioCapture.selectedDeviceID = effectiveInputID
+        // AirPods / bluetooth headsets behave more like dynamic routes than
+        // fixed capture devices. Let the system own those routes; explicit
+        // binding has proven to fail with AVFAudio -10868 even when the UI
+        // already shows the headset as active.
+        audioCapture.preferSystemManagedHeadsetRoute = isHeadsetLikeInputDevice
+        GlobalLogger.speech.info(
+            "[AudioRoute] startOnce selectedInputID=\(selectedInputID) effectiveInputID=\(effectiveInputID) selectedName=\(availableInputDevices.first(where: { $0.id == selectedInputID })?.name ?? "system-default") effectiveName=\(availableInputDevices.first(where: { $0.id == effectiveInputID })?.name ?? audioDeviceName(effectiveInputID)) preferSystemManagedHeadsetRoute=\(audioCapture.preferSystemManagedHeadsetRoute)"
+        )
         do { try audioCapture.start() } catch {
+            let backoff = min(1.0 + (Double(consecutiveRecognitionUnavailableCount) * 0.35), 3.0)
+            recognitionUnavailableUntil = Date().addingTimeInterval(backoff)
+            GlobalLogger.speech.info(
+                "[AudioCapture] start failed error=\(error.localizedDescription) selectedInputID=\(selectedInputID) effectiveInputID=\(effectiveInputID) retryIn=\(String(format: "%.2f", backoff))"
+            )
             status = NSLocalizedString("speech.error", comment: ""); lastError = error.localizedDescription
-            if isAlwaysListeningEnabled { refreshContinuousHUD(); scheduleContinuousRecovery(delay: 0.8) }
+            if isAlwaysListeningEnabled { refreshContinuousHUD(); scheduleContinuousRecovery(delay: backoff) }
             else { showPTTUnavailableHUD() }
             return
         }
@@ -1447,7 +1518,16 @@ final class SpeechManager: ObservableObject {
             } else {
                 headsetInputMuteRouter.deactivate()
             }
+            consecutiveRecognitionUnavailableCount = 0
+            recognitionUnavailableUntil = .distantPast
         } catch {
+            let backoff = min(0.8 + (Double(consecutiveRecognitionUnavailableCount) * 0.45), 3.5)
+            consecutiveRecognitionUnavailableCount += 1
+            recognitionUnavailableUntil = Date().addingTimeInterval(backoff)
+            let backoffText = String(format: "%.2f", backoff)
+            GlobalLogger.speech.info(
+                "[ASR Session] failed to start error=\(error.localizedDescription) selectedInputID=\(selectedInputDeviceID) effectiveInputID=\(effectiveCaptureInputDeviceID()) headsetLike=\(isHeadsetLikeInputDevice) retryIn=\(backoffText)"
+            )
             status = NSLocalizedString("speech.unavailable", comment: ""); lastError = "Speech recognizer unavailable"; return
         }
 
@@ -1634,7 +1714,22 @@ final class SpeechManager: ObservableObject {
         let failedTranscript = trimmed.isEmpty ? nil : trimmed
         let appName = NSWorkspace.shared.frontmostApplication?.localizedName
         let bundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        onRecognitionFailure?(failedTranscript, error.localizedDescription, appName, bundleIdentifier)
+        let reason = classifyRecognitionFailureReason(error)
+        let shouldSuppressFailure = failedTranscript == nil
+            && Date() < suppressRecognitionFailuresUntil
+            && (reason == "no-speech-detected" || reason == "recognition-interrupted")
+        if shouldSuppressFailure {
+            GlobalLogger.speech.info(
+                "[RecognitionFailure] suppressed reason=\(reason) suppressReason=\(suppressRecognitionFailuresReason ?? "unknown")"
+            )
+        } else {
+            onRecognitionFailure?(
+                failedTranscript,
+                reason,
+                appName,
+                bundleIdentifier
+            )
+        }
 
         beginTypingRecoveryHold(reason: isRecoverable ? "recognition-recoverable-error" : "recognition-fatal-error")
         if isRecoverable {
@@ -1650,6 +1745,33 @@ final class SpeechManager: ObservableObject {
             stopAndFinalize(); scheduleContinuousRecovery(delay: 0.4)
         }
         maybeLogRuntimeMetrics(force: false)
+    }
+
+    private func classifyRecognitionFailureReason(_ error: Error) -> String {
+        let ns = error as NSError
+        let lowered = error.localizedDescription.lowercased()
+
+        let isNoSpeech = (ns.domain == "kAFAssistantErrorDomain" && ns.code == 203)
+            || lowered.contains("no speech detected")
+            || lowered.contains("speech timeout")
+            || lowered.contains("timeout")
+        if isNoSpeech {
+            return "no-speech-detected"
+        }
+
+        let isCancelled = ns.code == 10 || ns.code == 216 || ns.code == 1700
+            || lowered.contains("canceled")
+            || lowered.contains("cancelled")
+            || lowered.contains("interrupted")
+        if isCancelled {
+            return "recognition-interrupted"
+        }
+
+        if ns.domain == "kLSRErrorDomain" || lowered.contains("not available") || lowered.contains("unavailable") {
+            return "recognition-unavailable"
+        }
+
+        return "recognition-failed"
     }
 
     // MARK: - EOS Callbacks
@@ -1805,6 +1927,9 @@ final class SpeechManager: ObservableObject {
     }
 
     func teardownEngine() {
+        continuousRecoveryWorkItem?.cancel()
+        continuousRecoveryWorkItem = nil
+        recognitionStartupGraceUntil = .distantPast
         cancelDeferredAudioStop()
         isStopping = false
         eosDetector.stop()
@@ -1828,6 +1953,9 @@ final class SpeechManager: ObservableObject {
     }
 
     private func cleanup() {
+        continuousRecoveryWorkItem?.cancel()
+        continuousRecoveryWorkItem = nil
+        recognitionStartupGraceUntil = .distantPast
         recognitionSession.cancel()
         eosDetector.stop()
         stopTimer?.invalidate(); stopTimer = nil
@@ -1906,7 +2034,10 @@ final class SpeechManager: ObservableObject {
                 startOnce()
                 return
             }
-            if Date() < continuousRecoveryGraceUntil { return }
+            if Date() < continuousRecoveryGraceUntil
+                || Date() < routeRebuildGraceUntil
+                || Date() < recognitionStartupGraceUntil
+                || Date() < recognitionUnavailableUntil { return }
             if !audioCapture.isRunning {
                 if pendingEngineRestartWorkItem == nil { scheduleEngineRestart(reason: "continuous-health-check-engine-down") }
                 return
@@ -1921,9 +2052,12 @@ final class SpeechManager: ObservableObject {
 
     private func scheduleContinuousRecovery(delay: TimeInterval = 0.25) {
         guard isAlwaysListeningEnabled else { return }
+        continuousRecoveryWorkItem?.cancel()
         continuousRecoveryGraceUntil = Date().addingTimeInterval(delay + 0.6)
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, self.isAlwaysListeningEnabled, !self.recognitionSession.isRunning else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.continuousRecoveryWorkItem = nil
+            guard self.isAlwaysListeningEnabled, !self.recognitionSession.isRunning else { return }
             if self.shouldWaitForInputFocusBeforeContinuousDictationStart() {
                 self.isContinuousDictationWaitingForInputFocus = true
                 self.refreshContinuousHUD()
@@ -1931,6 +2065,8 @@ final class SpeechManager: ObservableObject {
             }
             self.startOnce()
         }
+        continuousRecoveryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     func undoLastInjection() { injector.undoPasteIfRecent() }
@@ -2736,6 +2872,16 @@ final class SpeechManager: ObservableObject {
     private func clearHUDOverride() { hudOverrideUntil = .distantPast; hudOverrideMessage = ""; hudOverrideIcon = "info.circle" }
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
+        if isSuspendedForSiri {
+            HUDManager.shared.update(
+                mode: .command,
+                message: siriPauseStatusText,
+                language: activeLocale.identifier,
+                recognitionControlMode: .auto,
+                inputDeviceIcon: "pause.circle.fill"
+            )
+            return
+        }
         let featureAvailability = currentVoiceFeatureAvailability()
         let isDictationOnly =
             featureAvailability.dictationEnabled
@@ -2893,6 +3039,10 @@ final class SpeechManager: ObservableObject {
 
     // MARK: - Engine Restart
     private func scheduleEngineRestart(reason: String, debounce: TimeInterval? = nil) {
+        if Self.shouldSuppressRecognitionFailureDuringRestart(reason: reason) {
+            suppressRecognitionFailuresUntil = Date().addingTimeInterval(2.5)
+            suppressRecognitionFailuresReason = reason
+        }
         let wait = debounce ?? engineRestartDebounce
         pendingEngineRestartWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -2907,8 +3057,22 @@ final class SpeechManager: ObservableObject {
         if elapsed < engineRestartMinInterval { scheduleEngineRestart(reason: "\(reason)-throttled", debounce: engineRestartMinInterval - elapsed); return }
         metrics.engineRestarts += 1
         beginTypingRecoveryHold(reason: "engine-restart-\(reason)")
-        stopAndFinalize(discardTranscript: Self.shouldDiscardTranscriptOnEngineRestart(reason: reason))
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+        continuousRecoveryWorkItem?.cancel()
+        continuousRecoveryWorkItem = nil
+        let shouldFullyRebuild = Self.shouldFullyRebuildForEngineRestart(reason: reason)
+        routeRebuildGraceUntil = Date().addingTimeInterval((shouldFullyRebuild ? 0.12 : 0.25) + 0.45)
+        if shouldFullyRebuild {
+            GlobalLogger.speech.info("[AudioRoute] performing full speech rebuild reason=\(reason)")
+            finalizationWorkItem?.cancel()
+            finalizationWorkItem = nil
+            stopTimer?.invalidate()
+            stopTimer = nil
+            resetHUDTransientState()
+            teardownEngine()
+        } else {
+            stopAndFinalize(discardTranscript: Self.shouldDiscardTranscriptOnEngineRestart(reason: reason))
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (shouldFullyRebuild ? 0.12 : 0.25)) { [weak self] in
             guard let self else { return }
             if self.isAlwaysListeningEnabled { self.startOnce() }
             self.lastEngineRestartAt = Date()
@@ -2920,6 +3084,20 @@ final class SpeechManager: ObservableObject {
         reason == "input-device-selection"
             || reason == "default-input-device-changed"
             || reason == "audio-route-changed"
+    }
+
+    static func shouldSuppressRecognitionFailureDuringRestart(reason: String) -> Bool {
+        reason == "input-device-selection"
+            || reason == "default-input-device-changed"
+            || reason == "audio-route-changed"
+            || reason.contains("headset")
+    }
+
+    static func shouldFullyRebuildForEngineRestart(reason: String) -> Bool {
+        reason == "input-device-selection"
+            || reason == "default-input-device-changed"
+            || reason == "audio-route-changed"
+            || reason.contains("headset")
     }
 
     private func refreshHeadsetVoiceProcessingPolicy() {
@@ -3900,6 +4078,12 @@ private final class HeadsetInputMuteRouter {
 
 enum GlobalLogger {
     private static let subsystem = "com.7fei.Aether"
+    private static let fileQueue = DispatchQueue(label: "com.7fei.Aether.logfile", qos: .utility)
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     static let speech = OSLog(subsystem: subsystem, category: "Speech")
     static let lifecycle = OSLog(subsystem: subsystem, category: "Lifecycle")
@@ -3919,6 +4103,51 @@ enum GlobalLogger {
         let formatted = "\(Date()) [\(category)] \(message)\n"
         fputs(formatted, stderr)
         os_log("%{public}@", log: log, type: type, message)
+        appendToLogFile(timestampedMessage: formatted)
+    }
+
+    private static func appendToLogFile(timestampedMessage: String) {
+        fileQueue.async {
+            let url = diagnosticsLogURL()
+            do {
+                let dir = url.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    try "".write(to: url, atomically: true, encoding: .utf8)
+                }
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                try trimLogFileIfNeeded(handle: handle, url: url)
+                try handle.seekToEnd()
+                if let data = timestampedMessage.data(using: .utf8) {
+                    try handle.write(contentsOf: data)
+                }
+            } catch {
+                fputs("\(isoFormatter.string(from: Date())) [Logger] failed to append diagnostics log: \(error)\n", stderr)
+            }
+        }
+    }
+
+    private static func diagnosticsLogURL() -> URL {
+        let base = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library", isDirectory: true)
+        return base
+            .appendingPathComponent("Logs", isDirectory: true)
+            .appendingPathComponent("Aether", isDirectory: true)
+            .appendingPathComponent("diagnostics.log", isDirectory: false)
+    }
+
+    private static func trimLogFileIfNeeded(handle: FileHandle, url: URL) throws {
+        let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+        let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+        let maxBytes: Int64 = 1_500_000
+        let keepBytes: Int64 = 1_000_000
+        guard size > maxBytes else { return }
+        let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+        let sliceStart = max(0, data.count - Int(keepBytes))
+        let suffix = data.subdata(in: sliceStart..<data.count)
+        try suffix.write(to: url, options: .atomic)
+        try handle.seek(toOffset: UInt64(suffix.count))
     }
 }
 

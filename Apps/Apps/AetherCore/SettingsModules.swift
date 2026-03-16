@@ -1150,6 +1150,7 @@ private struct VoiceLexiconSectionChip: View {
 
 private struct VoiceLexiconSectionHeader: View {
     let section: VoiceLexiconSection
+    let isExpanded: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -1179,10 +1180,16 @@ private struct VoiceLexiconSectionHeader: View {
                 Text(section.subtitle)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2)
             }
 
             Spacer(minLength: 12)
+
+            Image(systemName: "chevron.down")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.secondary)
+                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                .animation(.easeInOut(duration: 0.18), value: isExpanded)
         }
     }
 }
@@ -1199,11 +1206,22 @@ private struct VoiceLexiconSectionCard<Content: View>: View {
     }
 
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            content
-                .padding(.top, 4)
-        } label: {
-            VoiceLexiconSectionHeader(section: section)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                VoiceLexiconSectionHeader(section: section, isExpanded: isExpanded)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                content
+                    .padding(.top, 8)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.42))

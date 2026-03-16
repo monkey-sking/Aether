@@ -64,8 +64,6 @@ struct AetherMenuBar: Scene {
 
     var body: some Scene {
         MenuBarExtra {
-            Text(LocalizedStringKey("Aether"))
-
             Label(statusSummary, systemImage: statusSymbolName)
 
             if !appState.accessibilityTrusted {
@@ -88,23 +86,19 @@ struct AetherMenuBar: Scene {
 
             Divider()
 
-            Button(String(localized: appState.isMotionTracking ? "menu.stop_pointer" : "menu.start_pointer")) {
-                appState.toggleMotionTracking()
+            Toggle(isOn: $appState.isVoiceInputEnabled) {
+                Label(String(localized: "menu.toggle_voice_input"), systemImage: "text.cursor")
             }
 
-            Button(String(localized: "menu.switch_mode")) {
-                appState.toggleRecognitionInputControlMode()
+            Toggle(isOn: $appState.isVoiceControlEnabled) {
+                Label(String(localized: "menu.toggle_voice_control"), systemImage: "command")
             }
 
-            Button(String(localized: "menu.recenter_pointer")) {
-                appState.finishCalibration()
-            }
+            Divider()
 
             Button(String(localized: "menu.shortcut_panel")) {
                 appState.toggleShortcutPanel()
             }
-
-            Divider()
 
             Button(String(localized: "menu.settings_ellipsis")) {
                 GlobalLogger.lifecycle.info("Menu action: show main window")

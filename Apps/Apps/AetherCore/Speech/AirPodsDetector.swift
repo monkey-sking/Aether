@@ -24,12 +24,12 @@ final class AirPodsDetector {
     private func startPolling() {
         // Keep this conservative: AirPods side detection is only a UI/headset hint,
         // so it should not add noticeable startup or steady-state overhead.
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.pollIfNeeded()
         }
         // Ensure it runs even if UI is busy
         RunLoop.main.add(pollingTimer!, forMode: .common)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             self?.pollIfNeeded(forceFast: true)
         }
     }
@@ -129,7 +129,7 @@ final class AirPodsDetector {
 
     private var isRefreshingFast = false
     private var isRefreshingSlow = false
-    private let fastInterval: TimeInterval = 2.0
+    private let fastInterval: TimeInterval = 1.0
     private let slowInterval: TimeInterval = 120.0
     private var lastFastTime: Date = .distantPast
     private var lastSlowTime: Date = .distantPast
@@ -347,8 +347,12 @@ final class AirPodsDetector {
         }
     }
 
-    // Non-blocking accessor
+    // Non-blocking accessor. Also nudges a fresh poll so UI and auto-start logic
+    // do not stay stuck on an old state longer than the fast polling interval.
     func currentSide() -> AirPodSide {
+        DispatchQueue.main.async { [weak self] in
+            self?.pollIfNeeded(forceFast: false)
+        }
         return lastState
     }
     

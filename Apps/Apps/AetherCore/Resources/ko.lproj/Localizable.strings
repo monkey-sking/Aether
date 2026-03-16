@@ -539,3 +539,18 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "voice_lexicon.reset_language_confirm_title" = "기본 용어로 재설정할까요?";
 "voice_lexicon.reset_language_confirm" = "%@ 음성 어휘를 재설정할까요?";
 "speech.dragging" = "Dragging";
+
+
+/* Voice Usage Failures */
+"voice_usage.failure.recognition_failed" = "Recognition Failed";
+"voice_usage.failure.no_speech" = "No Speech Detected";
+"voice_usage.failure.interrupted" = "Recognition Interrupted";
+"voice_usage.failure.unavailable" = "Recognition Unavailable";
+"voice_usage.failure.dictation_disabled" = "Voice Input Off";
+"voice_usage.failure.injection_failed" = "Input Failed";
+"voice_usage.failure.injection_unverified" = "Input Unverified";
+
+/* Menu Bar Quick Toggles */
+"menu.toggle_voice_input" = "Voice Input";
+"menu.toggle_voice_control" = "Voice Control";
+"menu.toggle_pointer" = "Pointer Control";

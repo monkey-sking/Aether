@@ -610,3 +610,18 @@
 "lexicon.all_commands.title" = "全部命令";
 "lexicon.all_commands.subtitle" = "低频命令默认折叠，减少页面高度，按需展开即可。";
 "speech.dragging" = "拖动中";
+
+
+/* Voice Usage Failures */
+"voice_usage.failure.recognition_failed" = "识别失败";
+"voice_usage.failure.no_speech" = "未识别到人声";
+"voice_usage.failure.interrupted" = "识别已中断";
+"voice_usage.failure.unavailable" = "识别服务不可用";
+"voice_usage.failure.dictation_disabled" = "语音输入已关闭";
+"voice_usage.failure.injection_failed" = "输入失败";
+"voice_usage.failure.injection_unverified" = "输入未确认";
+
+/* Menu Bar Quick Toggles */
+"menu.toggle_voice_input" = "语音输入";
+"menu.toggle_voice_control" = "语音控制";
+"menu.toggle_pointer" = "头控指针";

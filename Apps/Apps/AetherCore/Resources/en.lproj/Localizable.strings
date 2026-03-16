@@ -538,3 +538,18 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "lexicon.all_commands.title" = "All Commands";
 "lexicon.all_commands.subtitle" = "Lower-frequency commands stay collapsed by default so the page remains easier to scan.";
 "speech.dragging" = "Dragging";
+
+
+/* Voice Usage Failures */
+"voice_usage.failure.recognition_failed" = "Recognition Failed";
+"voice_usage.failure.no_speech" = "No Speech Detected";
+"voice_usage.failure.interrupted" = "Recognition Interrupted";
+"voice_usage.failure.unavailable" = "Recognition Unavailable";
+"voice_usage.failure.dictation_disabled" = "Voice Input Off";
+"voice_usage.failure.injection_failed" = "Input Failed";
+"voice_usage.failure.injection_unverified" = "Input Unverified";
+
+/* Menu Bar Quick Toggles */
+"menu.toggle_voice_input" = "Voice Input";
+"menu.toggle_voice_control" = "Voice Control";
+"menu.toggle_pointer" = "Pointer Control";
