@@ -11,6 +11,27 @@ struct FrontmostAppCommand: Identifiable, Equatable {
     let title: String
     let shortcut: HotkeyBinding
     let aliases: [String]
+    let isEnabled: Bool
+
+    init(
+        processIdentifier: pid_t,
+        bundleIdentifier: String,
+        appName: String,
+        menuPath: [String],
+        title: String,
+        shortcut: HotkeyBinding,
+        aliases: [String],
+        isEnabled: Bool = true
+    ) {
+        self.processIdentifier = processIdentifier
+        self.bundleIdentifier = bundleIdentifier
+        self.appName = appName
+        self.menuPath = menuPath
+        self.title = title
+        self.shortcut = shortcut
+        self.aliases = aliases
+        self.isEnabled = isEnabled
+    }
 
     var id: String {
         ([bundleIdentifier, menuPath.joined(separator: ">"), title, shortcut.displayString])
@@ -61,7 +82,8 @@ struct CustomAppShortcutRule: Codable, Identifiable, Equatable {
             menuPath: [AppLocalization.isChinese ? "自定义规则" : "Custom Rules"],
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             shortcut: shortcut,
-            aliases: effectiveAliases
+            aliases: effectiveAliases,
+            isEnabled: true
         )
     }
 
@@ -462,7 +484,8 @@ final class FrontmostAppCommandCatalog: ObservableObject {
                 menuPath: seedPath,
                 title: title,
                 shortcut: shortcut,
-                aliases: aliases(for: title, path: seedPath)
+                aliases: aliases(for: title, path: seedPath),
+                isEnabled: boolAttribute(element, kAXEnabledAttribute as CFString) ?? true
             )
             if seen.insert(command.id).inserted {
                 commands.append(command)
@@ -506,7 +529,8 @@ final class FrontmostAppCommandCatalog: ObservableObject {
                 menuPath: [template.sectionTitle, template.subgroupTitle],
                 title: template.title,
                 shortcut: template.shortcut,
-                aliases: VoiceCommandRouter.uniqueAliases([template.title] + template.aliases)
+                aliases: VoiceCommandRouter.uniqueAliases([template.title] + template.aliases),
+                isEnabled: true
             )
 
             if commands.contains(where: { isSemanticDuplicate($0, of: command) }) {
@@ -925,6 +949,19 @@ final class FrontmostAppCommandCatalog: ObservableObject {
         guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
         if let number = value as? NSNumber {
             return number.intValue
+        }
+        return nil
+    }
+
+    private func boolAttribute(_ element: AXUIElement, _ attribute: CFString) -> Bool? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
+              let value else { return nil }
+        if let number = value as? NSNumber {
+            return number.boolValue
+        }
+        if CFGetTypeID(value) == CFBooleanGetTypeID() {
+            return CFBooleanGetValue((value as! CFBoolean))
         }
         return nil
     }

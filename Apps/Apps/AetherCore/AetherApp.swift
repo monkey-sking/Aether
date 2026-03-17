@@ -2995,7 +2995,7 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
         let sections = CurrentAppShortcutPanelLayout.makeSections(from: snapshot)
         let totalAppCommandCount = sections.reduce(0) { $0 + $1.commands.count }
         let columnCount = CurrentAppShortcutPanelLayout.preferredColumnCount(for: sections)
-        let cardWidth: CGFloat = 340
+        let cardWidth: CGFloat = columnCount >= 3 ? 304 : 340
         let gridSpacing: CGFloat = 18
         let outerPadding: CGFloat = 52
         let headerHeight: CGFloat = 96
@@ -3118,6 +3118,7 @@ private enum CurrentAppShortcutPanelLayout {
         if sectionCount <= 1 { return 1 }
         if totalCommands <= 10 { return 1 }
         if sectionCount == 2 && totalCommands <= 14 { return 1 }
+        if sectionCount >= 5 || totalCommands >= 24 { return 3 }
         return max(1, min(sectionCount, 2))
     }
 
@@ -3280,6 +3281,7 @@ private struct CurrentAppShortcutPanelView: View {
     @State private var searchText: String = ""
     @State private var measuredSectionHeights: [String: CGFloat] = [:]
     @State private var isCloseButtonHovered: Bool = false
+    @AppStorage("shortcutPanelHideUnavailable") private var hideUnavailableShortcuts: Bool = false
 
     private var snapshot: FrontmostAppCommandSnapshot? {
         panelManager.appState?.mergedFrontmostAppCommandSnapshot(catalog.snapshot)
@@ -3321,8 +3323,15 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private var filteredSections: [CurrentAppShortcutPanelSection] {
-        guard !normalizedSearchText.isEmpty else { return sections }
-        return sections.compactMap { section in
+        let availabilityFiltered = sections.compactMap { section -> CurrentAppShortcutPanelSection? in
+            let commands = hideUnavailableShortcuts
+                ? section.commands.filter { $0.isEnabled }
+                : section.commands
+            guard !commands.isEmpty else { return nil }
+            return CurrentAppShortcutPanelSection(title: section.title, commands: commands)
+        }
+        guard !normalizedSearchText.isEmpty else { return availabilityFiltered }
+        return availabilityFiltered.compactMap { section -> CurrentAppShortcutPanelSection? in
             let commands = section.commands.filter(matchesSearch)
             guard !commands.isEmpty else { return nil }
             return CurrentAppShortcutPanelSection(title: section.title, commands: commands)
@@ -3355,64 +3364,30 @@ private struct CurrentAppShortcutPanelView: View {
         )
     }
 
-    private var panelGradient: LinearGradient {
-        let top = Color.white.opacity(colorScheme == .dark ? 0.16 : 0.22)
-        let bottom = Color.white.opacity(colorScheme == .dark ? 0.08 : 0.12)
-        let topOpacity = isPanelFocused ? 0.74 : 0.62
-        let bottomOpacity = isPanelFocused ? 0.54 : 0.46
-        return LinearGradient(colors: [top.opacity(topOpacity), bottom.opacity(bottomOpacity)], startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private var panelStroke: Color {
-        Color.white.opacity(colorScheme == .dark ? 0.14 : 0.24)
-    }
-
-    private var panelMaterial: NSVisualEffectView.Material {
-        colorScheme == .dark ? .hudWindow : .sidebar
-    }
-
     private var chromeBackground: Color {
-        let base = colorScheme == .dark ? 0.22 : 0.12
+        let base = colorScheme == .dark ? 0.14 : 0.06
         return Color.primary.opacity(isPanelFocused ? base : base * 1.35)
     }
 
-    private var cardBackground: Color {
-        let focusedOpacity = colorScheme == .dark ? 0.62 : 0.72
-        let blurredOpacity = colorScheme == .dark ? 0.54 : 0.64
-        return Color(nsColor: colorScheme == .dark ? .controlBackgroundColor : .textBackgroundColor)
-            .opacity(isPanelFocused ? focusedOpacity : blurredOpacity)
-    }
-
-    private var cardStroke: Color {
-        Color.primary.opacity(colorScheme == .dark ? 0.1 : 0.05)
-    }
-
     private var emptyStateBackground: Color {
-        Color(nsColor: colorScheme == .dark ? .underPageBackgroundColor : .controlBackgroundColor).opacity(colorScheme == .dark ? 0.75 : 0.78)
+        Color(nsColor: colorScheme == .dark ? .underPageBackgroundColor : .windowBackgroundColor).opacity(colorScheme == .dark ? 0.58 : 0.82)
     }
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(.clear)
-                .background(
-                    VisualEffectView(material: panelMaterial, blendingMode: .withinWindow)
+            VisualEffectView(material: colorScheme == .dark ? .hudWindow : .popover, blendingMode: .behindWindow)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+            // Semi-opaque backing to boost text contrast (system panels do this internally)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(colorScheme == .dark
+                    ? Color.black.opacity(0.25)
+                    : Color.white.opacity(0.35)
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .fill(panelGradient)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(panelStroke, lineWidth: 1)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(Color.white.opacity(colorScheme == .dark ? 0.05 : 0.22), lineWidth: 0.5)
-                        .blur(radius: 0.6)
-                )
-                .shadow(color: .black.opacity(isPanelFocused ? 0.16 : 0.1), radius: isPanelFocused ? 28 : 16, y: isPanelFocused ? 18 : 10)
+
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.white.opacity(colorScheme == .dark ? 0.15 : 0.4), lineWidth: 0.5)
+                .shadow(color: .black.opacity(isPanelFocused ? 0.25 : 0.15), radius: isPanelFocused ? 20 : 12, y: isPanelFocused ? 10 : 6)
 
             VStack(alignment: .leading, spacing: 20) {
                 header
@@ -3481,10 +3456,10 @@ private struct CurrentAppShortcutPanelView: View {
                 .focusable(false)
                 .background(SuppressEnclosingScrollFocusRing())
             }
-            .padding(26)
+            .padding(24)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .compositingGroup()
         .overlay(alignment: .topLeading) {
             macCloseButton
@@ -3506,7 +3481,7 @@ private struct CurrentAppShortcutPanelView: View {
                 measuredSectionHeights = next
             }
         }
-        .opacity(isPanelFocused ? 1.0 : 0.9)
+        .opacity(isPanelFocused ? 1.0 : 0.96)
         .onAppear {
             updateSearchFieldFocus(shouldFocus: panelManager.shouldFocusSearchField)
         }
@@ -3590,6 +3565,14 @@ private struct CurrentAppShortcutPanelView: View {
                     .foregroundColor(.secondary)
                     .clipShape(Capsule())
 
+                Toggle(isOn: $hideUnavailableShortcuts) {
+                    Text(isChinese ? "隐藏不可用项" : "Hide unavailable items")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
                 Spacer(minLength: 12)
 
                 ZStack(alignment: .trailing) {
@@ -3670,10 +3653,10 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private func panelGroupHeader(title: String, detail: String, count: Int) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold))
                 if isPanelFocused {
                     Text(detail)
                         .font(.caption)
@@ -3780,34 +3763,40 @@ private struct CurrentAppShortcutSectionCard: View {
     let section: CurrentAppShortcutPanelSection
     let onTrigger: (FrontmostAppCommand) -> Void
     @Environment(\.colorScheme) private var colorScheme
-
-    private var cardBackground: Color {
-        Color(nsColor: colorScheme == .dark ? .controlBackgroundColor : .textBackgroundColor).opacity(colorScheme == .dark ? 0.84 : 0.9)
-    }
-
-    private var cardStroke: Color {
-        Color.primary.opacity(colorScheme == .dark ? 0.1 : 0.05)
-    }
+    private let rowSpacing: CGFloat = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(section.title)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 10) {
+                Text(section.title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer(minLength: 8)
+                Text("\(section.commands.count)")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.primary.opacity(colorScheme == .dark ? 0.05 : 0.04))
+                    .clipShape(Capsule())
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 6)
 
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(section.commands) { command in
+            VStack(alignment: .leading, spacing: rowSpacing) {
+                ForEach(Array(section.commands.enumerated()), id: \.element.id) { index, command in
                     CurrentAppShortcutRow(command: command, onTrigger: onTrigger)
+                    if index != section.commands.count - 1 {
+                        Divider()
+                            .overlay(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.1))
+                            .padding(.horizontal, 16)
+                    }
                 }
             }
+            .padding(.bottom, 8)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(18)
-        .background(cardBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(cardStroke, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(
@@ -3831,73 +3820,75 @@ private struct AetherGlobalShortcutSectionCard: View {
     let entries: [AetherGlobalShortcutPanelEntry]
     let onTrigger: (AetherGlobalShortcutPanelEntry) -> Void
     @Environment(\.colorScheme) private var colorScheme
-
-    private var cardBackground: Color {
-        Color(nsColor: colorScheme == .dark ? .controlBackgroundColor : .textBackgroundColor).opacity(colorScheme == .dark ? 0.84 : 0.9)
-    }
-
-    private var cardStroke: Color {
-        Color.primary.opacity(colorScheme == .dark ? 0.1 : 0.05)
-    }
+    private let rowSpacing: CGFloat = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ForEach(entries) { entry in
+        VStack(alignment: .leading, spacing: rowSpacing) {
+            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                 AetherGlobalShortcutRow(entry: entry, onTrigger: onTrigger)
-                if entry.id != entries.last?.id {
+                if index != entries.count - 1 {
                     Divider()
+                        .overlay(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.1))
+                        .padding(.horizontal, 16)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(18)
-        .background(cardBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(cardStroke, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(.vertical, 8)
     }
 }
 
 private struct AetherGlobalShortcutRow: View {
     let entry: AetherGlobalShortcutPanelEntry
     let onTrigger: (AetherGlobalShortcutPanelEntry) -> Void
+    @State private var isHovered = false
+    private let shortcutColumnWidth: CGFloat = 116
 
     var body: some View {
         Button {
             onTrigger(entry)
         } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(entry.action.label)
-                        .font(.body.weight(.semibold))
-                        .foregroundColor(.primary)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(isHovered ? .white : Color(nsColor: .labelColor))
                     Text(entry.action.helperText)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(isHovered ? .white.opacity(0.8) : Color(nsColor: .secondaryLabelColor))
+                        .lineLimit(2)
                 }
 
                 Spacer(minLength: 12)
 
                 Text(entry.binding.displayString)
-                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                    .foregroundColor(.accentColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.accentColor.opacity(0.1))
-                    .clipShape(Capsule())
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(isHovered ? .white.opacity(0.9) : .accentColor)
+                    .frame(width: shortcutColumnWidth, alignment: .trailing)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(isHovered ? Color.accentColor : Color.clear)
+            )
+            .padding(.horizontal, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.vertical, 2)
+        .onHover { isHovered = $0 }
     }
 }
 
 private struct CurrentAppShortcutRow: View {
     let command: FrontmostAppCommand
     let onTrigger: (FrontmostAppCommand) -> Void
+    @State private var isHovered = false
+    private let shortcutColumnWidth: CGFloat = 116
+
+    private var isChinese: Bool {
+        AppLocalization.isChinese
+    }
 
     private var submenuPath: String {
         guard command.menuPath.count > 1 else { return "" }
@@ -3908,32 +3899,64 @@ private struct CurrentAppShortcutRow: View {
         Button {
             onTrigger(command)
         } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(command.title)
-                        .font(.body.weight(.semibold))
-                        .foregroundColor(.primary)
-                    if !submenuPath.isEmpty {
-                        Text(submenuPath)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(command.title)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(isHovered ? .white : (command.isEnabled ? Color(nsColor: .labelColor) : .secondary.opacity(0.8)))
+                        if !command.isEnabled {
+                            Text(isChinese ? "灰置" : "Disabled")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.secondary.opacity(0.7))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Color.primary.opacity(0.05))
+                                .clipShape(Capsule())
+                        }
+                    }
+                    HStack(alignment: .center, spacing: 8) {
+                        if !submenuPath.isEmpty {
+                            Text(submenuPath)
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundColor(isHovered ? .white.opacity(0.8) : Color(nsColor: .secondaryLabelColor))
+                                .lineLimit(1)
+                        }
+                        if !command.isEnabled {
+                            Circle()
+                                .fill(Color.secondary.opacity(0.3))
+                                .frame(width: 4, height: 4)
+                            Text(isChinese ? "当前菜单项不可点击" : "Currently disabled in app")
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundColor(.secondary.opacity(0.6))
+                                .lineLimit(1)
+                        }
                     }
                 }
 
                 Spacer(minLength: 12)
 
                 Text(command.shortcut.displayString)
-                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                    .foregroundColor(.accentColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.accentColor.opacity(0.1))
-                    .clipShape(Capsule())
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(isHovered ? .white.opacity(0.9) : (command.isEnabled ? .accentColor : Color(nsColor: .tertiaryLabelColor)))
+                    .frame(width: shortcutColumnWidth, alignment: .trailing)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(isHovered ? Color.accentColor : Color.clear)
+            )
+            .padding(.horizontal, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.vertical, 2)
+        .disabled(!command.isEnabled)
+        .onHover { hovering in
+            if command.isEnabled {
+                isHovered = hovering
+            }
+        }
     }
 }
 
