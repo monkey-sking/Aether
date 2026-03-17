@@ -3849,11 +3849,15 @@ private struct AetherGlobalShortcutRow: View {
                     Text(entry.action.label)
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(isHovered ? .white : Color(nsColor: .labelColor))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     Text(entry.action.helperText)
                         .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(isHovered ? .white.opacity(0.8) : Color(nsColor: .secondaryLabelColor))
-                        .lineLimit(2)
+                        .foregroundColor(isHovered ? .white.opacity(0.84) : Color(nsColor: .secondaryLabelColor))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer(minLength: 12)
 
@@ -3899,6 +3903,8 @@ private struct CurrentAppShortcutRow: View {
                         Text(command.title)
                             .font(.system(size: 16, weight: .medium))
                             .foregroundColor(isHovered ? .white : (command.isEnabled ? Color(nsColor: .labelColor) : .secondary.opacity(0.8)))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         if !command.isEnabled {
                             Text(isChinese ? "灰置" : "Disabled")
                                 .font(.system(size: 11, weight: .medium))
@@ -3913,8 +3919,9 @@ private struct CurrentAppShortcutRow: View {
                         if !submenuPath.isEmpty {
                             Text(submenuPath)
                                 .font(.system(size: 12, weight: .regular))
-                                .foregroundColor(isHovered ? .white.opacity(0.8) : Color(nsColor: .secondaryLabelColor))
+                                .foregroundColor(isHovered ? .white.opacity(0.84) : Color(nsColor: .secondaryLabelColor))
                                 .lineLimit(1)
+                                .truncationMode(.middle)
                         }
                         if !command.isEnabled {
                             Circle()
@@ -3927,6 +3934,7 @@ private struct CurrentAppShortcutRow: View {
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer(minLength: 12)
 

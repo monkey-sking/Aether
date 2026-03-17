@@ -18,7 +18,7 @@ struct ShortcutBadgeView: View {
     var style: Style = .detailed
 
     var body: some View {
-        let tokens = binding.displayTokens
+        let tokens = binding.visualDisplayTokens
 
         Group {
             if isRecording {
@@ -37,25 +37,14 @@ struct ShortcutBadgeView: View {
                 if style == .compact {
                     HStack(spacing: 4) {
                         ForEach(Array(tokens.enumerated()), id: \.offset) { index, token in
-                            Text(token)
-                                .font(index == tokens.count - 1
-                                      ? .system(size: 12, weight: .semibold, design: .rounded)
-                                      : .system(size: 11, weight: .bold, design: .rounded))
-                                .foregroundColor(index == tokens.count - 1 ? .primary : .secondary)
+                            compactTokenView(token, isPrimary: index == tokens.count - 1)
                         }
                     }
                     .frame(minWidth: minWidth, alignment: .trailing)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 9)
-                            .stroke(Color.gray.opacity(0.16), lineWidth: 1)
-                    )
                 } else {
                     HStack(spacing: 5) {
                         ForEach(Array(tokens.enumerated()), id: \.offset) { index, token in
-                            Text(token)
+                            Text(token.text)
                                 .font(index == tokens.count - 1
                                       ? .system(.caption, design: .rounded).weight(.semibold)
                                       : .system(.caption2, design: .rounded).weight(.bold))
@@ -88,6 +77,31 @@ struct ShortcutBadgeView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .contentShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder
+    private func compactTokenView(_ token: HotkeyBinding.DisplayToken, isPrimary: Bool) -> some View {
+        switch token.kind {
+        case .mouseButton(let number):
+            HStack(spacing: 3) {
+                Image(systemName: "computermouse")
+                    .font(.system(size: 11, weight: .medium))
+                if let number {
+                    Text("\(number + 1)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                } else {
+                    Text(token.text)
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                }
+            }
+            .foregroundColor(isPrimary ? .primary : .secondary)
+        case .text:
+            Text(token.text)
+                .font(isPrimary
+                      ? .system(size: 12, weight: .semibold, design: .monospaced)
+                      : .system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundColor(isPrimary ? .primary : .secondary)
+        }
     }
 }
 
