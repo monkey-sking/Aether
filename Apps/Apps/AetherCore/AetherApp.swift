@@ -3356,19 +3356,23 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private var panelGradient: LinearGradient {
-        let top = Color.white.opacity(colorScheme == .dark ? 0.12 : 0.5)
-        let bottom = Color.white.opacity(colorScheme == .dark ? 0.08 : 0.28)
-        let topOpacity = isPanelFocused ? 0.9 : 0.76
-        let bottomOpacity = isPanelFocused ? 0.84 : 0.68
+        let top = Color.white.opacity(colorScheme == .dark ? 0.16 : 0.22)
+        let bottom = Color.white.opacity(colorScheme == .dark ? 0.08 : 0.12)
+        let topOpacity = isPanelFocused ? 0.74 : 0.62
+        let bottomOpacity = isPanelFocused ? 0.54 : 0.46
         return LinearGradient(colors: [top.opacity(topOpacity), bottom.opacity(bottomOpacity)], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     private var panelStroke: Color {
-        Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.06)
+        Color.white.opacity(colorScheme == .dark ? 0.14 : 0.24)
+    }
+
+    private var panelMaterial: NSVisualEffectView.Material {
+        colorScheme == .dark ? .hudWindow : .sidebar
     }
 
     private var chromeBackground: Color {
-        let base = colorScheme == .dark ? 0.16 : 0.08
+        let base = colorScheme == .dark ? 0.22 : 0.12
         return Color.primary.opacity(isPanelFocused ? base : base * 1.35)
     }
 
@@ -3389,15 +3393,26 @@ private struct CurrentAppShortcutPanelView: View {
 
     var body: some View {
         ZStack {
-            VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow)
-
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(panelGradient)
+                .fill(.clear)
+                .background(
+                    VisualEffectView(material: panelMaterial, blendingMode: .withinWindow)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(panelGradient)
+                )
                 .overlay(
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .stroke(panelStroke, lineWidth: 1)
                 )
-                .shadow(color: .black.opacity(isPanelFocused ? 0.10 : 0.06), radius: isPanelFocused ? 22 : 14, y: isPanelFocused ? 14 : 8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(Color.white.opacity(colorScheme == .dark ? 0.05 : 0.22), lineWidth: 0.5)
+                        .blur(radius: 0.6)
+                )
+                .shadow(color: .black.opacity(isPanelFocused ? 0.16 : 0.1), radius: isPanelFocused ? 28 : 16, y: isPanelFocused ? 18 : 10)
 
             VStack(alignment: .leading, spacing: 20) {
                 header
@@ -3471,6 +3486,11 @@ private struct CurrentAppShortcutPanelView: View {
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .compositingGroup()
+        .overlay(alignment: .topLeading) {
+            macCloseButton
+                .padding(.leading, 18)
+                .padding(.top, 18)
+        }
         .onPreferenceChange(CurrentAppShortcutSectionHeightPreferenceKey.self) { heights in
             guard !heights.isEmpty else { return }
             var next = measuredSectionHeights
@@ -3517,8 +3537,6 @@ private struct CurrentAppShortcutPanelView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 14) {
-                macCloseButton
-
                 Group {
                     if let appIcon {
                         Image(nsImage: appIcon)
@@ -3552,6 +3570,7 @@ private struct CurrentAppShortcutPanelView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(.leading, 34)
 
             HStack(alignment: .center, spacing: 12) {
                 let countStr = String.localizedStringWithFormat(NSLocalizedString("panels.shortcuts.count_fmt", comment: ""), totalVisibleShortcutCount)
@@ -3633,7 +3652,6 @@ private struct CurrentAppShortcutPanelView: View {
         .onHover { hovering in
             isCloseButtonHovered = hovering
         }
-        .padding(.top, 4)
     }
 
     private func emptyState(title: String, detail: String) -> some View {
