@@ -1390,6 +1390,15 @@ class HeadMotionManager: ObservableObject {
         }
 
         refreshHeadGestureMonitoringState(source: "airpods-connected-\(source)")
+        
+        // If we are already tracking but the side changed (e.g. Both -> Right or Left -> Right),
+        // the motion stream might need a re-calibration or re-start on the new side.
+        if isTracking && wasConnected && isConnected {
+            GlobalLogger.lifecycle.info("HeadMotion: restarting tracking due to side handoff source=\(source)")
+            stopTrackingInternal()
+            startTracking()
+        }
+
         guard autoStartTrackingOnHeadsetConnection, !wasConnected else { return }
         scheduleAutoTrackingStartAfterConnection(trigger: source == "startup" ? "startup" : "connected")
     }

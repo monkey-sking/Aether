@@ -156,12 +156,6 @@ final class SpeechManager: ObservableObject {
     @Published var isWakeWordEnabled: Bool = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(isWakeWordEnabled, forKey: "isWakeWordEnabled"); syncRecognitionState() }
     }
-    @Published var pauseForSiriEnabled: Bool = UserDefaults.standard.object(forKey: "pauseForSiriEnabled") as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(pauseForSiriEnabled, forKey: "pauseForSiriEnabled")
-            syncRecognitionState()
-        }
-    }
     @Published var isGazeWakeEnabled: Bool = UserDefaults.standard.object(forKey: "isGazeWakeEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(isGazeWakeEnabled, forKey: "isGazeWakeEnabled") }
     }
@@ -425,7 +419,6 @@ final class SpeechManager: ObservableObject {
     }
 
     private var metrics = RuntimeSpeechMetrics()
-    private var isSuspendedForSiri: Bool = false
     private var selectedInputDeviceUIDHint: String?
     private var selectedInputDeviceNameHint: String?
     private var pendingSelectedInputRouteSnapshot: AudioRouteSnapshot?
@@ -1148,12 +1141,6 @@ final class SpeechManager: ObservableObject {
         NotificationCenter.default.addObserver(self, selector: #selector(toggleLanguage), name: Notification.Name("AetherToggleLanguage"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAirPodsChange), name: .AirPodsStateChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleRecognitionControlModeChanged(_:)), name: HeadMotionManager.recognitionControlModeChangedNotification, object: nil)
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(handleFrontmostApplicationChanged),
-            name: NSWorkspace.didActivateApplicationNotification,
-            object: nil
-        )
         refreshLocale()
         hasCompletedInitialLocaleSetup = true
         DispatchQueue.main.async { [weak self] in self?.syncRecognitionState() }
@@ -1203,8 +1190,6 @@ final class SpeechManager: ObservableObject {
             .autoconnect()
             .sink { [weak self] _ in
                 guard let self else { return }
-                self.updateSiriSuspensionStateIfNeeded()
-                guard !self.isSuspendedForSiri else { return }
                 let availability = self.currentVoiceFeatureAvailability()
                 guard availability.dictationEnabled || availability.commandEnabled else { return }
                 HeadMotionManager.shared.refreshTransientRecognitionControlModeIfNeeded(source: "speech-hud-poll")
@@ -1223,10 +1208,13 @@ final class SpeechManager: ObservableObject {
         GlobalLogger.speech.info(
             "[AudioRoute] AirPods side changed side=\(side.rawValue) selectedInputID=\(selectedInputDeviceID) effectiveInputID=\(effectiveInputID) effectiveInputName=\(effectiveInputName)"
         )
+        
+        // CRITICAL: When AirPods side changes (e.g. Left -> Right), the HFP/A2DP routing 
+        // in macOS often shifts, but the old capture session might be "silent".
+        // Force a full engine restart to re-bind to the new capture route.
+        performEngineRestart(reason: "headset-side-changed")
     }
-    @objc private func handleFrontmostApplicationChanged() {
-        updateSiriSuspensionStateIfNeeded()
-    }
+
     @objc private func handleRecognitionControlModeChanged(_ note: Notification) {
         let source = note.userInfo?["source"] as? String ?? "unknown"
         noteHandsFreeHUDActivity()
@@ -1395,12 +1383,6 @@ final class SpeechManager: ObservableObject {
         return Date().timeIntervalSince(lastHandsFreeHUDActivityAt) >= handsFreeHUDCollapseDelay
     }
 
-    private var siriPauseStatusText: String {
-        activeLocale.identifier.starts(with: "zh")
-            ? "Siri 使用中，Aether 已暂停"
-            : "Paused while Siri is active"
-    }
-
     private func bundleIsSiriVoiceHost(_ bundleID: String?) -> Bool {
         guard let bundleID = bundleID?.lowercased() else { return false }
         return bundleID.contains("apple.siri")
@@ -1409,101 +1391,8 @@ final class SpeechManager: ObservableObject {
             || bundleID == "com.apple.notificationcenterui"
     }
 
-    private func isSiriVoiceHostApplication(_ app: NSRunningApplication?) -> Bool {
-        guard let app else { return false }
-        let appName = app.localizedName?.lowercased() ?? ""
-        return bundleIsSiriVoiceHost(app.bundleIdentifier) || appName.contains("siri")
-    }
-
-    private func hasVisibleSiriHostWindow() -> Bool {
-        let options = CGWindowListOption(arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements)
-        guard let windowInfos = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
-            return false
-        }
-
-        for info in windowInfos {
-            let alpha = info[kCGWindowAlpha as String] as? Double ?? 0
-            guard alpha > 0.05 else { continue }
-
-            if let ownerPIDNumber = info[kCGWindowOwnerPID as String] as? NSNumber {
-                let pid = pid_t(ownerPIDNumber.int32Value)
-                if isSiriVoiceHostApplication(NSRunningApplication(processIdentifier: pid)) {
-                    return true
-                }
-            }
-
-            let ownerName = (info[kCGWindowOwnerName as String] as? String ?? "").lowercased()
-            let windowName = (info[kCGWindowName as String] as? String ?? "").lowercased()
-            if ownerName.contains("siri")
-                || windowName.contains("siri")
-                || ownerName.contains("notification center")
-                || ownerName.contains("通知中心")
-                || windowName.contains("通知中心") {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func isSiriInteractionActive() -> Bool {
-        if isSiriVoiceHostApplication(NSWorkspace.shared.frontmostApplication) {
-            return true
-        }
-
-        if NSWorkspace.shared.runningApplications.contains(where: { app in
-            isSiriVoiceHostApplication(app) && app.isActive
-        }) {
-            return true
-        }
-
-        return hasVisibleSiriHostWindow()
-    }
-
-    private func suspendForSiriIfNeeded() {
-        guard !isSuspendedForSiri else { return }
-        isSuspendedForSiri = true
-        GlobalLogger.speech.info("[SiriPause] suspending Aether while Siri is active")
-        finalizationWorkItem?.cancel()
-        finalizationWorkItem = nil
-        stopTimer?.invalidate()
-        stopTimer = nil
-        cleanup()
-        stopAudioCapture()
-        clearHUDOverride()
-        status = siriPauseStatusText
-        HUDManager.shared.update(
-            mode: .command,
-            message: siriPauseStatusText,
-            language: activeLocale.identifier,
-            recognitionControlMode: .auto,
-            inputDeviceIcon: "pause.circle.fill"
-        )
-    }
-
-    private func resumeAfterSiriIfNeeded() {
-        guard isSuspendedForSiri else { return }
-        isSuspendedForSiri = false
-        GlobalLogger.speech.info("[SiriPause] resuming Aether after Siri")
-    }
-
-    private func updateSiriSuspensionStateIfNeeded() {
-        let siriActive = pauseForSiriEnabled && isSiriInteractionActive()
-        if siriActive {
-            suspendForSiriIfNeeded()
-        } else if isSuspendedForSiri {
-            resumeAfterSiriIfNeeded()
-            syncRecognitionState()
-        }
-    }
-
     // MARK: - State Sync
     private func syncRecognitionState() {
-        if pauseForSiriEnabled, isSiriInteractionActive() {
-            suspendForSiriIfNeeded()
-            return
-        }
-        resumeAfterSiriIfNeeded()
         let anyActive = isAlwaysListeningEnabled || isWakeWordEnabled || isPTTEnabled
         if !anyActive {
             resetHUDTransientState(); stopAndFinalize(); stopAudioCapture(); HUDManager.shared.hide()
@@ -2974,16 +2863,6 @@ final class SpeechManager: ObservableObject {
     private func clearHUDOverride() { hudOverrideUntil = .distantPast; hudOverrideMessage = ""; hudOverrideIcon = "info.circle" }
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
-        if isSuspendedForSiri {
-            HUDManager.shared.update(
-                mode: .command,
-                message: siriPauseStatusText,
-                language: activeLocale.identifier,
-                recognitionControlMode: .auto,
-                inputDeviceIcon: "pause.circle.fill"
-            )
-            return
-        }
         let featureAvailability = currentVoiceFeatureAvailability()
         let isDictationOnly =
             featureAvailability.dictationEnabled
