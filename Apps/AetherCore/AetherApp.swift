@@ -3275,7 +3275,6 @@ private struct CurrentAppShortcutPanelView: View {
     @State private var isPanelFocused: Bool = true
     @State private var blurWorkItem: DispatchWorkItem?
     @State private var searchText: String = ""
-    @State private var measuredSectionHeights: [String: CGFloat] = [:]
     @State private var isCloseButtonHovered: Bool = false
     @AppStorage("shortcutPanelHideUnavailable") private var hideUnavailableShortcuts: Bool = false
 
@@ -3355,8 +3354,7 @@ private struct CurrentAppShortcutPanelView: View {
         CurrentAppShortcutPanelLayout.makeColumns(
             from: filteredSections,
             columnCount: sectionColumnCount,
-            spacing: 18,
-            measurements: measuredSectionHeights
+            spacing: 18
         )
     }
 
@@ -3456,26 +3454,10 @@ private struct CurrentAppShortcutPanelView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .compositingGroup()
         .overlay(alignment: .topLeading) {
             macCloseButton
                 .padding(.leading, 18)
                 .padding(.top, 18)
-        }
-        .onPreferenceChange(CurrentAppShortcutSectionHeightPreferenceKey.self) { heights in
-            guard !heights.isEmpty else { return }
-            var next = measuredSectionHeights
-            var changed = false
-            for (id, height) in heights {
-                guard height > 0 else { continue }
-                if abs((next[id] ?? 0) - height) > 1 {
-                    next[id] = height
-                    changed = true
-                }
-            }
-            if changed {
-                measuredSectionHeights = next
-            }
         }
         .opacity(isPanelFocused ? 1.0 : 0.96)
         .onAppear {
@@ -3793,22 +3775,6 @@ private struct CurrentAppShortcutSectionCard: View {
             .padding(.bottom, 8)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: CurrentAppShortcutSectionHeightPreferenceKey.self,
-                    value: [section.id: proxy.size.height]
-                )
-            }
-        )
-    }
-}
-
-private struct CurrentAppShortcutSectionHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: [String: CGFloat] = [:]
-
-    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 
