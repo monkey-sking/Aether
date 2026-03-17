@@ -166,6 +166,24 @@ final class DictationSafetyTests: XCTestCase {
 
 @MainActor
 final class SpeechManagerTypingModeTests: XCTestCase {
+    private func assertRoutingBias(
+        _ actual: VoiceCommandRouter.RoutingBias,
+        equals expected: VoiceCommandRouter.RoutingBias,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        switch (actual, expected) {
+        case (.neutral, .neutral),
+             (.dictationPreferred, .dictationPreferred),
+             (.commandPreferred, .commandPreferred),
+             (.forceDictation, .forceDictation),
+             (.forceCommand, .forceCommand):
+            return
+        default:
+            XCTFail("Expected bias \(expected) but got \(actual)", file: file, line: line)
+        }
+    }
+
     func testEngineRestartDiscardsTranscriptForMicrophoneSwitch() {
         XCTAssertTrue(SpeechManager.shouldDiscardTranscriptOnEngineRestart(reason: "input-device-selection"))
         XCTAssertTrue(SpeechManager.shouldDiscardTranscriptOnEngineRestart(reason: "default-input-device-changed"))
@@ -181,7 +199,8 @@ final class SpeechManagerTypingModeTests: XCTestCase {
             sessionTypingMode: true,
             liveTyping: false,
             canType: true,
-            hasStreamedDictation: false
+            hasStreamedDictation: false,
+            isUtteranceActive: false
         )
 
         XCTAssertFalse(resolved)
@@ -193,7 +212,8 @@ final class SpeechManagerTypingModeTests: XCTestCase {
             sessionTypingMode: true,
             liveTyping: false,
             canType: true,
-            hasStreamedDictation: true
+            hasStreamedDictation: true,
+            isUtteranceActive: false
         )
 
         XCTAssertTrue(resolved)
@@ -205,7 +225,8 @@ final class SpeechManagerTypingModeTests: XCTestCase {
             sessionTypingMode: false,
             liveTyping: true,
             canType: true,
-            hasStreamedDictation: false
+            hasStreamedDictation: false,
+            isUtteranceActive: false
         )
 
         XCTAssertTrue(resolved)
@@ -217,7 +238,8 @@ final class SpeechManagerTypingModeTests: XCTestCase {
             computedTypingContext: true,
             hasStreamedDictation: false,
             hudRecognitionControlMode: .auto,
-            hudTypingContext: false
+            hudTypingContext: false,
+            isUtteranceActive: false
         )
 
         XCTAssertFalse(reconciled)
@@ -229,21 +251,62 @@ final class SpeechManagerTypingModeTests: XCTestCase {
             computedTypingContext: true,
             hasStreamedDictation: false,
             hudRecognitionControlMode: .auto,
-            hudTypingContext: true
+            hudTypingContext: true,
+            isUtteranceActive: false
         )
 
         XCTAssertTrue(reconciled)
     }
 
-    func testAutoModeHUDControlDoesNotCancelAfterStreamingStarts() {
+    func testAutoModeHUDControlStateStillWinsOverStreamingFlag() {
         let reconciled = SpeechManager.reconcileTypingContextWithVisibleHUD(
             recognitionControlMode: .auto,
             computedTypingContext: true,
             hasStreamedDictation: true,
             hudRecognitionControlMode: .auto,
-            hudTypingContext: false
+            hudTypingContext: false,
+            isUtteranceActive: false
         )
 
-        XCTAssertTrue(reconciled)
+        XCTAssertFalse(reconciled)
+    }
+
+    func testAutoModeIgnoresAirPodsPostureBiasWithoutTypingContext() {
+        let decision = SpeechManager.resolvedRoutingBias(
+            recognitionControlMode: .auto,
+            typingContext: false,
+            dictationEnabled: true,
+            commandEnabled: true,
+            consumeExplicitCommandPrefix: false
+        )
+
+        assertRoutingBias(decision.bias, equals: .commandPreferred)
+        XCTAssertFalse(decision.blockDictationWithoutInput)
+    }
+
+    func testAutoModeUsesTypingContextWithoutPostureBias() {
+        let decision = SpeechManager.resolvedRoutingBias(
+            recognitionControlMode: .auto,
+            typingContext: true,
+            dictationEnabled: true,
+            commandEnabled: true,
+            consumeExplicitCommandPrefix: false
+        )
+
+        assertRoutingBias(decision.bias, equals: .dictationPreferred)
+        XCTAssertFalse(decision.blockDictationWithoutInput)
+    }
+
+    func testDictationModeStillBlocksWithoutInputContext() {
+        let decision = SpeechManager.resolvedRoutingBias(
+            recognitionControlMode: .dictation,
+            typingContext: false,
+            dictationEnabled: true,
+            commandEnabled: true,
+            consumeExplicitCommandPrefix: false
+        )
+
+        assertRoutingBias(decision.bias, equals: .forceCommand)
+        XCTAssertTrue(decision.blockDictationWithoutInput)
     }
 }

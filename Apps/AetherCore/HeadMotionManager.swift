@@ -46,13 +46,6 @@ class HeadMotionManager: ObservableObject {
         }
     }
     
-    enum PostureBias: String, Sendable {
-        case neutral
-        case tiltLeft   // Bias for Dictation
-        case tiltRight  // Bias for Command
-        case lookLow    // Bias for Dictation (optional, like reading a script)
-    }
-
     enum HeadsetPressKind: String, CaseIterable, Identifiable, Sendable {
         case single
         case double
@@ -402,7 +395,6 @@ class HeadMotionManager: ObservableObject {
     private var lastHeadGestureTriggerAt: Date = .distantPast
     private var lastHeadGestureDebugLogAt: Date = .distantPast
     
-    @Published var currentPostureBias: PostureBias = .neutral
     // Temporary override, usually from AirPods squeeze during a PTT session.
     @Published var transientRecognitionControlMode: RecognitionControlMode? = nil
     private var transientRecognitionControlModeFollowsFocus: Bool = false
@@ -430,9 +422,6 @@ class HeadMotionManager: ObservableObject {
             return false
         }
     }
-    private let postureThresholdRoll: Double = 0.25 // ~14 degrees
-    private let postureThresholdPitch: Double = 0.35 // ~20 degrees for "Low"
-    
     // Smoothing
     private var currentX: CGFloat = 0
     private var currentY: CGFloat = 0
@@ -712,9 +701,6 @@ class HeadMotionManager: ObservableObject {
                 self.refreshHeadsetRemoteStatus()
             }
             
-            // Update Posture Bias based on Roll and Pitch
-            self.updatePostureBias(attitude: attitude)
-            
             // Baseline (Center)
             if !self.isCalibrated {
                 self.baseYaw = attitude.yaw
@@ -803,32 +789,6 @@ class HeadMotionManager: ObservableObject {
                 self.currentVelocity = sqrt(pow(offYaw, 2) + pow(offPitch, 2))
             }
             
-        }
-    }
-    
-    private func updatePostureBias(attitude: CMAttitude) {
-        // We use Roll for Left/Right tilt
-        // Roll: positive is Tilt Right, negative is Tilt Left (approx)
-        let roll = attitude.roll
-        let pitch = attitude.pitch - basePitch
-        
-        var newBias: PostureBias = .neutral
-        
-        if roll > postureThresholdRoll {
-            newBias = .tiltRight
-        } else if roll < -postureThresholdRoll {
-            newBias = .tiltLeft
-        } else if pitch > postureThresholdPitch {
-            newBias = .lookLow
-        }
-        
-        if newBias != currentPostureBias {
-            DispatchQueue.main.async {
-                self.currentPostureBias = newBias
-                if self.isDebugModeEnabled {
-                    os_log("Posture Bias Changed: %{public}@", log: self.log, type: .debug, newBias.rawValue)
-                }
-            }
         }
     }
     
