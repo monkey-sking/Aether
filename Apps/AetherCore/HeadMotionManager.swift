@@ -759,8 +759,20 @@ class HeadMotionManager: ObservableObject {
             let normX = max(-0.5, min(0.5, applyDeadzoneAndLinearResponse(rawNormX)))
             let normY = max(-0.5, min(0.5, applyDeadzoneAndLinearResponse(rawNormY)))
             
-            let rawTargetX = self.recenterAnchor.x - (CGFloat(normX) * self.desktopFrame.width)
-            let rawTargetY = self.recenterAnchor.y + (CGFloat(normY) * self.desktopFrame.height)
+            let rawTargetX = self.targetCoordinate(
+                for: CGFloat(normX),
+                anchor: self.recenterAnchor.x,
+                minimum: self.desktopFrame.minX,
+                maximum: self.desktopFrame.maxX,
+                invertDirection: true
+            )
+            let rawTargetY = self.targetCoordinate(
+                for: CGFloat(normY),
+                anchor: self.recenterAnchor.y,
+                minimum: self.desktopFrame.minY,
+                maximum: self.desktopFrame.maxY,
+                invertDirection: false
+            )
 
             let deltaX = rawTargetX - self.currentX
             let deltaY = rawTargetY - self.currentY
@@ -1303,6 +1315,25 @@ class HeadMotionManager: ObservableObject {
     private func aggregateDesktopFrame() -> NSRect {
         NSScreen.screens.reduce(into: NSRect.zero) { partialResult, screen in
             partialResult = partialResult.union(screen.frame)
+        }
+    }
+
+    private func targetCoordinate(
+        for normalizedValue: CGFloat,
+        anchor: CGFloat,
+        minimum: CGFloat,
+        maximum: CGFloat,
+        invertDirection: Bool
+    ) -> CGFloat {
+        let signedValue = invertDirection ? -normalizedValue : normalizedValue
+        let clamped = max(-0.5, min(0.5, signedValue))
+
+        if clamped >= 0 {
+            let positiveRange = max(0, maximum - anchor)
+            return anchor + ((clamped / 0.5) * positiveRange)
+        } else {
+            let negativeRange = max(0, anchor - minimum)
+            return anchor + ((clamped / 0.5) * negativeRange)
         }
     }
 
