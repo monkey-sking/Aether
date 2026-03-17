@@ -445,8 +445,10 @@ class HeadMotionManager: ObservableObject {
     private var activePTTSources: Set<PTTSource> = []
     private var isPTTPressed: Bool { !activePTTSources.isEmpty }
     
-    // Store aggregate desktop dimensions
+    // Full cursor movement workspace across all displays.
     private var desktopFrame: NSRect = .zero
+    // Neutral center used for calibration/recenter, typically the current screen midpoint.
+    private var recenterAnchor: CGPoint = .zero
     
     // Attention Awareness
     @Published var isLookingAtScreen: Bool = true
@@ -620,14 +622,10 @@ class HeadMotionManager: ObservableObject {
             return // BLOCK tracking if AirPods not available
         }
         
-        // Find aggregate frame of all screens
-        var aggregate = NSRect.zero
-        let screens = NSScreen.screens
-        for screen in screens {
-            aggregate = aggregate.union(screen.frame)
-            os_log("Screen found: %@", log: log, String(describing: screen.frame))
-        }
-        self.desktopFrame = aggregate
+        self.desktopFrame = aggregateDesktopFrame()
+        let activeScreenFrame = activeTrackingScreenFrame()
+        self.recenterAnchor = CGPoint(x: activeScreenFrame.midX, y: activeScreenFrame.midY)
+        os_log("Tracking workspace selected: %@ recenterAnchor=(%.1f, %.1f)", log: log, String(describing: self.desktopFrame), self.recenterAnchor.x, self.recenterAnchor.y)
         
         self.calibrationStatus = String(localized: "headset.status.calibrating")
         self.isCalibrated = false
@@ -710,8 +708,8 @@ class HeadMotionManager: ObservableObject {
                 self.minYaw = -0.3; self.maxYaw = 0.3
                 self.minPitch = -0.2; self.maxPitch = 0.2
                 
-                self.currentX = self.desktopFrame.midX
-                self.currentY = self.desktopFrame.midY
+                self.currentX = self.recenterAnchor.x
+                self.currentY = self.recenterAnchor.y
                 return
             }
             
@@ -761,8 +759,8 @@ class HeadMotionManager: ObservableObject {
             let normX = max(-0.5, min(0.5, applyDeadzoneAndLinearResponse(rawNormX)))
             let normY = max(-0.5, min(0.5, applyDeadzoneAndLinearResponse(rawNormY)))
             
-            let rawTargetX = self.desktopFrame.midX - (CGFloat(normX) * self.desktopFrame.width)
-            let rawTargetY = self.desktopFrame.midY + (CGFloat(normY) * self.desktopFrame.height)
+            let rawTargetX = self.recenterAnchor.x - (CGFloat(normX) * self.desktopFrame.width)
+            let rawTargetY = self.recenterAnchor.y + (CGFloat(normY) * self.desktopFrame.height)
 
             let deltaX = rawTargetX - self.currentX
             let deltaY = rawTargetY - self.currentY
@@ -1292,10 +1290,33 @@ class HeadMotionManager: ObservableObject {
 
     func recenter() {
         guard isTracking else { return }
+        desktopFrame = aggregateDesktopFrame()
+        let activeScreenFrame = activeTrackingScreenFrame()
+        recenterAnchor = CGPoint(x: activeScreenFrame.midX, y: activeScreenFrame.midY)
+        os_log("Recenter anchor updated workspace=%@ anchor=(%.1f, %.1f)", log: log, String(describing: desktopFrame), recenterAnchor.x, recenterAnchor.y)
         // Force re-calibration on next motion sample.
         isCalibrated = false
         isCalibratingRange = true
         calibrationStatus = String(localized: "headset.status.calibrating")
+    }
+
+    private func aggregateDesktopFrame() -> NSRect {
+        NSScreen.screens.reduce(into: NSRect.zero) { partialResult, screen in
+            partialResult = partialResult.union(screen.frame)
+        }
+    }
+
+    private func activeTrackingScreenFrame() -> NSRect {
+        if let cursor = CGEvent(source: nil)?.location,
+           let screen = NSScreen.screens.first(where: { $0.frame.contains(cursor) }) {
+            return screen.frame
+        }
+
+        if let mainFrame = NSScreen.main?.frame {
+            return mainFrame
+        }
+
+        return NSScreen.screens.first?.frame ?? .zero
     }
     
     func finishCalibration() {

@@ -73,6 +73,7 @@ struct InputSettingsView: View {
     @StateObject private var frontmostAppCommandCatalog = FrontmostAppCommandCatalog.shared
     @State private var editingGroupID: String?
     @State private var editingCustomRuleID: String?
+    @State private var newlyInsertedCustomRuleID: String?
     @State private var commandLocaleID: String = ""
     @State private var lexiconTransferStatus: String?
     @State private var basicLexiconSectionExpanded = true
@@ -834,13 +835,20 @@ struct InputSettingsView: View {
                                     )
                                 }
                             },
-                            onAdd: {
+                            onAddCurrent: {
                                 let bundleID = mergedFrontmostSnapshot?.bundleIdentifier
                                     ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                                 appState.addCustomAppShortcutRule(prefilling: bundleID)
+                                newlyInsertedCustomRuleID = appState.customAppShortcutRules.first?.id
+                                editingCustomRuleID = appState.customAppShortcutRules.first?.id
+                            },
+                            onAddGlobal: {
+                                appState.addGlobalCustomAppShortcutRule()
+                                newlyInsertedCustomRuleID = appState.customAppShortcutRules.first?.id
                                 editingCustomRuleID = appState.customAppShortcutRules.first?.id
                             },
                             onEdit: { ruleID in
+                                newlyInsertedCustomRuleID = nil
                                 editingCustomRuleID = ruleID
                             },
                             onDelete: { ruleID in
@@ -869,6 +877,7 @@ struct InputSettingsView: View {
                 if !$0 {
                     editingGroupID = nil
                     editingCustomRuleID = nil
+                    newlyInsertedCustomRuleID = nil
                 }
             }
         )) {
@@ -881,7 +890,21 @@ struct InputSettingsView: View {
             } else if let id = editingCustomRuleID,
                       let idx = appState.customAppShortcutRules.firstIndex(where: { $0.id == id }) {
                 CustomAppShortcutRuleEditorSheet(
-                    rule: $appState.customAppShortcutRules[idx]
+                    rule: appState.customAppShortcutRules[idx],
+                    onSave: { updatedRule in
+                        if let saveIndex = appState.customAppShortcutRules.firstIndex(where: { $0.id == id }) {
+                            appState.customAppShortcutRules[saveIndex] = updatedRule
+                        }
+                        newlyInsertedCustomRuleID = nil
+                        editingCustomRuleID = nil
+                    },
+                    onCancel: {
+                        if newlyInsertedCustomRuleID == id {
+                            appState.removeCustomAppShortcutRule(id: id)
+                        }
+                        newlyInsertedCustomRuleID = nil
+                        editingCustomRuleID = nil
+                    }
                 )
             } else {
                 EmptyView()
@@ -1503,7 +1526,8 @@ private struct CustomAppShortcutRulesCard: View {
     @Binding var rules: [CustomAppShortcutRule]
     let onCopy: () -> Void
     let onPaste: () -> Void
-    let onAdd: () -> Void
+    let onAddCurrent: () -> Void
+    let onAddGlobal: () -> Void
     let onEdit: (String) -> Void
     let onDelete: (String) -> Void
 
@@ -1536,14 +1560,19 @@ private struct CustomAppShortcutRulesCard: View {
                     Button(isChinese ? "粘贴规则" : "Paste Rules", action: onPaste)
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                    Button(isChinese ? "新增规则" : "Add Rule", action: onAdd)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
+                    Menu {
+                        Button(isChinese ? "新增当前 App 规则" : "Add Current App Rule", action: onAddCurrent)
+                        Button(isChinese ? "新增全局规则" : "Add Global Rule", action: onAddGlobal)
+                    } label: {
+                        Label(isChinese ? "新增规则" : "Add Rule", systemImage: "plus")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
                 }
             }
 
             if rules.isEmpty {
-                Text(isChinese ? "还没有自定义规则。比如你可以给聊天应用补一条“发送 -> ⏎ / ⌘↩”规则。" : "No custom rules yet. For example, add a \"Send -> Return / Cmd+Return\" rule for your chat app.")
+                Text(isChinese ? "还没有自定义规则。比如你可以给聊天应用补一条“发送 -> ⏎ / ⌘↩”规则，或者加一条全体 App 通用规则。" : "No custom rules yet. For example, add a \"Send -> Return / Cmd+Return\" rule for your chat app, or create one global rule for all apps.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
@@ -1566,6 +1595,31 @@ private struct CustomAppShortcutRuleRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
+    private var iconBundleIDs: [String] {
+        let bundleIDs = rule.effectiveBundleIdentifiers
+        if bundleIDs.isEmpty {
+            return [""]
+        }
+        return Array(bundleIDs.prefix(3))
+    }
+
+    private var targetSummary: String {
+        let bundleIDs = rule.effectiveBundleIdentifiers
+        if bundleIDs.isEmpty {
+            return AppLocalization.isChinese ? "全体 App" : "All Apps"
+        }
+        return ""
+    }
+
+    private var targetDetail: String {
+        let bundleIDs = rule.effectiveBundleIdentifiers
+        if bundleIDs.count == 1 {
+            return SpeechAppMetaStore.name(for: bundleIDs[0])
+        }
+        guard bundleIDs.count > 1 else { return "" }
+        return bundleIDs.map(SpeechAppMetaStore.name(for:)).joined(separator: " · ")
+    }
+
     private var aliasPreview: String {
         let aliases = rule.effectiveAliases
         return aliases.prefix(3).joined(separator: " / ")
@@ -1573,8 +1627,14 @@ private struct CustomAppShortcutRuleRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            SpeechAppIcon(bundleID: rule.bundleIdentifier)
-                .frame(width: 28, height: 28)
+            ZStack(alignment: .leading) {
+                ForEach(Array(iconBundleIDs.enumerated()), id: \.offset) { index, bundleID in
+                    SpeechAppIcon(bundleID: bundleID)
+                        .frame(width: 28, height: 28)
+                        .offset(x: CGFloat(index * 14))
+                }
+            }
+            .frame(width: CGFloat(28 + max(0, iconBundleIDs.count - 1) * 14), height: 28, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
@@ -1586,9 +1646,18 @@ private struct CustomAppShortcutRuleRow: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                Text(SpeechAppMetaStore.name(for: rule.bundleIdentifier))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if !targetSummary.isEmpty {
+                    Text(targetSummary)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                if !targetDetail.isEmpty {
+                    Text(targetDetail)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if !aliasPreview.isEmpty {
                     Text(aliasPreview)
                         .font(.caption2)
@@ -1599,13 +1668,7 @@ private struct CustomAppShortcutRuleRow: View {
 
             Spacer()
 
-            Text(rule.shortcut.displayString)
-                .font(.caption.monospaced())
-                .foregroundColor(.accentColor)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color.accentColor.opacity(0.12))
-                .clipShape(Capsule())
+            ShortcutBadgeView(binding: rule.shortcut, minWidth: 90)
 
             Button(action: onEdit) {
                 Image(systemName: "pencil")
@@ -1626,8 +1689,20 @@ private struct CustomAppShortcutRuleRow: View {
 }
 
 private struct CustomAppShortcutRuleEditorSheet: View {
-    @Binding var rule: CustomAppShortcutRule
+    @State private var draftRule: CustomAppShortcutRule
+    let onSave: (CustomAppShortcutRule) -> Void
+    let onCancel: () -> Void
     @Environment(\.dismiss) private var dismiss
+
+    init(
+        rule: CustomAppShortcutRule,
+        onSave: @escaping (CustomAppShortcutRule) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        _draftRule = State(initialValue: rule)
+        self.onSave = onSave
+        self.onCancel = onCancel
+    }
 
     private var isChinese: Bool {
         AppLocalization.isChinese
@@ -1635,9 +1710,21 @@ private struct CustomAppShortcutRuleEditorSheet: View {
 
     private var aliasesBinding: Binding<String> {
         Binding(
-            get: { rule.aliases.joined(separator: ", ") },
+            get: { draftRule.aliases.joined(separator: ", ") },
             set: { raw in
-                rule.aliases = raw
+                draftRule.aliases = raw
+                    .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            }
+        )
+    }
+
+    private var bundleIdentifiersBinding: Binding<String> {
+        Binding(
+            get: { draftRule.effectiveBundleIdentifiers.joined(separator: ", ") },
+            set: { raw in
+                draftRule.bundleIdentifiers = raw
                     .components(separatedBy: CharacterSet(charactersIn: ",\n"))
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty }
@@ -1651,38 +1738,57 @@ private struct CustomAppShortcutRuleEditorSheet: View {
                 Text(NSLocalizedString("custom_app_rule_editor.title", comment: ""))
                     .font(.headline)
                 Spacer()
-                Button(NSLocalizedString("custom_app_rule_editor.done", comment: "")) { dismiss() }
+                Button(isChinese ? "取消" : "Cancel") {
+                    onCancel()
+                    dismiss()
+                }
+                Button(NSLocalizedString("custom_app_rule_editor.done", comment: "")) {
+                    onSave(draftRule)
+                    dismiss()
+                }
             }
 
-            Toggle(NSLocalizedString("custom_app_rule_editor.enable_rule", comment: ""), isOn: $rule.isEnabled)
+            Toggle(NSLocalizedString("custom_app_rule_editor.enable_rule", comment: ""), isOn: $draftRule.isEnabled)
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text(NSLocalizedString("custom_app_rule_editor.target_app", comment: ""))
                         .font(.subheadline.weight(.semibold))
                     Spacer()
+                    Button(isChinese ? "设为全局" : "Use Global") {
+                        draftRule.bundleIdentifiers = []
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                     SpeechAppPickerMenu(
-                        existingBundleIds: Set(rule.bundleIdentifier.isEmpty ? [] : [rule.bundleIdentifier.lowercased()]),
+                        existingBundleIds: Set(draftRule.effectiveBundleIdentifiers.map { $0.lowercased() }),
                         onAdd: { bundleID in
-                            rule.bundleIdentifier = bundleID
+                            if !draftRule.effectiveBundleIdentifiers.contains(where: { $0.caseInsensitiveCompare(bundleID) == .orderedSame }) {
+                                draftRule.bundleIdentifiers = draftRule.effectiveBundleIdentifiers + [bundleID]
+                            }
                         }
                     )
                 }
                 HStack(spacing: 10) {
-                    SpeechAppIcon(bundleID: rule.bundleIdentifier)
+                    SpeechAppIcon(bundleID: draftRule.effectiveBundleIdentifiers.first ?? "")
                         .frame(width: 28, height: 28)
                     TextField(
                         NSLocalizedString("custom_app_rule_editor.bundle_id_placeholder", comment: ""),
-                        text: $rule.bundleIdentifier
+                        text: bundleIdentifiersBinding
                     )
                     .textFieldStyle(.roundedBorder)
                 }
+                Text(draftRule.effectiveBundleIdentifiers.isEmpty
+                     ? (isChinese ? "留空表示这条规则对所有 App 生效。" : "Leave empty to make this rule apply to all apps.")
+                     : draftRule.effectiveBundleIdentifiers.map(SpeechAppMetaStore.name(for:)).joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(NSLocalizedString("custom_app_rule_editor.action_title", comment: ""))
                     .font(.subheadline.weight(.semibold))
-                TextField(NSLocalizedString("custom_app_rule_editor.action_title_placeholder", comment: ""), text: $rule.title)
+                TextField(NSLocalizedString("custom_app_rule_editor.action_title_placeholder", comment: ""), text: $draftRule.title)
                     .textFieldStyle(.roundedBorder)
             }
 
@@ -1706,8 +1812,8 @@ private struct CustomAppShortcutRuleEditorSheet: View {
                 Text(NSLocalizedString("custom_app_rule_editor.shortcut_hint", comment: ""))
                     .font(.caption)
                     .foregroundColor(.secondary)
-                KeyRecorderView(binding: $rule.shortcut, allowBareKeys: true, onChange: { newBinding in
-                    rule.shortcut = newBinding
+                KeyRecorderView(binding: $draftRule.shortcut, allowBareKeys: true, onChange: { newBinding in
+                    draftRule.shortcut = newBinding
                 })
             }
         }
@@ -2379,6 +2485,9 @@ private struct SpeechAppChip: View {
 
 private enum SpeechAppMetaStore {
     static func name(for bundleID: String) -> String {
+        if bundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return AppLocalization.isChinese ? "全体 App" : "All Apps"
+        }
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
            let bundle = Bundle(url: url),
            let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
@@ -2394,7 +2503,13 @@ private struct SpeechAppIcon: View {
 
     var body: some View {
         Group {
-            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            if bundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Image(systemName: "square.grid.2x2.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundColor(.secondary)
+                    .padding(4)
+            } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
                 Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
                     .resizable()
                     .interpolation(.high)

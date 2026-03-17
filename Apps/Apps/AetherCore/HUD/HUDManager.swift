@@ -415,6 +415,21 @@ final class HUDManager {
         if isDragStatusForced && mode != .dragging {
             return
         }
+
+        if case .persistent = lifetime, activeTemporaryToken != nil {
+            if mode == .hidden {
+                lastPersistentSnapshot = nil
+            } else {
+                lastPersistentSnapshot = HUDPresentationSnapshot(
+                    mode: mode,
+                    message: message,
+                    language: language,
+                    recognitionControlMode: recognitionControlMode,
+                    inputDeviceIcon: inputDeviceIcon
+                )
+            }
+            return
+        }
         
         let effectiveTypingContext: Bool
         switch recognitionControlMode {

@@ -1405,6 +1405,18 @@ class AppState: ObservableObject {
         )
     }
 
+    func addGlobalCustomAppShortcutRule() {
+        let defaultTitle = AppLocalization.isChinese ? "新全局动作" : "New Global Action"
+        customAppShortcutRules.insert(
+            CustomAppShortcutRule(
+                bundleIdentifier: "",
+                title: defaultTitle,
+                shortcut: HotkeyBinding(keyCode: kVK_Return, modifiers: 0)
+            ),
+            at: 0
+        )
+    }
+
     func removeCustomAppShortcutRule(id: String) {
         customAppShortcutRules.removeAll { $0.id == id }
     }
@@ -1830,7 +1842,7 @@ class AppState: ObservableObject {
 
     private func customAppShortcutRuleSemanticKey(_ rule: CustomAppShortcutRule) -> String {
         [
-            rule.bundleIdentifier.lowercased(),
+            rule.effectiveBundleIdentifiers.map { $0.lowercased() }.sorted().joined(separator: ","),
             rule.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
             String(rule.shortcut.keyCode),
             String(rule.shortcut.modifiers)
@@ -3845,10 +3857,8 @@ private struct AetherGlobalShortcutRow: View {
 
                 Spacer(minLength: 12)
 
-                Text(entry.binding.displayString)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(isHovered ? .white.opacity(0.9) : .accentColor)
-                    .frame(width: shortcutColumnWidth, alignment: .trailing)
+                ShortcutBadgeView(binding: entry.binding, minWidth: shortcutColumnWidth, style: .compact)
+                    .opacity(isHovered ? 0.98 : 1)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -3920,10 +3930,8 @@ private struct CurrentAppShortcutRow: View {
 
                 Spacer(minLength: 12)
 
-                Text(command.shortcut.displayString)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(isHovered ? .white.opacity(0.9) : (command.isEnabled ? .accentColor : Color(nsColor: .tertiaryLabelColor)))
-                    .frame(width: shortcutColumnWidth, alignment: .trailing)
+                ShortcutBadgeView(binding: command.shortcut, minWidth: shortcutColumnWidth, style: .compact)
+                    .opacity(command.isEnabled ? (isHovered ? 0.98 : 1) : 0.55)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

@@ -6,6 +6,91 @@ import os
 
 // MARK: - Hotkey Settings Section
 
+struct ShortcutBadgeView: View {
+    enum Style {
+        case detailed
+        case compact
+    }
+
+    let binding: HotkeyBinding
+    var isRecording: Bool = false
+    var minWidth: CGFloat? = nil
+    var style: Style = .detailed
+
+    var body: some View {
+        let tokens = binding.displayTokens
+
+        Group {
+            if isRecording {
+                Text(String(localized: "hotkey.press_key"))
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                    .foregroundColor(.accentColor)
+                    .frame(minWidth: minWidth)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color.accentColor.opacity(0.16))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.accentColor.opacity(0.8), lineWidth: 1)
+                    )
+            } else {
+                if style == .compact {
+                    HStack(spacing: 4) {
+                        ForEach(Array(tokens.enumerated()), id: \.offset) { index, token in
+                            Text(token)
+                                .font(index == tokens.count - 1
+                                      ? .system(size: 12, weight: .semibold, design: .rounded)
+                                      : .system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundColor(index == tokens.count - 1 ? .primary : .secondary)
+                        }
+                    }
+                    .frame(minWidth: minWidth, alignment: .trailing)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9)
+                            .stroke(Color.gray.opacity(0.16), lineWidth: 1)
+                    )
+                } else {
+                    HStack(spacing: 5) {
+                        ForEach(Array(tokens.enumerated()), id: \.offset) { index, token in
+                            Text(token)
+                                .font(index == tokens.count - 1
+                                      ? .system(.caption, design: .rounded).weight(.semibold)
+                                      : .system(.caption2, design: .rounded).weight(.bold))
+                                .foregroundColor(index == tokens.count - 1 ? .primary : .secondary)
+                                .padding(.horizontal, index == tokens.count - 1 ? 8 : 6)
+                                .padding(.vertical, 5)
+                                .background(index == tokens.count - 1
+                                            ? Color.accentColor.opacity(0.14)
+                                            : Color(NSColor.windowBackgroundColor))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 7)
+                                        .stroke(index == tokens.count - 1
+                                                ? Color.accentColor.opacity(0.35)
+                                                : Color.gray.opacity(0.18),
+                                                lineWidth: 1)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 7))
+                        }
+                    }
+                    .frame(minWidth: minWidth, alignment: .trailing)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.gray.opacity(0.18), lineWidth: 1)
+                    )
+                }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
 struct HotkeySettingsSection: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject var hotkeyManager = HotkeyManager.shared
@@ -85,21 +170,11 @@ struct KeyRecorderRow: View {
                     recordingAction = action
                 }
             }) {
-                Text(isRecording
-                     ? String(localized: "hotkey.press_key")
-                     : hotkeyManager.binding(for: action).displayString)
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(minWidth: 84)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(isRecording
-                                ? Color.accentColor.opacity(0.18)
-                                : Color(nsColor: .windowBackgroundColor))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(isRecording ? Color.accentColor : Color.gray.opacity(0.25), lineWidth: 1)
-                    )
+                ShortcutBadgeView(
+                    binding: hotkeyManager.binding(for: action),
+                    isRecording: isRecording,
+                    minWidth: 96
+                )
             }
             .buttonStyle(.plain)
             .background(
@@ -369,18 +444,11 @@ struct KeyRecorderView: View {
         Button(action: {
             isRecording.toggle()
         }) {
-            Text(isRecording ? String(localized: "hotkey.press_key") : binding.displayString)
-                .font(font.monospaced())
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(isRecording
-                            ? Color.accentColor.opacity(0.2)
-                            : Color(NSColor.controlBackgroundColor))
-                .cornerRadius(6)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(isRecording ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: 1)
-                )
+            ShortcutBadgeView(
+                binding: binding,
+                isRecording: isRecording,
+                minWidth: 120
+            )
         }
         .buttonStyle(.plain)
         .background(
