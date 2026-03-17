@@ -99,9 +99,9 @@
 
 "driver.error.start_tracking_first" = "请先开启姿态矩阵以确保耳机已连接并有数据传输。";
 "motion.error.airpods_not_detected" = "未检测到支持姿态的耳机，请确保已连接到此 Mac 并重试。";
-"motion.error.connection_timeout" = "连接超时。5秒内未检测到姿态数据。";
+"motion.error.connection_timeout" = "耳机已连接，但暂时没有收到头控数据。请重新佩戴并看向屏幕后再试。";
 "motion.error.airpods_disconnected" = "耳机已断开连接或切换到其他设备。";
-"motion.error.connection_lost" = "连接丢失。5秒内未收到数据。";
+"motion.error.connection_lost" = "头控数据已中断。请重新佩戴耳机并看向屏幕后再试。";
 
 /* Hotkeys */
 "hotkey.section_title" = "快捷键";
@@ -362,12 +362,12 @@
 "headset.status.no_data" = "暂无数据";
 "headset.status.no_compatible" = "未连接支持姿态的耳机";
 "headset.status.calibrating" = "校准中...";
-"headset.status.connecting" = "连接中...";
-"headset.status.tracking" = "追踪中...";
-"headset.status.away" = "离开屏幕";
+"headset.status.connecting" = "正在连接头控...";
+"headset.status.tracking" = "头控已开启";
+"headset.status.away" = "头控已暂停（未看向屏幕）";
 "headset.status.disconnected" = "已断开连接";
 "headset.status.signal_lost" = "信号丢失";
-"headset.status.connection_failed" = "连接失败";
+"headset.status.connection_failed" = "头控连接失败";
 "headset.status.stopped" = "已停止";
 "insights.copy_ai_prompt" = "复制 AI 提示词";
 "insights.copy_diagnostic_history_failed" = "复制诊断历史失败";
@@ -447,8 +447,8 @@
 "custom_app_rule_editor.shortcut" = "快捷键";
 "custom_app_rule_editor.shortcut_hint" = "点击下面按钮后按下单键、特殊键，或组合键。支持例如 F、⏎、Tab、Delete。";
 "headset.hud.disconnected" = "耳机已断开连接";
-"headset.hud.connection_lost" = "连接已丢失";
-"headset.hud.connection_timeout" = "连接超时";
+"headset.hud.connection_lost" = "头控数据已中断，请重新佩戴后再试";
+"headset.hud.connection_timeout" = "未收到头控数据，请重新佩戴后再试";
 "headset.hud.scroll_top" = "滚动到顶部";
 "headset.hud.scroll_bottom" = "滚动到底部";
 "headset.hud.drag_start" = "开始拖拽";
