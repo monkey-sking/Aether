@@ -322,6 +322,10 @@ final class SpeechManager: ObservableObject {
 
     private var lastLoggedHUDIcon: String?
     private var lastLoggedAirPodSide: AirPodSide = .none
+    private var lastAnnouncedHUDInputIcon: String?
+    private var lastAnnouncedHeadsetLikeInput: Bool?
+    private var lastAnnouncedAirPodSide: AirPodSide?
+    private var lastAnnouncedInputDeviceName: String?
     private var isPTTHeld: Bool = false
     private var wasAwake: Bool = false
     private var isStopping: Bool = false
@@ -1037,6 +1041,83 @@ final class SpeechManager: ObservableObject {
         return icon
     }
 
+    private func syncHeadsetChangeAnnouncementBaseline() {
+        lastAnnouncedHUDInputIcon = currentInputDeviceIcon
+        lastAnnouncedHeadsetLikeInput = isHeadsetLikeInputDevice
+        lastAnnouncedAirPodSide = AirPodsDetector.shared.currentSide()
+        lastAnnouncedInputDeviceName = currentResolvedInputDeviceName
+    }
+
+    private func maybeRevealHUDForHeadsetChange() {
+        let icon = currentInputDeviceIcon
+        let isHeadsetLike = isHeadsetLikeInputDevice
+        let side = AirPodsDetector.shared.currentSide()
+        let deviceName = currentResolvedInputDeviceName
+
+        guard let previousIcon = lastAnnouncedHUDInputIcon,
+              let previousHeadsetLike = lastAnnouncedHeadsetLikeInput,
+              let previousSide = lastAnnouncedAirPodSide else {
+            lastAnnouncedHUDInputIcon = icon
+            lastAnnouncedHeadsetLikeInput = isHeadsetLike
+            lastAnnouncedAirPodSide = side
+            lastAnnouncedInputDeviceName = deviceName
+            return
+        }
+
+        let previousName = lastAnnouncedInputDeviceName ?? ""
+        lastAnnouncedHUDInputIcon = icon
+        lastAnnouncedHeadsetLikeInput = isHeadsetLike
+        lastAnnouncedAirPodSide = side
+        lastAnnouncedInputDeviceName = deviceName
+
+        let headsetStateChanged = previousHeadsetLike != isHeadsetLike
+        let headsetDeviceChanged = isHeadsetLike && (previousIcon != icon || previousName != deviceName)
+        let airPodsSideChanged = isHeadsetLike && previousSide != side && (previousSide != .none || side != .none)
+        guard headsetStateChanged || headsetDeviceChanged || airPodsSideChanged else { return }
+
+        let hud = HUDManager.shared
+        guard hud.state.mode == .hidden || hud.state.mode == .standby else { return }
+
+        let trimmedName = deviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackName = AppLocalization.isChinese ? "当前音频设备" : "Current audio device"
+        let displayName = trimmedName.isEmpty ? fallbackName : trimmedName
+        let message: String
+        if !previousHeadsetLike && isHeadsetLike {
+            message = AppLocalization.isChinese
+                ? "耳机已连接：\(displayName)"
+                : "Headset connected: \(displayName)"
+        } else if previousHeadsetLike && !isHeadsetLike {
+            message = AppLocalization.isChinese
+                ? "耳机已断开"
+                : "Headset disconnected"
+        } else if airPodsSideChanged {
+            let sideLabel: String = switch side {
+            case .left:
+                AppLocalization.isChinese ? "左耳" : "Left"
+            case .right:
+                AppLocalization.isChinese ? "右耳" : "Right"
+            case .both:
+                AppLocalization.isChinese ? "双耳" : "Both"
+            case .none:
+                AppLocalization.isChinese ? "耳机" : "Headset"
+            }
+            message = AppLocalization.isChinese
+                ? "耳机已切换到\(sideLabel)"
+                : "Headset switched to \(sideLabel)"
+        } else {
+            message = AppLocalization.isChinese
+                ? "耳机已切换：\(displayName)"
+                : "Headset changed: \(displayName)"
+        }
+        hud.showTemporary(
+            message: message,
+            language: activeLocale.identifier,
+            recognitionControlMode: hudRecognitionControlMode,
+            icon: icon,
+            duration: 1.2
+        )
+    }
+
     private func normalizeAirPodsSymbolName(_ raw: String) -> String {
         switch raw {
         case "airpodspro":
@@ -1059,6 +1140,7 @@ final class SpeechManager: ObservableObject {
         }
         GlobalLogger.lifecycle.info("SpeechManager Initialized")
         refreshInputDevices()
+        syncHeadsetChangeAnnouncementBaseline()
         DispatchQueue.main.async { [weak self] in self?.refreshContinuousHUD() }
         _ = AirPodsDetector.shared.currentSide()
         NotificationCenter.default.addObserver(self, selector: #selector(pttDown), name: HeadMotionManager.pttDownNotification, object: nil)
@@ -1134,6 +1216,7 @@ final class SpeechManager: ObservableObject {
     @objc private func handleAirPodsChange(_ note: Notification) {
         let side = (note.object as? AirPodSide) ?? AirPodsDetector.shared.currentSide()
         refreshContinuousHUD()
+        maybeRevealHUDForHeadsetChange()
 
         let effectiveInputID = effectiveCaptureInputDeviceID()
         let effectiveInputName = audioDeviceName(effectiveInputID)
@@ -3245,6 +3328,7 @@ final class SpeechManager: ObservableObject {
             selectedInputDeviceNameHint = selected.name
         }
         refreshContinuousHUD()
+        maybeRevealHUDForHeadsetChange()
     }
 
     func syncHUDState() {
