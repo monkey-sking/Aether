@@ -5,6 +5,16 @@ import os
 // MARK: - Data Model
 
 struct HotkeyBinding: Codable, Equatable {
+    struct DisplayToken: Equatable {
+        enum Kind: Equatable {
+            case text
+            case mouseButton(number: Int?)
+        }
+
+        let text: String
+        let kind: Kind
+    }
+
     var keyCode: Int       // CGKeyCode value (ignored if mouseButton != nil)
     var modifiers: UInt64  // CGEventFlags.rawValue (masked)
     var mouseButton: Int? = nil // Optional mouse button index
@@ -15,6 +25,10 @@ struct HotkeyBinding: Codable, Equatable {
     }
 
     var displayTokens: [String] {
+        visualDisplayTokens.map(\.text)
+    }
+
+    var visualDisplayTokens: [DisplayToken] {
         var parts: [String] = []
         let flags = CGEventFlags(rawValue: modifiers)
         if flags.contains(.maskControl) { parts.append("⌃") }
@@ -23,18 +37,20 @@ struct HotkeyBinding: Codable, Equatable {
         if flags.contains(.maskCommand) { parts.append("⌘") }
         if flags.contains(.maskAlphaShift) { parts.append("⇪") }
 
+        var tokens = parts.map { DisplayToken(text: $0, kind: .text) }
+
         if let btn = mouseButton {
-            parts.append(Self.mouseButtonName(for: btn))
+            tokens.append(DisplayToken(text: Self.mouseButtonShortName(for: btn), kind: .mouseButton(number: btn)))
         } else {
             let keyName = Self.keyName(for: keyCode)
             if !Self.isModifierKeyCode(keyCode, alreadyRepresentedBy: flags) {
-                parts.append(keyName)
-            } else if parts.isEmpty {
-                parts.append(keyName)
+                tokens.append(DisplayToken(text: Self.visualKeyName(for: keyCode, fallback: keyName), kind: .text))
+            } else if tokens.isEmpty {
+                tokens.append(DisplayToken(text: Self.visualKeyName(for: keyCode, fallback: keyName), kind: .text))
             }
         }
 
-        return parts
+        return tokens
     }
 
     private static func isModifierKeyCode(_ code: Int, alreadyRepresentedBy flags: CGEventFlags) -> Bool {
@@ -141,6 +157,25 @@ struct HotkeyBinding: Codable, Equatable {
         }
     }
 
+    static func visualKeyName(for code: Int, fallback: String? = nil) -> String {
+        switch code {
+        case kVK_Space:
+            return "␣"
+        case kVK_Return:
+            return "⏎"
+        case kVK_Tab:
+            return "⇥"
+        case kVK_Delete:
+            return "⌫"
+        case kVK_ForwardDelete:
+            return "⌦"
+        case kVK_Escape:
+            return "⎋"
+        default:
+            return fallback ?? keyName(for: code)
+        }
+    }
+
     /// Human-readable mouse button name
     static func mouseButtonName(for button: Int) -> String {
         switch button {
@@ -148,6 +183,19 @@ struct HotkeyBinding: Codable, Equatable {
         case 3:  return String(localized: "hotkey.mouse.back")
         case 4:  return String(localized: "hotkey.mouse.forward")
         default: return String(format: String(localized: "hotkey.mouse.generic_fmt"), button)
+        }
+    }
+
+    static func mouseButtonShortName(for button: Int) -> String {
+        switch button {
+        case 2:
+            return "M3"
+        case 3:
+            return "M4"
+        case 4:
+            return "M5"
+        default:
+            return "M\(button + 1)"
         }
     }
 }
