@@ -97,7 +97,6 @@ final class VoiceService: ObservableObject {
     @Published var isDirectCommandEnabled: Bool = false
     @Published var isPTTEnabled: Bool = true
     @Published var isWakeWordEnabled: Bool = true
-    @Published var pauseForSiriEnabled: Bool = true
     @Published var isGazeWakeEnabled: Bool = true
     @Published var isAutoPunctuationEnabled: Bool = true
     @Published var availableInputDevices: [AudioInputDevice] = []
@@ -233,9 +232,6 @@ final class VoiceService: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$isPTTEnabled)
 
-        manager.$pauseForSiriEnabled
-            .receive(on: DispatchQueue.main)
-            .assign(to: &$pauseForSiriEnabled)
     }
 
     func refreshInputDevices() {
@@ -256,10 +252,6 @@ final class VoiceService: ObservableObject {
 
     func setWakeWordEnabled(_ enabled: Bool) {
         manager.isWakeWordEnabled = enabled
-    }
-
-    func setPauseForSiriEnabled(_ enabled: Bool) {
-        manager.pauseForSiriEnabled = enabled
     }
 
     func setGazeWakeEnabled(_ enabled: Bool) {
@@ -1004,13 +996,6 @@ class AppState: ObservableObject {
             UserDefaults.standard.set(isWakeWordEnabled, forKey: "isWakeWordEnabled")
             guard !isApplyingActivationMode else { return }
             updateContinuousListeningState()
-        }
-    }
-
-    @Published var pauseForSiriEnabled: Bool = UserDefaults.standard.object(forKey: "pauseForSiriEnabled") as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(pauseForSiriEnabled, forKey: "pauseForSiriEnabled")
-            voiceService.setPauseForSiriEnabled(pauseForSiriEnabled)
         }
     }
 
@@ -2029,7 +2014,6 @@ class AppState: ObservableObject {
         voiceService.setVoiceCommandOverrides(self.voiceCommandOverrides)
         voiceService.setVoiceLanguageTermsOverrides(self.voiceLanguageTermsOverrides)
         voiceService.setCustomAppShortcutRules(self.customAppShortcutRules)
-        voiceService.setPauseForSiriEnabled(self.pauseForSiriEnabled)
 
         voiceService.$status
             .assign(to: &$voiceStatus)

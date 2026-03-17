@@ -716,13 +716,6 @@ private struct VoiceBasicsTile: View {
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
                 .cornerRadius(12)
 
-                inlineToggle(
-                    title: appState.isChineseUI ? "Siri 激活时暂停 Aether" : "Pause Aether During Siri",
-                    subtitle: appState.isChineseUI
-                        ? "检测到 Siri 正在听或说话时，临时暂停 Aether，结束后自动恢复。"
-                        : "Temporarily pause Aether while Siri is listening or speaking, then resume automatically.",
-                    isOn: $appState.pauseForSiriEnabled
-                )
             }
         }
         .frame(maxWidth: .infinity, minHeight: AetherUI.dashboardTileMinHeight, alignment: .topLeading)

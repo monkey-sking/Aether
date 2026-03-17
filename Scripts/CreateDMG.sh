@@ -106,33 +106,35 @@ configure_view() {
     log_info "Configuring Finder view options..."
     
     # Use AppleScript to set view options
-    osascript << EOF
+    osascript << EOF || true
 tell application "Finder"
-    tell disk "${VOLUME_NAME}"
-        open
-        set current view of container window to icon view
-        set toolbar visible of container window to false
-        set statusbar visible of container window to false
-        set the bounds of container window to {100, 100, 100 + ${WINDOW_WIDTH}, 100 + ${WINDOW_HEIGHT}}
-        set viewOptions to the icon view options of container window
-        set arrangement of viewOptions to not arranged
-        set icon size of viewOptions to ${ICON_SIZE}
-        
-        -- Set icon positions
-        set position of item "${APP_NAME}.app" of container window to {${ICON_X}, ${ICON_Y}}
-        set position of item "Applications" of container window to {${APPS_X}, ${APPS_Y}}
-        
-        -- Set background if exists
-        if exists file ".background:background.png" then
-            set background picture of viewOptions to file ".background:background.png"
-        end if
-        
-        close
-        open
-        update without registering applications
-        delay 2
-        close
-    end tell
+    try
+        tell disk "${VOLUME_NAME}"
+            open
+            set current view of container window to icon view
+            set toolbar visible of container window to false
+            set statusbar visible of container window to false
+            set the bounds of container window to {100, 100, 100 + ${WINDOW_WIDTH}, 100 + ${WINDOW_HEIGHT}}
+            set viewOptions to the icon view options of container window
+            set arrangement of viewOptions to not arranged
+            set icon size of viewOptions to ${ICON_SIZE}
+            
+            -- Set icon positions
+            set position of item "${APP_NAME}.app" of container window to {${ICON_X}, ${ICON_Y}}
+            set position of item "Applications" of container window to {${APPS_X}, ${APPS_Y}}
+            
+            -- Set background if exists
+            if exists file ".background:background.png" then
+                set background picture of viewOptions to file ".background:background.png"
+            end if
+            
+            close
+            open
+            update without registering applications
+            delay 2
+            close
+        end tell
+    end try
 end tell
 EOF
     
