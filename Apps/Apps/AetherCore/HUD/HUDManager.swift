@@ -356,7 +356,6 @@ final class HUDManager {
     private init() {
         os_log("HUDManager: init started", log: log, type: .default)
         setupSubscriptions()
-        setupPostureObservation()
         detector.start()
         startBackgroundFullscreenCheck()
     }
@@ -387,23 +386,6 @@ final class HUDManager {
         requestReposition()
     }
     
-    private func setupPostureObservation() {
-        HeadMotionManager.shared.$currentPostureBias
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] bias in
-                self?.handlePostureChange(bias)
-            }
-            .store(in: &cancellables)
-    }
-
-    private func handlePostureChange(_ bias: HeadMotionManager.PostureBias) {
-        // Posture changes should not directly overwrite HUD mode.
-        // SpeechManager is the single source of truth for command/dictation state.
-        guard state.mode != .hidden && state.mode != .standby else { return }
-        _ = bias
-        requestReposition()
-    }
-
     // MARK: - Public API
     
     func update(

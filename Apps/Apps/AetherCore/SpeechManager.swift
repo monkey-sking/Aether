@@ -484,6 +484,47 @@ final class SpeechManager: ObservableObject {
         return true
     }
 
+    static func resolvedRoutingBias(
+        recognitionControlMode: HeadMotionManager.RecognitionControlMode,
+        typingContext: Bool,
+        dictationEnabled: Bool,
+        commandEnabled: Bool,
+        consumeExplicitCommandPrefix: Bool
+    ) -> (bias: VoiceCommandRouter.RoutingBias, blockDictationWithoutInput: Bool) {
+        var routingBias: VoiceCommandRouter.RoutingBias = .neutral
+        var blockDictationWithoutInput = false
+
+        switch recognitionControlMode {
+        case .command:
+            routingBias = .forceCommand
+        case .dictation:
+            if typingContext {
+                routingBias = .forceDictation
+            } else {
+                routingBias = .forceCommand
+                blockDictationWithoutInput = true
+            }
+        case .auto:
+            routingBias = typingContext ? .dictationPreferred : .commandPreferred
+        }
+
+        if dictationEnabled && !commandEnabled {
+            if typingContext {
+                routingBias = .forceDictation
+            }
+        } else if !dictationEnabled && commandEnabled {
+            routingBias = .forceCommand
+            blockDictationWithoutInput = true
+        }
+
+        if typingContext && commandEnabled && consumeExplicitCommandPrefix {
+            routingBias = .forceCommand
+            blockDictationWithoutInput = false
+        }
+
+        return (routingBias, blockDictationWithoutInput)
+    }
+
     private var recognitionControlMode: RecognitionControlMode {
         HeadMotionManager.shared.effectiveRecognitionControlMode
     }
@@ -2140,43 +2181,21 @@ final class SpeechManager: ObservableObject {
             GlobalLogger.speech.info("[TypingMode] HUD control state overrode stale typing context before final routing")
         }
 
-        let motion = HeadMotionManager.shared
-        let posture = motion.currentPostureBias
-        var routingBias: VoiceCommandRouter.RoutingBias = .neutral
-        var blockDictationWithoutInput = false
+        let consumedExplicitCommandPrefix =
+            typingContext &&
+            featureAvailability.commandEnabled &&
+            consumePendingExplicitCommandPrefixIfNeeded()
+        let routingDecision = Self.resolvedRoutingBias(
+            recognitionControlMode: controlMode,
+            typingContext: typingContext,
+            dictationEnabled: featureAvailability.dictationEnabled,
+            commandEnabled: featureAvailability.commandEnabled,
+            consumeExplicitCommandPrefix: consumedExplicitCommandPrefix
+        )
+        let routingBias = routingDecision.bias
+        let blockDictationWithoutInput = routingDecision.blockDictationWithoutInput
 
-        switch controlMode {
-        case .command:
-            routingBias = .forceCommand
-        case .dictation:
-            if typingContext {
-                routingBias = .forceDictation
-            } else {
-                routingBias = .forceCommand
-                blockDictationWithoutInput = true
-            }
-        case .auto:
-            switch posture {
-            case .tiltRight: routingBias = .forceCommand
-            case .tiltLeft, .lookLow: routingBias = .forceDictation
-            case .neutral: routingBias = typingContext ? .dictationPreferred : .commandPreferred
-            }
-        }
-
-        if featureAvailability.dictationEnabled && !featureAvailability.commandEnabled {
-            if typingContext {
-                routingBias = .forceDictation
-            }
-        } else if !featureAvailability.dictationEnabled && featureAvailability.commandEnabled {
-            routingBias = .forceCommand
-            blockDictationWithoutInput = true
-        }
-
-        if typingContext,
-           featureAvailability.commandEnabled,
-           consumePendingExplicitCommandPrefixIfNeeded() {
-            routingBias = .forceCommand
-            blockDictationWithoutInput = false
+        if consumedExplicitCommandPrefix {
             GlobalLogger.router.info(
                 "[Route] consumed pending explicit command prefix transcript='\(textToRoute)'"
             )
