@@ -1862,7 +1862,7 @@ final class HUDManager {
         var preferBelowInput = false
         var typingRect: CGRect? = nil
         let hudAnchorTraceEnabled = UserDefaults.standard.object(forKey: "hudAnchorTraceEnabled") as? Bool ?? false
-        let caretDebugEnabled = UserDefaults.standard.object(forKey: "hudCaretDebugEnabled") as? Bool ?? true
+        let caretDebugEnabled = false
         var axFocusRect: CGRect?
         var axCaret: CGRect?
         var axEstimated: (point: CGPoint, bounds: CGRect)?

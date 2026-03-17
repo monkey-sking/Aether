@@ -788,7 +788,11 @@ class HeadMotionManager: ObservableObject {
             let targetY = max(self.desktopFrame.minY, min(self.desktopFrame.maxY, self.currentY))
             
             self.moveToAbsolutePosition(x: targetX, y: targetY)
-            self.attitudeText = String(format: "Y: %.2f, P: %.2f", attitude.yaw, attitude.pitch)
+            if self.isDebugModeEnabled {
+                self.attitudeText = String(format: "Y: %.2f, P: %.2f", attitude.yaw, attitude.pitch)
+            } else if self.attitudeText != String(localized: "headset.status.tracking") {
+                self.attitudeText = String(localized: "headset.status.tracking")
+            }
             
             // Update UI visualization data
             DispatchQueue.main.async {
