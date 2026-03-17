@@ -37,6 +37,7 @@ final class AirPodsDetector {
     private var lastState: AirPodSide = .none
     private var pendingTarget: AirPodSide?
     private var pendingSince: Date = .distantPast
+    private var pendingResetCount: Int = 0
     private let startupAt: Date = Date()
     private var startupSawBothHint = false
     private var recentRegistrySamples: [(time: Date, side: AirPodSide)] = []
@@ -45,7 +46,7 @@ final class AirPodsDetector {
     private var lastPlcmPollAt: Date = .distantPast
     private let evidenceWindowShort: TimeInterval = 2.0
     private let evidenceWindowLong: TimeInterval = 2.0
-    private let registryUnionWindow: TimeInterval = 0.85
+    private let registryUnionWindow: TimeInterval = 0.45
     private let plcmPollInterval: TimeInterval = 8.0
     private let startupGuardWindow: TimeInterval = 4.0
     private let startupSlowRefreshDelay: TimeInterval = 8.0
@@ -560,14 +561,23 @@ final class AirPodsDetector {
             }
 
             if self.pendingTarget != target {
+                self.pendingResetCount += 1
+                // Anti-oscillation: if target keeps flipping, force-apply after 3 resets
+                if self.pendingResetCount >= 3 {
+                    self.logDebug("Pending oscillation detected (\(self.pendingResetCount) resets), force-applying \(target.rawValue) via \(resolved.rule) from \(source)")
+                    self.pendingResetCount = 0
+                    self.applyState(target, source: "\(source)|\(resolved.rule)|anti-oscillation")
+                    return
+                }
                 self.pendingTarget = target
                 self.pendingSince = now
-                self.logDebug("Pending \(target.rawValue) via \(resolved.rule) from \(source), wait=\(String(format: "%.1f", requiredDelay))s")
+                self.logDebug("Pending \(target.rawValue) via \(resolved.rule) from \(source), wait=\(String(format: "%.1f", requiredDelay))s resets=\(self.pendingResetCount)")
                 return
             }
             if now.timeIntervalSince(self.pendingSince) < requiredDelay {
                 return
             }
+            self.pendingResetCount = 0
 
             self.applyState(target, source: "\(source)|\(resolved.rule)")
         }
@@ -578,6 +588,7 @@ final class AirPodsDetector {
                 self.logDebug("State Transition(\(source)): \(self.lastState) -> \(newState)")
                 self.lastState = newState
                 self.pendingTarget = nil
+                self.pendingResetCount = 0
                 if newState == .left || newState == .right {
                     self.singleSideLockUntil = Date().addingTimeInterval(self.singleSideLockWindow)
                     self.f1FastBlockedUntil = Date().addingTimeInterval(self.fastBothBlockWindow)

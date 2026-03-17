@@ -17,52 +17,46 @@ This skill documents the procedure to build the **Aether** application, ensuring
 
 ---
 
-## 🏗️ Build Command
+## 🏗️ Build Commands
 
-To build the application in **Release** mode:
+### 1. Standard Release Build
+To build the application in **Release** mode for local verification:
 
 ```bash
 ./Scripts/BuildRelease.sh Release
 ```
 
-### What this script does:
-1.  **Sets Environment**: Configures build directories to `.build/release`.
-2.  **Builds Driver**: Compiles `AetherDriver` (DriverKit) and `AetherDriver.dext`.
-3.  **Builds App**: Compiles `Aether.app`.
-4.  **Updates Version**: Triggers `Scripts/UpdateVersion.sh` (Xcode Build Phase) to:
-    -   Set `CFBundleVersion` to the current timestamp (e.g., `202402091545`).
-    -   **Re-sign** the app bundle to validate the modified `Info.plist`.
+### 2. Full User Release (Recommended for Distribution)
+To build, sign, and package the app for users (includes DMG and ZIP):
+
+```bash
+./Scripts/ReleaseForUsers.sh
+```
+> [!TIP]
+> Use `SKIP_NOTARIZE=1 ./Scripts/ReleaseForUsers.sh` if you want to skip the notarization step for quick testing.
+
+---
 
 ## 📂 Output
 
--   **App Bundle**: `.build/release/Aether.app`
--   **Driver Extension**: Inside `Aether.app/Contents/Library/SystemExtensions/`
+- **App Bundle**: `.build/release/Aether.app`
+- **DMG Installer**: `.build/release/Aether_Installer.dmg`
+- **ZIP Package**: `.build/release/Aether.zip`
 
 ---
 
 ## ✅ Verification Steps
 
-After building, verify the following:
-
 ### 1. Dynamic Versioning
 Check that the build version is the current timestamp:
 ```bash
-defaults read .build/release/Aether.app/Contents/Info CFBundleVersion
-# Expected output: YYYYMMDDHHMM (e.g. 202402091545)
+defaults read $(pwd)/.build/release/Aether.app/Contents/Info CFBundleVersion
 ```
 
 ### 2. Code Signature
-Ensure the re-signing process worked and the app is valid:
+Ensure the app is validly signed:
 ```bash
 codesign -vvv --deep --strict .build/release/Aether.app
-# Expected output: valid on disk / satisfies its Designated Requirement
-```
-
-### 3. Driver Presence
-Ensure the System Extension is embedded:
-```bash
-ls -l .build/release/Aether.app/Contents/Library/SystemExtensions/
-# Should show: com.7fei.Aether.AetherDriver.dext
 ```
 
 ---
@@ -71,7 +65,7 @@ ls -l .build/release/Aether.app/Contents/Library/SystemExtensions/
 
 ### "Invalid Info.plist" or Crash on Launch
 This usually means the `UpdateVersion.sh` script modified the plist *after* signing but failed to re-sign.
-**Fix**: Ensure `EXPANDED_CODE_SIGN_IDENTITY` is correctly passed to the script during the build. Check the build logs for "Re-signing with identity".
+**Fix**: Ensure `EXPANDED_CODE_SIGN_IDENTITY` is correctly passed to the script during the build.
 
 ### "System Extension Not Found"
 The driver (`.dext`) was not copied into the app bundle.
