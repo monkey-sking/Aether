@@ -1307,16 +1307,59 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func activeTrackingScreenFrame() -> NSRect {
-        if let cursor = CGEvent(source: nil)?.location,
-           let screen = NSScreen.screens.first(where: { $0.frame.contains(cursor) }) {
-            return screen.frame
+        let screens = NSScreen.screens
+        if let cursor = currentSystemCursorLocation() {
+            if let containingScreen = screens.first(where: { screenContainsCursor($0.frame, cursor: cursor) }) {
+                return containingScreen.frame
+            }
+
+            if let nearestScreen = screens.min(by: {
+                squaredDistance(from: cursor, to: $0.frame) < squaredDistance(from: cursor, to: $1.frame)
+            }) {
+                return nearestScreen.frame
+            }
         }
 
         if let mainFrame = NSScreen.main?.frame {
             return mainFrame
         }
 
-        return NSScreen.screens.first?.frame ?? .zero
+        return screens.first?.frame ?? .zero
+    }
+
+    private func currentSystemCursorLocation() -> CGPoint? {
+        let mouseLocation = NSEvent.mouseLocation
+        if mouseLocation != .zero || NSScreen.screens.contains(where: { screenContainsCursor($0.frame, cursor: mouseLocation) }) {
+            return mouseLocation
+        }
+        return CGEvent(source: nil)?.location
+    }
+
+    private func screenContainsCursor(_ frame: NSRect, cursor: CGPoint) -> Bool {
+        let expandedFrame = frame.insetBy(dx: -1, dy: -1)
+        return expandedFrame.contains(cursor)
+    }
+
+    private func squaredDistance(from point: CGPoint, to frame: NSRect) -> CGFloat {
+        let dx: CGFloat
+        if point.x < frame.minX {
+            dx = frame.minX - point.x
+        } else if point.x > frame.maxX {
+            dx = point.x - frame.maxX
+        } else {
+            dx = 0
+        }
+
+        let dy: CGFloat
+        if point.y < frame.minY {
+            dy = frame.minY - point.y
+        } else if point.y > frame.maxY {
+            dy = point.y - frame.maxY
+        } else {
+            dy = 0
+        }
+
+        return (dx * dx) + (dy * dy)
     }
     
     func finishCalibration() {
