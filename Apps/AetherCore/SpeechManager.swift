@@ -1209,10 +1209,6 @@ final class SpeechManager: ObservableObject {
             "[AudioRoute] AirPods side changed side=\(side.rawValue) selectedInputID=\(selectedInputDeviceID) effectiveInputID=\(effectiveInputID) effectiveInputName=\(effectiveInputName)"
         )
         
-        // CRITICAL: When AirPods side changes (e.g. Left -> Right), the HFP/A2DP routing 
-        // in macOS often shifts, but the old capture session might be "silent".
-        // Force a full engine restart to re-bind to the new capture route.
-        performEngineRestart(reason: "headset-side-changed")
     }
 
     @objc private func handleRecognitionControlModeChanged(_ note: Notification) {
@@ -2480,7 +2476,10 @@ final class SpeechManager: ObservableObject {
                 case .mismatch:
                     self.onRecognitionFailure?(text, "post-injection-mismatch", usageContext.appName, usageContext.bundleIdentifier)
                 case .unverified:
-                    self.onRecognitionFailure?(text, "post-injection-unverified", usageContext.appName, usageContext.bundleIdentifier)
+                    GlobalLogger.speech.info(
+                        "[TextPipeline] verification-unverified treating-as-success utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(job.targetBundleID ?? "nil")"
+                    )
+                    self.onIntent?(.dictation(text), usageContext.appName, usageContext.bundleIdentifier)
                 }
             }
         case .unknown(let transcript):

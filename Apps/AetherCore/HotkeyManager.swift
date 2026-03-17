@@ -11,14 +11,18 @@ struct HotkeyBinding: Codable, Equatable {
     
     /// Human-readable string like "⌃⌥S" or "Mouse Btn 3"
     var displayString: String {
+        displayTokens.joined()
+    }
+
+    var displayTokens: [String] {
         var parts: [String] = []
         let flags = CGEventFlags(rawValue: modifiers)
-        if flags.contains(.maskControl)   { parts.append("⌃") }
+        if flags.contains(.maskControl) { parts.append("⌃") }
         if flags.contains(.maskAlternate) { parts.append("⌥") }
-        if flags.contains(.maskShift)     { parts.append("⇧") }
-        if flags.contains(.maskCommand)   { parts.append("⌘") }
+        if flags.contains(.maskShift) { parts.append("⇧") }
+        if flags.contains(.maskCommand) { parts.append("⌘") }
         if flags.contains(.maskAlphaShift) { parts.append("⇪") }
-        
+
         if let btn = mouseButton {
             parts.append(Self.mouseButtonName(for: btn))
         } else {
@@ -29,8 +33,8 @@ struct HotkeyBinding: Codable, Equatable {
                 parts.append(keyName)
             }
         }
-        
-        return parts.joined()
+
+        return parts
     }
 
     private static func isModifierKeyCode(_ code: Int, alreadyRepresentedBy flags: CGEventFlags) -> Bool {

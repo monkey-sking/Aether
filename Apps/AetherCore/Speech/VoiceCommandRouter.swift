@@ -49,10 +49,20 @@ extension FrontmostAppCommand: Sendable {}
 struct CustomAppShortcutRule: Codable, Identifiable, Equatable {
     var id: String
     var isEnabled: Bool
-    var bundleIdentifier: String
+    var bundleIdentifiers: [String]
     var title: String
     var aliases: [String]
     var shortcut: HotkeyBinding
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case isEnabled
+        case bundleIdentifier
+        case bundleIdentifiers
+        case title
+        case aliases
+        case shortcut
+    }
 
     init(
         id: String = UUID().uuidString,
@@ -64,18 +74,79 @@ struct CustomAppShortcutRule: Codable, Identifiable, Equatable {
     ) {
         self.id = id
         self.isEnabled = isEnabled
-        self.bundleIdentifier = bundleIdentifier
+        let trimmed = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.bundleIdentifiers = trimmed.isEmpty ? [] : [trimmed]
         self.title = title
         self.aliases = aliases
         self.shortcut = shortcut
     }
 
-    func matches(bundleIdentifier candidate: String) -> Bool {
-        bundleIdentifier.caseInsensitiveCompare(candidate) == .orderedSame
+    init(
+        id: String = UUID().uuidString,
+        isEnabled: Bool = true,
+        bundleIdentifiers: [String],
+        title: String,
+        aliases: [String] = [],
+        shortcut: HotkeyBinding
+    ) {
+        self.id = id
+        self.isEnabled = isEnabled
+        self.bundleIdentifiers = Self.normalizedBundleIdentifiers(bundleIdentifiers)
+        self.title = title
+        self.aliases = aliases
+        self.shortcut = shortcut
     }
 
-    func makeCommand(processIdentifier: pid_t, appName: String) -> FrontmostAppCommand {
-        FrontmostAppCommand(
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        title = try container.decode(String.self, forKey: .title)
+        aliases = try container.decodeIfPresent([String].self, forKey: .aliases) ?? []
+        shortcut = try container.decode(HotkeyBinding.self, forKey: .shortcut)
+
+        if let many = try container.decodeIfPresent([String].self, forKey: .bundleIdentifiers) {
+            bundleIdentifiers = Self.normalizedBundleIdentifiers(many)
+        } else {
+            let one = try container.decodeIfPresent(String.self, forKey: .bundleIdentifier) ?? ""
+            bundleIdentifiers = Self.normalizedBundleIdentifiers([one])
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(title, forKey: .title)
+        try container.encode(aliases, forKey: .aliases)
+        try container.encode(shortcut, forKey: .shortcut)
+        try container.encode(effectiveBundleIdentifiers, forKey: .bundleIdentifiers)
+        try container.encode(bundleIdentifier, forKey: .bundleIdentifier)
+    }
+
+    var bundleIdentifier: String {
+        get { effectiveBundleIdentifiers.first ?? "" }
+        set { bundleIdentifiers = Self.normalizedBundleIdentifiers([newValue]) }
+    }
+
+    var effectiveBundleIdentifiers: [String] {
+        Self.normalizedBundleIdentifiers(bundleIdentifiers)
+    }
+
+    var isGlobal: Bool {
+        effectiveBundleIdentifiers.isEmpty
+    }
+
+    func matches(bundleIdentifier candidate: String) -> Bool {
+        let targets = effectiveBundleIdentifiers
+        if targets.isEmpty {
+            return true
+        }
+        return targets.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
+    }
+
+    func makeCommand(processIdentifier: pid_t, bundleIdentifier: String, appName: String) -> FrontmostAppCommand {
+        return FrontmostAppCommand(
             processIdentifier: processIdentifier,
             bundleIdentifier: bundleIdentifier,
             appName: appName,
@@ -91,6 +162,19 @@ struct CustomAppShortcutRule: Codable, Identifiable, Equatable {
         VoiceCommandRouter.uniqueAliases(
             [title] + aliases.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         )
+    }
+
+    private static func normalizedBundleIdentifiers(_ raw: [String]) -> [String] {
+        var seen = Set<String>()
+        return raw
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter {
+                let key = $0.lowercased()
+                guard !seen.contains(key) else { return false }
+                seen.insert(key)
+                return true
+            }
     }
 }
 
@@ -116,7 +200,7 @@ func mergeFrontmostAppCommandSnapshot(
 
     let customCommands = customRules
         .filter { $0.isEnabled && $0.matches(bundleIdentifier: bundleIdentifier) }
-        .map { $0.makeCommand(processIdentifier: processIdentifier, appName: appName) }
+        .map { $0.makeCommand(processIdentifier: processIdentifier, bundleIdentifier: bundleIdentifier, appName: appName) }
 
     let customKeys = Set(customCommands.map { semanticFrontmostCommandKey($0) })
     let baseCommands = (snapshot?.commands ?? []).filter { !customKeys.contains(semanticFrontmostCommandKey($0)) }
