@@ -690,6 +690,7 @@ class HeadMotionManager: ObservableObject {
     private var activeGestureCandidate: ActiveGestureCandidate?
     private var activeStepGestureSession: ActiveStepGestureSession?
     private var activeHotZoneSession: ActiveHotZoneSession?
+    private var hotZoneGlobalRearmDirection: HeadGestureDirection?
     private var activeGestureRecordingSession: ActiveGestureRecordingSession?
     private var pendingHeadGestureRecordingCountdownWorkItem: DispatchWorkItem?
     private lazy var headGestureOverlayController = HeadGestureOverlayController()
@@ -2145,6 +2146,42 @@ class HeadMotionManager: ObservableObject {
             .min() ?? .greatestFiniteMagnitude
         let shouldReveal = nearestTargetDistance <= hotZoneRevealDistance
 
+        if let globalRearmDirection = hotZoneGlobalRearmDirection,
+           let globalRearmTarget = targets.first(where: { $0.direction == globalRearmDirection }) {
+            let rearmDistance = hypot(
+                cursorLocation.x - globalRearmTarget.globalCenter.x,
+                cursorLocation.y - globalRearmTarget.globalCenter.y
+            )
+            if rearmDistance > (hotZoneRevealDistance + hotZoneTargetRadius) {
+                hotZoneGlobalRearmDirection = nil
+            } else {
+                if activeHotZoneSession == nil || activeHotZoneSession?.source != source || activeHotZoneSession?.screenFrame != screenFrame {
+                    activeHotZoneSession = ActiveHotZoneSession(
+                        source: source,
+                        screenFrame: screenFrame,
+                        hoveredDirection: globalRearmDirection,
+                        hoveredEnteredAt: nil,
+                        hoveredProgress: 1,
+                        rearmRequiredDirection: globalRearmDirection
+                    )
+                } else {
+                    activeHotZoneSession?.screenFrame = screenFrame
+                    activeHotZoneSession?.hoveredDirection = globalRearmDirection
+                    activeHotZoneSession?.hoveredEnteredAt = nil
+                    activeHotZoneSession?.hoveredProgress = 1
+                    activeHotZoneSession?.rearmRequiredDirection = globalRearmDirection
+                }
+                showHotZoneGuide(
+                    screenFrame: screenFrame,
+                    targets: targets,
+                    hoveredDirection: globalRearmDirection,
+                    branchProgressByDirection: [globalRearmDirection: 1],
+                    status: ""
+                )
+                return
+            }
+        }
+
         if activeHotZoneSession == nil || activeHotZoneSession?.source != source || activeHotZoneSession?.screenFrame != screenFrame {
             guard shouldReveal else {
                 if activeHotZoneSession?.source == source {
@@ -2207,6 +2244,7 @@ class HeadMotionManager: ObservableObject {
                let gesture = gestures.first(where: { recordedHotZoneDirection(for: $0) == guidedState.direction }) {
                 let sample = HeadGestureSample(at: now, yaw: 0, pitch: 0, cursorLocation: cursorLocation)
                 lastHeadGestureTriggerAt = now
+                hotZoneGlobalRearmDirection = guidedState.direction
                 session.rearmRequiredDirection = guidedState.direction
                 session.hoveredDirection = guidedState.direction
                 session.hoveredEnteredAt = nil
