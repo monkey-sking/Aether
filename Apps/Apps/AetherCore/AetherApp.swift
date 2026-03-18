@@ -2396,7 +2396,8 @@ class AppState: ObservableObject {
             recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .frontmostAppCommand(let command):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=frontmostAppCommand title=\(command.title) shortcut=\(command.shortcut.displayString) pid=\(command.processIdentifier)")
-            AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: command.processIdentifier)
+            let targetPID: pid_t? = command.isGlobalRule ? nil : command.processIdentifier
+            AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: targetPID)
             recordVoiceControl(
                 intent,
                 appName: command.appName,
@@ -3690,8 +3691,9 @@ private struct CurrentAppShortcutPanelView: View {
 
     private func triggerCurrentAppShortcut(_ command: FrontmostAppCommand) {
         CurrentAppShortcutPanelManager.shared.appState?.recordShortcutPanelCurrentAppShortcut(command)
-        CurrentAppShortcutPanelManager.shared.hideAndRun(targetPID: command.processIdentifier) {
-            AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: command.processIdentifier)
+        let targetPID: pid_t? = command.isGlobalRule ? nil : command.processIdentifier
+        CurrentAppShortcutPanelManager.shared.hideAndRun(targetPID: targetPID) {
+            AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: targetPID)
         }
     }
 
@@ -3804,28 +3806,32 @@ private struct AetherGlobalShortcutRow: View {
     let entry: AetherGlobalShortcutPanelEntry
     let onTrigger: (AetherGlobalShortcutPanelEntry) -> Void
     @State private var isHovered = false
-    private let shortcutColumnWidth: CGFloat = 116
+    private let shortcutColumnWidth: CGFloat = 92
 
     var body: some View {
         Button {
             onTrigger(entry)
         } label: {
-            HStack(alignment: .center, spacing: 14) {
+            HStack(alignment: .center, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.action.label)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(isHovered ? .white : Color(nsColor: .labelColor))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Text(entry.action.helperText)
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(isHovered ? .white.opacity(0.84) : Color(nsColor: .secondaryLabelColor))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    HoverMarqueeText(
+                        text: entry.action.label,
+                        font: .system(size: 16, weight: .medium),
+                        color: isHovered ? .white : Color(nsColor: .labelColor),
+                        isActive: isHovered,
+                        height: 20
+                    )
+                    HoverMarqueeText(
+                        text: entry.action.helperText,
+                        font: .system(size: 13, weight: .regular),
+                        color: isHovered ? .white.opacity(0.84) : Color(nsColor: .secondaryLabelColor),
+                        isActive: isHovered,
+                        gap: 24,
+                        height: 17
+                    )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-                Spacer(minLength: 12)
+                .layoutPriority(1)
 
                 ShortcutBadgeView(binding: entry.binding, minWidth: shortcutColumnWidth, style: .compact)
                     .opacity(isHovered ? 0.98 : 1)
@@ -3848,7 +3854,7 @@ private struct CurrentAppShortcutRow: View {
     let command: FrontmostAppCommand
     let onTrigger: (FrontmostAppCommand) -> Void
     @State private var isHovered = false
-    private let shortcutColumnWidth: CGFloat = 116
+    private let shortcutColumnWidth: CGFloat = 92
 
     private var isChinese: Bool {
         AppLocalization.isChinese
@@ -3863,14 +3869,16 @@ private struct CurrentAppShortcutRow: View {
         Button {
             onTrigger(command)
         } label: {
-            HStack(alignment: .center, spacing: 14) {
+            HStack(alignment: .center, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(command.title)
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(isHovered ? .white : (command.isEnabled ? Color(nsColor: .labelColor) : .secondary.opacity(0.8)))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        HoverMarqueeText(
+                            text: command.title,
+                            font: .system(size: 16, weight: .medium),
+                            color: isHovered ? .white : (command.isEnabled ? Color(nsColor: .labelColor) : .secondary.opacity(0.8)),
+                            isActive: isHovered,
+                            height: 20
+                        )
                         if !command.isEnabled {
                             Text(isChinese ? "灰置" : "Disabled")
                                 .font(.system(size: 11, weight: .medium))
@@ -3883,11 +3891,14 @@ private struct CurrentAppShortcutRow: View {
                     }
                     HStack(alignment: .center, spacing: 8) {
                         if !submenuPath.isEmpty {
-                            Text(submenuPath)
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundColor(isHovered ? .white.opacity(0.84) : Color(nsColor: .secondaryLabelColor))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+                            HoverMarqueeText(
+                                text: submenuPath,
+                                font: .system(size: 12, weight: .regular),
+                                color: isHovered ? .white.opacity(0.84) : Color(nsColor: .secondaryLabelColor),
+                                isActive: isHovered,
+                                gap: 24,
+                                height: 16
+                            )
                         }
                         if !command.isEnabled {
                             Circle()
@@ -3901,8 +3912,7 @@ private struct CurrentAppShortcutRow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-                Spacer(minLength: 12)
+                .layoutPriority(1)
 
                 ShortcutBadgeView(binding: command.shortcut, minWidth: shortcutColumnWidth, style: .compact)
                     .opacity(command.isEnabled ? (isHovered ? 0.98 : 1) : 0.55)
@@ -3923,6 +3933,111 @@ private struct CurrentAppShortcutRow: View {
                 isHovered = hovering
             }
         }
+    }
+}
+
+private struct HoverMarqueeText: View {
+    let text: String
+    let font: Font
+    let color: Color
+    let isActive: Bool
+    var gap: CGFloat = 32
+    var height: CGFloat = 20
+
+    @State private var containerWidth: CGFloat = 0
+    @State private var contentWidth: CGFloat = 0
+    @State private var animatedOffset: CGFloat = 0
+    @State private var animationToken: UUID = UUID()
+
+    private var shouldMarquee: Bool {
+        isActive && contentWidth > containerWidth + 6
+    }
+
+    private var overflowDistance: CGFloat {
+        max(contentWidth - containerWidth, 0)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                if shouldMarquee {
+                    HStack(spacing: gap) {
+                        textView
+                        textView
+                    }
+                    .offset(x: animatedOffset)
+                } else {
+                    textView
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .onAppear {
+                containerWidth = proxy.size.width
+                restartAnimationIfNeeded()
+            }
+            .onChange(of: proxy.size.width) { _, newValue in
+                containerWidth = newValue
+                restartAnimationIfNeeded()
+            }
+        }
+        .frame(height: height)
+        .clipped()
+        .background(
+            textView
+                .fixedSize()
+                .hidden()
+                .readWidth { width in
+                    contentWidth = width
+                    restartAnimationIfNeeded()
+                }
+        )
+        .onChange(of: isActive) { _, _ in
+            restartAnimationIfNeeded()
+        }
+        .onChange(of: text) { _, _ in
+            restartAnimationIfNeeded()
+        }
+    }
+
+    private var textView: some View {
+        Text(text)
+            .font(font)
+            .foregroundColor(color)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+    private func restartAnimationIfNeeded() {
+        animationToken = UUID()
+        animatedOffset = 0
+        guard shouldMarquee else { return }
+        let currentToken = animationToken
+        let distance = overflowDistance + gap
+        let duration = max(2.8, Double(distance / 28))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            guard currentToken == animationToken, shouldMarquee else { return }
+            withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
+                animatedOffset = -distance
+            }
+        }
+    }
+}
+
+private struct WidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private extension View {
+    func readWidth(onChange: @escaping (CGFloat) -> Void) -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: WidthPreferenceKey.self, value: proxy.size.width)
+            }
+        )
+        .onPreferenceChange(WidthPreferenceKey.self, perform: onChange)
     }
 }
 
