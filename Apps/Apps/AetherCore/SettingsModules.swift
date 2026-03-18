@@ -989,6 +989,7 @@ private struct HeadGestureShortcutMappingCard: View {
     @State private var expandedGestureIDs: Set<UUID> = []
     private var isChinese: Bool { AppLocalization.isChinese }
     private var fixedGestures: [HeadMotionManager.RecordedHeadGesture] { motionManager.fixedHotZoneGestures }
+    private var motionGestures: [HeadMotionManager.RecordedHeadGesture] { motionManager.builtInMotionGestures }
 
     private var gestureActionOptions: [FixedPopUpOption] {
         HeadMotionManager.HeadGestureAction.allCases.map {
@@ -1048,6 +1049,28 @@ private struct HeadGestureShortcutMappingCard: View {
                     ]
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
                         ForEach(fixedGestures) { gesture in
+                            gestureRow(gesture)
+                        }
+                    }
+                }
+
+                if !motionGestures.isEmpty {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(isChinese ? "点头和摇头" : "Nod and Shake")
+                            .font(.subheadline.weight(.semibold))
+                        Text(isChinese ? "保留点头和摇头作为独立触发，不和边缘热区混在一起。" : "Keep nod and shake as separate triggers, independent from edge zones.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    let columns = [
+                        GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .leading)
+                    ]
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                        ForEach(motionGestures) { gesture in
                             gestureRow(gesture)
                         }
                     }
@@ -1180,8 +1203,8 @@ private struct HeadGestureShortcutMappingCard: View {
                 }
 
                 Text(gesture.action == .none
-                        ? (isChinese ? "未配置动作，这个热区当前不会生效。" : "No action assigned. This zone is currently inactive.")
-                        : (isChinese ? "移入该边缘热区并停留即可触发。" : "Move into this edge zone and dwell to trigger."))
+                        ? (isChinese ? "未配置动作，这个触发当前不会生效。" : "No action assigned. This trigger is currently inactive.")
+                        : gestureHint(for: gesture))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -1215,6 +1238,13 @@ private struct HeadGestureShortcutMappingCard: View {
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
         .cornerRadius(10)
+    }
+
+    private func gestureHint(for gesture: HeadMotionManager.RecordedHeadGesture) -> String {
+        if motionManager.fixedHotZoneGestures.contains(where: { $0.id == gesture.id }) {
+            return isChinese ? "移入该热区并停留即可触发。" : "Move into this zone and dwell to trigger."
+        }
+        return isChinese ? "做出对应点头或摇头即可触发。" : "Perform the corresponding nod or shake to trigger."
     }
 
     @ViewBuilder
@@ -3081,7 +3111,7 @@ struct HeadGestureSettingsView: View {
                                 .foregroundColor(.secondary)
                         }
 
-                        Slider(value: hotZoneSizeBinding, in: 0.8...1.8, step: 0.05)
+                        Slider(value: hotZoneSizeBinding, in: 0.4...1.8, step: 0.05)
 
                         Text(isChinese ? "调大后更容易进入热区，也会让显示区域更明显。" : "Larger zones are easier to enter and display more prominently.")
                             .font(.caption)

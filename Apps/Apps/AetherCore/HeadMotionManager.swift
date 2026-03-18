@@ -37,6 +37,8 @@ class HeadMotionManager: ObservableObject {
     private static let builtInShakeLeftRightGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1002")!
     private static let builtInNodDownUpGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1003")!
     private static let builtInShakeRightLeftGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1004")!
+    private static let builtInNodGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1011")!
+    private static let builtInShakeGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1012")!
 
     enum RecognitionControlMode: String, Sendable {
         case auto
@@ -602,10 +604,10 @@ class HeadMotionManager: ObservableObject {
 
     @Published var headHotZoneSizeScale: Double = {
         let stored = UserDefaults.standard.object(forKey: HeadMotionManager.headHotZoneSizeScaleKey) as? Double ?? 1.0
-        return min(max(stored, 0.8), 1.8)
+        return min(max(stored, 0.4), 1.8)
     }() {
         didSet {
-            let clamped = min(max(headHotZoneSizeScale, 0.8), 1.8)
+            let clamped = min(max(headHotZoneSizeScale, 0.4), 1.8)
             UserDefaults.standard.set(clamped, forKey: HeadMotionManager.headHotZoneSizeScaleKey)
         }
     }
@@ -915,23 +917,29 @@ class HeadMotionManager: ObservableObject {
     }
 
     private static func builtInRecordedHeadGestures(existing gestures: [RecordedHeadGesture] = []) -> [RecordedHeadGesture] {
-        let existingNod = gestures.first(where: {
+        let existingTopZone = gestures.first(where: {
             $0.id == builtInNodUpDownGestureID || $0.id == builtInNodDownUpGestureID
         })
-        let existingShake = gestures.first(where: {
+        let existingSideZone = gestures.first(where: {
             $0.id == builtInShakeLeftRightGestureID || $0.id == builtInShakeRightLeftGestureID
         })
-        let nodAction = existingNod?.action ?? defaultHeadGestureAction(for: .nod)
-        let nodEnabled = existingNod?.enabled ?? true
-        let shakeAction = existingShake?.action ?? defaultHeadGestureAction(for: .shake)
-        let shakeEnabled = existingShake?.enabled ?? true
+        let existingNodGesture = gestures.first(where: { $0.id == builtInNodGestureID })
+        let existingShakeGesture = gestures.first(where: { $0.id == builtInShakeGestureID })
+        let topZoneAction = existingTopZone?.action ?? defaultHeadGestureAction(for: .nod)
+        let topZoneEnabled = existingTopZone?.enabled ?? true
+        let sideZoneAction = existingSideZone?.action ?? defaultHeadGestureAction(for: .shake)
+        let sideZoneEnabled = existingSideZone?.enabled ?? true
+        let nodGestureAction = existingNodGesture?.action ?? defaultHeadGestureAction(for: .nod)
+        let nodGestureEnabled = existingNodGesture?.enabled ?? true
+        let shakeGestureAction = existingShakeGesture?.action ?? defaultHeadGestureAction(for: .shake)
+        let shakeGestureEnabled = existingShakeGesture?.enabled ?? true
 
         return [
             RecordedHeadGesture(
                 id: builtInNodUpDownGestureID,
                 name: AppLocalization.isChinese ? "上边热区" : "Top Edge Zone",
-                action: nodAction,
-                enabled: nodEnabled,
+                action: topZoneAction,
+                enabled: topZoneEnabled,
                 cooldown: 1.0,
                 minimumScore: 0.64,
                 recordedDuration: 0.58,
@@ -945,8 +953,8 @@ class HeadMotionManager: ObservableObject {
             RecordedHeadGesture(
                 id: builtInNodDownUpGestureID,
                 name: AppLocalization.isChinese ? "下边热区" : "Bottom Edge Zone",
-                action: nodAction,
-                enabled: nodEnabled,
+                action: topZoneAction,
+                enabled: topZoneEnabled,
                 cooldown: 1.0,
                 minimumScore: 0.64,
                 recordedDuration: 0.58,
@@ -960,8 +968,8 @@ class HeadMotionManager: ObservableObject {
             RecordedHeadGesture(
                 id: builtInShakeLeftRightGestureID,
                 name: AppLocalization.isChinese ? "左边热区" : "Left Edge Zone",
-                action: shakeAction,
-                enabled: shakeEnabled,
+                action: sideZoneAction,
+                enabled: sideZoneEnabled,
                 cooldown: 1.0,
                 minimumScore: 0.64,
                 recordedDuration: 0.62,
@@ -975,8 +983,8 @@ class HeadMotionManager: ObservableObject {
             RecordedHeadGesture(
                 id: builtInShakeRightLeftGestureID,
                 name: AppLocalization.isChinese ? "右边热区" : "Right Edge Zone",
-                action: shakeAction,
-                enabled: shakeEnabled,
+                action: sideZoneAction,
+                enabled: sideZoneEnabled,
                 cooldown: 1.0,
                 minimumScore: 0.64,
                 recordedDuration: 0.62,
@@ -986,6 +994,40 @@ class HeadMotionManager: ObservableObject {
                 ],
                 stepSequence: [.right],
                 alternateStepSequences: nil
+            ),
+            RecordedHeadGesture(
+                id: builtInNodGestureID,
+                name: AppLocalization.isChinese ? "点头" : "Nod",
+                action: nodGestureAction,
+                enabled: nodGestureEnabled,
+                cooldown: 1.0,
+                minimumScore: 0.64,
+                recordedDuration: 0.58,
+                points: builtInGesturePoints(kind: .nod),
+                alternateSamples: [
+                    mirroredBuiltInGesturePoints(kind: .nod),
+                    builtInGesturePoints(kind: .nod, variant: 1),
+                    mirroredBuiltInGesturePoints(kind: .nod, variant: 1)
+                ],
+                stepSequence: [.up, .down],
+                alternateStepSequences: [[.down, .up]]
+            ),
+            RecordedHeadGesture(
+                id: builtInShakeGestureID,
+                name: AppLocalization.isChinese ? "摇头" : "Shake",
+                action: shakeGestureAction,
+                enabled: shakeGestureEnabled,
+                cooldown: 1.0,
+                minimumScore: 0.64,
+                recordedDuration: 0.62,
+                points: builtInGesturePoints(kind: .shake),
+                alternateSamples: [
+                    mirroredBuiltInGesturePoints(kind: .shake),
+                    builtInGesturePoints(kind: .shake, variant: 1),
+                    mirroredBuiltInGesturePoints(kind: .shake, variant: 1)
+                ],
+                stepSequence: [.left, .right],
+                alternateStepSequences: [[.right, .left]]
             )
         ]
     }
@@ -1859,6 +1901,7 @@ class HeadMotionManager: ObservableObject {
         )
 
         trackHotZoneRecognition(now: now, cursorLocation: cursorLocation, source: .head)
+        trackRecordedHeadGestureCandidate(yaw: yaw, pitch: pitch, now: now, cursorLocation: cursorLocation)
     }
 
     private func startHotZoneMonitorTimer() {
@@ -1898,12 +1941,13 @@ class HeadMotionManager: ObservableObject {
 
     private func eligibleHotZoneGesturesForRecognition() -> [RecordedHeadGesture] {
         recordedHeadGestures.filter { gesture in
-            gesture.enabled && gesture.action != .none && recordedHotZoneDirection(for: gesture) != nil
+            gesture.enabled && gesture.action != .none && isFixedHotZoneGesture(gesture) && recordedHotZoneDirection(for: gesture) != nil
         }
     }
 
     private func recordedHotZoneDirection(for gesture: RecordedHeadGesture) -> HeadGestureDirection? {
-        gesture.stepSequence?.first
+        guard isFixedHotZoneGesture(gesture) else { return nil }
+        return gesture.stepSequence?.first
     }
 
     private func hotZoneBranches(from gestures: [RecordedHeadGesture]) -> [GestureBranchSummary] {
@@ -1979,13 +2023,11 @@ class HeadMotionManager: ObservableObject {
         }
 
         let screenFrame = activeTrackingScreenFrame(for: cursorLocation)
-        let distanceToNearestEdge = min(
-            abs(cursorLocation.x - screenFrame.minX),
-            abs(cursorLocation.x - screenFrame.maxX),
-            abs(cursorLocation.y - screenFrame.minY),
-            abs(cursorLocation.y - screenFrame.maxY)
-        )
-        let shouldReveal = distanceToNearestEdge <= hotZoneRevealDistance
+        let targets = hotZoneTargets(in: screenFrame, branches: branches)
+        let nearestTargetDistance = targets
+            .map { hypot(cursorLocation.x - $0.globalCenter.x, cursorLocation.y - $0.globalCenter.y) }
+            .min() ?? .greatestFiniteMagnitude
+        let shouldReveal = nearestTargetDistance <= hotZoneRevealDistance
 
         if activeHotZoneSession == nil || activeHotZoneSession?.source != source || activeHotZoneSession?.screenFrame != screenFrame {
             guard shouldReveal else {
@@ -2010,7 +2052,6 @@ class HeadMotionManager: ObservableObject {
             return
         }
 
-        let targets = hotZoneTargets(in: screenFrame, branches: branches)
         if let guidedState = hotZoneGuidedState(
             from: cursorLocation,
             targets: targets
@@ -2930,6 +2971,15 @@ class HeadMotionManager: ObservableObject {
         return order.compactMap { map[$0] }
     }
 
+    var builtInMotionGestures: [RecordedHeadGesture] {
+        let order: [UUID] = [
+            Self.builtInNodGestureID,
+            Self.builtInShakeGestureID
+        ]
+        let map = Dictionary(uniqueKeysWithValues: recordedHeadGestures.map { ($0.id, $0) })
+        return order.compactMap { map[$0] }
+    }
+
     func recordedStepSummary(for gesture: RecordedHeadGesture) -> String {
         let primary = gesture.stepSequence ?? []
         guard !primary.isEmpty else {
@@ -3028,9 +3078,21 @@ class HeadMotionManager: ObservableObject {
         isTracking
     }
 
+    private func isFixedHotZoneGesture(_ gesture: RecordedHeadGesture) -> Bool {
+        switch gesture.id {
+        case Self.builtInNodUpDownGestureID,
+             Self.builtInNodDownUpGestureID,
+             Self.builtInShakeLeftRightGestureID,
+             Self.builtInShakeRightLeftGestureID:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func eligibleHeadGesturesForRecognition() -> [RecordedHeadGesture] {
         let enabled = recordedHeadGestures.filter { gesture in
-            gesture.enabled && !recordedStepSequences(for: gesture).isEmpty
+            gesture.enabled && gesture.action != .none && !isFixedHotZoneGesture(gesture) && !recordedStepSequences(for: gesture).isEmpty
         }
         guard !isTracking else { return enabled }
         return enabled.filter { $0.action == .toggleTracking }
@@ -3038,9 +3100,9 @@ class HeadMotionManager: ObservableObject {
 
     private func builtInGestureKind(for gesture: RecordedHeadGesture) -> HeadGestureKind? {
         switch gesture.id {
-        case Self.builtInNodUpDownGestureID, Self.builtInNodDownUpGestureID:
+        case Self.builtInNodGestureID:
             return .nod
-        case Self.builtInShakeLeftRightGestureID, Self.builtInShakeRightLeftGestureID:
+        case Self.builtInShakeGestureID:
             return .shake
         default:
             return nil
