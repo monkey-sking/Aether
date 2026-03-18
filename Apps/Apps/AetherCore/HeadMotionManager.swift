@@ -1995,22 +1995,32 @@ class HeadMotionManager: ObservableObject {
 
         let attemptSamples = recentHeadGestureSamples.filter { $0.at >= session.startedAt }
         let attemptSequence = extractDirectionalSequence(from: attemptSamples)
-        let hasNewDirection = attemptSequence.count > session.prefix.count
-        let nextDetectedDirection = hasNewDirection ? attemptSequence[session.prefix.count] : nil
 
         if session.prefix.count == 1, !session.isGuideAnchorCommitted {
             if let cursorLocation {
-                session.guideAnchorCursorPoint = cursorLocation
-            }
-            if let nextDetectedDirection,
-               nextDetectedDirection != session.prefix.last {
-                session.isGuideAnchorCommitted = true
-                session.lastAdvancedAt = now
-                session.committedCursorPoints = overlayCompletedCursorPoints(
-                    committed: [session.strokeStartCursorPoint],
-                    currentCursorLocation: cursorLocation ?? session.guideAnchorCursorPoint,
-                    anchorPoint: session.strokeStartCursorPoint
+                let provisionalAnchor = smoothedGuideAnchor(
+                    current: session.guideAnchorCursorPoint,
+                    target: cursorLocation,
+                    factor: 0.36
                 )
+                if let turnDirection = dominantScreenDirection(
+                    from: provisionalAnchor,
+                    to: cursorLocation,
+                    minimumDistance: 18,
+                    dominanceRatio: 1.08
+                ),
+                   turnDirection != session.prefix.last {
+                    session.isGuideAnchorCommitted = true
+                    session.lastAdvancedAt = now
+                    session.guideAnchorCursorPoint = provisionalAnchor
+                    session.committedCursorPoints = overlayCompletedCursorPoints(
+                        committed: [session.strokeStartCursorPoint],
+                        currentCursorLocation: provisionalAnchor,
+                        anchorPoint: session.strokeStartCursorPoint
+                    )
+                } else {
+                    session.guideAnchorCursorPoint = provisionalAnchor
+                }
             }
             session.hoveredDirection = nil
             session.hoveredProgress = 0
@@ -2068,7 +2078,7 @@ class HeadMotionManager: ObservableObject {
         showSequenceGuide(
             prefix: session.prefix,
             branches: branches,
-            panelCursorLocation: cursorLocation ?? session.guideAnchorCursorPoint,
+            panelCursorLocation: session.guideAnchorCursorPoint,
             guideAnchorCursorLocation: session.guideAnchorCursorPoint,
             completedCursorPoints: displayCompletedCursorPoints,
             highlightedDirection: session.isGuideAnchorCommitted ? (session.hoveredDirection ?? sequence.last) : nil,
@@ -2076,22 +2086,6 @@ class HeadMotionManager: ObservableObject {
         )
 
         if let matched = completed.first, branches.isEmpty {
-            guard attemptSequence == session.prefix else {
-                appendHeadGestureDebugEntry(
-                    mode: "step-recognition",
-                    result: "complete-but-sequence-mismatch",
-                    samples: recentHeadGestureSamples,
-                    gestureName: nil,
-                    actionName: nil,
-                    bestMatchName: matched.gesture.name,
-                    bestScore: nil,
-                    detectedSequence: attemptSequence,
-                    matchedPrefix: session.prefix
-                )
-                activeStepGestureSession = nil
-                headGestureOverlayController.hide(after: 0.12)
-                return
-            }
             lastHeadGestureTriggerAt = now
             activeStepGestureSession = nil
             let duration = now.timeIntervalSince(session.startedAt)
@@ -2112,6 +2106,35 @@ class HeadMotionManager: ObservableObject {
                 samples: recentHeadGestureSamples
             )
         }
+    }
+
+    private func smoothedGuideAnchor(current: CGPoint, target: CGPoint, factor: CGFloat) -> CGPoint {
+        CGPoint(
+            x: current.x + ((target.x - current.x) * factor),
+            y: current.y + ((target.y - current.y) * factor)
+        )
+    }
+
+    private func dominantScreenDirection(
+        from start: CGPoint,
+        to end: CGPoint,
+        minimumDistance: CGFloat,
+        dominanceRatio: CGFloat
+    ) -> HeadGestureDirection? {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let absX = abs(dx)
+        let absY = abs(dy)
+
+        guard hypot(dx, dy) >= minimumDistance else { return nil }
+
+        if absY >= (absX * dominanceRatio) {
+            return dy >= 0 ? .up : .down
+        }
+        if absX >= (absY * dominanceRatio) {
+            return dx >= 0 ? .right : .left
+        }
+        return nil
     }
 
     private func overlayCompletedCursorPoints(
@@ -2650,7 +2673,10 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func scaledGesturePoint(yaw: Double, pitch: Double) -> CGPoint {
-        CGPoint(x: yaw * 0.64, y: pitch)
+        // Keep gesture directions aligned with on-screen cursor motion.
+        // Cursor tracking already inverts the X axis, so gesture extraction
+        // must mirror yaw as well or left/right semantics will be reversed.
+        CGPoint(x: -yaw * 0.64, y: pitch)
     }
 
     private func isRecordableGesture(_ summary: GestureTemplateSummary?) -> Bool {
