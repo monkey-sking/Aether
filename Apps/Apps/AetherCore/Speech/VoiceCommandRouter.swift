@@ -12,6 +12,7 @@ struct FrontmostAppCommand: Identifiable, Equatable {
     let shortcut: HotkeyBinding
     let aliases: [String]
     let isEnabled: Bool
+    let isGlobalRule: Bool
 
     init(
         processIdentifier: pid_t,
@@ -21,7 +22,8 @@ struct FrontmostAppCommand: Identifiable, Equatable {
         title: String,
         shortcut: HotkeyBinding,
         aliases: [String],
-        isEnabled: Bool = true
+        isEnabled: Bool = true,
+        isGlobalRule: Bool = false
     ) {
         self.processIdentifier = processIdentifier
         self.bundleIdentifier = bundleIdentifier
@@ -31,6 +33,7 @@ struct FrontmostAppCommand: Identifiable, Equatable {
         self.shortcut = shortcut
         self.aliases = aliases
         self.isEnabled = isEnabled
+        self.isGlobalRule = isGlobalRule
     }
 
     var id: String {
@@ -154,7 +157,8 @@ struct CustomAppShortcutRule: Codable, Identifiable, Equatable {
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             shortcut: shortcut,
             aliases: effectiveAliases,
-            isEnabled: true
+            isEnabled: true,
+            isGlobalRule: isGlobal
         )
     }
 

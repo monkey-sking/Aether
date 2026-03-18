@@ -28,6 +28,10 @@ class HeadMotionManager: ObservableObject {
     private static let headGestureToggleEnabledKey = "AetherHeadGestureToggleEnabled"
     private static let headGestureNodActionKey = "AetherHeadGestureNodAction"
     private static let headGestureShakeActionKey = "AetherHeadGestureShakeAction"
+    private static let recordedHeadGesturesStorageKey = "AetherRecordedHeadGesturesV1"
+    private static let headGestureHistoryStorageKey = "AetherHeadGestureHistoryV1"
+    private static let builtInNodGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1001")!
+    private static let builtInShakeGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1002")!
 
     enum RecognitionControlMode: String, Sendable {
         case auto
@@ -146,7 +150,7 @@ class HeadMotionManager: ObservableObject {
         }
     }
 
-    enum HeadGestureAction: String, CaseIterable, Identifiable, Sendable {
+    enum HeadGestureAction: String, CaseIterable, Identifiable, Codable, Sendable {
         case none
         case toggleLanguage
         case toggleShortcutPanel
@@ -201,6 +205,7 @@ class HeadMotionManager: ObservableObject {
         let at: Date
         let yaw: Double
         let pitch: Double
+        let cursorLocation: CGPoint?
     }
 
     private struct HeadGestureAxisMetrics {
@@ -214,6 +219,125 @@ class HeadMotionManager: ObservableObject {
         let sampleCount: Int
         let activeSampleCount: Int
         let activeDuration: TimeInterval
+    }
+
+    struct RecordedHeadGesturePoint: Codable, Equatable {
+        let x: Double
+        let y: Double
+        let t: Double
+    }
+
+    struct RecordedHeadGesture: Codable, Identifiable, Equatable {
+        var id: UUID
+        var name: String
+        var action: HeadGestureAction
+        var enabled: Bool
+        var cooldown: TimeInterval
+        var minimumScore: Double
+        var recordedDuration: TimeInterval
+        var points: [RecordedHeadGesturePoint]
+        var alternateSamples: [[RecordedHeadGesturePoint]]?
+    }
+
+    enum HeadGestureHistoryResult: String, Codable {
+        case saved
+        case triggered
+        case noMatch
+        case cancelled
+        case tooSimple
+        case noAction
+
+        var label: String {
+            if AppLocalization.isChinese {
+                switch self {
+                case .saved: return "已保存"
+                case .triggered: return "已触发"
+                case .noMatch: return "未匹配"
+                case .cancelled: return "已取消"
+                case .tooSimple: return "动作过于简单"
+                case .noAction: return "未绑定动作"
+                }
+            }
+            switch self {
+            case .saved: return "Saved"
+            case .triggered: return "Triggered"
+            case .noMatch: return "No Match"
+            case .cancelled: return "Cancelled"
+            case .tooSimple: return "Too Simple"
+            case .noAction: return "No Action"
+            }
+        }
+    }
+
+    struct HeadGestureHistoryEntry: Codable, Identifiable, Equatable {
+        var id: UUID
+        var date: Date
+        var gestureName: String
+        var actionName: String
+        var result: HeadGestureHistoryResult
+        var score: Double?
+        var duration: TimeInterval
+        var summary: String
+    }
+
+    struct HeadGestureDebugSample: Codable, Equatable {
+        var t: Double
+        var yaw: Double
+        var pitch: Double
+        var cursorX: Double?
+        var cursorY: Double?
+    }
+
+    struct HeadGestureDebugEntry: Codable, Identifiable, Equatable {
+        var id: UUID
+        var date: Date
+        var mode: String
+        var result: String
+        var gestureName: String?
+        var actionName: String?
+        var bestMatchName: String?
+        var bestScore: Double?
+        var totalDistance: Double
+        var duration: TimeInterval
+        var sampleCount: Int
+        var samples: [HeadGestureDebugSample]
+    }
+
+    private struct HeadGestureDebugExportPayload: Codable {
+        var exportedAt: Date
+        var recordedGestures: [RecordedHeadGesture]
+        var history: [HeadGestureHistoryEntry]
+        var debugEntries: [HeadGestureDebugEntry]
+    }
+
+    private struct ActiveGestureRecordingSession {
+        let gestureID: UUID
+        var samples: [HeadGestureSample] = []
+        var startedAt: Date
+        var lastActiveAt: Date
+        var hasObservedMeaningfulMotion: Bool = false
+    }
+
+    private struct ActiveGestureCandidate {
+        var samples: [HeadGestureSample] = []
+        var startedAt: Date
+        var lastActiveAt: Date
+        var didPlayStartSound: Bool = false
+        var didPlayTurnCue: Bool = false
+    }
+
+    private struct GestureTemplateSummary {
+        let points: [CGPoint]
+        let duration: TimeInterval
+        let totalDistance: Double
+        let turnCount: Int
+        let xSignChanges: Int
+        let ySignChanges: Int
+    }
+
+    private struct GestureMatch {
+        let gesture: RecordedHeadGesture
+        let score: Double
     }
 
     private init() {
@@ -267,6 +391,18 @@ class HeadMotionManager: ObservableObject {
     @Published private(set) var lastHeadsetRemoteEventAt: Date?
     @Published private(set) var lastHeadGestureEventText: String = ""
     @Published private(set) var lastHeadGestureEventAt: Date?
+    @Published var recordedHeadGestures: [RecordedHeadGesture] = HeadMotionManager.loadRecordedHeadGestures() {
+        didSet { HeadMotionManager.saveRecordedHeadGestures(recordedHeadGestures) }
+    }
+    @Published private(set) var headGestureHistory: [HeadGestureHistoryEntry] = HeadMotionManager.loadHeadGestureHistory() {
+        didSet { HeadMotionManager.saveHeadGestureHistory(headGestureHistory) }
+    }
+    @Published private(set) var headGestureDebugEntries: [HeadGestureDebugEntry] = []
+    @Published private(set) var activeHeadGestureRecordingID: UUID?
+    @Published private(set) var headGestureRecordingCountdown: Int = 0
+    @Published private(set) var isHeadGestureRecording: Bool = false
+    @Published private(set) var headGestureRecordingStatusText: String = ""
+    @Published private(set) var isAppendingHeadGestureSample: Bool = false
     
     // Callback for critical errors (to show UI alerts)
     var onError: ((String) -> Void)?
@@ -394,6 +530,10 @@ class HeadMotionManager: ObservableObject {
     private var recentHeadGestureSamples: [HeadGestureSample] = []
     private var lastHeadGestureTriggerAt: Date = .distantPast
     private var lastHeadGestureDebugLogAt: Date = .distantPast
+    private var activeGestureCandidate: ActiveGestureCandidate?
+    private var activeGestureRecordingSession: ActiveGestureRecordingSession?
+    private var pendingHeadGestureRecordingCountdownWorkItem: DispatchWorkItem?
+    private lazy var headGestureOverlayController = HeadGestureOverlayController()
     
     // Temporary override, usually from AirPods squeeze during a PTT session.
     @Published var transientRecognitionControlMode: RecognitionControlMode? = nil
@@ -468,6 +608,8 @@ class HeadMotionManager: ObservableObject {
     private var seekForwardTarget: Any?
     private var seekBackwardTarget: Any?
     private var voiceActivationMode: AppState.VoiceActivationMode = HeadMotionManager.loadVoiceActivationModeFromDefaults()
+    private let headGestureHistoryLimit = 180
+    private let headGestureDebugEntryLimit = 80
     private var lastHeadsetSinglePressAt: Date = .distantPast
     private var lastHeadsetDoublePressAt: Date = .distantPast
     private var lastHeadsetTriplePressAt: Date = .distantPast
@@ -479,6 +621,8 @@ class HeadMotionManager: ObservableObject {
     private var autoTrackingRetryAttempts: Int = 0
     private var airPodsStateObserver: NSObjectProtocol?
     private var headsetRouteObserver: NSObjectProtocol?
+    private let headTrackingConnectionTimeout: TimeInterval = 8.0
+    private var headTrackingConnectionGraceUsed = false
 
     private var hasActiveHeadsetConnection: Bool {
         lastObservedHeadsetRouteConnected || lastObservedAirPodSide != .none
@@ -541,6 +685,35 @@ class HeadMotionManager: ObservableObject {
         UserDefaults.standard.set(action.rawValue, forKey: headGestureActionKey(for: kind))
     }
 
+    private static func loadRecordedHeadGestures() -> [RecordedHeadGesture] {
+        let decoded: [RecordedHeadGesture]
+        if let data = UserDefaults.standard.data(forKey: recordedHeadGesturesStorageKey),
+           let stored = try? JSONDecoder().decode([RecordedHeadGesture].self, from: data) {
+            decoded = stored
+        } else {
+            decoded = []
+        }
+        return mergeBuiltInHeadGestures(into: decoded)
+    }
+
+    private static func saveRecordedHeadGestures(_ gestures: [RecordedHeadGesture]) {
+        guard let data = try? JSONEncoder().encode(gestures) else { return }
+        UserDefaults.standard.set(data, forKey: recordedHeadGesturesStorageKey)
+    }
+
+    private static func loadHeadGestureHistory() -> [HeadGestureHistoryEntry] {
+        guard let data = UserDefaults.standard.data(forKey: headGestureHistoryStorageKey),
+              let decoded = try? JSONDecoder().decode([HeadGestureHistoryEntry].self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+
+    private static func saveHeadGestureHistory(_ history: [HeadGestureHistoryEntry]) {
+        guard let data = try? JSONEncoder().encode(history) else { return }
+        UserDefaults.standard.set(data, forKey: headGestureHistoryStorageKey)
+    }
+
     private static func headsetPressActionKey(for kind: HeadsetPressKind) -> String {
         switch kind {
         case .single:
@@ -579,6 +752,308 @@ class HeadMotionManager: ObservableObject {
         case .shake:
             return .toggleInputControlMode
         }
+    }
+
+    private static func mergeBuiltInHeadGestures(into gestures: [RecordedHeadGesture]) -> [RecordedHeadGesture] {
+        var merged = gestures
+        let builtIns = builtInRecordedHeadGestures()
+        for builtIn in builtIns where !merged.contains(where: { $0.id == builtIn.id }) {
+            merged.append(builtIn)
+        }
+        return merged
+    }
+
+    private static func builtInRecordedHeadGestures() -> [RecordedHeadGesture] {
+        [
+            RecordedHeadGesture(
+                id: builtInNodGestureID,
+                name: AppLocalization.isChinese ? "内置点头" : "Built-in Nod",
+                action: defaultHeadGestureAction(for: .nod),
+                enabled: true,
+                cooldown: 1.0,
+                minimumScore: 0.70,
+                recordedDuration: 0.58,
+                points: builtInGesturePoints(kind: .nod),
+                alternateSamples: [builtInGesturePoints(kind: .nod, variant: 1)]
+            ),
+            RecordedHeadGesture(
+                id: builtInShakeGestureID,
+                name: AppLocalization.isChinese ? "内置摇头" : "Built-in Shake",
+                action: defaultHeadGestureAction(for: .shake),
+                enabled: true,
+                cooldown: 1.0,
+                minimumScore: 0.70,
+                recordedDuration: 0.62,
+                points: builtInGesturePoints(kind: .shake),
+                alternateSamples: [builtInGesturePoints(kind: .shake, variant: 1)]
+            )
+        ]
+    }
+
+    private static func builtInGesturePoints(kind: HeadGestureKind, variant: Int = 0) -> [RecordedHeadGesturePoint] {
+        let raw = legacyGesturePrototype(kind: kind, variant: variant)
+        let maxIndex = max(raw.count - 1, 1)
+        return raw.enumerated().map { index, point in
+            RecordedHeadGesturePoint(
+                x: point.0,
+                y: point.1,
+                t: Double(index) / Double(maxIndex)
+            )
+        }
+    }
+
+    private static func legacyGesturePrototype(kind: HeadGestureKind, variant: Int) -> [(Double, Double)] {
+        let phaseShift = variant == 0 ? 0.0 : 0.35
+        let crossAxisOffset = variant == 0 ? 0.018 : 0.028
+        let sampleCount = 15
+
+        return (0..<sampleCount).map { index in
+            let t = Double(index) / Double(sampleCount - 1)
+            let phase = (t * .pi * 1.6) + phaseShift
+
+            switch kind {
+            case .nod:
+                let x = 0.50 + (sin(phase * 1.8) * crossAxisOffset)
+                let y = 0.50 + (sin(phase) * 0.34)
+                return (
+                    min(max(x, 0.10), 0.90),
+                    min(max(y, 0.08), 0.92)
+                )
+            case .shake:
+                let x = 0.50 + (sin(phase) * 0.36)
+                let y = 0.50 + (sin(phase * 1.7) * crossAxisOffset)
+                return (
+                    min(max(x, 0.08), 0.92),
+                    min(max(y, 0.12), 0.88)
+                )
+            }
+        }
+    }
+
+    @MainActor
+    func createRecordedHeadGesture() {
+        let gesture = RecordedHeadGesture(
+            id: UUID(),
+            name: defaultRecordedHeadGestureName(for: .none),
+            action: .none,
+            enabled: true,
+            cooldown: 1.0,
+            minimumScore: 0.78,
+            recordedDuration: 0.0,
+            points: [],
+            alternateSamples: nil
+        )
+        recordedHeadGestures.insert(gesture, at: 0)
+        startRecordingRecordedHeadGesture(id: gesture.id)
+    }
+
+    @MainActor
+    func deleteRecordedHeadGesture(id: UUID) {
+        if activeHeadGestureRecordingID == id {
+            cancelRecordedHeadGestureRecording()
+        }
+        recordedHeadGestures.removeAll { $0.id == id }
+    }
+
+    @MainActor
+    func clearHeadGestureHistory() {
+        headGestureHistory = []
+    }
+
+    @MainActor
+    func copyHeadGestureHistory() throws {
+        let header = AppLocalization.isChinese ? "头部动作历史：" : "Head Gesture History:"
+        let lines = headGestureHistory.map { formatHeadGestureHistoryEntry($0) }
+        try copyTextToPasteboard(([header] + lines).joined(separator: "\n"))
+    }
+
+    @MainActor
+    func copyHeadGestureHistoryEntry(_ entry: HeadGestureHistoryEntry) throws {
+        let header = AppLocalization.isChinese ? "头部动作历史（单条）：" : "Head Gesture Event:"
+        try copyTextToPasteboard([header, formatHeadGestureHistoryEntry(entry)].joined(separator: "\n"))
+    }
+
+    @MainActor
+    func exportHeadGestureDebugData() throws -> URL? {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "AetherHeadGestureDebug.json"
+        panel.prompt = AppLocalization.isChinese ? "导出调试数据" : "Export Debug Data"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+
+        let payload = HeadGestureDebugExportPayload(
+            exportedAt: Date(),
+            recordedGestures: recordedHeadGestures,
+            history: headGestureHistory,
+            debugEntries: headGestureDebugEntries
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(payload)
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
+    @MainActor
+    func copyHeadGestureDebugData() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let payload = HeadGestureDebugExportPayload(
+            exportedAt: Date(),
+            recordedGestures: recordedHeadGestures,
+            history: headGestureHistory,
+            debugEntries: headGestureDebugEntries
+        )
+        let data = try encoder.encode(payload)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw NSError(
+                domain: "AetherHeadGestureDebugCopy",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: AppLocalization.isChinese ? "复制调试数据失败" : "Failed to copy head gesture debug data"]
+            )
+        }
+        try copyTextToPasteboard(text)
+    }
+
+    @MainActor
+    func updateRecordedHeadGestureName(id: UUID, name: String) {
+        guard let index = recordedHeadGestures.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        recordedHeadGestures[index].name = trimmed.isEmpty
+            ? defaultRecordedHeadGestureName(for: recordedHeadGestures[index].action)
+            : trimmed
+    }
+
+    @MainActor
+    func updateRecordedHeadGestureAction(id: UUID, action: HeadGestureAction) {
+        guard let index = recordedHeadGestures.firstIndex(where: { $0.id == id }) else { return }
+        let previousAction = recordedHeadGestures[index].action
+        let previousName = recordedHeadGestures[index].name
+        recordedHeadGestures[index].action = action
+        if shouldAutoRenameRecordedHeadGesture(
+            currentName: previousName,
+            previousAction: previousAction,
+            newAction: action
+        ) {
+            recordedHeadGestures[index].name = defaultRecordedHeadGestureName(for: action)
+        }
+    }
+
+    @MainActor
+    func toggleRecordedHeadGestureEnabled(id: UUID, enabled: Bool) {
+        guard let index = recordedHeadGestures.firstIndex(where: { $0.id == id }) else { return }
+        recordedHeadGestures[index].enabled = enabled
+    }
+
+    private func defaultRecordedHeadGestureName(for action: HeadGestureAction) -> String {
+        switch action {
+        case .none:
+            return AppLocalization.isChinese ? "未命名动作" : "Untitled Gesture"
+        default:
+            return action.label
+        }
+    }
+
+    private func shouldAutoRenameRecordedHeadGesture(
+        currentName: String,
+        previousAction: HeadGestureAction,
+        newAction: HeadGestureAction
+    ) -> Bool {
+        let trimmed = currentName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return true
+        }
+
+        let automaticNames: Set<String> = [
+            defaultRecordedHeadGestureName(for: .none),
+            defaultRecordedHeadGestureName(for: previousAction),
+            previousAction.label,
+            newAction.label
+        ]
+
+        return automaticNames.contains(trimmed)
+    }
+
+    @MainActor
+    func startRecordingRecordedHeadGesture(id: UUID, appendSample: Bool = false) {
+        guard hasActiveHeadsetConnection, motionManager.isDeviceMotionAvailable else {
+            HUDManager.shared.showTemporary(
+                message: AppLocalization.isChinese ? "录制前请先连接支持头动的耳机" : "Connect a motion-capable headset before recording",
+                icon: "airpods"
+            )
+            return
+        }
+        guard recordedHeadGestures.contains(where: { $0.id == id }) else { return }
+        pendingHeadGestureRecordingCountdownWorkItem?.cancel()
+        pendingHeadGestureRecordingCountdownWorkItem = nil
+        activeHeadGestureRecordingID = id
+        isAppendingHeadGestureSample = appendSample
+        isHeadGestureRecording = false
+        headGestureRecordingCountdown = 3
+        headGestureRecordingStatusText = appendSample
+            ? (AppLocalization.isChinese ? "准备追加样本" : "Get ready to add")
+            : (AppLocalization.isChinese ? "准备录制" : "Get ready")
+        activeGestureRecordingSession = nil
+        activeGestureCandidate = nil
+        resetHeadGestureRecognition()
+        headGestureToggleEnabled = true
+        refreshHeadGestureMonitoringState(source: "head-gesture-recording-start")
+        HUDManager.shared.showTemporary(
+            message: headGestureRecordingStatusText,
+            icon: "waveform.path",
+            duration: 1.0
+        )
+
+        for offset in 0...3 {
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self, self.activeHeadGestureRecordingID == id else { return }
+                let remaining = 3 - offset
+                self.headGestureRecordingCountdown = remaining
+                if remaining > 0 {
+                    self.headGestureRecordingStatusText = self.appLocalizedCountdownText(remaining: remaining)
+                    HUDManager.shared.showTemporary(
+                        message: self.headGestureRecordingStatusText,
+                        icon: "waveform.path",
+                        duration: 0.9
+                    )
+                } else {
+                    self.beginRecordedHeadGestureCapture(id: id)
+                }
+            }
+            pendingHeadGestureRecordingCountdownWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(offset), execute: workItem)
+        }
+    }
+
+    @MainActor
+    func cancelRecordedHeadGestureRecording() {
+        pendingHeadGestureRecordingCountdownWorkItem?.cancel()
+        pendingHeadGestureRecordingCountdownWorkItem = nil
+        let gestureName = recordedHeadGestures.first(where: { $0.id == activeHeadGestureRecordingID })?.name
+            ?? (AppLocalization.isChinese ? "头部动作" : "Head Gesture")
+        if activeHeadGestureRecordingID != nil || isHeadGestureRecording {
+            appendHeadGestureHistory(
+                gestureName: gestureName,
+                actionName: AppLocalization.isChinese ? "录制" : "Recording",
+                result: .cancelled,
+                score: nil,
+                duration: activeGestureRecordingSession.map { Date().timeIntervalSince($0.startedAt) } ?? 0,
+                summary: AppLocalization.isChinese ? "用户取消录制" : "Recording cancelled by user"
+            )
+        }
+        activeHeadGestureRecordingID = nil
+        isAppendingHeadGestureSample = false
+        isHeadGestureRecording = false
+        headGestureRecordingCountdown = 0
+        headGestureRecordingStatusText = ""
+        activeGestureRecordingSession = nil
+        headGestureOverlayController.hide()
+        HUDManager.shared.updateHeadGestureTrail(points: [], status: "", visible: false)
+        playHeadGestureCancelSound()
     }
     
     
@@ -630,18 +1105,20 @@ class HeadMotionManager: ObservableObject {
         self.calibrationStatus = String(localized: "headset.status.calibrating")
         self.isCalibrated = false
         self.isAirPodsStreamActive = false
+        self.headTrackingConnectionGraceUsed = false
         self.refreshHeadsetRemoteStatus()
         
         // Reset attention state
         self.isLookingAtScreen = true
         
-        // Start connection timeout timer (5 seconds)
+        // Start connection timeout timer. AirPods motion packets can arrive a bit late,
+        // so keep the initial window forgiving to avoid self-inflicted reconnect loops.
         DispatchQueue.main.async {
             self.attitudeText = String(localized: "headset.status.connecting")
         }
         
         connectionTimer?.invalidate()
-        connectionTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
+        connectionTimer = Timer.scheduledTimer(withTimeInterval: headTrackingConnectionTimeout, repeats: false) { [weak self] _ in
             self?.handleConnectionTimeout()
         }
         
@@ -716,7 +1193,9 @@ class HeadMotionManager: ObservableObject {
             let offYaw = attitude.yaw - self.baseYaw
             let offPitch = attitude.pitch - self.basePitch
 
-            self.processHeadGestureSample(yaw: offYaw, pitch: offPitch)
+            Task { @MainActor [weak self] in
+                self?.processHeadGestureSample(yaw: offYaw, pitch: offPitch)
+            }
             
             // Attention Check (Gaze-based Context Switching)
             self.updateAttentionState(yaw: offYaw)
@@ -808,6 +1287,19 @@ class HeadMotionManager: ObservableObject {
     
     private func handleConnectionTimeout() {
         guard !isTracking else { return } // Already connected
+        if !headTrackingConnectionGraceUsed,
+           hasActiveHeadsetConnection,
+           motionManager.isDeviceMotionAvailable {
+            headTrackingConnectionGraceUsed = true
+            GlobalLogger.lifecycle.info(
+                "HeadMotion connection timeout grace extension routeConnected=\(lastObservedHeadsetRouteConnected) airPodsSide=\(lastObservedAirPodSide.rawValue)"
+            )
+            connectionTimer?.invalidate()
+            connectionTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: false) { [weak self] _ in
+                self?.handleConnectionTimeout()
+            }
+            return
+        }
         GlobalLogger.lifecycle.info(
             "HeadMotion connection timeout routeConnected=\(lastObservedHeadsetRouteConnected) airPodsSide=\(lastObservedAirPodSide.rawValue) motionAvailable=\(motionManager.isDeviceMotionAvailable)"
         )
@@ -954,7 +1446,9 @@ class HeadMotionManager: ObservableObject {
                 return
             }
             guard let attitude = motion?.attitude else { return }
-            self.handlePassiveHeadGestureMotion(attitude)
+            Task { @MainActor [weak self] in
+                self?.handlePassiveHeadGestureMotion(attitude)
+            }
         }
     }
 
@@ -967,6 +1461,7 @@ class HeadMotionManager: ObservableObject {
         os_log("Head gesture monitor stopped (%{public}@)", log: log, type: .info, source)
     }
 
+    @MainActor
     private func handlePassiveHeadGestureMotion(_ attitude: CMAttitude) {
         if !isPassiveGestureCalibrated {
             passiveGestureBaseYaw = attitude.yaw
@@ -984,20 +1479,26 @@ class HeadMotionManager: ObservableObject {
 
         let offYaw = attitude.yaw - passiveGestureBaseYaw
         let offPitch = attitude.pitch - passiveGestureBasePitch
-        processHeadGestureSample(yaw: offYaw, pitch: offPitch)
+        Task { @MainActor [weak self] in
+            self?.processHeadGestureSample(yaw: offYaw, pitch: offPitch)
+        }
     }
 
     private func resetHeadGestureRecognition() {
         recentHeadGestureSamples.removeAll(keepingCapacity: false)
+        activeGestureCandidate = nil
+        headGestureOverlayController.hide()
+        HUDManager.shared.updateHeadGestureTrail(points: [], status: "", visible: false)
     }
 
+    @MainActor
     private func processHeadGestureSample(yaw: Double, pitch: Double) {
         guard headGestureToggleEnabled else { return }
 
         let now = Date()
-        recentHeadGestureSamples.append(HeadGestureSample(at: now, yaw: yaw, pitch: pitch))
+        let cursorLocation = currentSystemCursorLocation()
+        recentHeadGestureSamples.append(HeadGestureSample(at: now, yaw: yaw, pitch: pitch, cursorLocation: cursorLocation))
         recentHeadGestureSamples.removeAll { now.timeIntervalSince($0.at) > headGestureWindow }
-
         let nodMetrics = axisMetrics(samples: recentHeadGestureSamples, keyPath: \.pitch, threshold: headGestureNodThreshold)
         let shakeMetrics = axisMetrics(samples: recentHeadGestureSamples, keyPath: \.yaw, threshold: headGestureShakeThreshold)
         maybeLogHeadGestureDiagnostics(
@@ -1008,62 +1509,852 @@ class HeadMotionManager: ObservableObject {
             pitch: pitch
         )
 
-        guard now.timeIntervalSince(lastHeadGestureTriggerAt) >= headGestureCooldown else { return }
+        trackRecordedHeadGestureCapture(yaw: yaw, pitch: pitch, now: now, cursorLocation: cursorLocation)
+        trackRecordedHeadGestureCandidate(yaw: yaw, pitch: pitch, now: now, cursorLocation: cursorLocation)
+    }
 
-        let shakeDurationOK = shakeMetrics.activeDuration >= headGestureMinActiveDuration
-            && shakeMetrics.activeDuration <= headGestureMaxActiveDuration
-        let nodDurationOK = nodMetrics.activeDuration >= headGestureMinActiveDuration
-            && nodMetrics.activeDuration <= headGestureMaxActiveDuration
-        let shakeDominant = nodMetrics.amplitude <= (shakeMetrics.amplitude * headGestureCrossAxisLimitRatio)
-        let nodDominant = shakeMetrics.amplitude <= (nodMetrics.amplitude * headGestureCrossAxisLimitRatio)
+    @MainActor
+    private func trackRecordedHeadGestureCapture(yaw: Double, pitch: Double, now: Date, cursorLocation: CGPoint?) {
+        guard let activeID = activeHeadGestureRecordingID else { return }
+        guard isHeadGestureRecording else { return }
+        guard var session = activeGestureRecordingSession, session.gestureID == activeID else { return }
 
-        if shakeMetrics.amplitude >= headGestureShakeAmplitude,
-           shakeMetrics.signChanges >= 1,
-           shakeMetrics.peakCount >= 1,
-           shakeMetrics.maxVelocity >= headGestureMinVelocityShake,
-           shakeDurationOK,
-           shakeDominant {
-            lastHeadGestureTriggerAt = now
-            resetHeadGestureRecognition()
-            os_log(
-                "Head gesture detected: shake amp=%.3f signChanges=%{public}d peaks=%{public}d vel=%.3f samples=%{public}d",
-                log: log,
-                type: .info,
-                shakeMetrics.amplitude,
-                shakeMetrics.signChanges,
-                shakeMetrics.peakCount,
-                shakeMetrics.maxVelocity,
-                shakeMetrics.sampleCount
+        let sample = HeadGestureSample(at: now, yaw: yaw, pitch: pitch, cursorLocation: cursorLocation)
+        session.samples.append(sample)
+        let isMeaningful = hypot(yaw, pitch) >= 0.08
+        if isMeaningful {
+            session.lastActiveAt = now
+            session.hasObservedMeaningfulMotion = true
+        }
+        activeGestureRecordingSession = session
+
+        headGestureOverlayController.show(
+            points: overlayTrailPoints(for: session.samples),
+            status: headGestureRecordingStatusText.isEmpty
+                ? (AppLocalization.isChinese ? "正在录制" : "Recording")
+                : headGestureRecordingStatusText,
+            emphasis: .recording,
+            cursorLocation: cursorLocation
+        )
+
+        let recordingDuration = now.timeIntervalSince(session.startedAt)
+        if recordingDuration >= 2.8 {
+            finishRecordedHeadGestureCapture(reason: .saved)
+            return
+        }
+        if session.hasObservedMeaningfulMotion,
+           now.timeIntervalSince(session.lastActiveAt) >= 0.45,
+           session.samples.count >= 10 {
+            finishRecordedHeadGestureCapture(reason: .saved)
+        }
+    }
+
+    @MainActor
+    private func trackRecordedHeadGestureCandidate(yaw: Double, pitch: Double, now: Date, cursorLocation: CGPoint?) {
+        guard !isHeadGestureRecording else { return }
+        guard now.timeIntervalSince(lastHeadGestureTriggerAt) >= 1.25 else { return }
+        let enabledGestures = recordedHeadGestures.filter { $0.enabled && !$0.points.isEmpty }
+        guard !enabledGestures.isEmpty else { return }
+
+        let magnitude = hypot(yaw, pitch)
+        let isActiveSample = magnitude >= 0.09
+
+        if activeGestureCandidate == nil {
+            let seedSamples = candidateSeedSamples(from: recentHeadGestureSamples, now: now)
+            guard gestureActivationDistance(from: seedSamples) >= 0.12 else { return }
+            activeGestureCandidate = ActiveGestureCandidate(
+                samples: seedSamples,
+                startedAt: seedSamples.first?.at ?? now,
+                lastActiveAt: now,
+                didPlayStartSound: false,
+                didPlayTurnCue: false
             )
-            Task { @MainActor [weak self] in
-                self?.playHeadGestureConfirmationSound(for: .shake)
-                self?.performConfiguredHeadGestureAction(kind: .shake, source: "head-gesture-shake")
+        } else {
+            activeGestureCandidate?.samples.append(HeadGestureSample(at: now, yaw: yaw, pitch: pitch, cursorLocation: cursorLocation))
+            if isActiveSample {
+                activeGestureCandidate?.lastActiveAt = now
             }
+        }
+
+        guard var candidate = activeGestureCandidate else { return }
+        let duration = now.timeIntervalSince(candidate.startedAt)
+        if !candidate.didPlayStartSound, duration >= 0.22 {
+            candidate.didPlayStartSound = true
+            activeGestureCandidate = candidate
+        }
+
+        if candidate.didPlayStartSound,
+           !candidate.didPlayTurnCue,
+           shouldPlayBuiltInTurnCue(for: candidate.samples) {
+            candidate.didPlayTurnCue = true
+            activeGestureCandidate = candidate
+            playHeadGestureTurnCueSound()
+        }
+
+        let liveOverlayThreshold = candidate.samples.count >= 4 && duration >= 0.06 && liveOverlayDistance(for: candidate.samples) >= 0.08
+        if candidate.didPlayStartSound, liveOverlayThreshold {
+            let status: String
+            if let tentativeMatch = bestGestureMatch(for: candidate.samples),
+               tentativeMatch.score >= max(0.56, tentativeMatch.gesture.minimumScore - 0.18) {
+                status = AppLocalization.isChinese
+                    ? "可能：\(tentativeMatch.gesture.action.label)"
+                    : "Possible: \(tentativeMatch.gesture.action.label)"
+            } else {
+                status = AppLocalization.isChinese ? "识别中…" : "Recognizing…"
+            }
+            headGestureOverlayController.show(
+                points: overlayTrailPoints(for: candidate.samples),
+                status: status,
+                emphasis: .live,
+                cursorLocation: cursorLocation
+            )
+        } else if candidate.didPlayStartSound {
+            headGestureOverlayController.hide(after: 0.08)
+        }
+
+        let shouldFinish = now.timeIntervalSince(candidate.lastActiveAt) >= 0.28 || duration >= 2.2
+        guard shouldFinish else { return }
+
+        activeGestureCandidate = nil
+        guard candidate.samples.count >= 6 else {
+            headGestureOverlayController.hide(after: 0.12)
+            return
+        }
+        evaluateHeadGestureCandidate(candidate)
+    }
+
+    @MainActor
+    private func evaluateHeadGestureCandidate(_ candidate: ActiveGestureCandidate) {
+        let summary = summarizeGesture(samples: candidate.samples)
+        let candidateDistance = gestureActivationDistance(from: candidate.samples)
+        guard isMatchableGesture(summary) else {
+            guard candidateDistance >= 0.18 else {
+                headGestureOverlayController.hide(after: 0.10)
+                return
+            }
+            appendHeadGestureDebugEntry(
+                mode: "recognition",
+                result: HeadGestureHistoryResult.tooSimple.rawValue,
+                samples: candidate.samples,
+                gestureName: nil,
+                actionName: nil,
+                bestMatchName: nil,
+                bestScore: nil
+            )
+            appendHeadGestureHistory(
+                gestureName: AppLocalization.isChinese ? "未匹配动作" : "Unmatched Gesture",
+                actionName: AppLocalization.isChinese ? "无" : "None",
+                result: .tooSimple,
+                score: nil,
+                duration: summary?.duration ?? 0,
+                summary: AppLocalization.isChinese ? "轨迹长度不够，已忽略" : "Ignored because the path length was too short"
+            )
+            HUDManager.shared.showTemporary(
+                message: AppLocalization.isChinese ? "动作太短" : "Gesture too short",
+                icon: "scribble"
+            )
+            headGestureOverlayController.hide(after: 0.18)
             return
         }
 
-        guard nodMetrics.amplitude >= headGestureNodAmplitude,
-              nodMetrics.signChanges >= 1,
-              nodMetrics.peakCount >= 1,
-              nodMetrics.maxVelocity >= headGestureMinVelocityNod,
-              nodDurationOK,
-              nodDominant else { return }
-        lastHeadGestureTriggerAt = now
-        resetHeadGestureRecognition()
-        os_log(
-            "Head gesture detected: nod amp=%.3f signChanges=%{public}d peaks=%{public}d vel=%.3f samples=%{public}d",
-            log: log,
-            type: .info,
-            nodMetrics.amplitude,
-            nodMetrics.signChanges,
-            nodMetrics.peakCount,
-            nodMetrics.maxVelocity,
-            nodMetrics.sampleCount
-        )
-        Task { @MainActor [weak self] in
-            self?.playHeadGestureConfirmationSound(for: .nod)
-            self?.performConfiguredHeadGestureAction(kind: .nod, source: "head-gesture-nod")
+        guard let summary else { return }
+        let enabledGestures = recordedHeadGestures.filter { $0.enabled && !$0.points.isEmpty }
+        let matches = enabledGestures.compactMap { gesture -> GestureMatch? in
+            guard gesturePassesDirectionalGate(gesture: gesture, samples: candidate.samples) else {
+                return nil
+            }
+            let bestScore = recordedTemplates(for: gesture)
+                .compactMap { summarizeGesture(points: $0) }
+                .map { scoreGesture(summary, against: $0) }
+                .max()
+            guard let bestScore else { return nil }
+            return GestureMatch(gesture: gesture, score: bestScore)
+        }.sorted { $0.score > $1.score }
+
+        guard let best = matches.first, best.score >= best.gesture.minimumScore else {
+            appendHeadGestureDebugEntry(
+                mode: "recognition",
+                result: HeadGestureHistoryResult.noMatch.rawValue,
+                samples: candidate.samples,
+                gestureName: nil,
+                actionName: nil,
+                bestMatchName: matches.first?.gesture.name,
+                bestScore: matches.first?.score
+            )
+            appendHeadGestureHistory(
+                gestureName: AppLocalization.isChinese ? "未匹配动作" : "Unmatched Gesture",
+                actionName: AppLocalization.isChinese ? "无" : "None",
+                result: .noMatch,
+                score: matches.first?.score,
+                duration: summary.duration,
+                summary: AppLocalization.isChinese ? "没有找到匹配的模板" : "No recorded gesture matched"
+            )
+            HUDManager.shared.showTemporary(
+                message: AppLocalization.isChinese ? "没匹配上" : "No gesture matched",
+                icon: "xmark.circle"
+            )
+            headGestureOverlayController.hide(after: 0.18)
+            return
         }
+
+        lastHeadGestureTriggerAt = Date()
+        let preflightMessage = AppLocalization.isChinese
+            ? "将触发：\(best.gesture.action.label)"
+            : "About to trigger: \(best.gesture.action.label)"
+        HUDManager.shared.showTemporary(message: preflightMessage, icon: "bolt.fill", duration: 0.55)
+        headGestureOverlayController.show(
+            points: overlayTrailPoints(for: candidate.samples),
+            status: preflightMessage,
+            emphasis: .matched,
+            cursorLocation: currentSystemCursorLocation()
+        )
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { [weak self] in
+            guard let self else { return }
+            guard Date().timeIntervalSince(self.lastHeadGestureTriggerAt) < 0.5 else { return }
+            self.fireMatchedHeadGesture(best, duration: summary.duration, samples: candidate.samples)
+        }
+    }
+
+    @MainActor
+    private func fireMatchedHeadGesture(_ match: GestureMatch, duration: TimeInterval, samples: [HeadGestureSample]) {
+        noteHeadGestureEvent(
+            display: "\(match.gesture.name) · \(match.gesture.action.label)"
+        )
+        guard let action = match.gesture.action.hotkeyAction else {
+            appendHeadGestureDebugEntry(
+                mode: "recognition",
+                result: HeadGestureHistoryResult.noAction.rawValue,
+                samples: samples,
+                gestureName: match.gesture.name,
+                actionName: match.gesture.action.label,
+                bestMatchName: match.gesture.name,
+                bestScore: match.score
+            )
+            appendHeadGestureHistory(
+                gestureName: match.gesture.name,
+                actionName: match.gesture.action.label,
+                result: .noAction,
+                score: match.score,
+                duration: duration,
+                summary: AppLocalization.isChinese ? "已识别，但未绑定动作" : "Matched, but no action is assigned"
+            )
+            HUDManager.shared.showTemporary(
+                message: AppLocalization.isChinese ? "动作未绑定" : "Gesture has no action",
+                icon: "exclamationmark.circle"
+            )
+            playHeadGestureNoMatchSound()
+            return
+        }
+
+        playHeadGestureSuccessSound()
+        performHeadsetAction(action, source: "recorded-head-gesture-\(match.gesture.id.uuidString)")
+        headGestureOverlayController.hide(after: 0.22)
+        appendHeadGestureDebugEntry(
+            mode: "recognition",
+            result: HeadGestureHistoryResult.triggered.rawValue,
+            samples: samples,
+            gestureName: match.gesture.name,
+            actionName: match.gesture.action.label,
+            bestMatchName: match.gesture.name,
+            bestScore: match.score
+        )
+        appendHeadGestureHistory(
+            gestureName: match.gesture.name,
+            actionName: match.gesture.action.label,
+            result: .triggered,
+            score: match.score,
+            duration: duration,
+            summary: AppLocalization.isChinese ? "动作已触发" : "Gesture action triggered"
+        )
+    }
+
+    @MainActor
+    private func beginRecordedHeadGestureCapture(id: UUID) {
+        guard activeHeadGestureRecordingID == id else { return }
+        headGestureRecordingCountdown = 0
+        isHeadGestureRecording = true
+        headGestureRecordingStatusText = isAppendingHeadGestureSample
+            ? (AppLocalization.isChinese ? "做动作，停下后追加样本" : "Perform gesture, then pause to add")
+            : (AppLocalization.isChinese ? "做动作，停下后自动保存" : "Perform gesture, then pause to save")
+        activeGestureRecordingSession = ActiveGestureRecordingSession(
+            gestureID: id,
+            startedAt: Date(),
+            lastActiveAt: Date()
+        )
+        HUDManager.shared.showTemporary(
+            message: headGestureRecordingStatusText,
+            icon: "record.circle",
+            duration: 1.2
+        )
+        playHeadGestureStartSound()
+    }
+
+    @MainActor
+    private func finishRecordedHeadGestureCapture(reason: HeadGestureHistoryResult) {
+        guard let recordingID = activeHeadGestureRecordingID,
+              let session = activeGestureRecordingSession,
+              let index = recordedHeadGestures.firstIndex(where: { $0.id == recordingID }) else {
+            cancelRecordedHeadGestureRecording()
+            return
+        }
+
+        pendingHeadGestureRecordingCountdownWorkItem?.cancel()
+        pendingHeadGestureRecordingCountdownWorkItem = nil
+        activeHeadGestureRecordingID = nil
+        isHeadGestureRecording = false
+        headGestureRecordingCountdown = 0
+        activeGestureRecordingSession = nil
+        let isAppendingSample = isAppendingHeadGestureSample
+        isAppendingHeadGestureSample = false
+
+        guard let summary = summarizeGesture(samples: session.samples) else {
+            headGestureRecordingStatusText = ""
+            playHeadGestureNoMatchSound()
+            HUDManager.shared.showTemporary(
+                message: AppLocalization.isChinese ? "录制太短" : "Recording too short",
+                icon: "xmark.circle"
+            )
+            return
+        }
+
+        guard isRecordableGesture(summary) else {
+            headGestureRecordingStatusText = ""
+            playHeadGestureNoMatchSound()
+            appendHeadGestureDebugEntry(
+                mode: "recording",
+                result: HeadGestureHistoryResult.tooSimple.rawValue,
+                samples: session.samples,
+                gestureName: recordedHeadGestures[index].name,
+                actionName: recordedHeadGestures[index].action.label,
+                bestMatchName: nil,
+                bestScore: nil
+            )
+            HUDManager.shared.showTemporary(
+                message: AppLocalization.isChinese ? "轨迹太短" : "Gesture too short",
+                icon: "scribble"
+            )
+            appendHeadGestureHistory(
+                gestureName: recordedHeadGestures[index].name,
+                actionName: AppLocalization.isChinese ? "录制" : "Recording",
+                result: .tooSimple,
+                score: nil,
+                duration: summary.duration,
+                summary: AppLocalization.isChinese ? "录制失败：总轨迹长度不够" : "Recording failed because the total path length was too short"
+            )
+            return
+        }
+
+        let capturedPoints = summary.points.enumerated().map { idx, point in
+            RecordedHeadGesturePoint(
+                x: Double(point.x),
+                y: Double(point.y),
+                t: summary.duration == 0 ? 0 : Double(summary.duration) * Double(idx) / Double(max(summary.points.count - 1, 1))
+            )
+        }
+        if isAppendingSample, !recordedHeadGestures[index].points.isEmpty {
+            var alternate = recordedHeadGestures[index].alternateSamples ?? []
+            alternate.append(capturedPoints)
+            recordedHeadGestures[index].alternateSamples = alternate
+        } else {
+            recordedHeadGestures[index].points = capturedPoints
+            recordedHeadGestures[index].alternateSamples = []
+        }
+        recordedHeadGestures[index].recordedDuration = summary.duration
+        headGestureRecordingStatusText = ""
+        appendHeadGestureDebugEntry(
+            mode: "recording",
+            result: reason.rawValue,
+            samples: session.samples,
+            gestureName: recordedHeadGestures[index].name,
+            actionName: recordedHeadGestures[index].action.label,
+            bestMatchName: recordedHeadGestures[index].name,
+            bestScore: 1.0
+        )
+        headGestureOverlayController.show(
+            points: overlayTrailPoints(for: session.samples),
+            status: isAppendingSample
+                ? (AppLocalization.isChinese ? "已追加样本" : "Sample added")
+                : (AppLocalization.isChinese ? "已保存" : "Saved"),
+            emphasis: .matched,
+            cursorLocation: currentSystemCursorLocation()
+        )
+        playHeadGestureSuccessSound()
+        HUDManager.shared.showTemporary(
+            message: isAppendingSample
+                ? (AppLocalization.isChinese ? "已追加样本" : "Added sample")
+                : (AppLocalization.isChinese ? "动作已保存" : "Gesture saved"),
+            icon: "checkmark.circle.fill"
+        )
+        appendHeadGestureHistory(
+            gestureName: recordedHeadGestures[index].name,
+            actionName: recordedHeadGestures[index].action.label,
+            result: reason,
+            score: 1.0,
+            duration: summary.duration,
+            summary: isAppendingSample
+                ? (AppLocalization.isChinese ? "已追加一个动作样本" : "Added one gesture sample")
+                : (AppLocalization.isChinese ? "已保存新的动作模板" : "Saved a new gesture template")
+        )
+        headGestureOverlayController.hide(after: 0.6)
+    }
+
+    private func summarizeGesture(samples: [HeadGestureSample]) -> GestureTemplateSummary? {
+        guard samples.count >= 6 else { return nil }
+        let points = samples.map { scaledGesturePoint(yaw: $0.yaw, pitch: $0.pitch) }
+        let duration = max(samples.last?.at.timeIntervalSince(samples.first?.at ?? .distantPast) ?? 0, 0)
+        return summarizeGesture(points: points, duration: duration)
+    }
+
+    private func summarizeGesture(points: [RecordedHeadGesturePoint]) -> GestureTemplateSummary? {
+        let cgPoints = points.map { CGPoint(x: $0.x, y: $0.y) }
+        let duration = max(points.last?.t ?? 0, 0)
+        return summarizeGesture(points: cgPoints, duration: duration)
+    }
+
+    private func recordedTemplates(for gesture: RecordedHeadGesture) -> [[RecordedHeadGesturePoint]] {
+        var templates: [[RecordedHeadGesturePoint]] = []
+        if !gesture.points.isEmpty {
+            templates.append(gesture.points)
+        }
+        templates.append(contentsOf: gesture.alternateSamples ?? [])
+        return templates
+    }
+
+    func recordedSampleCount(for gesture: RecordedHeadGesture) -> Int {
+        recordedTemplates(for: gesture).count
+    }
+
+    private func summarizeGesture(points rawPoints: [CGPoint], duration: TimeInterval) -> GestureTemplateSummary? {
+        guard rawPoints.count >= 6 else { return nil }
+        let simplified = dedupedGesturePoints(rawPoints)
+        guard simplified.count >= 6 else { return nil }
+        let smoothed = smoothedGesturePoints(simplified, radius: 2)
+        let translated = smoothed.map { CGPoint(x: $0.x - smoothed[0].x, y: $0.y - smoothed[0].y) }
+        let totalDistance = pathLength(translated)
+        guard totalDistance >= 0.09 else { return nil }
+        let resampled = resampleGesturePoints(translated, count: 18)
+        let bounds = resampled.reduce(into: CGRect.null) { partialResult, point in
+            let rect = CGRect(origin: point, size: .zero).insetBy(dx: -0.0001, dy: -0.0001)
+            partialResult = partialResult.union(rect)
+        }
+        let scale = max(max(bounds.width, bounds.height), 0.01)
+        let normalized = resampled.map { point in
+            CGPoint(
+                x: (point.x - bounds.minX) / scale,
+                y: (point.y - bounds.minY) / scale
+            )
+        }
+        return GestureTemplateSummary(
+            points: normalized,
+            duration: duration,
+            totalDistance: totalDistance,
+            turnCount: gestureTurnCount(points: translated),
+            xSignChanges: signChanges(values: translated.map(\.x)),
+            ySignChanges: signChanges(values: translated.map(\.y))
+        )
+    }
+
+    private func scaledGesturePoint(yaw: Double, pitch: Double) -> CGPoint {
+        CGPoint(x: yaw * 0.64, y: pitch)
+    }
+
+    private func isRecordableGesture(_ summary: GestureTemplateSummary?) -> Bool {
+        guard let summary else { return false }
+        guard summary.duration <= 2.8 else { return false }
+        return summary.totalDistance >= 0.12
+    }
+
+    private func isMatchableGesture(_ summary: GestureTemplateSummary?) -> Bool {
+        guard let summary else { return false }
+        guard summary.duration <= 2.8 else { return false }
+        return summary.totalDistance >= 0.12
+    }
+
+    private func scoreGesture(_ candidate: GestureTemplateSummary, against template: GestureTemplateSummary) -> Double {
+        guard candidate.points.count == template.points.count else { return 0 }
+        let pointDistance = zip(candidate.points, template.points).reduce(0.0) { partial, pair in
+            let dx = pair.0.x - pair.1.x
+            let dy = pair.0.y - pair.1.y
+            return partial + Double(hypot(dx, dy))
+        } / Double(candidate.points.count)
+        let distanceScore = max(0.0, 1.0 - (pointDistance / 1.48))
+        let durationRatio = template.duration > 0 ? abs(candidate.duration - template.duration) / max(template.duration, 0.1) : 0
+        let durationScore = max(0.0, 1.0 - min(durationRatio, 1.0))
+        let complexityDelta = abs(candidate.turnCount - template.turnCount)
+        let complexityScore = max(0.0, 1.0 - (Double(complexityDelta) / 4.0))
+        return (distanceScore * 0.78) + (durationScore * 0.12) + (complexityScore * 0.10)
+    }
+
+    private func builtInGestureKind(for gesture: RecordedHeadGesture) -> HeadGestureKind? {
+        switch gesture.id {
+        case Self.builtInNodGestureID:
+            return .nod
+        case Self.builtInShakeGestureID:
+            return .shake
+        default:
+            return nil
+        }
+    }
+
+    private func gesturePassesDirectionalGate(gesture: RecordedHeadGesture, samples: [HeadGestureSample]) -> Bool {
+        guard let kind = builtInGestureKind(for: gesture) else { return true }
+        let pitchMetrics = axisMetrics(samples: samples, keyPath: \.pitch, threshold: headGestureNodThreshold)
+        let yawMetrics = axisMetrics(samples: samples, keyPath: \.yaw, threshold: headGestureShakeThreshold)
+        switch kind {
+        case .nod:
+            return pitchMetrics.amplitude >= (headGestureNodAmplitude * 0.55)
+                && pitchMetrics.signChanges >= 1
+                && pitchMetrics.peakCount >= 1
+                && pitchMetrics.amplitude >= (yawMetrics.amplitude * 0.95)
+        case .shake:
+            return yawMetrics.amplitude >= (headGestureShakeAmplitude * 0.55)
+                && yawMetrics.signChanges >= 1
+                && yawMetrics.peakCount >= 1
+                && yawMetrics.amplitude >= (pitchMetrics.amplitude * 0.95)
+        }
+    }
+
+    private func shouldPlayBuiltInTurnCue(for samples: [HeadGestureSample]) -> Bool {
+        let pitchMetrics = axisMetrics(samples: samples, keyPath: \.pitch, threshold: headGestureNodThreshold)
+        let yawMetrics = axisMetrics(samples: samples, keyPath: \.yaw, threshold: headGestureShakeThreshold)
+        let nodReady = pitchMetrics.amplitude >= (headGestureNodAmplitude * 0.55)
+            && pitchMetrics.peakCount >= 1
+            && pitchMetrics.amplitude >= (yawMetrics.amplitude * 0.95)
+        let shakeReady = yawMetrics.amplitude >= (headGestureShakeAmplitude * 0.55)
+            && yawMetrics.peakCount >= 1
+            && yawMetrics.amplitude >= (pitchMetrics.amplitude * 0.95)
+        return nodReady || shakeReady
+    }
+
+    private func bestGestureMatch(for samples: [HeadGestureSample]) -> GestureMatch? {
+        guard let summary = summarizeGesture(samples: samples), isMatchableGesture(summary) else { return nil }
+        return recordedHeadGestures
+            .filter { $0.enabled && !$0.points.isEmpty }
+            .compactMap { gesture -> GestureMatch? in
+                guard gesturePassesDirectionalGate(gesture: gesture, samples: samples) else { return nil }
+                let bestScore = recordedTemplates(for: gesture)
+                    .compactMap { summarizeGesture(points: $0) }
+                    .map { scoreGesture(summary, against: $0) }
+                    .max()
+                guard let bestScore else { return nil }
+                return GestureMatch(gesture: gesture, score: bestScore)
+            }
+            .sorted { $0.score > $1.score }
+            .first
+    }
+
+    private func dedupedGesturePoints(_ points: [CGPoint]) -> [CGPoint] {
+        var result: [CGPoint] = []
+        for point in points {
+            if let last = result.last, hypot(point.x - last.x, point.y - last.y) < 0.003 {
+                continue
+            }
+            result.append(point)
+        }
+        return result
+    }
+
+    private func smoothedGesturePoints(_ points: [CGPoint], radius: Int) -> [CGPoint] {
+        guard points.count > 2, radius > 0 else { return points }
+        return points.indices.map { index in
+            let lower = max(points.startIndex, index - radius)
+            let upper = min(points.endIndex - 1, index + radius)
+            let slice = points[lower...upper]
+            let avgX = slice.reduce(CGFloat.zero) { $0 + $1.x } / CGFloat(slice.count)
+            let avgY = slice.reduce(CGFloat.zero) { $0 + $1.y } / CGFloat(slice.count)
+            return CGPoint(x: avgX, y: avgY)
+        }
+    }
+
+    private func candidateSeedSamples(from samples: [HeadGestureSample], now: Date) -> [HeadGestureSample] {
+        let seeded = samples.filter { now.timeIntervalSince($0.at) <= 0.24 }
+        return seeded.isEmpty ? Array(samples.suffix(3)) : seeded
+    }
+
+    private func gestureActivationDistance(from samples: [HeadGestureSample]) -> Double {
+        guard samples.count >= 2 else { return 0 }
+        let points = samples.map { scaledGesturePoint(yaw: $0.yaw, pitch: $0.pitch) }
+        let translated = points.map { CGPoint(x: $0.x - points[0].x, y: $0.y - points[0].y) }
+        return pathLength(translated)
+    }
+
+    private func pathLength(_ points: [CGPoint]) -> Double {
+        guard points.count > 1 else { return 0 }
+        return zip(points, points.dropFirst()).reduce(0.0) { partial, pair in
+            partial + Double(hypot(pair.1.x - pair.0.x, pair.1.y - pair.0.y))
+        }
+    }
+
+    private func resampleGesturePoints(_ points: [CGPoint], count: Int) -> [CGPoint] {
+        guard !points.isEmpty else { return [] }
+        guard points.count > 1, count > 1 else { return Array(repeating: points[0], count: max(count, 1)) }
+        let targetSpacing = pathLength(points) / Double(count - 1)
+        if targetSpacing == 0 { return Array(repeating: points[0], count: count) }
+
+        var resampled: [CGPoint] = [points[0]]
+        var accumulated = 0.0
+        var previous = points[0]
+        var index = 1
+
+        while index < points.count {
+            let current = points[index]
+            let segment = Double(hypot(current.x - previous.x, current.y - previous.y))
+            if accumulated + segment >= targetSpacing {
+                let ratio = CGFloat((targetSpacing - accumulated) / max(segment, 0.0001))
+                let interpolated = CGPoint(
+                    x: previous.x + ((current.x - previous.x) * ratio),
+                    y: previous.y + ((current.y - previous.y) * ratio)
+                )
+                resampled.append(interpolated)
+                previous = interpolated
+                accumulated = 0.0
+            } else {
+                accumulated += segment
+                previous = current
+                index += 1
+            }
+        }
+
+        while resampled.count < count {
+            resampled.append(points.last ?? points[0])
+        }
+        return Array(resampled.prefix(count))
+    }
+
+    private func gestureTurnCount(points: [CGPoint]) -> Int {
+        guard points.count >= 3 else { return 0 }
+        var turns = 0
+        for idx in 2..<points.count {
+            let a = points[idx - 2]
+            let b = points[idx - 1]
+            let c = points[idx]
+            let v1 = CGPoint(x: b.x - a.x, y: b.y - a.y)
+            let v2 = CGPoint(x: c.x - b.x, y: c.y - b.y)
+            let mag1 = hypot(v1.x, v1.y)
+            let mag2 = hypot(v2.x, v2.y)
+            guard mag1 > 0.01, mag2 > 0.01 else { continue }
+            let dot = max(-1.0, min(1.0, Double((v1.x * v2.x) + (v1.y * v2.y)) / Double(mag1 * mag2)))
+            let angle = acos(dot)
+            if angle >= 0.75 {
+                turns += 1
+            }
+        }
+        return turns
+    }
+
+    private func signChanges(values: [CGFloat]) -> Int {
+        var lastSign = 0
+        var changes = 0
+        for value in values {
+            let sign: Int
+            if value > 0.02 {
+                sign = 1
+            } else if value < -0.02 {
+                sign = -1
+            } else {
+                continue
+            }
+            if lastSign != 0, sign != lastSign {
+                changes += 1
+            }
+            lastSign = sign
+        }
+        return changes
+    }
+
+    private func overlayTrailPoints(for samples: [HeadGestureSample]) -> [HeadGestureOverlayPoint] {
+        guard samples.count >= 2 else { return [] }
+        let cursorPoints = stabilizedOverlayCursorPoints(from: samples.compactMap(\.cursorLocation))
+        guard cursorPoints.count >= 2, let endPoint = cursorPoints.last else { return [] }
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(endPoint) })
+            ?? NSScreen.main
+            ?? NSScreen.screens.first else { return [] }
+        let displayScale: CGFloat = 1.12
+        let origin = cursorPoints.first ?? endPoint
+        return cursorPoints.map { point in
+            let scaledPoint = CGPoint(
+                x: origin.x + ((point.x - origin.x) * displayScale),
+                y: origin.y + ((point.y - origin.y) * displayScale)
+            )
+            let localX = scaledPoint.x - screen.frame.minX
+            let localY = screen.frame.height - (scaledPoint.y - screen.frame.minY)
+            return HeadGestureOverlayPoint(
+                x: localX,
+                y: localY
+            )
+        }
+    }
+
+    private func stabilizedOverlayCursorPoints(from points: [CGPoint]) -> [CGPoint] {
+        guard points.count >= 2 else { return points }
+
+        var simplified: [CGPoint] = []
+        simplified.reserveCapacity(points.count)
+        for point in points {
+            if let last = simplified.last, hypot(point.x - last.x, point.y - last.y) < 3.5 {
+                continue
+            }
+            simplified.append(point)
+        }
+
+        guard simplified.count >= 2 else { return Array(points.suffix(min(points.count, 2))) }
+
+        let window = 3
+        var smoothed: [CGPoint] = []
+        smoothed.reserveCapacity(simplified.count)
+        for index in simplified.indices {
+            let lower = max(simplified.startIndex, index - window)
+            let upper = min(simplified.endIndex - 1, index + window)
+            let slice = simplified[lower...upper]
+            let avgX = slice.reduce(CGFloat.zero) { $0 + $1.x } / CGFloat(slice.count)
+            let avgY = slice.reduce(CGFloat.zero) { $0 + $1.y } / CGFloat(slice.count)
+            smoothed.append(CGPoint(x: avgX, y: avgY))
+        }
+
+        if let tail = points.last {
+            if smoothed.isEmpty {
+                smoothed.append(tail)
+            } else {
+                smoothed[smoothed.count - 1] = tail
+            }
+        }
+
+        return smoothed
+    }
+
+    private func liveOverlayDistance(for samples: [HeadGestureSample]) -> Double {
+        guard samples.count >= 2 else { return 0 }
+        let points = samples.map { scaledGesturePoint(yaw: $0.yaw, pitch: $0.pitch) }
+        let translated = points.map { point in
+            CGPoint(x: point.x - points[0].x, y: point.y - points[0].y)
+        }
+        return pathLength(translated)
+    }
+
+    @MainActor
+    private func appendHeadGestureDebugEntry(
+        mode: String,
+        result: String,
+        samples: [HeadGestureSample],
+        gestureName: String?,
+        actionName: String?,
+        bestMatchName: String?,
+        bestScore: Double?
+    ) {
+        let duration = max(samples.last?.at.timeIntervalSince(samples.first?.at ?? .distantPast) ?? 0, 0)
+        let totalDistance = gestureActivationDistance(from: samples)
+        let debugSamples = serializeHeadGestureSamples(samples)
+        let entry = HeadGestureDebugEntry(
+            id: UUID(),
+            date: Date(),
+            mode: mode,
+            result: result,
+            gestureName: gestureName,
+            actionName: actionName,
+            bestMatchName: bestMatchName,
+            bestScore: bestScore,
+            totalDistance: totalDistance,
+            duration: duration,
+            sampleCount: samples.count,
+            samples: debugSamples
+        )
+        headGestureDebugEntries.insert(entry, at: 0)
+        if headGestureDebugEntries.count > headGestureDebugEntryLimit {
+            headGestureDebugEntries = Array(headGestureDebugEntries.prefix(headGestureDebugEntryLimit))
+        }
+    }
+
+    private func serializeHeadGestureSamples(_ samples: [HeadGestureSample]) -> [HeadGestureDebugSample] {
+        guard let start = samples.first?.at else { return [] }
+        return samples.map { sample in
+            HeadGestureDebugSample(
+                t: sample.at.timeIntervalSince(start),
+                yaw: sample.yaw,
+                pitch: sample.pitch,
+                cursorX: sample.cursorLocation.map { Double($0.x) },
+                cursorY: sample.cursorLocation.map { Double($0.y) }
+            )
+        }
+    }
+
+    @MainActor
+    private func appendHeadGestureHistory(
+        gestureName: String,
+        actionName: String,
+        result: HeadGestureHistoryResult,
+        score: Double?,
+        duration: TimeInterval,
+        summary: String
+    ) {
+        let entry = HeadGestureHistoryEntry(
+            id: UUID(),
+            date: Date(),
+            gestureName: gestureName,
+            actionName: actionName,
+            result: result,
+            score: score,
+            duration: duration,
+            summary: summary
+        )
+        headGestureHistory.insert(entry, at: 0)
+        if headGestureHistory.count > headGestureHistoryLimit {
+            headGestureHistory = Array(headGestureHistory.prefix(headGestureHistoryLimit))
+        }
+        lastHeadGestureEventText = "\(gestureName) · \(result.label)"
+        lastHeadGestureEventAt = entry.date
+    }
+
+    private func formatHeadGestureHistoryEntry(_ entry: HeadGestureHistoryEntry) -> String {
+        let timestamp = ISO8601DateFormatter().string(from: entry.date)
+        let scoreText = entry.score.map { String(format: "%.0f%%", $0 * 100) } ?? "-"
+        return "[\(timestamp)] \(entry.gestureName) | \(entry.result.label) | \(entry.actionName) | score=\(scoreText) | duration=\(String(format: "%.2fs", entry.duration)) | \(entry.summary)"
+    }
+
+    private func copyTextToPasteboard(_ text: String) throws {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(text, forType: .string) else {
+            throw NSError(domain: "AetherHeadGestureCopy", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: AppLocalization.isChinese ? "复制头部动作历史失败" : "Failed to copy head gesture history"
+            ])
+        }
+    }
+
+    private func appLocalizedCountdownText(remaining: Int) -> String {
+        AppLocalization.isChinese
+            ? "\(remaining) 秒后开始"
+            : "Starts in \(remaining)s"
+    }
+
+    private func playNamedHeadGestureSound(_ names: [String], fallback: String) {
+        for name in names {
+            if let sound = NSSound(named: name) {
+                sound.play()
+                return
+            }
+        }
+        NSSound(named: fallback)?.play()
+    }
+
+    private func playHeadGestureStartSound() {
+        playNamedHeadGestureSound(["Submarine", "Morse"], fallback: "Submarine")
+    }
+
+    private func playHeadGestureSuccessSound() {
+        playNamedHeadGestureSound(["Pop", "Tink", "Glass"], fallback: "Tink")
+    }
+
+    private func playHeadGestureTurnCueSound() {
+        playNamedHeadGestureSound(["Morse", "Ping"], fallback: "Morse")
+    }
+
+    private func playHeadGestureNoMatchSound() {
+        playNamedHeadGestureSound(["Funk", "Basso"], fallback: "Basso")
+    }
+
+    private func playHeadGestureCancelSound() {
+        playNamedHeadGestureSound(["Blow", "Hero"], fallback: "Blow")
     }
 
     private func detectNodGesture(in samples: [HeadGestureSample]) -> Bool {
@@ -1490,12 +2781,10 @@ class HeadMotionManager: ObservableObject {
 
         refreshHeadGestureMonitoringState(source: "airpods-connected-\(source)")
         
-        // If we are already tracking but the side changed (e.g. Both -> Right or Left -> Right),
-        // the motion stream might need a re-calibration or re-start on the new side.
+        // Side / ear detection can flap while the same headset remains active.
+        // Do not restart a healthy tracking session just because the reported side changed.
         if isTracking && wasConnected && isConnected {
-            GlobalLogger.lifecycle.info("HeadMotion: restarting tracking due to side handoff source=\(source)")
-            stopTrackingInternal()
-            startTracking()
+            GlobalLogger.lifecycle.info("HeadMotion: keeping active tracking session across side update source=\(source)")
         }
 
         guard autoStartTrackingOnHeadsetConnection, !wasConnected else { return }
@@ -1889,13 +3178,7 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func playHeadGestureConfirmationSound(for kind: HeadGestureKind) {
-        let preferredNames: [String]
-        switch kind {
-        case .nod:
-            preferredNames = ["Pop", "Tink", "Glass"]
-        case .shake:
-            preferredNames = ["Glass", "Ping", "Pop"]
-        }
+        let preferredNames: [String] = ["Pop", "Tink", "Glass"]
         for name in preferredNames {
             if let sound = NSSound(named: name) {
                 sound.play()
@@ -2546,4 +3829,164 @@ class HeadMotionManager: ObservableObject {
         transientModeObservedAt = mode == nil ? .distantPast : Date()
     }
 
+}
+
+private struct HeadGestureOverlayPoint: Equatable {
+    let x: CGFloat
+    let y: CGFloat
+}
+
+private enum HeadGestureOverlayEmphasis {
+    case recording
+    case live
+    case matched
+
+        var gradient: LinearGradient {
+        switch self {
+        case .recording:
+            return LinearGradient(colors: [Color.orange.opacity(0.96), Color.yellow.opacity(0.88)], startPoint: .leading, endPoint: .trailing)
+        case .live:
+            return LinearGradient(colors: [Color.white.opacity(0.88), Color.cyan.opacity(0.82)], startPoint: .leading, endPoint: .trailing)
+        case .matched:
+            return LinearGradient(colors: [Color.green.opacity(0.98), Color.cyan.opacity(0.86)], startPoint: .leading, endPoint: .trailing)
+        }
+    }
+
+    var panelOpacity: Double {
+        switch self {
+        case .recording:
+            return 0.76
+        case .live:
+            return 0.58
+        case .matched:
+            return 0.68
+        }
+    }
+}
+
+private final class HeadGestureOverlayController {
+    private var panel: NSPanel?
+    private var hideTask: DispatchWorkItem?
+
+    func show(points: [HeadGestureOverlayPoint], status: String, emphasis: HeadGestureOverlayEmphasis, cursorLocation: CGPoint?) {
+        guard !points.isEmpty else {
+            hide()
+            return
+        }
+        guard let cursorLocation else {
+            hide()
+            return
+        }
+        hideTask?.cancel()
+        let panel = ensurePanel()
+        _ = updatePanelFrame(panel, cursorLocation: cursorLocation)
+        panel.contentView = NSHostingView(
+            rootView: HeadGestureOverlayView(points: points, status: status, emphasis: emphasis)
+        )
+        panel.orderFrontRegardless()
+    }
+
+    func hide(after delay: TimeInterval = 0) {
+        hideTask?.cancel()
+        guard delay > 0 else {
+            panel?.orderOut(nil)
+            return
+        }
+        let task = DispatchWorkItem { [weak self] in
+            self?.panel?.orderOut(nil)
+        }
+        hideTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: task)
+    }
+
+    private func ensurePanel() -> NSPanel {
+        if let panel { return panel }
+        let panel = NSPanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.level = .statusBar
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        self.panel = panel
+        return panel
+    }
+
+    @discardableResult
+    private func updatePanelFrame(_ panel: NSPanel, cursorLocation: CGPoint) -> NSRect {
+        let pointerScreen = NSScreen.screens.first { $0.frame.contains(cursorLocation) }
+        let screen = pointerScreen ?? NSScreen.main ?? NSScreen.screens.first
+        guard let screen else { return .zero }
+        panel.setFrame(screen.frame, display: true)
+        return screen.frame
+    }
+}
+
+private struct HeadGestureOverlayView: View {
+    let points: [HeadGestureOverlayPoint]
+    let status: String
+    let emphasis: HeadGestureOverlayEmphasis
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                Path { path in
+                    guard let first = points.first else { return }
+                    path.move(to: map(first, in: proxy.size))
+                    for point in points.dropFirst() {
+                        path.addLine(to: map(point, in: proxy.size))
+                    }
+                }
+                .stroke(emphasis.gradient, style: StrokeStyle(lineWidth: 14, lineCap: .round, lineJoin: .round))
+                .shadow(color: .white.opacity(0.18), radius: 10)
+
+                if let first = points.first {
+                    Circle()
+                        .fill(Color.white.opacity(0.28))
+                        .frame(width: 12, height: 12)
+                        .position(map(first, in: proxy.size))
+                }
+
+                if let last = points.last {
+                    Circle()
+                        .fill(Color.white.opacity(0.94))
+                        .frame(width: 13, height: 13)
+                        .shadow(color: .white.opacity(0.30), radius: 9)
+                        .position(map(last, in: proxy.size))
+                }
+
+                if !status.isEmpty {
+                    Text(status)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.92))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial.opacity(emphasis.panelOpacity))
+                        .clipShape(Capsule())
+                        .shadow(color: .black.opacity(0.18), radius: 6, x: 0, y: 3)
+                        .position(labelPosition(in: proxy.size))
+                }
+            }
+        }
+    }
+
+    private func map(_ point: HeadGestureOverlayPoint, in size: CGSize) -> CGPoint {
+        CGPoint(
+            x: min(max(point.x, 10), max(size.width - 10, 10)),
+            y: min(max(point.y, 10), max(size.height - 10, 10))
+        )
+    }
+
+    private func labelPosition(in size: CGSize) -> CGPoint {
+        let anchor = points.last.map { CGPoint(x: $0.x, y: $0.y) } ?? CGPoint(x: size.width / 2, y: size.height / 2)
+        return CGPoint(
+            x: min(max(anchor.x, 70), max(size.width - 70, 70)),
+            y: min(max(anchor.y + 38, 28), max(size.height - 28, 28))
+        )
+    }
 }
