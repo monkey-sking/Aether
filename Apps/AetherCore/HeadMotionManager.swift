@@ -510,8 +510,8 @@ class HeadMotionManager: ObservableObject {
     private let trackingGestureIntentDominanceRatio: Double = 1.18
     // Restore head gesture sensitivity closer to the earlier tuning.
     private let headGestureSensitivityScale: Double = 0.8
-    private var headGestureNodThreshold: Double { 0.11 * headGestureSensitivityScale }
-    private var headGestureNodAmplitude: Double { 0.26 * headGestureSensitivityScale }
+    private var headGestureNodThreshold: Double { 0.095 * headGestureSensitivityScale }
+    private var headGestureNodAmplitude: Double { 0.22 * headGestureSensitivityScale }
     private var headGestureShakeThreshold: Double { 0.13 * headGestureSensitivityScale }
     private var headGestureShakeAmplitude: Double { 0.28 * headGestureSensitivityScale }
     
@@ -2117,10 +2117,10 @@ class HeadMotionManager: ObservableObject {
         let yawMetrics = axisMetrics(samples: samples, keyPath: \.yaw, threshold: headGestureShakeThreshold)
         switch kind {
         case .nod:
-            return pitchMetrics.amplitude >= (headGestureNodAmplitude * 0.55)
+            return pitchMetrics.amplitude >= (headGestureNodAmplitude * 0.48)
                 && pitchMetrics.signChanges >= 1
                 && pitchMetrics.peakCount >= 1
-                && pitchMetrics.amplitude >= (yawMetrics.amplitude * 0.95)
+                && pitchMetrics.amplitude >= (yawMetrics.amplitude * 0.80)
         case .shake:
             return yawMetrics.amplitude >= (headGestureShakeAmplitude * 0.55)
                 && yawMetrics.signChanges >= 1
@@ -2132,9 +2132,9 @@ class HeadMotionManager: ObservableObject {
     private func shouldPlayBuiltInTurnCue(for samples: [HeadGestureSample]) -> Bool {
         let pitchMetrics = axisMetrics(samples: samples, keyPath: \.pitch, threshold: headGestureNodThreshold)
         let yawMetrics = axisMetrics(samples: samples, keyPath: \.yaw, threshold: headGestureShakeThreshold)
-        let nodReady = pitchMetrics.amplitude >= (headGestureNodAmplitude * 0.55)
+        let nodReady = pitchMetrics.amplitude >= (headGestureNodAmplitude * 0.48)
             && pitchMetrics.peakCount >= 1
-            && pitchMetrics.amplitude >= (yawMetrics.amplitude * 0.95)
+            && pitchMetrics.amplitude >= (yawMetrics.amplitude * 0.80)
         let shakeReady = yawMetrics.amplitude >= (headGestureShakeAmplitude * 0.55)
             && yawMetrics.peakCount >= 1
             && yawMetrics.amplitude >= (pitchMetrics.amplitude * 0.95)
@@ -2197,6 +2197,16 @@ class HeadMotionManager: ObservableObject {
         let secondaryAxis = min(summary.xAmplitude, summary.yAmplitude)
         let dominantRatio = dominantAxis / max(secondaryAxis, 0.0001)
         let hasMultiAxisPattern = summary.xSignChanges >= 1 && summary.ySignChanges >= 1
+        let nodIntent = summary.ySignChanges >= 1
+            && summary.yAmplitude >= (headGestureNodAmplitude * 0.42)
+            && summary.yAmplitude >= (summary.xAmplitude * 0.78)
+        let shakeIntent = summary.xSignChanges >= 1
+            && summary.xAmplitude >= (headGestureShakeAmplitude * 0.42)
+            && summary.xAmplitude >= (summary.yAmplitude * 0.92)
+
+        if nodIntent || shakeIntent {
+            return activationDistance >= (headGestureActivationDistance * 1.02)
+        }
 
         guard activationDistance >= (headGestureActivationDistance * trackingGestureIntentDistanceMultiplier) else {
             return false
