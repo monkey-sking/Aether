@@ -564,6 +564,23 @@ private struct PointerControlTile: View {
         AppLocalization.isChinese
     }
 
+    private var mouseIdlePauseMinutesBinding: Binding<String> {
+        Binding(
+            get: { String(headManager.mouseIdlePauseMinutes) },
+            set: { newValue in
+                guard let minutes = Int(newValue) else { return }
+                headManager.mouseIdlePauseMinutes = minutes
+            }
+        )
+    }
+
+    private var mouseIdlePauseOptions: [DashboardFixedPopUpOption] {
+        stride(from: 15, through: 60, by: 5).map { minutes in
+            let title = isChinese ? "\(minutes) 分钟" : "\(minutes) min"
+            return DashboardFixedPopUpOption(id: String(minutes), title: title)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 16) {
@@ -592,6 +609,30 @@ private struct PointerControlTile: View {
                 )
                 .disabled(!autoStartOnConnect)
                 .opacity(autoStartOnConnect ? 1 : 0.55)
+
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(isChinese ? "鼠标静止后自动暂停" : "Pause After Mouse Idle")
+                            .font(AetherUI.bodyFont)
+                        Text(isChinese ? "暂停整套功能，鼠标再次移动后恢复。" : "Pause the full feature set, then resume after mouse movement.")
+                            .font(AetherUI.captionFont)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .allowsTightening(true)
+                            .minimumScaleFactor(0.88)
+                    }
+                    .layoutPriority(1)
+                    Spacer()
+                    DashboardFixedWidthPopUpMenu(
+                        options: mouseIdlePauseOptions,
+                        selection: mouseIdlePauseMinutesBinding
+                    )
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+                .cornerRadius(12)
             }
 
             if !headManager.attitudeText.isEmpty {
@@ -630,6 +671,91 @@ private struct PointerControlTile: View {
         .padding(.vertical, 11)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
         .cornerRadius(12)
+    }
+}
+
+private struct DashboardFixedPopUpOption: Equatable {
+    let id: String
+    let title: String
+}
+
+private struct DashboardFixedWidthPopUpMenu: NSViewRepresentable {
+    var options: [DashboardFixedPopUpOption]
+    @Binding var selection: String
+
+    final class SelectedOnlyPopUpButton: NSPopUpButton {
+        var horizontalPadding: CGFloat = 34
+
+        override var intrinsicContentSize: NSSize {
+            let base = super.intrinsicContentSize
+            guard let title = selectedItem?.title, !title.isEmpty else { return base }
+            let fontToUse = font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small))
+            let titleWidth = (title as NSString).size(withAttributes: [.font: fontToUse]).width
+            return NSSize(width: ceil(titleWidth + horizontalPadding), height: base.height)
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var parent: DashboardFixedWidthPopUpMenu
+
+        init(parent: DashboardFixedWidthPopUpMenu) {
+            self.parent = parent
+        }
+
+        @objc func selectionChanged(_ sender: NSPopUpButton) {
+            let idx = sender.indexOfSelectedItem
+            guard idx >= 0 && idx < parent.options.count else { return }
+            let selectedID = parent.options[idx].id
+            if parent.selection != selectedID {
+                parent.selection = selectedID
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = SelectedOnlyPopUpButton(frame: .zero, pullsDown: false)
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.selectionChanged(_:))
+        button.lineBreakMode = .byTruncatingTail
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        rebuildItems(button)
+        button.sizeToFit()
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        context.coordinator.parent = self
+
+        let existingTitles = button.itemTitles
+        let desiredTitles = options.map(\.title)
+        if existingTitles != desiredTitles {
+            rebuildItems(button)
+        }
+
+        if let idx = options.firstIndex(where: { $0.id == selection }),
+           button.indexOfSelectedItem != idx {
+            button.selectItem(at: idx)
+        } else if !options.isEmpty && button.indexOfSelectedItem < 0 {
+            button.selectItem(at: 0)
+        }
+        button.invalidateIntrinsicContentSize()
+    }
+
+    private func rebuildItems(_ button: NSPopUpButton) {
+        button.removeAllItems()
+        button.addItems(withTitles: options.map(\.title))
+        if let idx = options.firstIndex(where: { $0.id == selection }) {
+            button.selectItem(at: idx)
+        } else if !options.isEmpty {
+            button.selectItem(at: 0)
+        }
     }
 }
 
