@@ -133,6 +133,7 @@ struct HotkeySettingsSection: View {
                 }
                 .font(.caption)
                 .controlSize(.small)
+                .buttonStyle(.bordered)
             }
 
             VStack(spacing: 10) {
@@ -161,6 +162,7 @@ struct KeyRecorderRow: View {
     let action: HotkeyAction
     @Binding var recordingAction: HotkeyAction? // Shared state
     @ObservedObject private var hotkeyManager = HotkeyManager.shared
+    @State private var isHovering: Bool = false
 
     var isRecording: Bool { recordingAction == action }
 
@@ -191,6 +193,8 @@ struct KeyRecorderRow: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Text(action.label))
+            .accessibilityHint(Text(String(localized: "hotkey.press_key")))
             .background(
                 isRecording ? KeyRecorderHelper(
                     onRecord: { keyCode, modifiers, mouseButton in
@@ -209,13 +213,24 @@ struct KeyRecorderRow: View {
                 Image(systemName: "arrow.counterclockwise")
                     .font(.caption)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .accessibilityLabel(Text(String(localized: "hotkey.reset_single")))
             .help(String(localized: "hotkey.reset_single"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .cornerRadius(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.75 : 0.55))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.black.opacity(isHovering ? 0.12 : 0.06), lineWidth: 1)
+        )
+        .onHover { hovering in
+            isHovering = hovering
+        }
     }
 
     private var helperText: String {
