@@ -28,6 +28,7 @@
 		AE74E51F2F2C901000000001 /* AetherMainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE74E51F2F2C901000000011 /* AetherMainView.swift */; };
 		AE74E51F2F2C901000000002 /* VizComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE74E51F2F2C901000000012 /* VizComponents.swift */; };
 		AE74E51F2F2C901000000003 /* SettingsModules.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE74E51F2F2C901000000013 /* SettingsModules.swift */; };
+		AE74E51F2F2C901000000004 /* AboutCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE74E51F2F2C901000000014 /* AboutCenter.swift */; };
 		AF27301915050EBF13D31017 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E59E8BF63FEEE1FD8873BE4A /* Foundation.framework */; };
 		B536C893C35B916AD9A8D4BE /* LLMProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2FFF0B546D7CEAD686E5CE /* LLMProviders.swift */; };
 		BFF1C8786B9E21D1ADBCA003 /* PermissionsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8567D0FA10ABB5C4430600CE /* PermissionsManager.swift */; };
@@ -80,6 +81,7 @@
 		AE74E51F2F2C901000000011 /* AetherMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/AetherMainView.swift; sourceTree = "<group>"; };
 		AE74E51F2F2C901000000012 /* VizComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/VizComponents.swift; sourceTree = "<group>"; };
 		AE74E51F2F2C901000000013 /* SettingsModules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/SettingsModules.swift; sourceTree = "<group>"; };
+		AE74E51F2F2C901000000014 /* AboutCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/AboutCenter.swift; sourceTree = "<group>"; };
 		B9C56A052F2BA1FE00EEEB9E /* Aether.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Aether.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BAE13A5808AC6A480FF02900 /* VoiceCommandRouterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceCommandRouterTests.swift; sourceTree = "<group>"; };
 		C0B82E67FF1F975D6855D2D7 /* AetherTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AetherTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -175,6 +177,7 @@
 			children = (
 				E3AE5E3C03244494B2DCC0DB /* AetherApp.swift */,
 				AE74E51F2F2C901000000011 /* AetherMainView.swift */,
+				AE74E51F2F2C901000000014 /* AboutCenter.swift */,
 				AE74E51F2F2C901000000012 /* VizComponents.swift */,
 				AE74E51F2F2C901000000013 /* SettingsModules.swift */,
 				C0DEF00D0BADC0FFEE111112 /* L10n.swift */,
@@ -346,6 +349,7 @@
 			files = (
 				D724D4B20ABC48F38FBE285D /* AetherApp.swift in Sources */,
 				AE74E51F2F2C901000000001 /* AetherMainView.swift in Sources */,
+				AE74E51F2F2C901000000004 /* AboutCenter.swift in Sources */,
 				AE74E51F2F2C901000000002 /* VizComponents.swift in Sources */,
 				AE74E51F2F2C901000000003 /* SettingsModules.swift in Sources */,
 				C0DEF00D0BADC0FFEE111111 /* L10n.swift in Sources */,

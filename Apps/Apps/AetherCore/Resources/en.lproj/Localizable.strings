@@ -561,3 +561,5 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "menu.toggle_voice_input" = "Voice Input";
 "menu.toggle_voice_control" = "Voice Control";
 "menu.toggle_pointer" = "Pointer Control";
+"main.panel.about" = "About";
+"main.section.app" = "App";

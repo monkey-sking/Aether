@@ -634,7 +634,8 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "menu.toggle_voice_input" = "Voice Input";
 "menu.toggle_voice_control" = "Voice Control";
 "menu.toggle_pointer" = "Pointer Control";
+"main.panel.about" = "このAppについて";
+"main.section.app" = "App";
 
 "headset.hud.tracking_unavailable" = "ヘッドトラッキングは利用できません。ヘッドセットを再接続して、もう一度お試しください。";
 "motion.error.tracking_unavailable" = "ヘッドトラッキングは利用できません。ヘッドセットを再接続して、もう一度お試しください。";
-

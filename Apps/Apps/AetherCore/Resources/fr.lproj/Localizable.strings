@@ -633,7 +633,8 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "menu.toggle_voice_input" = "Voice Input";
 "menu.toggle_voice_control" = "Voice Control";
 "menu.toggle_pointer" = "Pointer Control";
+"main.panel.about" = "A propos";
+"main.section.app" = "App";
 
 "headset.hud.tracking_unavailable" = "Suivi de tête indisponible. Reconnectez le casque et réessayez.";
 "motion.error.tracking_unavailable" = "Suivi de tête indisponible. Reconnectez le casque et réessayez.";
-

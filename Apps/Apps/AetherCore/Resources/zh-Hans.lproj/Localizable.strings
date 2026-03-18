@@ -633,3 +633,5 @@
 "menu.toggle_voice_input" = "语音输入";
 "menu.toggle_voice_control" = "语音控制";
 "menu.toggle_pointer" = "头控指针";
+"main.panel.about" = "关于";
+"main.section.app" = "应用";
