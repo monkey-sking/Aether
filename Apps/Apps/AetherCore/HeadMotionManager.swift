@@ -605,8 +605,8 @@ class HeadMotionManager: ObservableObject {
         return min(max(stored, 0.8), 1.8)
     }() {
         didSet {
-            headHotZoneSizeScale = min(max(headHotZoneSizeScale, 0.8), 1.8)
-            UserDefaults.standard.set(headHotZoneSizeScale, forKey: HeadMotionManager.headHotZoneSizeScaleKey)
+            let clamped = min(max(headHotZoneSizeScale, 0.8), 1.8)
+            UserDefaults.standard.set(clamped, forKey: HeadMotionManager.headHotZoneSizeScaleKey)
         }
     }
     
