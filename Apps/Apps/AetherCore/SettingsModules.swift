@@ -2086,7 +2086,9 @@ private struct VoiceUsageInsightsCard: View {
     }
 
     private let summaryColumns = [
-        GridItem(.adaptive(minimum: 140), spacing: 10, alignment: .leading)
+        GridItem(.flexible(minimum: 160), spacing: 10, alignment: .leading),
+        GridItem(.flexible(minimum: 160), spacing: 10, alignment: .leading),
+        GridItem(.flexible(minimum: 160), spacing: 10, alignment: .leading)
     ]
 
     private var recentEvents: [AppState.VoiceUsageEvent] {
@@ -2156,7 +2158,7 @@ private struct VoiceUsageInsightsCard: View {
                     .foregroundColor(.secondary)
                 } else {
                     let summary = appState.voiceUsageSummary
-                    Text(isChinese ? "概览统计" : "Summary")
+                    Text(isChinese ? "全局概览" : "Overall Summary")
                         .font(.subheadline.weight(.semibold))
                     LazyVGrid(columns: summaryColumns, alignment: .leading, spacing: 10) {
                         VoiceUsageSummaryBadge(
@@ -2191,6 +2193,12 @@ private struct VoiceUsageInsightsCard: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(isChinese ? "按 App 统计" : "Per-App Summary")
                                 .font(.subheadline.weight(.semibold))
+                            Text(isChinese ? "以下为各 App 的统计，不包含上面的总览。" : "Below are per-app totals; overall summary is above.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(isChinese ? "格式：输入 / 失败 / 未识别 / 控制 · 右侧为总计" : "Format: Dictation / Failed / Unrecognized / Control · Total on the right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                             VStack(spacing: 8) {
                                 ForEach(topApps) { item in
                                     VoiceUsageAppSummaryRow(summary: item)
@@ -2273,6 +2281,7 @@ private struct VoiceUsageSummaryBadge: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
         .cornerRadius(10)
     }
@@ -2297,7 +2306,7 @@ private struct VoiceUsageAppSummaryRow: View {
                     .lineLimit(1)
             }
             Spacer()
-            Text("\(summary.dictationCount)/\(summary.failureCount)/\(summary.controlCount)")
+            Text("\(summary.dictationCount)/\(summary.failureCount)/\(summary.unrecognizedCount)/\(summary.controlCount)")
                 .font(.caption.monospacedDigit())
                 .foregroundColor(.secondary)
             Text("\(summary.total)")
