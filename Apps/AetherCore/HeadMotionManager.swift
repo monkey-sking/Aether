@@ -28,6 +28,7 @@ class HeadMotionManager: ObservableObject {
     private static let headGestureToggleEnabledKey = "AetherHeadGestureToggleEnabled"
     private static let headHotZoneHeadInputEnabledKey = "AetherHeadHotZoneHeadInputEnabled"
     private static let headHotZoneMouseInputEnabledKey = "AetherHeadHotZoneMouseInputEnabled"
+    private static let headHotZoneSizeScaleKey = "AetherHeadHotZoneSizeScale"
     private static let headGestureNodActionKey = "AetherHeadGestureNodAction"
     private static let headGestureShakeActionKey = "AetherHeadGestureShakeAction"
     private static let recordedHeadGesturesStorageKey = "AetherRecordedHeadGesturesV1"
@@ -598,6 +599,16 @@ class HeadMotionManager: ObservableObject {
             }
         }
     }
+
+    @Published var headHotZoneSizeScale: Double = {
+        let stored = UserDefaults.standard.object(forKey: HeadMotionManager.headHotZoneSizeScaleKey) as? Double ?? 1.0
+        return min(max(stored, 0.8), 1.8)
+    }() {
+        didSet {
+            headHotZoneSizeScale = min(max(headHotZoneSizeScale, 0.8), 1.8)
+            UserDefaults.standard.set(headHotZoneSizeScale, forKey: HeadMotionManager.headHotZoneSizeScaleKey)
+        }
+    }
     
     // Experience Optimization Constants
     private let deadzone: Double = 0.005  // Ignore movements smaller than ~0.3 degrees
@@ -615,9 +626,9 @@ class HeadMotionManager: ObservableObject {
     private let headGestureMinPathDistance: Double = 0.12
     private let headGestureActivationDistance: Double = 0.12
     private let headGestureRecognitionStartDistanceFloor: Double = 0.05
-    private let hotZoneEdgeRevealDistance: CGFloat = 110
-    private let hotZoneTargetInset: CGFloat = 28
-    private let hotZoneTargetRadius: CGFloat = 36
+    private let hotZoneBaseRevealDistance: CGFloat = 116
+    private let hotZoneBaseTargetRadius: CGFloat = 28
+    private let hotZoneBaseTargetInset: CGFloat = 68
     private let hotZoneTargetDwellDuration: TimeInterval = 0.12
     private let headGestureOverlayDistance: Double = 0.08
     private let trackingGestureIntentDistanceMultiplier: Double = 1.15
@@ -655,6 +666,12 @@ class HeadMotionManager: ObservableObject {
     private var activeGestureRecordingSession: ActiveGestureRecordingSession?
     private var pendingHeadGestureRecordingCountdownWorkItem: DispatchWorkItem?
     private lazy var headGestureOverlayController = HeadGestureOverlayController()
+
+    private var hotZoneRevealDistance: CGFloat { hotZoneBaseRevealDistance * CGFloat(headHotZoneSizeScale) }
+    private var hotZoneTargetRadius: CGFloat { hotZoneBaseTargetRadius * CGFloat(headHotZoneSizeScale) }
+    private var hotZoneTargetInset: CGFloat {
+        max(hotZoneBaseTargetInset * CGFloat(headHotZoneSizeScale), hotZoneTargetRadius + 18)
+    }
     
     // Temporary override, usually from AirPods squeeze during a PTT session.
     @Published var transientRecognitionControlMode: RecognitionControlMode? = nil
@@ -912,7 +929,7 @@ class HeadMotionManager: ObservableObject {
         return [
             RecordedHeadGesture(
                 id: builtInNodUpDownGestureID,
-                name: AppLocalization.isChinese ? "内置热区（上）" : "Built-in Hot Zone (Up)",
+                name: AppLocalization.isChinese ? "上边热区" : "Top Edge Zone",
                 action: nodAction,
                 enabled: nodEnabled,
                 cooldown: 1.0,
@@ -927,7 +944,7 @@ class HeadMotionManager: ObservableObject {
             ),
             RecordedHeadGesture(
                 id: builtInNodDownUpGestureID,
-                name: AppLocalization.isChinese ? "内置热区（下）" : "Built-in Hot Zone (Down)",
+                name: AppLocalization.isChinese ? "下边热区" : "Bottom Edge Zone",
                 action: nodAction,
                 enabled: nodEnabled,
                 cooldown: 1.0,
@@ -942,7 +959,7 @@ class HeadMotionManager: ObservableObject {
             ),
             RecordedHeadGesture(
                 id: builtInShakeLeftRightGestureID,
-                name: AppLocalization.isChinese ? "内置热区（左）" : "Built-in Hot Zone (Left)",
+                name: AppLocalization.isChinese ? "左边热区" : "Left Edge Zone",
                 action: shakeAction,
                 enabled: shakeEnabled,
                 cooldown: 1.0,
@@ -957,7 +974,7 @@ class HeadMotionManager: ObservableObject {
             ),
             RecordedHeadGesture(
                 id: builtInShakeRightLeftGestureID,
-                name: AppLocalization.isChinese ? "内置热区（右）" : "Built-in Hot Zone (Right)",
+                name: AppLocalization.isChinese ? "右边热区" : "Right Edge Zone",
                 action: shakeAction,
                 enabled: shakeEnabled,
                 cooldown: 1.0,
@@ -1469,12 +1486,20 @@ class HeadMotionManager: ObservableObject {
             guard let self = self else { return }
             
             if let error = error {
+                os_log(
+                    "HeadMotion startDeviceMotionUpdates failed: %{public}@",
+                    log: self.log,
+                    type: .error,
+                    error.localizedDescription
+                )
                 DispatchQueue.main.async {
-                    self.attitudeText = String(
-                        format: String(localized: "headset.status.error_fmt"),
-                        error.localizedDescription
-                    )
+                    self.attitudeText = String(localized: "headset.status.connection_failed")
                 }
+                HUDManager.shared.showTemporary(
+                    message: String(localized: "headset.hud.tracking_unavailable"),
+                    icon: "xmark.circle.fill"
+                )
+                self.onError?(String(localized: "motion.error.tracking_unavailable"))
                 Task { @MainActor [weak self] in
                     self?.scheduleAutoTrackingRetryIfNeeded(reason: "motion-error")
                 }
@@ -1873,7 +1898,7 @@ class HeadMotionManager: ObservableObject {
 
     private func eligibleHotZoneGesturesForRecognition() -> [RecordedHeadGesture] {
         recordedHeadGestures.filter { gesture in
-            gesture.enabled && recordedHotZoneDirection(for: gesture) != nil
+            gesture.enabled && gesture.action != .none && recordedHotZoneDirection(for: gesture) != nil
         }
     }
 
@@ -1885,7 +1910,7 @@ class HeadMotionManager: ObservableObject {
         var summaries: [HeadGestureDirection: GestureBranchSummary] = [:]
         for gesture in gestures {
             guard let direction = recordedHotZoneDirection(for: gesture) else { continue }
-            let label = gesture.action == .none ? direction.label : gesture.action.label
+            let label = gesture.action.label
             if summaries[direction] == nil {
                 summaries[direction] = GestureBranchSummary(direction: direction, label: label)
             }
@@ -1960,7 +1985,7 @@ class HeadMotionManager: ObservableObject {
             abs(cursorLocation.y - screenFrame.minY),
             abs(cursorLocation.y - screenFrame.maxY)
         )
-        let shouldReveal = distanceToNearestEdge <= hotZoneEdgeRevealDistance
+        let shouldReveal = distanceToNearestEdge <= hotZoneRevealDistance
 
         if activeHotZoneSession == nil || activeHotZoneSession?.source != source || activeHotZoneSession?.screenFrame != screenFrame {
             guard shouldReveal else {
@@ -2063,7 +2088,7 @@ class HeadMotionManager: ObservableObject {
 
         for target in targets {
             let radialDistance = hypot(cursorLocation.x - target.globalCenter.x, cursorLocation.y - target.globalCenter.y)
-            let progress = min(max(1 - (radialDistance / hotZoneEdgeRevealDistance), 0), 1)
+            let progress = min(max(1 - (radialDistance / hotZoneRevealDistance), 0), 1)
             let reachedTarget = radialDistance <= hotZoneTargetRadius
             guard progress > 0 || reachedTarget else { continue }
             let score = (progress * 140) - (radialDistance * 0.12) + (reachedTarget ? 40 : 0)
@@ -2892,6 +2917,17 @@ class HeadMotionManager: ObservableObject {
 
     func recordedSampleCount(for gesture: RecordedHeadGesture) -> Int {
         recordedTemplates(for: gesture).count
+    }
+
+    var fixedHotZoneGestures: [RecordedHeadGesture] {
+        let order: [UUID] = [
+            Self.builtInNodUpDownGestureID,
+            Self.builtInNodDownUpGestureID,
+            Self.builtInShakeLeftRightGestureID,
+            Self.builtInShakeRightLeftGestureID
+        ]
+        let map = Dictionary(uniqueKeysWithValues: recordedHeadGestures.map { ($0.id, $0) })
+        return order.compactMap { map[$0] }
     }
 
     func recordedStepSummary(for gesture: RecordedHeadGesture) -> String {
@@ -4574,15 +4610,8 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func updateAirPodsRemoteCommandRegistration() {
-        let shouldEnable = shouldEnableAirPodsModeSwitch
-        if shouldEnable {
-            let shouldEnableSeekPTT = voiceActivationMode == .pushToTalk && isPTTEnabled
-            releaseAirPodsPTTSources(reason: shouldEnableSeekPTT ? "airpods-ptt-refresh" : "airpods-single-press-disabled")
-            enableAirPodsCommands(enableSeekPTT: shouldEnableSeekPTT)
-        } else {
-            releaseAirPodsPTTSources(reason: "airpods-ptt-disabled")
-            disableAirPodsCommands()
-        }
+        releaseAirPodsPTTSources(reason: "airpods-button-routing-disabled")
+        disableAirPodsCommands()
         updateNowPlayingInfo()
     }
 
@@ -5465,6 +5494,12 @@ private struct HeadGestureSequenceGuideView: View {
                         }
 
                         Circle()
+                            .fill(branch.highlighted ? Color.cyan.opacity(0.18) : Color.white.opacity(0.12))
+                            .frame(width: (branch.targetRadius * 2) + 20, height: (branch.targetRadius * 2) + 20)
+                            .blur(radius: branch.highlighted ? 10 : 6)
+                            .position(end)
+
+                        Circle()
                             .fill(Color.black.opacity(0.48))
                             .overlay(
                                 Circle()
@@ -5472,6 +5507,18 @@ private struct HeadGestureSequenceGuideView: View {
                             )
                             .frame(width: branch.targetRadius * 2, height: branch.targetRadius * 2)
                             .position(end)
+
+                        if !branch.showsConnector && branch.progress > 0.02 {
+                            Circle()
+                                .trim(from: 0, to: min(max(branch.progress, 0), 1))
+                                .stroke(
+                                    branch.highlighted ? Color.cyan.opacity(0.98) : Color.green.opacity(0.92),
+                                    style: StrokeStyle(lineWidth: 5, lineCap: .round)
+                                )
+                                .rotationEffect(.degrees(-90))
+                                .frame(width: (branch.targetRadius * 2) + 10, height: (branch.targetRadius * 2) + 10)
+                                .position(end)
+                        }
 
                         Circle()
                             .fill(branch.highlighted ? Color.cyan.opacity(0.96) : Color.white.opacity(0.92))
