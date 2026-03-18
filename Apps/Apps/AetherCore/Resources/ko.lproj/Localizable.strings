@@ -554,3 +554,7 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "menu.toggle_voice_input" = "Voice Input";
 "menu.toggle_voice_control" = "Voice Control";
 "menu.toggle_pointer" = "Pointer Control";
+
+"headset.hud.tracking_unavailable" = "헤드 트래킹을 사용할 수 없습니다. 헤드셋을 다시 연결하고 다시 시도하십시오.";
+"motion.error.tracking_unavailable" = "헤드 트래킹을 사용할 수 없습니다. 헤드셋을 다시 연결하고 다시 시도하십시오.";
+
