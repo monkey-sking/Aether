@@ -1581,6 +1581,12 @@ class HeadMotionManager: ObservableObject {
         if !candidate.didPlayStartSound, duration >= 0.22 {
             candidate.didPlayStartSound = true
             activeGestureCandidate = candidate
+            playHeadGestureStartSound()
+            HUDManager.shared.showTemporary(
+                message: AppLocalization.isChinese ? "开始识别" : "Listening",
+                icon: "waveform",
+                duration: 0.6
+            )
         }
 
         if candidate.didPlayStartSound,
@@ -1653,6 +1659,7 @@ class HeadMotionManager: ObservableObject {
                 message: AppLocalization.isChinese ? "动作太短" : "Gesture too short",
                 icon: "scribble"
             )
+            playHeadGestureNoMatchSound()
             headGestureOverlayController.hide(after: 0.18)
             return
         }
@@ -1693,6 +1700,7 @@ class HeadMotionManager: ObservableObject {
                 message: AppLocalization.isChinese ? "没匹配上" : "No gesture matched",
                 icon: "xmark.circle"
             )
+            playHeadGestureNoMatchSound()
             headGestureOverlayController.hide(after: 0.18)
             return
         }

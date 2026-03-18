@@ -3525,8 +3525,8 @@ private struct CurrentAppShortcutPanelView: View {
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color.accentColor.opacity(0.12))
-                    .foregroundColor(.accentColor)
+                    .background(chromeBackground)
+                    .foregroundColor(Color(nsColor: .secondaryLabelColor))
                     .clipShape(Capsule())
 
                 Toggle(isOn: $hideUnavailableShortcuts) {
@@ -3580,13 +3580,6 @@ private struct CurrentAppShortcutPanelView: View {
                 .buttonStyle(.bordered)
             }
 
-            Text(LocalizedStringKey("panels.shortcuts.clickable_hint"))
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(chromeBackground)
-                .foregroundColor(.secondary)
-                .clipShape(Capsule())
         }
     }
 

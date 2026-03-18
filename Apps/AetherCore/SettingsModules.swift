@@ -1196,112 +1196,130 @@ private struct HeadGestureShortcutMappingCard: View {
             )
         ) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 16) {
-                    HStack(spacing: 8) {
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                    GridRow {
                         Text(isChinese ? "名称" : "Name")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                            .frame(width: 36, alignment: .leading)
+                            .frame(width: 56, alignment: .leading)
                         TextField(isChinese ? "动作名称" : "Gesture name", text: nameBinding(for: gesture.id))
                             .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 260, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                    FixedWidthPopUpMenu(
-                        options: gestureActionOptions,
-                        selection: selection(for: gesture.id)
-                    )
-                    .controlSize(.small)
-                    .frame(width: 220, alignment: .leading)
-                }
-
-                HStack(alignment: .top, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(gesture.points.isEmpty
-                                ? (isChinese ? "还没有录制模板。" : "No gesture template recorded.")
-                                : (isChinese
-                                    ? "样本 \(motionManager.recordedSampleCount(for: gesture)) · 模板 \(gesture.points.count) 点"
-                                    : "Samples \(motionManager.recordedSampleCount(for: gesture)) · Template \(gesture.points.count) pts"))
+                    GridRow {
+                        Text(isChinese ? "触发" : "Action")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(width: 56, alignment: .leading)
+                        FixedWidthPopUpMenu(
+                            options: gestureActionOptions,
+                            selection: selection(for: gesture.id)
+                        )
+                        .controlSize(.small)
+                        .frame(maxWidth: 260, alignment: .leading)
+                    }
 
-                        if !templates.isEmpty {
-                            HStack(spacing: 8) {
-                                Button {
-                                    let nextIndex = max(currentSampleIndex - 1, 0)
-                                    gestureSampleIndex[gesture.id] = nextIndex
-                                } label: {
-                                    Image(systemName: "chevron.left")
-                                        .font(.system(size: 11, weight: .semibold))
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundColor(.secondary)
-                                .accessibilityLabel(Text(isChinese ? "上一条样本" : "Previous sample"))
-                                .disabled(currentSampleIndex == 0)
-                                .frame(width: 20)
-
+                    GridRow {
+                        Text(isChinese ? "样本" : "Samples")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(width: 56, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 8) {
+                            if templates.isEmpty {
+                                Text(isChinese ? "还没有录制模板。" : "No gesture template recorded.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            } else {
                                 HeadGestureTemplatePreview(points: templates[currentSampleIndex])
-                                    .frame(width: 170, height: 78)
+                                    .frame(width: 190, height: 84)
 
-                                Button {
-                                    let nextIndex = min(currentSampleIndex + 1, templates.count - 1)
-                                    gestureSampleIndex[gesture.id] = nextIndex
-                                } label: {
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 11, weight: .semibold))
+                                if templates.count > 1 {
+                                    HStack(spacing: 8) {
+                                        Button {
+                                            let nextIndex = max(currentSampleIndex - 1, 0)
+                                            gestureSampleIndex[gesture.id] = nextIndex
+                                        } label: {
+                                            Image(systemName: "chevron.left")
+                                                .font(.system(size: 11, weight: .semibold))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundColor(.secondary)
+                                        .accessibilityLabel(Text(isChinese ? "上一条样本" : "Previous sample"))
+                                        .disabled(currentSampleIndex == 0)
+                                        .frame(width: 20)
+
+                                        Text(isChinese ? "样本 \(currentSampleIndex + 1)/\(templates.count)" : "Sample \(currentSampleIndex + 1)/\(templates.count)")
+                                            .font(.caption2.weight(.medium))
+                                            .foregroundColor(.secondary)
+
+                                        Button {
+                                            let nextIndex = min(currentSampleIndex + 1, templates.count - 1)
+                                            gestureSampleIndex[gesture.id] = nextIndex
+                                        } label: {
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 11, weight: .semibold))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundColor(.secondary)
+                                        .accessibilityLabel(Text(isChinese ? "下一条样本" : "Next sample"))
+                                        .disabled(currentSampleIndex >= templates.count - 1)
+                                        .frame(width: 20)
+                                    }
                                 }
-                                .buttonStyle(.plain)
-                                .foregroundColor(.secondary)
-                                .accessibilityLabel(Text(isChinese ? "下一条样本" : "Next sample"))
-                                .disabled(currentSampleIndex >= templates.count - 1)
-                                .frame(width: 20)
                             }
-                        }
-
-                        if templates.count > 1 {
-                            Text(isChinese ? "样本 \(currentSampleIndex + 1)/\(templates.count)" : "Sample \(currentSampleIndex + 1)/\(templates.count)")
-                                .font(.caption2.weight(.medium))
-                                .foregroundColor(.secondary)
-                        }
-
-                        if isRecordingThisGesture {
-                            Text(motionManager.headGestureRecordingStatusText.isEmpty
-                                    ? (isChinese ? "准备中…" : "Preparing…")
-                                    : motionManager.headGestureRecordingStatusText)
-                                .font(.caption.weight(.semibold))
-                                .foregroundColor(.accentColor)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Button(isRecordingThisGesture ? (isChinese ? "取消录制" : "Cancel Recording") : (gesture.points.isEmpty ? (isChinese ? "开始录制" : "Start Recording") : (isChinese ? "重新录制" : "Re-record"))) {
-                            if isRecordingThisGesture {
-                                motionManager.cancelRecordedHeadGestureRecording()
-                            } else {
-                                motionManager.startRecordingRecordedHeadGesture(id: gesture.id)
-                            }
-                        }
-                        .controlSize(.small)
-                        .buttonStyle(.bordered)
-                        .tint(isRecordingThisGesture ? .accentColor : .secondary)
-
-                        if !gesture.points.isEmpty && !isRecordingThisGesture {
-                            Button(isChinese ? "追加录制" : "Add Sample") {
-                                motionManager.startRecordingRecordedHeadGesture(id: gesture.id, appendSample: true)
+                    GridRow {
+                        Text(isChinese ? "录制" : "Record")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(width: 56, alignment: .leading)
+                        HStack(spacing: 8) {
+                            Button(isRecordingThisGesture ? (isChinese ? "取消录制" : "Cancel Recording") : (gesture.points.isEmpty ? (isChinese ? "开始录制" : "Start Recording") : (isChinese ? "重新录制" : "Re-record"))) {
+                                if isRecordingThisGesture {
+                                    motionManager.cancelRecordedHeadGestureRecording()
+                                } else {
+                                    motionManager.startRecordingRecordedHeadGesture(id: gesture.id)
+                                }
                             }
                             .controlSize(.small)
                             .buttonStyle(.bordered)
-                        }
+                            .tint(isRecordingThisGesture ? .accentColor : .secondary)
 
-                        Button(isChinese ? "删除" : "Delete") {
-                            motionManager.deleteRecordedHeadGesture(id: gesture.id)
+                            if !gesture.points.isEmpty && !isRecordingThisGesture {
+                                Button(isChinese ? "追加录制" : "Add Sample") {
+                                    motionManager.startRecordingRecordedHeadGesture(id: gesture.id, appendSample: true)
+                                }
+                                .controlSize(.small)
+                                .buttonStyle(.bordered)
+                            }
+
+                            Button(isChinese ? "删除" : "Delete") {
+                                motionManager.deleteRecordedHeadGesture(id: gesture.id)
+                            }
+                            .controlSize(.small)
+                            .buttonStyle(.bordered)
+                            .tint(.red)
                         }
-                        .controlSize(.small)
-                        .buttonStyle(.bordered)
-                        .tint(.red)
                     }
+                }
+
+                Text(gesture.points.isEmpty
+                        ? (isChinese ? "还没有录制模板。" : "No gesture template recorded.")
+                        : (isChinese
+                            ? "样本 \(motionManager.recordedSampleCount(for: gesture)) · 模板 \(gesture.points.count) 点"
+                            : "Samples \(motionManager.recordedSampleCount(for: gesture)) · Template \(gesture.points.count) pts"))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if isRecordingThisGesture {
+                    Text(motionManager.headGestureRecordingStatusText.isEmpty
+                            ? (isChinese ? "准备中…" : "Preparing…")
+                            : motionManager.headGestureRecordingStatusText)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.accentColor)
                 }
             }
             .padding(.top, 6)
