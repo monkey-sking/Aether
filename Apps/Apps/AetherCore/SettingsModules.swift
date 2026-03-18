@@ -1032,37 +1032,17 @@ private struct HeadGestureShortcutMappingCard: View {
         motionManager.recordedHeadGestures.first(where: { $0.id == gestureID })?.stepSequence ?? []
     }
 
-    private func stepSelectionBinding(for gestureID: UUID, index: Int) -> Binding<String> {
+    private func directionSelectionBinding(for gestureID: UUID) -> Binding<String> {
         Binding(
             get: {
                 let steps = stepSequence(for: gestureID)
-                guard steps.indices.contains(index) else {
-                    return HeadMotionManager.HeadGestureDirection.down.rawValue
-                }
-                return steps[index].rawValue
+                return steps.first?.rawValue ?? HeadMotionManager.HeadGestureDirection.up.rawValue
             },
             set: { newValue in
                 guard let direction = HeadMotionManager.HeadGestureDirection(rawValue: newValue) else { return }
-                var steps = stepSequence(for: gestureID)
-                guard steps.indices.contains(index) else { return }
-                steps[index] = direction
-                motionManager.updateRecordedHeadGestureSteps(id: gestureID, steps: steps)
+                motionManager.updateRecordedHeadGestureSteps(id: gestureID, steps: [direction])
             }
         )
-    }
-
-    private func appendStep(for gestureID: UUID) {
-        var steps = stepSequence(for: gestureID)
-        guard steps.count < 4 else { return }
-        steps.append(.down)
-        motionManager.updateRecordedHeadGestureSteps(id: gestureID, steps: steps)
-    }
-
-    private func removeStep(for gestureID: UUID, index: Int) {
-        var steps = stepSequence(for: gestureID)
-        guard steps.indices.contains(index) else { return }
-        steps.remove(at: index)
-        motionManager.updateRecordedHeadGestureSteps(id: gestureID, steps: steps)
     }
 
     var body: some View {
@@ -1072,9 +1052,9 @@ private struct HeadGestureShortcutMappingCard: View {
                     TransparencyModeIcon(size: 18, color: .secondary)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(String(localized: "head_gesture.mapping.title"))
+                        Text(isChinese ? "头控热区规则" : "Head Zone Rules")
                             .font(.headline)
-                        Text(isChinese ? "用方向步骤定义头部动作，再绑定成全局行为。" : "Define head gestures with directional steps, then bind them to global actions.")
+                        Text(isChinese ? "用单方向热区触发动作。先进入屏幕中心，再朝目标区移动完成触发。" : "Bind single-direction hot zones. Enter the screen center, then move into a target zone to trigger.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1088,7 +1068,7 @@ private struct HeadGestureShortcutMappingCard: View {
                             expandedGestureIDs.insert(createdID)
                         }
                     } label: {
-                        Label(isChinese ? "新增动作" : "Add Gesture", systemImage: "plus")
+                        Label(isChinese ? "新增热区" : "Add Zone", systemImage: "plus")
                             .font(.subheadline.weight(.semibold))
                             .symbolRenderingMode(.hierarchical)
                             .imageScale(.medium)
@@ -1098,7 +1078,7 @@ private struct HeadGestureShortcutMappingCard: View {
                 }
 
                 if motionManager.recordedHeadGestures.isEmpty {
-                    Text(isChinese ? "还没有头部动作。点击上面的“新增动作”，先定义上下左右步骤。" : "No head gestures yet. Click Add Gesture above to define directional steps.")
+                    Text(isChinese ? "还没有热区规则。点击上面的“新增热区”，先定义方向和动作。" : "No hot zone rules yet. Click Add Zone above to define a direction and action.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(14)
@@ -1118,7 +1098,7 @@ private struct HeadGestureShortcutMappingCard: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text(isChinese ? "头部历史" : "Head Gesture History")
+                        Text(isChinese ? "热区历史" : "Hot Zone History")
                             .font(.subheadline.weight(.semibold))
                         Spacer()
                         Button(isChinese ? "复制调试数据请求" : "Copy Debug Request") {
@@ -1193,8 +1173,8 @@ private struct HeadGestureShortcutMappingCard: View {
                     if motionManager.headGestureHistory.isEmpty {
                         Text(
                             isChinese
-                                ? "还没有头部动作历史。调试数据入口始终可用；识别成功和未匹配都会写入调试数据。"
-                                : "No head gesture history yet. Debug export stays available; successful matches and misses are written to debug data."
+                                ? "还没有热区触发历史。调试数据入口始终可用；识别成功和未匹配都会写入调试数据。"
+                                : "No hot zone history yet. Debug export stays available; successful matches and misses are written to debug data."
                         )
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -1214,6 +1194,7 @@ private struct HeadGestureShortcutMappingCard: View {
     private func gestureRow(_ gesture: HeadMotionManager.RecordedHeadGesture) -> some View {
         let isExpanded = expandedGestureIDs.contains(gesture.id)
         let steps = gesture.stepSequence ?? []
+        let direction = steps.first
 
         DisclosureGroup(
             isExpanded: Binding(
@@ -1240,7 +1221,7 @@ private struct HeadGestureShortcutMappingCard: View {
                     }
 
                     GridRow {
-                        Text(isChinese ? "触发" : "Action")
+                        Text(isChinese ? "动作" : "Action")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .frame(width: 56, alignment: .leading)
@@ -1253,63 +1234,25 @@ private struct HeadGestureShortcutMappingCard: View {
                     }
 
                     GridRow {
-                        Text(isChinese ? "步骤" : "Steps")
+                        Text(isChinese ? "方向" : "Direction")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .frame(width: 56, alignment: .leading)
-                        VStack(alignment: .leading, spacing: 8) {
-                            if steps.isEmpty {
-                                Text(isChinese ? "先定义动作步骤。第一步完成后，系统会给出下一步的虚线引导。" : "Define the steps first. After the first step, the system will show guided dashed branches for the next move.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            } else {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(Array(steps.enumerated()), id: \.offset) { index, _ in
-                                        HStack(spacing: 8) {
-                                            Text(isChinese ? "第\(index + 1)步" : "Step \(index + 1)")
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                                .frame(width: 44, alignment: .leading)
-
-                                            FixedWidthPopUpMenu(
-                                                options: gestureDirectionOptions,
-                                                selection: stepSelectionBinding(for: gesture.id, index: index)
-                                            )
-                                            .controlSize(.small)
-                                            .frame(width: 120, alignment: .leading)
-
-                                            Button {
-                                                removeStep(for: gesture.id, index: index)
-                                            } label: {
-                                                Image(systemName: "minus.circle")
-                                                    .symbolRenderingMode(.hierarchical)
-                                            }
-                                            .buttonStyle(.plain)
-                                            .foregroundColor(.secondary)
-                                            .accessibilityLabel(Text(isChinese ? "删除步骤" : "Remove step"))
-                                        }
-                                    }
-                                }
-                            }
-
-                            Button {
-                                appendStep(for: gesture.id)
-                            } label: {
-                                Label(isChinese ? "添加步骤" : "Add Step", systemImage: "plus.circle")
-                            }
-                            .controlSize(.small)
-                            .buttonStyle(.borderless)
-                            .disabled(steps.count >= 4)
-                        }
+                        FixedWidthPopUpMenu(
+                            options: gestureDirectionOptions,
+                            selection: directionSelectionBinding(for: gesture.id)
+                        )
+                        .controlSize(.small)
+                        .frame(maxWidth: 160, alignment: .leading)
                     }
 
                 }
 
-                Text(steps.isEmpty
-                        ? (isChinese ? "还没有定义动作步骤。" : "No step sequence defined.")
+                Text(direction == nil
+                        ? (isChinese ? "还没有定义热区方向。" : "No direction selected.")
                         : (isChinese
-                            ? "步骤 \(motionManager.recordedStepSummary(for: gesture))"
-                            : "Steps \(motionManager.recordedStepSummary(for: gesture))"))
+                            ? "方向 \(motionManager.recordedStepSummary(for: gesture))"
+                            : "Direction \(motionManager.recordedStepSummary(for: gesture))"))
                     .font(.caption)
                     .foregroundColor(.secondary)
 
@@ -1332,11 +1275,11 @@ private struct HeadGestureShortcutMappingCard: View {
                         .font(.subheadline.weight(.semibold))
                     if !isExpanded {
                         Text(
-                            steps.isEmpty
-                                ? (isChinese ? "未定义步骤" : "No step sequence defined")
+                            direction == nil
+                                ? (isChinese ? "未定义方向" : "No direction selected")
                                 : (isChinese
-                                    ? "\(steps.count) 步 · \(motionManager.recordedStepSummary(for: gesture))"
-                                    : "\(steps.count) steps · \(motionManager.recordedStepSummary(for: gesture))")
+                                    ? "方向 · \(motionManager.recordedStepSummary(for: gesture))"
+                                    : "Direction · \(motionManager.recordedStepSummary(for: gesture))")
                         )
                             .font(.caption2)
                             .foregroundColor(.secondary)
@@ -3132,6 +3075,7 @@ struct OutputSettingsView: View {
 
 struct HeadGestureSettingsView: View {
     @ObservedObject private var headManager = HeadMotionManager.shared
+    private var isChinese: Bool { AppLocalization.isChinese }
 
     private var headGestureToggleBinding: Binding<Bool> {
         Binding(
@@ -3140,10 +3084,24 @@ struct HeadGestureSettingsView: View {
         )
     }
 
+    private var hotZoneHeadInputBinding: Binding<Bool> {
+        Binding(
+            get: { headManager.headHotZoneHeadInputEnabled },
+            set: { headManager.headHotZoneHeadInputEnabled = $0 }
+        )
+    }
+
+    private var hotZoneMouseInputBinding: Binding<Bool> {
+        Binding(
+            get: { headManager.headHotZoneMouseInputEnabled },
+            set: { headManager.headHotZoneMouseInputEnabled = $0 }
+        )
+    }
+
     var body: some View {
         SettingsPage(
-            title: String(localized: "settings.page.head_gestures.title"),
-            subtitle: String(localized: "settings.page.head_gestures.subtitle")
+            title: isChinese ? "头控热区" : "Head Zones",
+            subtitle: isChinese ? "先停留在当前屏幕中心，再朝方向热区移动来触发动作。" : "Hold in the current screen center, then move into a directional hot zone to trigger actions."
         ) {
             VStack(spacing: 20) {
                 GlassCard {
@@ -3151,9 +3109,9 @@ struct HeadGestureSettingsView: View {
                         TransparencyModeIcon(size: 22, color: .secondary)
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(String(localized: "head_gesture.toggle.enable"))
+                            Text(isChinese ? "启用头控热区" : "Enable Head Zones")
                                 .font(.headline)
-                            Text(String(localized: "head_gesture.toggle.detail"))
+                            Text(isChinese ? "光标进入当前屏幕中心并短暂停留后，会显示上下左右热区。" : "After the cursor enters the current screen center and dwells briefly, directional hot zones appear.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -3164,11 +3122,29 @@ struct HeadGestureSettingsView: View {
                         Toggle("", isOn: headGestureToggleBinding)
                             .labelsHidden()
                             .controlSize(.small)
-                            .accessibilityLabel(Text(String(localized: "head_gesture.toggle.enable")))
-                            .accessibilityHint(Text(String(localized: "head_gesture.toggle.detail")))
+                            .accessibilityLabel(Text(isChinese ? "启用头控热区" : "Enable Head Zones"))
+                            .accessibilityHint(Text(isChinese ? "启用基于中心驻留的热区触发" : "Enable center-dwell hot zone triggers"))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(isChinese ? "触发来源" : "Trigger Sources")
+                            .font(.headline)
+
+                        Toggle(isChinese ? "允许头控触发" : "Allow Head Tracking", isOn: hotZoneHeadInputBinding)
+                            .toggleStyle(.switch)
+
+                        Toggle(isChinese ? "允许鼠标触发" : "Allow Mouse", isOn: hotZoneMouseInputBinding)
+                            .toggleStyle(.switch)
+
+                        Text(isChinese ? "头控开启时可以用头控光标触发；未开启头控时也可以直接用普通鼠标触发。" : "When head tracking is active, the head-controlled cursor can trigger zones. When head tracking is off, a normal mouse can trigger them too.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
 
                 HeadGestureShortcutMappingCard()
             }

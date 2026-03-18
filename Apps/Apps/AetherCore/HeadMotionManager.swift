@@ -26,6 +26,8 @@ class HeadMotionManager: ObservableObject {
     private static let autoStartTrackingOnHeadsetConnectionKey = "AetherAutoStartTrackingOnHeadsetConnection"
     private static let showPostureGuideBeforeTrackingKey = "AetherShowPostureGuideBeforeTracking"
     private static let headGestureToggleEnabledKey = "AetherHeadGestureToggleEnabled"
+    private static let headHotZoneHeadInputEnabledKey = "AetherHeadHotZoneHeadInputEnabled"
+    private static let headHotZoneMouseInputEnabledKey = "AetherHeadHotZoneMouseInputEnabled"
     private static let headGestureNodActionKey = "AetherHeadGestureNodAction"
     private static let headGestureShakeActionKey = "AetherHeadGestureShakeAction"
     private static let recordedHeadGesturesStorageKey = "AetherRecordedHeadGesturesV1"
@@ -400,6 +402,21 @@ class HeadMotionManager: ObservableObject {
         var hoveredProgress: CGFloat = 0
     }
 
+    private enum HotZoneInputSource {
+        case head
+        case mouse
+    }
+
+    private struct ActiveHotZoneSession {
+        var source: HotZoneInputSource
+        var screenFrame: NSRect
+        var centerCursorPoint: CGPoint
+        var enteredCenterAt: Date
+        var armedAt: Date?
+        var hoveredDirection: HeadGestureDirection?
+        var hoveredProgress: CGFloat = 0
+    }
+
     private struct GestureTemplateSummary {
         let points: [CGPoint]
         let duration: TimeInterval
@@ -440,6 +457,7 @@ class HeadMotionManager: ObservableObject {
             }
         }
         startStabilityTimer()
+        startHotZoneMonitorTimer()
         updateAirPodsRemoteCommandRegistration()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -450,6 +468,7 @@ class HeadMotionManager: ObservableObject {
     
     private var isHotkeyRegistered: Bool = false
     private var stabilityTimer: Timer?
+    private var hotZoneMonitorTimer: Timer?
     private var connectionTimer: Timer?
     private var lastDataTime: Date?
     var didLogEventTapKeyDebugHint: Bool = false
@@ -563,6 +582,24 @@ class HeadMotionManager: ObservableObject {
             }
         }
     }
+
+    @Published var headHotZoneHeadInputEnabled: Bool = UserDefaults.standard.object(forKey: HeadMotionManager.headHotZoneHeadInputEnabledKey) as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(headHotZoneHeadInputEnabled, forKey: HeadMotionManager.headHotZoneHeadInputEnabledKey)
+            if !headHotZoneHeadInputEnabled, activeHotZoneSession?.source == .head {
+                resetHeadGestureRecognition()
+            }
+        }
+    }
+
+    @Published var headHotZoneMouseInputEnabled: Bool = UserDefaults.standard.object(forKey: HeadMotionManager.headHotZoneMouseInputEnabledKey) as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(headHotZoneMouseInputEnabled, forKey: HeadMotionManager.headHotZoneMouseInputEnabledKey)
+            if !headHotZoneMouseInputEnabled, activeHotZoneSession?.source == .mouse {
+                resetHeadGestureRecognition()
+            }
+        }
+    }
     
     // Experience Optimization Constants
     private let deadzone: Double = 0.005  // Ignore movements smaller than ~0.3 degrees
@@ -580,6 +617,11 @@ class HeadMotionManager: ObservableObject {
     private let headGestureMinPathDistance: Double = 0.12
     private let headGestureActivationDistance: Double = 0.12
     private let headGestureRecognitionStartDistanceFloor: Double = 0.05
+    private let hotZoneCenterRadius: CGFloat = 54
+    private let hotZoneTargetDistance: CGFloat = 138
+    private let hotZoneTargetRadius: CGFloat = 36
+    private let hotZoneCenterDwellDuration: TimeInterval = 0.22
+    private let hotZoneArmedTimeout: TimeInterval = 1.35
     private let headGestureOverlayDistance: Double = 0.08
     private let trackingGestureIntentDistanceMultiplier: Double = 1.15
     private let trackingGestureIntentDominanceRatio: Double = 1.18
@@ -612,6 +654,7 @@ class HeadMotionManager: ObservableObject {
     private var lastHeadGestureDebugLogAt: Date = .distantPast
     private var activeGestureCandidate: ActiveGestureCandidate?
     private var activeStepGestureSession: ActiveStepGestureSession?
+    private var activeHotZoneSession: ActiveHotZoneSession?
     private var activeGestureRecordingSession: ActiveGestureRecordingSession?
     private var pendingHeadGestureRecordingCountdownWorkItem: DispatchWorkItem?
     private lazy var headGestureOverlayController = HeadGestureOverlayController()
@@ -872,7 +915,7 @@ class HeadMotionManager: ObservableObject {
         return [
             RecordedHeadGesture(
                 id: builtInNodUpDownGestureID,
-                name: AppLocalization.isChinese ? "内置点头（上到下）" : "Built-in Nod (Up to Down)",
+                name: AppLocalization.isChinese ? "内置热区（上）" : "Built-in Hot Zone (Up)",
                 action: nodAction,
                 enabled: nodEnabled,
                 cooldown: 1.0,
@@ -882,12 +925,12 @@ class HeadMotionManager: ObservableObject {
                 alternateSamples: [
                     builtInGesturePoints(kind: .nod, variant: 1)
                 ],
-                stepSequence: [.up, .down],
+                stepSequence: [.up],
                 alternateStepSequences: nil
             ),
             RecordedHeadGesture(
                 id: builtInNodDownUpGestureID,
-                name: AppLocalization.isChinese ? "内置点头（下到上）" : "Built-in Nod (Down to Up)",
+                name: AppLocalization.isChinese ? "内置热区（下）" : "Built-in Hot Zone (Down)",
                 action: nodAction,
                 enabled: nodEnabled,
                 cooldown: 1.0,
@@ -897,12 +940,12 @@ class HeadMotionManager: ObservableObject {
                 alternateSamples: [
                     mirroredBuiltInGesturePoints(kind: .nod, variant: 1)
                 ],
-                stepSequence: [.down, .up],
+                stepSequence: [.down],
                 alternateStepSequences: nil
             ),
             RecordedHeadGesture(
                 id: builtInShakeLeftRightGestureID,
-                name: AppLocalization.isChinese ? "内置摇头（左到右）" : "Built-in Shake (Left to Right)",
+                name: AppLocalization.isChinese ? "内置热区（左）" : "Built-in Hot Zone (Left)",
                 action: shakeAction,
                 enabled: shakeEnabled,
                 cooldown: 1.0,
@@ -912,12 +955,12 @@ class HeadMotionManager: ObservableObject {
                 alternateSamples: [
                     builtInGesturePoints(kind: .shake, variant: 1)
                 ],
-                stepSequence: [.left, .right],
+                stepSequence: [.left],
                 alternateStepSequences: nil
             ),
             RecordedHeadGesture(
                 id: builtInShakeRightLeftGestureID,
-                name: AppLocalization.isChinese ? "内置摇头（右到左）" : "Built-in Shake (Right to Left)",
+                name: AppLocalization.isChinese ? "内置热区（右）" : "Built-in Hot Zone (Right)",
                 action: shakeAction,
                 enabled: shakeEnabled,
                 cooldown: 1.0,
@@ -927,7 +970,7 @@ class HeadMotionManager: ObservableObject {
                 alternateSamples: [
                     mirroredBuiltInGesturePoints(kind: .shake, variant: 1)
                 ],
-                stepSequence: [.right, .left],
+                stepSequence: [.right],
                 alternateStepSequences: nil
             )
         ]
@@ -1030,7 +1073,7 @@ class HeadMotionManager: ObservableObject {
             recordedDuration: 0.0,
             points: [],
             alternateSamples: nil,
-            stepSequence: nil,
+            stepSequence: [.up],
             alternateStepSequences: nil
         )
         recordedHeadGestures.insert(gesture, at: 0)
@@ -1245,7 +1288,7 @@ class HeadMotionManager: ObservableObject {
     @MainActor
     func updateRecordedHeadGestureSteps(id: UUID, steps: [HeadGestureDirection]) {
         guard let index = recordedHeadGestures.firstIndex(where: { $0.id == id }) else { return }
-        let sanitized = Array(steps.prefix(4))
+        let sanitized = Array(steps.prefix(1))
         recordedHeadGestures[index].stepSequence = sanitized.isEmpty ? nil : sanitized
         if let alternates = recordedHeadGestures[index].alternateStepSequences, !alternates.isEmpty {
             recordedHeadGestures[index].alternateStepSequences = alternates.filter { !$0.isEmpty && $0 != sanitized }
@@ -1255,7 +1298,7 @@ class HeadMotionManager: ObservableObject {
     private func defaultRecordedHeadGestureName(for action: HeadGestureAction) -> String {
         switch action {
         case .none:
-            return AppLocalization.isChinese ? "未命名动作" : "Untitled Gesture"
+            return AppLocalization.isChinese ? "未命名热区" : "Untitled Hot Zone"
         default:
             return action.label
         }
@@ -1705,28 +1748,7 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func refreshHeadGestureMonitoringState(source: String) {
-        guard !isTracking else {
-            stopPassiveHeadGestureMonitoring(source: "\(source)-tracking-active")
-            return
-        }
-
-        let shouldMonitor = headGestureToggleEnabled && hasActiveHeadsetConnection && motionManager.isDeviceMotionAvailable
-        if shouldMonitor {
-            startPassiveHeadGestureMonitoring(source: source)
-        } else {
-            os_log(
-                "Head gesture monitor idle (%{public}@): enabled=%{public}@ connected=%{public}@ routeConnected=%{public}@ side=%{public}@ motionAvailable=%{public}@",
-                log: log,
-                type: .info,
-                source,
-                String(headGestureToggleEnabled),
-                String(hasActiveHeadsetConnection),
-                String(lastObservedHeadsetRouteConnected),
-                lastObservedAirPodSide.rawValue,
-                String(motionManager.isDeviceMotionAvailable)
-            )
-            stopPassiveHeadGestureMonitoring(source: source)
-        }
+        stopPassiveHeadGestureMonitoring(source: "\(source)-legacy-disabled")
     }
 
     private func startPassiveHeadGestureMonitoring(source: String) {
@@ -1791,6 +1813,7 @@ class HeadMotionManager: ObservableObject {
         recentHeadGestureSamples.removeAll(keepingCapacity: false)
         activeGestureCandidate = nil
         activeStepGestureSession = nil
+        activeHotZoneSession = nil
         headGestureOverlayController.hide()
         HUDManager.shared.updateHeadGestureTrail(points: [], status: "", visible: false)
     }
@@ -1813,7 +1836,253 @@ class HeadMotionManager: ObservableObject {
             pitch: pitch
         )
 
-        trackStepGestureRecognition(now: now, cursorLocation: cursorLocation)
+        trackHotZoneRecognition(now: now, cursorLocation: cursorLocation, source: .head)
+    }
+
+    private func startHotZoneMonitorTimer() {
+        hotZoneMonitorTimer?.invalidate()
+        hotZoneMonitorTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.pollMouseHotZoneRecognition()
+            }
+        }
+        if let hotZoneMonitorTimer {
+            RunLoop.main.add(hotZoneMonitorTimer, forMode: .common)
+        }
+    }
+
+    @MainActor
+    private func pollMouseHotZoneRecognition() {
+        guard headGestureToggleEnabled else {
+            if activeHotZoneSession?.source == .mouse {
+                resetHeadGestureRecognition()
+            }
+            return
+        }
+        guard !isTracking else {
+            if activeHotZoneSession?.source == .mouse {
+                resetHeadGestureRecognition()
+            }
+            return
+        }
+        guard headHotZoneMouseInputEnabled else {
+            if activeHotZoneSession?.source == .mouse {
+                resetHeadGestureRecognition()
+            }
+            return
+        }
+        trackHotZoneRecognition(now: Date(), cursorLocation: currentSystemCursorLocation(), source: .mouse)
+    }
+
+    private func eligibleHotZoneGesturesForRecognition() -> [RecordedHeadGesture] {
+        recordedHeadGestures.filter { gesture in
+            gesture.enabled && recordedHotZoneDirection(for: gesture) != nil
+        }
+    }
+
+    private func recordedHotZoneDirection(for gesture: RecordedHeadGesture) -> HeadGestureDirection? {
+        gesture.stepSequence?.first
+    }
+
+    private func hotZoneBranches(from gestures: [RecordedHeadGesture]) -> [GestureBranchSummary] {
+        var summaries: [HeadGestureDirection: GestureBranchSummary] = [:]
+        for gesture in gestures {
+            guard let direction = recordedHotZoneDirection(for: gesture) else { continue }
+            let label = gesture.action == .none ? direction.label : gesture.action.label
+            if summaries[direction] == nil {
+                summaries[direction] = GestureBranchSummary(direction: direction, label: label)
+            }
+        }
+        return HeadGestureDirection.allCases.compactMap { summaries[$0] }
+    }
+
+    @MainActor
+    private func trackHotZoneRecognition(now: Date, cursorLocation: CGPoint?, source: HotZoneInputSource) {
+        guard !isHeadGestureRecording else { return }
+        guard now.timeIntervalSince(lastHeadGestureTriggerAt) >= 0.75 else { return }
+        guard let cursorLocation else {
+            if activeHotZoneSession?.source == source {
+                resetHeadGestureRecognition()
+            }
+            return
+        }
+
+        switch source {
+        case .head:
+            guard isTracking, headHotZoneHeadInputEnabled else {
+                if activeHotZoneSession?.source == .head {
+                    resetHeadGestureRecognition()
+                }
+                return
+            }
+        case .mouse:
+            guard !isTracking, headHotZoneMouseInputEnabled else {
+                if activeHotZoneSession?.source == .mouse {
+                    resetHeadGestureRecognition()
+                }
+                return
+            }
+        }
+
+        let gestures = eligibleHotZoneGesturesForRecognition()
+        let branches = hotZoneBranches(from: gestures)
+        guard !branches.isEmpty else {
+            if activeHotZoneSession?.source == source {
+                resetHeadGestureRecognition()
+            }
+            return
+        }
+
+        let screenFrame = activeTrackingScreenFrame(for: cursorLocation)
+        let center = CGPoint(x: screenFrame.midX, y: screenFrame.midY)
+        let distanceToCenter = hypot(cursorLocation.x - center.x, cursorLocation.y - center.y)
+        let insideCenter = distanceToCenter <= hotZoneCenterRadius
+
+        if activeHotZoneSession == nil || activeHotZoneSession?.source != source || activeHotZoneSession?.screenFrame != screenFrame {
+            guard insideCenter else {
+                if activeHotZoneSession?.source == source {
+                    resetHeadGestureRecognition()
+                }
+                return
+            }
+            activeHotZoneSession = ActiveHotZoneSession(
+                source: source,
+                screenFrame: screenFrame,
+                centerCursorPoint: center,
+                enteredCenterAt: now,
+                armedAt: nil,
+                hoveredDirection: nil,
+                hoveredProgress: 0
+            )
+        }
+
+        guard var session = activeHotZoneSession else { return }
+        session.screenFrame = screenFrame
+        session.centerCursorPoint = center
+
+        if session.armedAt == nil {
+            guard insideCenter else {
+                resetHeadGestureRecognition()
+                return
+            }
+            let dwellProgress = min(max(now.timeIntervalSince(session.enteredCenterAt) / hotZoneCenterDwellDuration, 0), 1)
+            if dwellProgress >= 1 {
+                session.armedAt = now
+            }
+            activeHotZoneSession = session
+            showHotZoneGuide(
+                centerCursorLocation: center,
+                branches: session.armedAt == nil ? [] : branches,
+                hoveredDirection: nil,
+                branchProgressByDirection: [:],
+                status: AppLocalization.isChinese
+                    ? (session.armedAt == nil ? "中心停留 \(Int(dwellProgress * 100))%" : "选择方向")
+                    : (session.armedAt == nil ? "Hold center \(Int(dwellProgress * 100))%" : "Choose a direction")
+            )
+            return
+        }
+
+        if now.timeIntervalSince(session.armedAt ?? now) > hotZoneArmedTimeout {
+            resetHeadGestureRecognition()
+            return
+        }
+
+        if let guidedState = hotZoneGuidedState(
+            from: cursorLocation,
+            center: center,
+            branches: branches
+        ) {
+            session.hoveredDirection = guidedState.direction
+            session.hoveredProgress = guidedState.progress
+            if guidedState.reachedTarget,
+               let gesture = gestures.first(where: { recordedHotZoneDirection(for: $0) == guidedState.direction }) {
+                let sample = HeadGestureSample(at: now, yaw: 0, pitch: 0, cursorLocation: cursorLocation)
+                lastHeadGestureTriggerAt = now
+                activeHotZoneSession = nil
+                fireMatchedHeadGesture(GestureMatch(gesture: gesture, score: 1.0), duration: now.timeIntervalSince(session.enteredCenterAt), samples: [sample])
+                return
+            }
+        } else {
+            session.hoveredDirection = nil
+            session.hoveredProgress = 0
+        }
+
+        activeHotZoneSession = session
+        showHotZoneGuide(
+            centerCursorLocation: center,
+            branches: branches,
+            hoveredDirection: session.hoveredDirection,
+            branchProgressByDirection: session.hoveredDirection.map { [$0: session.hoveredProgress] } ?? [:],
+            status: AppLocalization.isChinese ? "选择方向" : "Choose a direction"
+        )
+    }
+
+    private func showHotZoneGuide(
+        centerCursorLocation: CGPoint,
+        branches: [GestureBranchSummary],
+        hoveredDirection: HeadGestureDirection?,
+        branchProgressByDirection: [HeadGestureDirection: CGFloat],
+        status: String
+    ) {
+        guard let guide = overlayGuideLayout(
+            prefix: [],
+            branches: branches,
+            guideAnchorCursorLocation: centerCursorLocation,
+            completedCursorPoints: [centerCursorLocation],
+            highlightedDirection: hoveredDirection,
+            branchProgressByDirection: branchProgressByDirection
+        ) else {
+            headGestureOverlayController.hide(after: 0.05)
+            return
+        }
+        headGestureOverlayController.showGuide(
+            completed: guide.completed,
+            branches: guide.branches,
+            status: status,
+            cursorLocation: centerCursorLocation
+        )
+    }
+
+    private struct HotZoneGuidedState {
+        let direction: HeadGestureDirection
+        let progress: CGFloat
+        let reachedTarget: Bool
+    }
+
+    private func hotZoneGuidedState(
+        from cursorLocation: CGPoint,
+        center: CGPoint,
+        branches: [GestureBranchSummary]
+    ) -> HotZoneGuidedState? {
+        let deltaX = cursorLocation.x - center.x
+        let deltaY = cursorLocation.y - center.y
+        let candidateLength = hypot(deltaX, deltaY)
+        guard candidateLength >= 10 else { return nil }
+
+        var bestState: HotZoneGuidedState?
+        var bestScore: CGFloat = -.greatestFiniteMagnitude
+
+        for branch in branches {
+            let vector = screenVector(for: branch.direction, length: hotZoneTargetDistance)
+            let directionLength = hypot(vector.dx, vector.dy)
+            guard directionLength > 0 else { continue }
+
+            let projection = ((deltaX * vector.dx) + (deltaY * vector.dy)) / directionLength
+            let orthogonal = abs((deltaX * vector.dy) - (deltaY * vector.dx)) / directionLength
+            let radialDistance = hypot(deltaX - vector.dx, deltaY - vector.dy)
+            let progress = min(max(projection / hotZoneTargetDistance, 0), 1)
+            let reachedTarget = radialDistance <= hotZoneTargetRadius
+            guard progress > 0 || reachedTarget else { continue }
+            guard orthogonal <= 52 || reachedTarget else { continue }
+
+            let score = (progress * 140) - orthogonal - (radialDistance * 0.08) + (reachedTarget ? 40 : 0)
+            if score > bestScore {
+                bestScore = score
+                bestState = HotZoneGuidedState(direction: branch.direction, progress: progress, reachedTarget: reachedTarget)
+            }
+        }
+
+        return bestState
     }
 
     @MainActor
@@ -3663,17 +3932,28 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func activeTrackingScreenFrame() -> NSRect {
-        let screens = NSScreen.screens
         if let cursor = currentSystemCursorLocation() {
-            if let containingScreen = screens.first(where: { screenContainsCursor($0.frame, cursor: cursor) }) {
-                return containingScreen.frame
-            }
+            return activeTrackingScreenFrame(for: cursor)
+        }
 
-            if let nearestScreen = screens.min(by: {
-                squaredDistance(from: cursor, to: $0.frame) < squaredDistance(from: cursor, to: $1.frame)
-            }) {
-                return nearestScreen.frame
-            }
+        let screens = NSScreen.screens
+        if let mainFrame = NSScreen.main?.frame {
+            return mainFrame
+        }
+
+        return screens.first?.frame ?? .zero
+    }
+
+    private func activeTrackingScreenFrame(for cursor: CGPoint) -> NSRect {
+        let screens = NSScreen.screens
+        if let containingScreen = screens.first(where: { screenContainsCursor($0.frame, cursor: cursor) }) {
+            return containingScreen.frame
+        }
+
+        if let nearestScreen = screens.min(by: {
+            squaredDistance(from: cursor, to: $0.frame) < squaredDistance(from: cursor, to: $1.frame)
+        }) {
+            return nearestScreen.frame
         }
 
         if let mainFrame = NSScreen.main?.frame {
@@ -5199,6 +5479,15 @@ private struct HeadGestureSequenceGuideView: View {
                 }
 
                 if let current = completed.last {
+                    Circle()
+                        .stroke(Color.white.opacity(0.34), lineWidth: 2)
+                        .background(
+                            Circle()
+                                .fill(Color.white.opacity(0.06))
+                        )
+                        .frame(width: 108, height: 108)
+                        .position(map(current, in: proxy.size))
+
                     Circle()
                         .fill(Color.black.opacity(0.58))
                         .frame(width: 22, height: 22)
