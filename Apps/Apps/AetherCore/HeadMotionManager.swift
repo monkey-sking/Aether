@@ -368,9 +368,9 @@ class HeadMotionManager: ObservableObject {
         var lastAdvancedAt: Date
         var committedCursorPoints: [CGPoint]
         var branchAnchorCursorPoint: CGPoint
+        var hoveredDirection: HeadGestureDirection?
+        var hoveredProgress: CGFloat = 0
     }
-
-    private let guidedBranchProgressTrigger: CGFloat = 0.68
 
     private struct GestureTemplateSummary {
         let points: [CGPoint]
@@ -969,7 +969,6 @@ class HeadMotionManager: ObservableObject {
             alternateStepSequences: nil
         )
         recordedHeadGestures.insert(gesture, at: 0)
-        startRecordingRecordedHeadGesture(id: gesture.id)
     }
 
     @MainActor
@@ -1112,6 +1111,16 @@ class HeadMotionManager: ObservableObject {
     func toggleRecordedHeadGestureEnabled(id: UUID, enabled: Bool) {
         guard let index = recordedHeadGestures.firstIndex(where: { $0.id == id }) else { return }
         recordedHeadGestures[index].enabled = enabled
+    }
+
+    @MainActor
+    func updateRecordedHeadGestureSteps(id: UUID, steps: [HeadGestureDirection]) {
+        guard let index = recordedHeadGestures.firstIndex(where: { $0.id == id }) else { return }
+        let sanitized = Array(steps.prefix(4))
+        recordedHeadGestures[index].stepSequence = sanitized.isEmpty ? nil : sanitized
+        if let alternates = recordedHeadGestures[index].alternateStepSequences, !alternates.isEmpty {
+            recordedHeadGestures[index].alternateStepSequences = alternates.filter { !$0.isEmpty && $0 != sanitized }
+        }
     }
 
     private func defaultRecordedHeadGestureName(for action: HeadGestureAction) -> String {
@@ -1752,7 +1761,9 @@ class HeadMotionManager: ObservableObject {
                 startedAt: now,
                 lastAdvancedAt: now,
                 committedCursorPoints: committedCursorPoints,
-                branchAnchorCursorPoint: anchorPoint
+                branchAnchorCursorPoint: anchorPoint,
+                hoveredDirection: nil,
+                hoveredProgress: 0
             )
         }
 
@@ -1773,47 +1784,36 @@ class HeadMotionManager: ObservableObject {
         }
 
         if let cursorLocation,
-           let guidedDirection = guidedBranchDirection(
+           let guidedState = guidedBranchState(
                 from: cursorLocation,
                 branchAnchor: session.branchAnchorCursorPoint,
                 branches: matchingForPrefix,
                 prefix: session.prefix
            ) {
+            session.hoveredDirection = guidedState.direction
+            session.hoveredProgress = guidedState.progress
+            if guidedState.reachedTarget {
             let advancedMatches = matchingForPrefix.filter { variant in
-                variant.sequence.count > session.prefix.count && variant.sequence[session.prefix.count] == guidedDirection
+                variant.sequence.count > session.prefix.count && variant.sequence[session.prefix.count] == guidedState.direction
             }
             if !advancedMatches.isEmpty {
-                session.prefix.append(guidedDirection)
+                session.prefix.append(guidedState.direction)
                 session.gestureIDs = Set(advancedMatches.map(\.gesture.id))
                 session.lastAdvancedAt = now
                 if session.committedCursorPoints.last != cursorLocation {
                     session.committedCursorPoints.append(cursorLocation)
                 }
                 session.branchAnchorCursorPoint = cursorLocation
+                session.hoveredDirection = nil
+                session.hoveredProgress = 0
                 matchingForPrefix = sequenceVariants.filter { variant in
                     variant.sequence.starts(with: session.prefix)
                 }
             }
-        }
-
-        while sequence.count > session.prefix.count {
-            let nextDirection = sequence[session.prefix.count]
-            let advancedMatches = matchingForPrefix.filter { variant in
-                variant.sequence.count > session.prefix.count && variant.sequence[session.prefix.count] == nextDirection
             }
-            guard !advancedMatches.isEmpty else { break }
-            session.prefix.append(nextDirection)
-            session.gestureIDs = Set(advancedMatches.map(\.gesture.id))
-            session.lastAdvancedAt = now
-            let committedCursorPoints = stabilizedOverlayCursorPoints(
-                from: recentHeadGestureSamples
-                    .filter { $0.at >= session.startedAt }
-                    .compactMap(\.cursorLocation)
-            )
-            if !committedCursorPoints.isEmpty {
-                session.committedCursorPoints = committedCursorPoints
-                session.branchAnchorCursorPoint = committedCursorPoints.last ?? session.branchAnchorCursorPoint
-            }
+        } else {
+            session.hoveredDirection = nil
+            session.hoveredProgress = 0
         }
 
         activeStepGestureSession = session
@@ -1832,7 +1832,8 @@ class HeadMotionManager: ObservableObject {
             branches: branches,
             cursorLocation: session.branchAnchorCursorPoint,
             completedCursorPoints: session.committedCursorPoints,
-            highlightedDirection: sequence.last
+            highlightedDirection: session.hoveredDirection ?? sequence.last,
+            branchProgressByDirection: session.hoveredDirection.map { [$0: session.hoveredProgress] } ?? [:]
         )
 
         if let matched = completed.first, branches.isEmpty {
@@ -2553,7 +2554,8 @@ class HeadMotionManager: ObservableObject {
         branches: [GestureBranchSummary],
         cursorLocation: CGPoint?,
         completedCursorPoints: [CGPoint],
-        highlightedDirection: HeadGestureDirection?
+        highlightedDirection: HeadGestureDirection?,
+        branchProgressByDirection: [HeadGestureDirection: CGFloat]
     ) {
         guard let cursorLocation,
               let guide = overlayGuideLayout(
@@ -2561,7 +2563,8 @@ class HeadMotionManager: ObservableObject {
                 branches: branches,
                 cursorLocation: cursorLocation,
                 completedCursorPoints: completedCursorPoints,
-                highlightedDirection: highlightedDirection
+                highlightedDirection: highlightedDirection,
+                branchProgressByDirection: branchProgressByDirection
               ) else {
             headGestureOverlayController.hide(after: 0.05)
             return
@@ -2580,7 +2583,8 @@ class HeadMotionManager: ObservableObject {
         branches: [GestureBranchSummary],
         cursorLocation: CGPoint,
         completedCursorPoints: [CGPoint],
-        highlightedDirection: HeadGestureDirection?
+        highlightedDirection: HeadGestureDirection?,
+        branchProgressByDirection: [HeadGestureDirection: CGFloat]
     ) -> (completed: [HeadGestureOverlayPoint], branches: [HeadGestureOverlayBranch])? {
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(cursorLocation) })
             ?? NSScreen.main
@@ -2618,6 +2622,7 @@ class HeadMotionManager: ObservableObject {
                 ],
                 label: branch.label,
                 highlighted: branch.direction == highlightedDirection,
+                progress: min(max(branchProgressByDirection[branch.direction] ?? 0, 0), 1),
                 targetRadius: branch.direction == highlightedDirection ? 28 : 24,
                 labelOffsetX: labelOffset.x,
                 labelOffsetY: labelOffset.y
@@ -2626,12 +2631,18 @@ class HeadMotionManager: ObservableObject {
         return (completed, overlayBranches)
     }
 
-    private func guidedBranchDirection(
+    private struct GuidedBranchState {
+        let direction: HeadGestureDirection
+        let progress: CGFloat
+        let reachedTarget: Bool
+    }
+
+    private func guidedBranchState(
         from cursorLocation: CGPoint,
         branchAnchor: CGPoint,
         branches: [GestureSequenceVariant],
         prefix: [HeadGestureDirection]
-    ) -> HeadGestureDirection? {
+    ) -> GuidedBranchState? {
         let availableDirections: Set<HeadGestureDirection> = Set(
             branches.compactMap { variant in
                 guard variant.sequence.count > prefix.count else { return nil }
@@ -2643,12 +2654,12 @@ class HeadMotionManager: ObservableObject {
         let deltaX = cursorLocation.x - branchAnchor.x
         let deltaY = cursorLocation.y - branchAnchor.y
         let candidateLength = hypot(deltaX, deltaY)
-        guard candidateLength >= 18 else { return nil }
+        guard candidateLength >= 10 else { return nil }
 
         let branchLength: CGFloat = 132
         let targetRadius: CGFloat = 28
-        var bestDirection: HeadGestureDirection?
-        var bestProjection: CGFloat = 0
+        var bestState: GuidedBranchState?
+        var bestScore: CGFloat = -.greatestFiniteMagnitude
 
         for direction in availableDirections {
             let vector = overlayVector(for: direction, length: branchLength)
@@ -2658,16 +2669,23 @@ class HeadMotionManager: ObservableObject {
             let projection = ((deltaX * vector.dx) + (deltaY * vector.dy)) / directionLength
             let orthogonal = abs((deltaX * vector.dy) - (deltaY * vector.dx)) / directionLength
             let radialDistance = hypot(deltaX - vector.dx, deltaY - vector.dy)
-            guard projection >= branchLength * guidedBranchProgressTrigger || radialDistance <= targetRadius else { continue }
-            guard orthogonal <= 46 || radialDistance <= targetRadius else { continue }
+            let progress = min(max(projection / branchLength, 0), 1)
+            let reachedTarget = radialDistance <= targetRadius
+            guard progress > 0 || reachedTarget else { continue }
+            guard orthogonal <= 44 || reachedTarget else { continue }
 
-            if projection > bestProjection {
-                bestProjection = projection
-                bestDirection = direction
+            let score = (progress * 140) - orthogonal - (radialDistance * 0.08) + (reachedTarget ? 40 : 0)
+            if score > bestScore {
+                bestScore = score
+                bestState = GuidedBranchState(
+                    direction: direction,
+                    progress: progress,
+                    reachedTarget: reachedTarget
+                )
             }
         }
 
-        return bestDirection
+        return bestState
     }
 
     private func overlayVector(for direction: HeadGestureDirection, length: CGFloat) -> (dx: CGFloat, dy: CGFloat) {
@@ -4506,6 +4524,7 @@ private struct HeadGestureOverlayBranch: Equatable {
     let points: [HeadGestureOverlayPoint]
     let label: String
     let highlighted: Bool
+    let progress: CGFloat
     let targetRadius: CGFloat
     let labelOffsetX: CGFloat
     let labelOffsetY: CGFloat
@@ -4635,8 +4654,18 @@ private struct HeadGestureOverlayView: View {
                         path.addLine(to: map(point, in: proxy.size))
                     }
                 }
+                .stroke(Color.black.opacity(0.62), style: StrokeStyle(lineWidth: 20, lineCap: .round, lineJoin: .round))
+                .blur(radius: 0.8)
+
+                Path { path in
+                    guard let first = points.first else { return }
+                    path.move(to: map(first, in: proxy.size))
+                    for point in points.dropFirst() {
+                        path.addLine(to: map(point, in: proxy.size))
+                    }
+                }
                 .stroke(emphasis.gradient, style: StrokeStyle(lineWidth: 14, lineCap: .round, lineJoin: .round))
-                .shadow(color: .white.opacity(0.18), radius: 10)
+                .shadow(color: .white.opacity(0.24), radius: 10)
 
                 if let first = points.first {
                     Circle()
@@ -4656,12 +4685,19 @@ private struct HeadGestureOverlayView: View {
                 if !status.isEmpty {
                     Text(status)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.92))
+                        .foregroundColor(.white)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(.ultraThinMaterial.opacity(emphasis.panelOpacity))
+                        .background(
+                            Capsule()
+                                .fill(Color.black.opacity(0.72))
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.white.opacity(0.26), lineWidth: 1)
+                                )
+                        )
                         .clipShape(Capsule())
-                        .shadow(color: .black.opacity(0.18), radius: 6, x: 0, y: 3)
+                        .shadow(color: .black.opacity(0.30), radius: 8, x: 0, y: 4)
                         .position(labelPosition(in: proxy.size))
                 }
             }
@@ -4700,16 +4736,42 @@ private struct HeadGestureSequenceGuideView: View {
                         }
                     }
                     .stroke(
-                        LinearGradient(colors: [Color.white.opacity(0.32), Color.green.opacity(0.34)], startPoint: .leading, endPoint: .trailing),
+                        Color.black.opacity(0.54),
+                        style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round)
+                    )
+
+                    Path { path in
+                        path.move(to: map(completed[0], in: proxy.size))
+                        for point in completed.dropFirst() {
+                            path.addLine(to: map(point, in: proxy.size))
+                        }
+                    }
+                    .stroke(
+                        LinearGradient(colors: [Color.white.opacity(0.86), Color.green.opacity(0.82)], startPoint: .leading, endPoint: .trailing),
                         style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
                     )
-                    .shadow(color: .white.opacity(0.08), radius: 4)
+                    .shadow(color: .black.opacity(0.22), radius: 4)
                 }
 
                 ForEach(Array(branches.enumerated()), id: \.offset) { _, branch in
                     if branch.points.count >= 2 {
                         let start = map(branch.points[0], in: proxy.size)
                         let end = map(branch.points[1], in: proxy.size)
+                        let progressEnd = CGPoint(
+                            x: start.x + ((end.x - start.x) * branch.progress),
+                            y: start.y + ((end.y - start.y) * branch.progress)
+                        )
+
+                        Path { path in
+                            path.move(to: start)
+                            for point in branch.points.dropFirst() {
+                                path.addLine(to: map(point, in: proxy.size))
+                            }
+                        }
+                        .stroke(
+                            Color.black.opacity(0.68),
+                            style: StrokeStyle(lineWidth: branch.highlighted ? 14 : 12, lineCap: .round, lineJoin: .round, dash: [14, 10])
+                        )
 
                         Path { path in
                             path.move(to: start)
@@ -4719,16 +4781,38 @@ private struct HeadGestureSequenceGuideView: View {
                         }
                         .stroke(
                             branch.highlighted
-                                ? Color.cyan.opacity(0.95)
-                                : Color.white.opacity(0.68),
+                                ? Color.cyan.opacity(0.98)
+                                : Color.white.opacity(0.92),
                             style: StrokeStyle(lineWidth: branch.highlighted ? 10 : 8, lineCap: .round, lineJoin: .round, dash: [14, 10])
                         )
 
+                        if branch.progress > 0.02 {
+                            Path { path in
+                                path.move(to: start)
+                                path.addLine(to: progressEnd)
+                            }
+                            .stroke(
+                                Color.black.opacity(0.72),
+                                style: StrokeStyle(lineWidth: branch.highlighted ? 12 : 10, lineCap: .round, lineJoin: .round)
+                            )
+
+                            Path { path in
+                                path.move(to: start)
+                                path.addLine(to: progressEnd)
+                            }
+                            .stroke(
+                                branch.highlighted
+                                    ? LinearGradient(colors: [Color.white.opacity(0.98), Color.cyan.opacity(0.94)], startPoint: .leading, endPoint: .trailing)
+                                    : LinearGradient(colors: [Color.white.opacity(0.94), Color.green.opacity(0.86)], startPoint: .leading, endPoint: .trailing),
+                                style: StrokeStyle(lineWidth: branch.highlighted ? 8 : 6, lineCap: .round, lineJoin: .round)
+                            )
+                        }
+
                         Circle()
-                            .fill(branch.highlighted ? Color.cyan.opacity(0.14) : Color.white.opacity(0.08))
+                            .fill(Color.black.opacity(0.48))
                             .overlay(
                                 Circle()
-                                    .stroke(branch.highlighted ? Color.cyan.opacity(0.65) : Color.white.opacity(0.30), lineWidth: branch.highlighted ? 2.5 : 1.5)
+                                    .stroke(branch.highlighted ? Color.cyan.opacity(0.92) : Color.white.opacity(0.88), lineWidth: branch.highlighted ? 3 : 2)
                             )
                             .frame(width: branch.targetRadius * 2, height: branch.targetRadius * 2)
                             .position(end)
@@ -4741,11 +4825,22 @@ private struct HeadGestureSequenceGuideView: View {
 
                         Text(branch.label)
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(branch.highlighted ? .white : .white.opacity(0.82))
+                            .foregroundColor(.white)
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
-                            .background(.ultraThinMaterial.opacity(branch.highlighted ? 0.72 : 0.56))
+                            .background(
+                                Capsule()
+                                    .fill(Color.black.opacity(branch.highlighted ? 0.84 : 0.76))
+                                    .overlay(
+                                        Capsule()
+                                            .stroke(
+                                                branch.highlighted ? Color.cyan.opacity(0.55) : Color.white.opacity(0.22),
+                                                lineWidth: 1
+                                            )
+                                    )
+                            )
                             .clipShape(Capsule())
+                            .shadow(color: .black.opacity(0.36), radius: 8, x: 0, y: 4)
                             .position(
                                 labelPosition(
                                     for: end,
@@ -4759,19 +4854,31 @@ private struct HeadGestureSequenceGuideView: View {
 
                 if let current = completed.last {
                     Circle()
-                        .fill(Color.white.opacity(0.96))
-                        .frame(width: 14, height: 14)
-                        .shadow(color: .white.opacity(0.28), radius: 8)
+                        .fill(Color.black.opacity(0.58))
+                        .frame(width: 22, height: 22)
+                        .overlay(
+                            Circle()
+                                .fill(Color.white.opacity(0.98))
+                                .frame(width: 14, height: 14)
+                        )
+                        .shadow(color: .black.opacity(0.28), radius: 8)
                         .position(map(current, in: proxy.size))
                 }
 
                 if !status.isEmpty, let current = completed.last {
                     Text(status)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white.opacity(0.78))
+                        .foregroundColor(.white.opacity(0.94))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(.ultraThinMaterial.opacity(0.36))
+                        .background(
+                            Capsule()
+                                .fill(Color.black.opacity(0.62))
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                                )
+                        )
                         .clipShape(Capsule())
                         .position(
                             x: min(max(map(current, in: proxy.size).x, 54), max(proxy.size.width - 54, 54)),

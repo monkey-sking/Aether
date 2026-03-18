@@ -996,6 +996,12 @@ private struct HeadGestureShortcutMappingCard: View {
         }
     }
 
+    private var gestureDirectionOptions: [FixedPopUpOption] {
+        HeadMotionManager.HeadGestureDirection.allCases.map {
+            FixedPopUpOption(id: $0.rawValue, title: "\($0.symbol) \($0.label)")
+        }
+    }
+
     private func selection(for gestureID: UUID) -> Binding<String> {
         Binding(
             get: {
@@ -1023,6 +1029,43 @@ private struct HeadGestureShortcutMappingCard: View {
         )
     }
 
+    private func stepSequence(for gestureID: UUID) -> [HeadMotionManager.HeadGestureDirection] {
+        motionManager.recordedHeadGestures.first(where: { $0.id == gestureID })?.stepSequence ?? []
+    }
+
+    private func stepSelectionBinding(for gestureID: UUID, index: Int) -> Binding<String> {
+        Binding(
+            get: {
+                let steps = stepSequence(for: gestureID)
+                guard steps.indices.contains(index) else {
+                    return HeadMotionManager.HeadGestureDirection.down.rawValue
+                }
+                return steps[index].rawValue
+            },
+            set: { newValue in
+                guard let direction = HeadMotionManager.HeadGestureDirection(rawValue: newValue) else { return }
+                var steps = stepSequence(for: gestureID)
+                guard steps.indices.contains(index) else { return }
+                steps[index] = direction
+                motionManager.updateRecordedHeadGestureSteps(id: gestureID, steps: steps)
+            }
+        )
+    }
+
+    private func appendStep(for gestureID: UUID) {
+        var steps = stepSequence(for: gestureID)
+        guard steps.count < 4 else { return }
+        steps.append(.down)
+        motionManager.updateRecordedHeadGestureSteps(id: gestureID, steps: steps)
+    }
+
+    private func removeStep(for gestureID: UUID, index: Int) {
+        var steps = stepSequence(for: gestureID)
+        guard steps.indices.contains(index) else { return }
+        steps.remove(at: index)
+        motionManager.updateRecordedHeadGestureSteps(id: gestureID, steps: steps)
+    }
+
     var body: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 14) {
@@ -1032,7 +1075,7 @@ private struct HeadGestureShortcutMappingCard: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(String(localized: "head_gesture.mapping.title"))
                             .font(.headline)
-                        Text(isChinese ? "录制你自己的头部动作，并绑定成全局行为。" : "Record your own head gestures and bind each one to a global action.")
+                        Text(isChinese ? "用方向步骤定义头部动作，再绑定成全局行为。录制只作为辅助示教，不再是主要配置方式。" : "Define head gestures with directional steps, then bind them to global actions. Recording is optional guidance, not the primary setup.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1042,6 +1085,9 @@ private struct HeadGestureShortcutMappingCard: View {
 
                     Button {
                         motionManager.createRecordedHeadGesture()
+                        if let createdID = motionManager.recordedHeadGestures.first?.id {
+                            expandedGestureIDs.insert(createdID)
+                        }
                     } label: {
                         Label(isChinese ? "新增动作" : "Add Gesture", systemImage: "plus")
                             .font(.subheadline.weight(.semibold))
@@ -1067,7 +1113,7 @@ private struct HeadGestureShortcutMappingCard: View {
                 }
 
                 if motionManager.recordedHeadGestures.isEmpty {
-                    Text(isChinese ? "还没有录制任何头部动作。点击上面的“新增动作”，录一个由多个方向步骤组成的动作。" : "No recorded gestures yet. Click Add Gesture above to record a gesture made of directional steps.")
+                    Text(isChinese ? "还没有头部动作。点击上面的“新增动作”，先定义上下左右步骤，再按需要录制示教样本。" : "No head gestures yet. Click Add Gesture above to define directional steps first, then optionally record a guided sample.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(14)
@@ -1185,6 +1231,7 @@ private struct HeadGestureShortcutMappingCard: View {
         let templates = templatesForGesture(gesture)
         let currentSampleIndex = min(max(gestureSampleIndex[gesture.id] ?? 0, 0), max(templates.count - 1, 0))
         let isExpanded = expandedGestureIDs.contains(gesture.id)
+        let steps = gesture.stepSequence ?? []
 
         DisclosureGroup(
             isExpanded: Binding(
@@ -1224,96 +1271,143 @@ private struct HeadGestureShortcutMappingCard: View {
                     }
 
                     GridRow {
-                        Text(isChinese ? "样本" : "Samples")
+                        Text(isChinese ? "步骤" : "Steps")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .frame(width: 56, alignment: .leading)
                         VStack(alignment: .leading, spacing: 8) {
-                            if templates.isEmpty {
-                                Text(isChinese ? "还没有录制动作样本。" : "No gesture sample recorded.")
+                            if steps.isEmpty {
+                                Text(isChinese ? "先定义动作步骤。第一步完成后，系统会给出下一步的虚线引导。" : "Define the steps first. After the first step, the system will show guided dashed branches for the next move.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             } else {
-                                HeadGestureTemplatePreview(points: templates[currentSampleIndex])
-                                    .frame(width: 190, height: 84)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ForEach(Array(steps.enumerated()), id: \.offset) { index, _ in
+                                        HStack(spacing: 8) {
+                                            Text(isChinese ? "第\(index + 1)步" : "Step \(index + 1)")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                                .frame(width: 44, alignment: .leading)
 
-                                if templates.count > 1 {
-                                    HStack(spacing: 8) {
-                                        Button {
-                                            let nextIndex = max(currentSampleIndex - 1, 0)
-                                            gestureSampleIndex[gesture.id] = nextIndex
-                                        } label: {
-                                            Image(systemName: "chevron.left")
-                                                .font(.system(size: 11, weight: .semibold))
-                                        }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(.secondary)
-                                        .accessibilityLabel(Text(isChinese ? "上一条样本" : "Previous sample"))
-                                        .disabled(currentSampleIndex == 0)
-                                        .frame(width: 20)
+                                            FixedWidthPopUpMenu(
+                                                options: gestureDirectionOptions,
+                                                selection: stepSelectionBinding(for: gesture.id, index: index)
+                                            )
+                                            .controlSize(.small)
+                                            .frame(width: 120, alignment: .leading)
 
-                                        Text(isChinese ? "样本 \(currentSampleIndex + 1)/\(templates.count)" : "Sample \(currentSampleIndex + 1)/\(templates.count)")
-                                            .font(.caption2.weight(.medium))
+                                            Button {
+                                                removeStep(for: gesture.id, index: index)
+                                            } label: {
+                                                Image(systemName: "minus.circle")
+                                                    .symbolRenderingMode(.hierarchical)
+                                            }
+                                            .buttonStyle(.plain)
                                             .foregroundColor(.secondary)
-
-                                        Button {
-                                            let nextIndex = min(currentSampleIndex + 1, templates.count - 1)
-                                            gestureSampleIndex[gesture.id] = nextIndex
-                                        } label: {
-                                            Image(systemName: "chevron.right")
-                                                .font(.system(size: 11, weight: .semibold))
+                                            .accessibilityLabel(Text(isChinese ? "删除步骤" : "Remove step"))
                                         }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(.secondary)
-                                        .accessibilityLabel(Text(isChinese ? "下一条样本" : "Next sample"))
-                                        .disabled(currentSampleIndex >= templates.count - 1)
-                                        .frame(width: 20)
                                     }
                                 }
                             }
+
+                            Button {
+                                appendStep(for: gesture.id)
+                            } label: {
+                                Label(isChinese ? "添加步骤" : "Add Step", systemImage: "plus.circle")
+                            }
+                            .controlSize(.small)
+                            .buttonStyle(.borderless)
+                            .disabled(steps.count >= 4)
                         }
                     }
 
                     GridRow {
-                        Text(isChinese ? "录制" : "Record")
+                        Text(isChinese ? "示教" : "Guide")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .frame(width: 56, alignment: .leading)
-                        HStack(spacing: 8) {
-                            Button(isRecordingThisGesture ? (isChinese ? "取消录制" : "Cancel Recording") : (gesture.points.isEmpty ? (isChinese ? "开始录制" : "Start Recording") : (isChinese ? "重新录制" : "Re-record"))) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Button(isRecordingThisGesture ? (isChinese ? "取消示教" : "Cancel Guide") : (templates.isEmpty ? (isChinese ? "录制示教" : "Record Guide") : (isChinese ? "重录示教" : "Re-record Guide"))) {
                                 if isRecordingThisGesture {
                                     motionManager.cancelRecordedHeadGestureRecording()
                                 } else {
                                     motionManager.startRecordingRecordedHeadGesture(id: gesture.id)
                                 }
                             }
-                            .controlSize(.small)
-                            .buttonStyle(.bordered)
-                            .tint(isRecordingThisGesture ? .accentColor : .secondary)
+                                .controlSize(.small)
+                                .buttonStyle(.bordered)
+                                .tint(isRecordingThisGesture ? .accentColor : .secondary)
 
-                            if !gesture.points.isEmpty && !isRecordingThisGesture {
-                                Button(isChinese ? "追加录制" : "Add Sample") {
-                                    motionManager.startRecordingRecordedHeadGesture(id: gesture.id, appendSample: true)
+                                if !gesture.points.isEmpty && !isRecordingThisGesture {
+                                    Button(isChinese ? "追加示教" : "Add Guide Sample") {
+                                        motionManager.startRecordingRecordedHeadGesture(id: gesture.id, appendSample: true)
+                                    }
+                                    .controlSize(.small)
+                                    .buttonStyle(.bordered)
+                                }
+
+                                Button(isChinese ? "删除" : "Delete") {
+                                    motionManager.deleteRecordedHeadGesture(id: gesture.id)
                                 }
                                 .controlSize(.small)
                                 .buttonStyle(.bordered)
+                                .tint(.red)
                             }
 
-                            Button(isChinese ? "删除" : "Delete") {
-                                motionManager.deleteRecordedHeadGesture(id: gesture.id)
-                            }
-                            .controlSize(.small)
-                            .buttonStyle(.bordered)
-                            .tint(.red)
+                            Text(isChinese ? "示教只用于辅助预览和后续调试，动作本身由上、下、左、右步骤定义。" : "Guide samples are optional. The gesture itself is defined by directional steps.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
                         }
                     }
                 }
 
-                Text(gesture.points.isEmpty
-                        ? (isChinese ? "还没有录制动作样本。" : "No gesture sample recorded.")
+                if !templates.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HeadGestureTemplatePreview(points: templates[currentSampleIndex])
+                            .frame(width: 190, height: 84)
+
+                        if templates.count > 1 {
+                            HStack(spacing: 8) {
+                                Button {
+                                    let nextIndex = max(currentSampleIndex - 1, 0)
+                                    gestureSampleIndex[gesture.id] = nextIndex
+                                } label: {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(.secondary)
+                                .accessibilityLabel(Text(isChinese ? "上一条样本" : "Previous sample"))
+                                .disabled(currentSampleIndex == 0)
+                                .frame(width: 20)
+
+                                Text(isChinese ? "示教 \(currentSampleIndex + 1)/\(templates.count)" : "Guide \(currentSampleIndex + 1)/\(templates.count)")
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundColor(.secondary)
+
+                                Button {
+                                    let nextIndex = min(currentSampleIndex + 1, templates.count - 1)
+                                    gestureSampleIndex[gesture.id] = nextIndex
+                                } label: {
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(.secondary)
+                                .accessibilityLabel(Text(isChinese ? "下一条样本" : "Next sample"))
+                                .disabled(currentSampleIndex >= templates.count - 1)
+                                .frame(width: 20)
+                            }
+                        }
+                    }
+                }
+
+                Text(steps.isEmpty
+                        ? (isChinese ? "还没有定义动作步骤。" : "No step sequence defined.")
                         : (isChinese
-                            ? "样本 \(motionManager.recordedSampleCount(for: gesture)) · 步骤 \(motionManager.recordedStepSummary(for: gesture))"
-                            : "Samples \(motionManager.recordedSampleCount(for: gesture)) · Steps \(motionManager.recordedStepSummary(for: gesture))"))
+                            ? "步骤 \(motionManager.recordedStepSummary(for: gesture)) · 示教 \(motionManager.recordedSampleCount(for: gesture))"
+                            : "Steps \(motionManager.recordedStepSummary(for: gesture)) · Guide samples \(motionManager.recordedSampleCount(for: gesture))"))
                     .font(.caption)
                     .foregroundColor(.secondary)
 
