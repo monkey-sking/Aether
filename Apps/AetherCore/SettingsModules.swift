@@ -1075,7 +1075,10 @@ private struct HeadGestureShortcutMappingCard: View {
                         .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
                         .cornerRadius(12)
                 } else {
-                    VStack(alignment: .leading, spacing: 10) {
+                    let columns = [
+                        GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .leading)
+                    ]
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
                         ForEach(motionManager.recordedHeadGestures) { gesture in
                             gestureRow(gesture)
                         }

@@ -503,6 +503,9 @@ class HeadMotionManager: ObservableObject {
     private let headGestureMinVelocityNod: Double = 0.55
     private let headGestureMinVelocityShake: Double = 0.45
     private let headGestureCrossAxisLimitRatio: Double = 0.85
+    private let headGestureMinPathDistance: Double = 0.12
+    private let headGestureActivationDistance: Double = 0.12
+    private let headGestureOverlayDistance: Double = 0.08
     // Restore head gesture sensitivity closer to the earlier tuning.
     private let headGestureSensitivityScale: Double = 0.8
     private var headGestureNodThreshold: Double { 0.11 * headGestureSensitivityScale }
@@ -1561,7 +1564,7 @@ class HeadMotionManager: ObservableObject {
 
         if activeGestureCandidate == nil {
             let seedSamples = candidateSeedSamples(from: recentHeadGestureSamples, now: now)
-            guard gestureActivationDistance(from: seedSamples) >= 0.12 else { return }
+            guard gestureActivationDistance(from: seedSamples) >= headGestureActivationDistance else { return }
             activeGestureCandidate = ActiveGestureCandidate(
                 samples: seedSamples,
                 startedAt: seedSamples.first?.at ?? now,
@@ -1597,7 +1600,7 @@ class HeadMotionManager: ObservableObject {
             playHeadGestureTurnCueSound()
         }
 
-        let liveOverlayThreshold = candidate.samples.count >= 4 && duration >= 0.06 && liveOverlayDistance(for: candidate.samples) >= 0.08
+        let liveOverlayThreshold = candidate.samples.count >= 4 && duration >= 0.06 && liveOverlayDistance(for: candidate.samples) >= headGestureOverlayDistance
         if candidate.didPlayStartSound, liveOverlayThreshold {
             let status: String
             if let tentativeMatch = bestGestureMatch(for: candidate.samples),
@@ -1634,7 +1637,7 @@ class HeadMotionManager: ObservableObject {
         let summary = summarizeGesture(samples: candidate.samples)
         let candidateDistance = gestureActivationDistance(from: candidate.samples)
         guard isMatchableGesture(summary) else {
-            guard candidateDistance >= 0.18 else {
+            guard candidateDistance >= headGestureMinPathDistance else {
                 headGestureOverlayController.hide(after: 0.10)
                 return
             }
@@ -1940,7 +1943,7 @@ class HeadMotionManager: ObservableObject {
         let smoothed = smoothedGesturePoints(simplified, radius: 2)
         let translated = smoothed.map { CGPoint(x: $0.x - smoothed[0].x, y: $0.y - smoothed[0].y) }
         let totalDistance = pathLength(translated)
-        guard totalDistance >= 0.09 else { return nil }
+        guard totalDistance >= headGestureMinPathDistance else { return nil }
         let resampled = resampleGesturePoints(translated, count: 18)
         let bounds = resampled.reduce(into: CGRect.null) { partialResult, point in
             let rect = CGRect(origin: point, size: .zero).insetBy(dx: -0.0001, dy: -0.0001)
@@ -1970,13 +1973,13 @@ class HeadMotionManager: ObservableObject {
     private func isRecordableGesture(_ summary: GestureTemplateSummary?) -> Bool {
         guard let summary else { return false }
         guard summary.duration <= 2.8 else { return false }
-        return summary.totalDistance >= 0.12
+        return summary.totalDistance >= headGestureMinPathDistance
     }
 
     private func isMatchableGesture(_ summary: GestureTemplateSummary?) -> Bool {
         guard let summary else { return false }
         guard summary.duration <= 2.8 else { return false }
-        return summary.totalDistance >= 0.12
+        return summary.totalDistance >= headGestureMinPathDistance
     }
 
     private func scoreGesture(_ candidate: GestureTemplateSummary, against template: GestureTemplateSummary) -> Double {
