@@ -182,6 +182,16 @@ final class AudioCaptureSession {
         return ringBuffer
     }
 
+    func currentBoundInputDeviceID() -> AudioDeviceID {
+        guard let engine = audioEngine else { return 0 }
+        return currentBoundInputSnapshot(for: engine).currentDeviceID
+    }
+
+    func currentBoundInputDeviceName() -> String {
+        guard let engine = audioEngine else { return "" }
+        return currentBoundInputSnapshot(for: engine).currentDeviceName
+    }
+
     // MARK: - Private
 
     private func downmixToMono(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer {
