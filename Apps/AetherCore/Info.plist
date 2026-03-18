@@ -2,11 +2,29 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>AetherAuthBaseURL</key>
+	<string>https://auth.aether.app</string>
+	<key>AetherBetaDownloadURL</key>
+	<string>https://aether.app/beta/Aether.dmg</string>
+	<key>AetherBetaFeedURL</key>
+	<string>https://aether.app/aether-beta/appcast.xml</string>
+	<key>AetherChangelogURL</key>
+	<string>https://aether.app/changelog</string>
+	<key>AetherDownloadPageURL</key>
+	<string>https://aether.app/download</string>
+	<key>AetherDownloadURL</key>
+	<string>https://aether.app/download/Aether.dmg</string>
+	<key>AetherStableFeedURL</key>
+	<string>https://aether.app/aether/appcast.xml</string>
+	<key>AetherWebsiteURL</key>
+	<string>https://aether.app</string>
 	<key>NSSupportsAutomaticTermination</key>
 	<false/>
 	<key>NSAppSleepDisabled</key>
 	<true/>
 	<key>NSAlwaysAllowMicrophoneModeControl</key>
 	<true/>
+	<key>SUPublicEDKey</key>
+	<string>REPLACE_WITH_AETHER_SPARKLE_PUBLIC_KEY</string>
 </dict>
 </plist>

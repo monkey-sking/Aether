@@ -633,7 +633,8 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "menu.toggle_voice_input" = "Voice Input";
 "menu.toggle_voice_control" = "Voice Control";
 "menu.toggle_pointer" = "Pointer Control";
+"main.panel.about" = "Acerca de";
+"main.section.app" = "App";
 
 "headset.hud.tracking_unavailable" = "Seguimiento de cabeza no disponible. Vuelva a conectar el auricular e inténtelo de nuevo.";
 "motion.error.tracking_unavailable" = "Seguimiento de cabeza no disponible. Vuelva a conectar el auricular e inténtelo de nuevo.";
-

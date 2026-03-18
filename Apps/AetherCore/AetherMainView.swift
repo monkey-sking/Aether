@@ -16,6 +16,7 @@ struct AetherMainView: View {
 
     enum Panel: Hashable {
         case overview
+        case about
         case voiceTerms
         case voiceLexicon
         case voiceAppControls
@@ -37,6 +38,14 @@ struct AetherMainView: View {
                     }
                 } header: {
                     SidebarSectionHeader(title: LocalizedStringKey("main.section.workspace"))
+                }
+
+                Section {
+                    NavigationLink(value: Panel.about) {
+                        panelLabel(.about)
+                    }
+                } header: {
+                    SidebarSectionHeader(title: LocalizedStringKey("main.section.app"))
                 }
 
                 Section {
@@ -72,6 +81,8 @@ struct AetherMainView: View {
             switch selection {
             case .overview:
                 OverviewDashboardView()
+            case .about:
+                AboutCenterView()
             case .voiceTerms:
                 OverviewDashboardView()
             case .voiceLexicon:
@@ -120,6 +131,8 @@ struct AetherMainView: View {
         switch panel {
         case .overview:
             return String(localized: "main.panel.overview")
+        case .about:
+            return String(localized: "main.panel.about")
         case .voiceTerms:
             return NSLocalizedString("settings.section.term_corrections.page_title", comment: "")
         case .voiceLexicon:
@@ -139,6 +152,8 @@ struct AetherMainView: View {
         switch panel {
         case .overview:
             return "square.grid.2x2.fill"
+        case .about:
+            return "info.circle"
         case .voiceTerms:
             return "text.magnifyingglass"
         case .voiceLexicon:
