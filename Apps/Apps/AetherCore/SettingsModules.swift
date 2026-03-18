@@ -1054,7 +1054,7 @@ private struct HeadGestureShortcutMappingCard: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(isChinese ? "头控热区规则" : "Head Zone Rules")
                             .font(.headline)
-                        Text(isChinese ? "用单方向热区触发动作。先进入屏幕中心，再朝目标区移动完成触发。" : "Bind single-direction hot zones. Enter the screen center, then move into a target zone to trigger.")
+                        Text(isChinese ? "用单方向热区触发动作。热区固定在当前实体显示器的边缘。" : "Bind single-direction hot zones. Zones are fixed to the active physical display edges.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -3101,7 +3101,7 @@ struct HeadGestureSettingsView: View {
     var body: some View {
         SettingsPage(
             title: isChinese ? "头控热区" : "Head Zones",
-            subtitle: isChinese ? "先停留在当前屏幕中心，再朝方向热区移动来触发动作。" : "Hold in the current screen center, then move into a directional hot zone to trigger actions."
+            subtitle: isChinese ? "方向热区固定在当前实体显示器的边缘，移入热区即可触发动作。" : "Directional hot zones are fixed to the active physical display edges. Move into a zone to trigger its action."
         ) {
             VStack(spacing: 20) {
                 GlassCard {
@@ -3111,7 +3111,7 @@ struct HeadGestureSettingsView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(isChinese ? "启用头控热区" : "Enable Head Zones")
                                 .font(.headline)
-                            Text(isChinese ? "光标进入当前屏幕中心并短暂停留后，会显示上下左右热区。" : "After the cursor enters the current screen center and dwells briefly, directional hot zones appear.")
+                            Text(isChinese ? "上下左右热区固定在当前实体显示器的边缘；移入热区即可触发。" : "Directional hot zones stay on the active physical display edges and trigger when the cursor enters them.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -3123,7 +3123,7 @@ struct HeadGestureSettingsView: View {
                             .labelsHidden()
                             .controlSize(.small)
                             .accessibilityLabel(Text(isChinese ? "启用头控热区" : "Enable Head Zones"))
-                            .accessibilityHint(Text(isChinese ? "启用基于中心驻留的热区触发" : "Enable center-dwell hot zone triggers"))
+                            .accessibilityHint(Text(isChinese ? "启用基于屏幕边缘的热区触发" : "Enable screen-edge hot zone triggers"))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

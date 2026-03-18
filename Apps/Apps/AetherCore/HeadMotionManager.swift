@@ -410,10 +410,8 @@ class HeadMotionManager: ObservableObject {
     private struct ActiveHotZoneSession {
         var source: HotZoneInputSource
         var screenFrame: NSRect
-        var centerCursorPoint: CGPoint
-        var enteredCenterAt: Date
-        var armedAt: Date?
         var hoveredDirection: HeadGestureDirection?
+        var hoveredEnteredAt: Date?
         var hoveredProgress: CGFloat = 0
     }
 
@@ -617,11 +615,10 @@ class HeadMotionManager: ObservableObject {
     private let headGestureMinPathDistance: Double = 0.12
     private let headGestureActivationDistance: Double = 0.12
     private let headGestureRecognitionStartDistanceFloor: Double = 0.05
-    private let hotZoneCenterRadius: CGFloat = 54
-    private let hotZoneTargetDistance: CGFloat = 138
+    private let hotZoneEdgeRevealDistance: CGFloat = 110
+    private let hotZoneTargetInset: CGFloat = 28
     private let hotZoneTargetRadius: CGFloat = 36
-    private let hotZoneCenterDwellDuration: TimeInterval = 0.22
-    private let hotZoneArmedTimeout: TimeInterval = 1.35
+    private let hotZoneTargetDwellDuration: TimeInterval = 0.12
     private let headGestureOverlayDistance: Double = 0.08
     private let trackingGestureIntentDistanceMultiplier: Double = 1.15
     private let trackingGestureIntentDominanceRatio: Double = 1.18
@@ -1896,6 +1893,29 @@ class HeadMotionManager: ObservableObject {
         return HeadGestureDirection.allCases.compactMap { summaries[$0] }
     }
 
+    private struct HotZoneTarget {
+        let direction: HeadGestureDirection
+        let label: String
+        let globalCenter: CGPoint
+    }
+
+    private func hotZoneTargets(in screenFrame: NSRect, branches: [GestureBranchSummary]) -> [HotZoneTarget] {
+        branches.map { branch in
+            let center: CGPoint
+            switch branch.direction {
+            case .up:
+                center = CGPoint(x: screenFrame.midX, y: screenFrame.maxY - hotZoneTargetInset)
+            case .down:
+                center = CGPoint(x: screenFrame.midX, y: screenFrame.minY + hotZoneTargetInset)
+            case .left:
+                center = CGPoint(x: screenFrame.minX + hotZoneTargetInset, y: screenFrame.midY)
+            case .right:
+                center = CGPoint(x: screenFrame.maxX - hotZoneTargetInset, y: screenFrame.midY)
+            }
+            return HotZoneTarget(direction: branch.direction, label: branch.label, globalCenter: center)
+        }
+    }
+
     @MainActor
     private func trackHotZoneRecognition(now: Date, cursorLocation: CGPoint?, source: HotZoneInputSource) {
         guard !isHeadGestureRecording else { return }
@@ -1934,12 +1954,16 @@ class HeadMotionManager: ObservableObject {
         }
 
         let screenFrame = activeTrackingScreenFrame(for: cursorLocation)
-        let center = CGPoint(x: screenFrame.midX, y: screenFrame.midY)
-        let distanceToCenter = hypot(cursorLocation.x - center.x, cursorLocation.y - center.y)
-        let insideCenter = distanceToCenter <= hotZoneCenterRadius
+        let distanceToNearestEdge = min(
+            abs(cursorLocation.x - screenFrame.minX),
+            abs(cursorLocation.x - screenFrame.maxX),
+            abs(cursorLocation.y - screenFrame.minY),
+            abs(cursorLocation.y - screenFrame.maxY)
+        )
+        let shouldReveal = distanceToNearestEdge <= hotZoneEdgeRevealDistance
 
         if activeHotZoneSession == nil || activeHotZoneSession?.source != source || activeHotZoneSession?.screenFrame != screenFrame {
-            guard insideCenter else {
+            guard shouldReveal else {
                 if activeHotZoneSession?.source == source {
                     resetHeadGestureRecognition()
                 }
@@ -1948,90 +1972,71 @@ class HeadMotionManager: ObservableObject {
             activeHotZoneSession = ActiveHotZoneSession(
                 source: source,
                 screenFrame: screenFrame,
-                centerCursorPoint: center,
-                enteredCenterAt: now,
-                armedAt: nil,
                 hoveredDirection: nil,
+                hoveredEnteredAt: nil,
                 hoveredProgress: 0
             )
         }
 
         guard var session = activeHotZoneSession else { return }
         session.screenFrame = screenFrame
-        session.centerCursorPoint = center
-
-        if session.armedAt == nil {
-            guard insideCenter else {
-                resetHeadGestureRecognition()
-                return
-            }
-            let dwellProgress = min(max(now.timeIntervalSince(session.enteredCenterAt) / hotZoneCenterDwellDuration, 0), 1)
-            if dwellProgress >= 1 {
-                session.armedAt = now
-            }
-            activeHotZoneSession = session
-            showHotZoneGuide(
-                centerCursorLocation: center,
-                branches: session.armedAt == nil ? [] : branches,
-                hoveredDirection: nil,
-                branchProgressByDirection: [:],
-                status: AppLocalization.isChinese
-                    ? (session.armedAt == nil ? "中心停留 \(Int(dwellProgress * 100))%" : "选择方向")
-                    : (session.armedAt == nil ? "Hold center \(Int(dwellProgress * 100))%" : "Choose a direction")
-            )
-            return
-        }
-
-        if now.timeIntervalSince(session.armedAt ?? now) > hotZoneArmedTimeout {
+        guard shouldReveal else {
             resetHeadGestureRecognition()
             return
         }
 
+        let targets = hotZoneTargets(in: screenFrame, branches: branches)
         if let guidedState = hotZoneGuidedState(
             from: cursorLocation,
-            center: center,
-            branches: branches
+            targets: targets
         ) {
+            if session.hoveredDirection != guidedState.direction {
+                session.hoveredEnteredAt = now
+            }
             session.hoveredDirection = guidedState.direction
             session.hoveredProgress = guidedState.progress
+            let dwellProgress = session.hoveredEnteredAt.map {
+                min(max(now.timeIntervalSince($0) / hotZoneTargetDwellDuration, 0), 1)
+            } ?? 0
             if guidedState.reachedTarget,
+               dwellProgress >= 1,
                let gesture = gestures.first(where: { recordedHotZoneDirection(for: $0) == guidedState.direction }) {
                 let sample = HeadGestureSample(at: now, yaw: 0, pitch: 0, cursorLocation: cursorLocation)
                 lastHeadGestureTriggerAt = now
                 activeHotZoneSession = nil
-                fireMatchedHeadGesture(GestureMatch(gesture: gesture, score: 1.0), duration: now.timeIntervalSince(session.enteredCenterAt), samples: [sample])
+                fireMatchedHeadGesture(GestureMatch(gesture: gesture, score: 1.0), duration: hotZoneTargetDwellDuration, samples: [sample])
                 return
             }
         } else {
             session.hoveredDirection = nil
+            session.hoveredEnteredAt = nil
             session.hoveredProgress = 0
         }
 
         activeHotZoneSession = session
         showHotZoneGuide(
-            centerCursorLocation: center,
-            branches: branches,
+            screenFrame: screenFrame,
+            targets: targets,
             hoveredDirection: session.hoveredDirection,
             branchProgressByDirection: session.hoveredDirection.map { [$0: session.hoveredProgress] } ?? [:],
-            status: AppLocalization.isChinese ? "选择方向" : "Choose a direction"
+            status: ""
         )
     }
 
     private func showHotZoneGuide(
-        centerCursorLocation: CGPoint,
-        branches: [GestureBranchSummary],
+        screenFrame: NSRect,
+        targets: [HotZoneTarget],
         hoveredDirection: HeadGestureDirection?,
         branchProgressByDirection: [HeadGestureDirection: CGFloat],
         status: String
     ) {
-        guard let guide = overlayGuideLayout(
-            prefix: [],
-            branches: branches,
-            guideAnchorCursorLocation: centerCursorLocation,
-            completedCursorPoints: [centerCursorLocation],
+        let guide = edgeHotZoneGuideLayout(
+            screenFrame: screenFrame,
+            targets: targets,
             highlightedDirection: hoveredDirection,
             branchProgressByDirection: branchProgressByDirection
-        ) else {
+        )
+        guard !guide.branches.isEmpty else {
             headGestureOverlayController.hide(after: 0.05)
             return
         }
@@ -2039,7 +2044,7 @@ class HeadMotionManager: ObservableObject {
             completed: guide.completed,
             branches: guide.branches,
             status: status,
-            cursorLocation: centerCursorLocation
+            cursorLocation: CGPoint(x: screenFrame.midX, y: screenFrame.midY)
         )
     }
 
@@ -2051,34 +2056,20 @@ class HeadMotionManager: ObservableObject {
 
     private func hotZoneGuidedState(
         from cursorLocation: CGPoint,
-        center: CGPoint,
-        branches: [GestureBranchSummary]
+        targets: [HotZoneTarget]
     ) -> HotZoneGuidedState? {
-        let deltaX = cursorLocation.x - center.x
-        let deltaY = cursorLocation.y - center.y
-        let candidateLength = hypot(deltaX, deltaY)
-        guard candidateLength >= 10 else { return nil }
-
         var bestState: HotZoneGuidedState?
         var bestScore: CGFloat = -.greatestFiniteMagnitude
 
-        for branch in branches {
-            let vector = screenVector(for: branch.direction, length: hotZoneTargetDistance)
-            let directionLength = hypot(vector.dx, vector.dy)
-            guard directionLength > 0 else { continue }
-
-            let projection = ((deltaX * vector.dx) + (deltaY * vector.dy)) / directionLength
-            let orthogonal = abs((deltaX * vector.dy) - (deltaY * vector.dx)) / directionLength
-            let radialDistance = hypot(deltaX - vector.dx, deltaY - vector.dy)
-            let progress = min(max(projection / hotZoneTargetDistance, 0), 1)
+        for target in targets {
+            let radialDistance = hypot(cursorLocation.x - target.globalCenter.x, cursorLocation.y - target.globalCenter.y)
+            let progress = min(max(1 - (radialDistance / hotZoneEdgeRevealDistance), 0), 1)
             let reachedTarget = radialDistance <= hotZoneTargetRadius
             guard progress > 0 || reachedTarget else { continue }
-            guard orthogonal <= 52 || reachedTarget else { continue }
-
-            let score = (progress * 140) - orthogonal - (radialDistance * 0.08) + (reachedTarget ? 40 : 0)
+            let score = (progress * 140) - (radialDistance * 0.12) + (reachedTarget ? 40 : 0)
             if score > bestScore {
                 bestScore = score
-                bestState = HotZoneGuidedState(direction: branch.direction, progress: progress, reachedTarget: reachedTarget)
+                bestState = HotZoneGuidedState(direction: target.direction, progress: progress, reachedTarget: reachedTarget)
             }
         }
 
@@ -3223,10 +3214,46 @@ class HeadMotionManager: ObservableObject {
                 progress: min(max(branchProgressByDirection[branch.direction] ?? 0, 0), 1),
                 targetRadius: branch.direction == highlightedDirection ? 28 : 24,
                 labelOffsetX: labelOffset.x,
-                labelOffsetY: labelOffset.y
+                labelOffsetY: labelOffset.y,
+                showsConnector: true
             )
         }
         return (completed, overlayBranches)
+    }
+
+    private func edgeHotZoneGuideLayout(
+        screenFrame: NSRect,
+        targets: [HotZoneTarget],
+        highlightedDirection: HeadGestureDirection?,
+        branchProgressByDirection: [HeadGestureDirection: CGFloat]
+    ) -> (completed: [HeadGestureOverlayPoint], branches: [HeadGestureOverlayBranch]) {
+        let overlayBranches = targets.map { target in
+            let localPoint = HeadGestureOverlayPoint(
+                x: target.globalCenter.x - screenFrame.minX,
+                y: screenFrame.height - (target.globalCenter.y - screenFrame.minY)
+            )
+            let labelOffset: CGPoint = switch target.direction {
+            case .up:
+                CGPoint(x: 0, y: 28)
+            case .down:
+                CGPoint(x: 0, y: -28)
+            case .left:
+                CGPoint(x: 68, y: 0)
+            case .right:
+                CGPoint(x: -68, y: 0)
+            }
+            return HeadGestureOverlayBranch(
+                points: [localPoint, localPoint],
+                label: target.label,
+                highlighted: target.direction == highlightedDirection,
+                progress: min(max(branchProgressByDirection[target.direction] ?? 0, 0), 1),
+                targetRadius: target.direction == highlightedDirection ? hotZoneTargetRadius + 4 : hotZoneTargetRadius,
+                labelOffsetX: labelOffset.x,
+                labelOffsetY: labelOffset.y,
+                showsConnector: false
+            )
+        }
+        return ([], overlayBranches)
     }
 
     private struct GuidedBranchState {
@@ -5154,6 +5181,7 @@ private struct HeadGestureOverlayBranch: Equatable {
     let targetRadius: CGFloat
     let labelOffsetX: CGFloat
     let labelOffsetY: CGFloat
+    let showsConnector: Bool
 }
 
 private enum HeadGestureOverlayEmphasis {
@@ -5388,50 +5416,52 @@ private struct HeadGestureSequenceGuideView: View {
                             y: start.y + ((end.y - start.y) * branch.progress)
                         )
 
-                        Path { path in
-                            path.move(to: start)
-                            for point in branch.points.dropFirst() {
-                                path.addLine(to: map(point, in: proxy.size))
-                            }
-                        }
-                        .stroke(
-                            Color.black.opacity(0.68),
-                            style: StrokeStyle(lineWidth: branch.highlighted ? 14 : 12, lineCap: .round, lineJoin: .round, dash: [14, 10])
-                        )
-
-                        Path { path in
-                            path.move(to: start)
-                            for point in branch.points.dropFirst() {
-                                path.addLine(to: map(point, in: proxy.size))
-                            }
-                        }
-                        .stroke(
-                            branch.highlighted
-                                ? Color.cyan.opacity(0.98)
-                                : Color.white.opacity(0.92),
-                            style: StrokeStyle(lineWidth: branch.highlighted ? 10 : 8, lineCap: .round, lineJoin: .round, dash: [14, 10])
-                        )
-
-                        if branch.progress > 0.02 {
+                        if branch.showsConnector {
                             Path { path in
                                 path.move(to: start)
-                                path.addLine(to: progressEnd)
+                                for point in branch.points.dropFirst() {
+                                    path.addLine(to: map(point, in: proxy.size))
+                                }
                             }
                             .stroke(
-                                Color.black.opacity(0.72),
-                                style: StrokeStyle(lineWidth: branch.highlighted ? 12 : 10, lineCap: .round, lineJoin: .round)
+                                Color.black.opacity(0.68),
+                                style: StrokeStyle(lineWidth: branch.highlighted ? 14 : 12, lineCap: .round, lineJoin: .round, dash: [14, 10])
                             )
 
                             Path { path in
                                 path.move(to: start)
-                                path.addLine(to: progressEnd)
+                                for point in branch.points.dropFirst() {
+                                    path.addLine(to: map(point, in: proxy.size))
+                                }
                             }
                             .stroke(
                                 branch.highlighted
-                                    ? LinearGradient(colors: [Color.white.opacity(0.98), Color.cyan.opacity(0.94)], startPoint: .leading, endPoint: .trailing)
-                                    : LinearGradient(colors: [Color.white.opacity(0.94), Color.green.opacity(0.86)], startPoint: .leading, endPoint: .trailing),
-                                style: StrokeStyle(lineWidth: branch.highlighted ? 8 : 6, lineCap: .round, lineJoin: .round)
+                                    ? Color.cyan.opacity(0.98)
+                                    : Color.white.opacity(0.92),
+                                style: StrokeStyle(lineWidth: branch.highlighted ? 10 : 8, lineCap: .round, lineJoin: .round, dash: [14, 10])
                             )
+
+                            if branch.progress > 0.02 {
+                                Path { path in
+                                    path.move(to: start)
+                                    path.addLine(to: progressEnd)
+                                }
+                                .stroke(
+                                    Color.black.opacity(0.72),
+                                    style: StrokeStyle(lineWidth: branch.highlighted ? 12 : 10, lineCap: .round, lineJoin: .round)
+                                )
+
+                                Path { path in
+                                    path.move(to: start)
+                                    path.addLine(to: progressEnd)
+                                }
+                                .stroke(
+                                    branch.highlighted
+                                        ? LinearGradient(colors: [Color.white.opacity(0.98), Color.cyan.opacity(0.94)], startPoint: .leading, endPoint: .trailing)
+                                        : LinearGradient(colors: [Color.white.opacity(0.94), Color.green.opacity(0.86)], startPoint: .leading, endPoint: .trailing),
+                                    style: StrokeStyle(lineWidth: branch.highlighted ? 8 : 6, lineCap: .round, lineJoin: .round)
+                                )
+                            }
                         }
 
                         Circle()
