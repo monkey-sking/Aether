@@ -225,6 +225,23 @@ private struct OverviewDashboardView: View {
         )
     }
 
+    private var mouseIdlePauseMinutesBinding: Binding<String> {
+        Binding(
+            get: { String(headManager.mouseIdlePauseMinutes) },
+            set: { newValue in
+                guard let minutes = Int(newValue) else { return }
+                headManager.mouseIdlePauseMinutes = minutes
+            }
+        )
+    }
+
+    private var mouseIdlePauseOptions: [DashboardFixedPopUpOption] {
+        stride(from: 15, through: 60, by: 5).map { minutes in
+            let title = isChinese ? "\(minutes) 分钟" : "\(minutes) min"
+            return DashboardFixedPopUpOption(id: String(minutes), title: title)
+        }
+    }
+
     private var setupItems: [OverviewSetupItem] {
         [
             OverviewSetupItem(
@@ -299,6 +316,36 @@ private struct OverviewDashboardView: View {
                 canCollapse: readinessCanCollapse,
                 onToggle: { readinessExpanded.toggle() }
             )
+
+            Text(isChinese ? "全局行为" : "Global Behavior")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.secondary)
+
+            GlassCard {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(isChinese ? "鼠标静止后暂停整个 App" : "Pause App After Mouse Idle")
+                            .font(AetherUI.bodyFont)
+                        Text(isChinese ? "暂停头控、语音与快捷键，鼠标移动后恢复。" : "Pauses head tracking, voice, and shortcuts; resumes on movement.")
+                            .font(AetherUI.captionFont)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .allowsTightening(true)
+                            .minimumScaleFactor(0.88)
+                    }
+                    .layoutPriority(1)
+                    Spacer()
+                    DashboardFixedWidthPopUpMenu(
+                        options: mouseIdlePauseOptions,
+                        selection: mouseIdlePauseMinutesBinding
+                    )
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+                .cornerRadius(12)
+            }
 
             Text(isChinese ? "核心功能" : "Core Features")
                 .font(.subheadline.weight(.semibold))
@@ -572,27 +619,6 @@ private struct PointerControlTile: View {
     @Binding var autoStartOnConnect: Bool
     @Binding var showPostureGuide: Bool
 
-    private var isChinese: Bool {
-        AppLocalization.isChinese
-    }
-
-    private var mouseIdlePauseMinutesBinding: Binding<String> {
-        Binding(
-            get: { String(headManager.mouseIdlePauseMinutes) },
-            set: { newValue in
-                guard let minutes = Int(newValue) else { return }
-                headManager.mouseIdlePauseMinutes = minutes
-            }
-        )
-    }
-
-    private var mouseIdlePauseOptions: [DashboardFixedPopUpOption] {
-        stride(from: 15, through: 60, by: 5).map { minutes in
-            let title = isChinese ? "\(minutes) 分钟" : "\(minutes) min"
-            return DashboardFixedPopUpOption(id: String(minutes), title: title)
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 16) {
@@ -622,30 +648,6 @@ private struct PointerControlTile: View {
                 )
                 .disabled(!autoStartOnConnect)
                 .opacity(autoStartOnConnect ? 1 : 0.55)
-
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(isChinese ? "鼠标静止后暂停整个 App" : "Pause App After Mouse Idle")
-                            .font(AetherUI.bodyFont)
-                        Text(isChinese ? "暂停头控、语音与快捷键，鼠标移动后恢复。" : "Pauses head tracking, voice, and shortcuts; resumes on movement.")
-                            .font(AetherUI.captionFont)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .allowsTightening(true)
-                            .minimumScaleFactor(0.88)
-                    }
-                    .layoutPriority(1)
-                    Spacer()
-                    DashboardFixedWidthPopUpMenu(
-                        options: mouseIdlePauseOptions,
-                        selection: mouseIdlePauseMinutesBinding
-                    )
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 11)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-                .cornerRadius(12)
             }
 
             if !headManager.attitudeText.isEmpty {
