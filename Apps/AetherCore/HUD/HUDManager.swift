@@ -480,6 +480,7 @@ final class HUDManager {
             // Ensure transient indicators don't linger when the HUD is dismissed.
             state.isMicProgressVisible = false
             state.micProgress = 0.0
+            state.updateGestureTrail(points: [], status: "", visible: false)
             hideLanguageIndicator()
         }
         
@@ -510,6 +511,20 @@ final class HUDManager {
         let clamped = min(max(progress, 0.0), 1.0)
         state.micProgress = clamped
         state.isMicProgressVisible = visible
+    }
+
+    func updateHeadGestureTrail(
+        points: [HUDState.GestureTrailPoint],
+        status: String,
+        visible: Bool
+    ) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async {
+                self.updateHeadGestureTrail(points: points, status: status, visible: visible)
+            }
+            return
+        }
+        state.updateGestureTrail(points: points, status: status, visible: visible)
     }
     
     func updateAudioLevel(_ level: Float) {
