@@ -1072,7 +1072,7 @@ private struct HeadGestureShortcutMappingCard: View {
                     Divider()
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(isChinese ? "点头和摇头" : "Nod and Shake")
+                        Text(isChinese ? "头部动作（点头/摇头）" : "Head Gestures (Nod/Shake)")
                             .font(.subheadline.weight(.semibold))
                         Text(isChinese ? "保留点头和摇头作为独立触发，不和边缘热区混在一起。" : "Keep nod and shake as separate triggers, independent from edge zones.")
                             .font(.caption)
@@ -1090,56 +1090,17 @@ private struct HeadGestureShortcutMappingCard: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text(isChinese ? "热区历史" : "Hot Zone History")
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Button(isChinese ? "复制调试数据请求" : "Copy Debug Request") {
-                            do {
-                                try motionManager.copyHeadGestureDebugData()
-                                HUDManager.shared.showTemporary(
-                                    message: isChinese ? "已复制调试请求和数据" : "Debug request and data copied",
-                                    icon: "doc.on.doc"
-                                )
-                            } catch {
-                                HUDManager.shared.showTemporary(
-                                    message: error.localizedDescription,
-                                    icon: "xmark.circle.fill"
-                                )
-                            }
-                        }
-                        .controlSize(.small)
-                        .buttonStyle(.borderless)
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.secondary)
-
-                        Button(isChinese ? "导出调试数据" : "Export Debug Data") {
-                            do {
-                                if let _ = try motionManager.exportHeadGestureDebugData() {
-                                    HUDManager.shared.showTemporary(
-                                        message: isChinese ? "已导出头部动作调试数据" : "Head gesture debug data exported",
-                                        icon: "square.and.arrow.up"
-                                    )
-                                }
-                            } catch {
-                                HUDManager.shared.showTemporary(
-                                    message: error.localizedDescription,
-                                    icon: "xmark.circle.fill"
-                                )
-                            }
-                        }
-                        .controlSize(.small)
-                        .buttonStyle(.borderless)
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.secondary)
-
-                        if !motionManager.headGestureHistory.isEmpty {
-                            Button(isChinese ? "复制全部" : "Copy All") {
+                DisclosureGroup(isChinese ? "高级与调试" : "Advanced & Diagnostics") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text(isChinese ? "热区历史" : "Hot Zone History")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Button(isChinese ? "复制调试数据请求" : "Copy Debug Request") {
                                 do {
-                                    try motionManager.copyHeadGestureHistory()
+                                    try motionManager.copyHeadGestureDebugData()
                                     HUDManager.shared.showTemporary(
-                                        message: isChinese ? "已复制头部动作历史" : "Head gesture history copied",
+                                        message: isChinese ? "已复制调试请求和数据" : "Debug request and data copied",
                                         icon: "doc.on.doc"
                                     )
                                 } catch {
@@ -1153,29 +1114,70 @@ private struct HeadGestureShortcutMappingCard: View {
                             .buttonStyle(.borderless)
                             .font(.caption.weight(.semibold))
                             .foregroundColor(.secondary)
-                        }
 
-                        Button(isChinese ? "清空记录" : "Clear History") {
-                            motionManager.clearHeadGestureHistory()
-                        }
-                        .controlSize(.small)
-                        .buttonStyle(.borderless)
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.secondary)
-                    }
-
-                    if motionManager.headGestureHistory.isEmpty {
-                        Text(
-                            isChinese
-                                ? "还没有热区触发历史。调试数据入口始终可用；识别成功和未匹配都会写入调试数据。"
-                                : "No hot zone history yet. Debug export stays available; successful matches and misses are written to debug data."
-                        )
-                            .font(.caption)
+                            Button(isChinese ? "导出调试数据" : "Export Debug Data") {
+                                do {
+                                    if let _ = try motionManager.exportHeadGestureDebugData() {
+                                        HUDManager.shared.showTemporary(
+                                            message: isChinese ? "已导出头部动作调试数据" : "Head gesture debug data exported",
+                                            icon: "square.and.arrow.up"
+                                        )
+                                    }
+                                } catch {
+                                    HUDManager.shared.showTemporary(
+                                        message: error.localizedDescription,
+                                        icon: "xmark.circle.fill"
+                                    )
+                                }
+                            }
+                            .controlSize(.small)
+                            .buttonStyle(.borderless)
+                            .font(.caption.weight(.semibold))
                             .foregroundColor(.secondary)
-                            .padding(.vertical, 4)
-                    } else {
-                        ForEach(Array(motionManager.headGestureHistory.prefix(10))) { entry in
-                            historyRow(entry)
+
+                            if !motionManager.headGestureHistory.isEmpty {
+                                Button(isChinese ? "复制全部" : "Copy All") {
+                                    do {
+                                        try motionManager.copyHeadGestureHistory()
+                                        HUDManager.shared.showTemporary(
+                                            message: isChinese ? "已复制头部动作历史" : "Head gesture history copied",
+                                            icon: "doc.on.doc"
+                                        )
+                                    } catch {
+                                        HUDManager.shared.showTemporary(
+                                            message: error.localizedDescription,
+                                            icon: "xmark.circle.fill"
+                                        )
+                                    }
+                                }
+                                .controlSize(.small)
+                                .buttonStyle(.borderless)
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.secondary)
+                            }
+
+                            Button(isChinese ? "清空记录" : "Clear History") {
+                                motionManager.clearHeadGestureHistory()
+                            }
+                            .controlSize(.small)
+                            .buttonStyle(.borderless)
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        }
+
+                        if motionManager.headGestureHistory.isEmpty {
+                            Text(
+                                isChinese
+                                    ? "还没有热区触发历史。调试数据入口始终可用；识别成功和未匹配都会写入调试数据。"
+                                    : "No hot zone history yet. Debug export stays available; successful matches and misses are written to debug data."
+                            )
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.vertical, 4)
+                        } else {
+                            ForEach(Array(motionManager.headGestureHistory.prefix(10))) { entry in
+                                historyRow(entry)
+                            }
                         }
                     }
                 }
@@ -3075,17 +3077,17 @@ struct HeadGestureSettingsView: View {
 
     var body: some View {
         SettingsPage(
-            title: isChinese ? "头控热区" : "Head Zones",
-            subtitle: isChinese ? "方向热区固定在当前实体显示器的边缘，移入热区即可触发动作。" : "Directional hot zones are fixed to the active physical display edges. Move into a zone to trigger its action."
+            title: isChinese ? "头控触发" : "Head Triggers",
+            subtitle: isChinese ? "热区与点头/摇头等触发方式可在此统一配置。" : "Configure head-triggered actions here, including hot zones and nod/shake."
         ) {
-            VStack(spacing: 20) {
+            VStack(spacing: 16) {
                 GlassCard {
-                    HStack(alignment: .top, spacing: 12) {
+                    HStack(alignment: .top, spacing: 10) {
                         TransparencyModeIcon(size: 22, color: .secondary)
 
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 4) {
                             Text(isChinese ? "启用头控热区" : "Enable Head Zones")
-                                .font(.headline)
+                                .font(.subheadline.weight(.semibold))
                             Text(isChinese ? "上下左右热区固定在当前实体显示器的边缘；移入热区即可触发。" : "Directional hot zones stay on the active physical display edges and trigger when the cursor enters them.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
@@ -3104,35 +3106,44 @@ struct HeadGestureSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(isChinese ? "触发来源" : "Trigger Sources")
-                            .font(.headline)
-
-                        Toggle(isChinese ? "允许头控触发" : "Allow Head Tracking", isOn: hotZoneHeadInputBinding)
-                            .toggleStyle(.switch)
-
-                        Toggle(isChinese ? "允许鼠标触发" : "Allow Mouse", isOn: hotZoneMouseInputBinding)
-                            .toggleStyle(.switch)
-
-                        Text(isChinese ? "头控开启时可以用头控光标触发；未开启头控时也可以直接用普通鼠标触发。" : "When head tracking is active, the head-controlled cursor can trigger zones. When head tracking is off, a normal mouse can trigger them too.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(isChinese ? "触发来源" : "Trigger Sources")
+                                    .font(.subheadline.weight(.semibold))
+                                Text(isChinese ? "头控开启时可以用头控光标触发；未开启头控时也可以直接用普通鼠标触发。" : "When head tracking is active, the head-controlled cursor can trigger zones. When head tracking is off, a normal mouse can trigger them too.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 12)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Toggle(isChinese ? "允许头控触发" : "Allow Head Tracking", isOn: hotZoneHeadInputBinding)
+                                    .toggleStyle(.switch)
+                                Toggle(isChinese ? "允许鼠标触发" : "Allow Mouse", isOn: hotZoneMouseInputBinding)
+                                    .toggleStyle(.switch)
+                            }
+                            .controlSize(.small)
+                        }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(!headManager.headGestureToggleEnabled)
+                .opacity(headManager.headGestureToggleEnabled ? 1.0 : 0.55)
 
                 GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text(isChinese ? "热区大小" : "Zone Size")
-                                .font(.headline)
+                                .font(.subheadline.weight(.semibold))
                             Spacer()
                             Text("\(Int(headManager.headHotZoneSizeScale * 100))%")
-                                .font(.caption.weight(.semibold))
+                                .font(.caption.weight(.semibold).monospacedDigit())
                                 .foregroundColor(.secondary)
                         }
 
                         Slider(value: hotZoneSizeBinding, in: 0.4...1.8, step: 0.05)
+                            .controlSize(.small)
 
                         Text(isChinese ? "调大后更容易进入热区，也会让显示区域更明显。" : "Larger zones are easier to enter and display more prominently.")
                             .font(.caption)
@@ -3140,19 +3151,23 @@ struct HeadGestureSettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(!headManager.headGestureToggleEnabled)
+                .opacity(headManager.headGestureToggleEnabled ? 1.0 : 0.55)
 
                 GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text(isChinese ? "热区触发时间" : "Zone Trigger Time")
-                                .font(.headline)
+                                .font(.subheadline.weight(.semibold))
                             Spacer()
                             Text(String(format: isChinese ? "%.0f 毫秒" : "%.0f ms", headManager.headHotZoneTriggerDuration * 1000))
-                                .font(.caption.weight(.semibold))
+                                .font(.caption.weight(.semibold).monospacedDigit())
                                 .foregroundColor(.secondary)
                         }
 
                         Slider(value: hotZoneTriggerDurationBinding, in: 0.08...1.2, step: 0.02)
+                            .controlSize(.small)
 
                         Text(isChinese ? "进入热区后停留这么久才触发。调大可以减少误触，调小会更快。" : "The cursor must stay in the zone for this long before triggering. Increase it to reduce false triggers, or decrease it for faster activation.")
                             .font(.caption)
@@ -3160,6 +3175,9 @@ struct HeadGestureSettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(!headManager.headGestureToggleEnabled)
+                .opacity(headManager.headGestureToggleEnabled ? 1.0 : 0.55)
 
                 HeadGestureShortcutMappingCard()
             }
