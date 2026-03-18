@@ -67,6 +67,14 @@ cd /Volumes/SSD/Projects/Aether
 SKIP_NOTARIZE=1 ./Scripts/ReleaseForUsers.sh
 ```
 
+## 5. 开发全自动流程（编译+安装+重启）
+
+如果你正在进行功能开发，需要频繁验证安装后的效果，可以使用此脚本。它会自动执行生产打包、关闭现有进程、覆盖 `/Applications/Aether.app` 并重新启动。
+
+```bash
+./Scripts/BuildAndInstall.sh
+```
+
 ## 5. 验签命令（发布后）
 
 ```bash

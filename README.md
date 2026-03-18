@@ -71,10 +71,13 @@ Apps/
 # 3. 安装到固定路径（推荐，避免 TCC 权限反复重置）
 ./Scripts/InstallToApplications.sh .build/release/Aether.app
 
-# 4. 面向普通用户发布（Developer ID 重签 + DMG + ZIP，可选公证）
-# 需要本机存在 Team 对应的 Developer ID Application 证书。
-# 公证可用 NOTARY_PROFILE，或先 SKIP_NOTARIZE=1 本地验证。
+# 4. For end-user distribution (Developer ID signing + DMG + ZIP)
 NOTARY_PROFILE=YourNotaryProfile ./Scripts/ReleaseForUsers.sh
+
+# 5. [NEW] One-click Build, Install, and Restart (Recommended for active dev)
+# This script builds the production DMG, closes any running Aether instances,
+# replaces /Applications/Aether.app, and relaunches the new version.
+./Scripts/BuildAndInstall.sh
 ```
 
 > 推荐：正式发布前按 [发布与公证指南](docs/RELEASE_DISTRIBUTION.md) 执行完整验签（`codesign` / `spctl` / `stapler`）。
