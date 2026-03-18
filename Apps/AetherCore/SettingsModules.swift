@@ -762,61 +762,65 @@ struct InputSettingsView: View {
 
                 if section == .appControls {
                     GlassCard {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Label(
-                                    NSLocalizedString("panels.shortcuts.current_app", comment: ""),
-                                    systemImage: "app.badge"
-                                )
-                                .font(.headline)
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Label(
+                                        NSLocalizedString("panels.shortcuts.current_app", comment: ""),
+                                        systemImage: "app.badge"
+                                    )
+                                    .font(.headline)
 
-                                Text(NSLocalizedString("panels.shortcuts.current_app.description", comment: ""))
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    Text(NSLocalizedString("panels.shortcuts.current_app.description", comment: ""))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Button(String(localized: "current_app_controls.open_panel")) {
+                                    appState.showShortcutPanel()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                                Button(String(localized: "generic.refresh")) {
+                                    _ = frontmostAppCommandCatalog.refresh(force: true)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
                             }
-                            Spacer()
+
                             if let snapshot = mergedFrontmostSnapshot {
                                 LanguageStatusTag(title: snapshot.appName, tint: .green)
                             }
-                            Button(String(localized: "current_app_controls.open_panel")) {
-                                appState.showShortcutPanel()
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            Button(String(localized: "generic.refresh")) {
-                                _ = frontmostAppCommandCatalog.refresh(force: true)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
 
-                        if !appState.accessibilityTrusted && (mergedFrontmostSnapshot?.commands.isEmpty ?? true) {
-                            Text(AppLocalization.isChinese
-                                 ? "需要先开启辅助功能权限，才能读取当前应用菜单和快捷键。"
-                                 : "Accessibility permission is required to read the current app's menu shortcuts.")
+                            if !appState.accessibilityTrusted && (mergedFrontmostSnapshot?.commands.isEmpty ?? true) {
+                                Text(AppLocalization.isChinese
+                                     ? "需要先开启辅助功能权限，才能读取当前应用菜单和快捷键。"
+                                     : "Accessibility permission is required to read the current app's menu shortcuts.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            } else if let snapshot = mergedFrontmostSnapshot, !snapshot.commands.isEmpty {
+                                Text(
+                                    AppLocalization.isChinese
+                                        ? "已准备 \(snapshot.commands.count) 条快捷键。下面仅展示来自当前应用的菜单项。"
+                                        : "Prepared \(snapshot.commands.count) shortcuts. The preview below shows menu items from the current app."
+                                )
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                        } else if let snapshot = mergedFrontmostSnapshot, !snapshot.commands.isEmpty {
-                            Text(
-                                AppLocalization.isChinese
-                                    ? "已准备 \(snapshot.commands.count) 条快捷键。除了读取到的菜单项，下面还会并入你手动补充的自定义 App 规则。"
-                                    : "Prepared \(snapshot.commands.count) shortcuts. The preview below includes menu shortcuts plus your custom app rules."
-                            )
-                            .font(.caption)
-                            .foregroundColor(.secondary)
 
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
-                                ForEach(visibleFrontmostCommands) { command in
-                                    FrontmostAppCommandCard(command: command)
+                                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
+                                    ForEach(visibleFrontmostCommands) { command in
+                                        FrontmostAppCommandCard(command: command)
+                                    }
                                 }
+                            } else {
+                                 Text(NSLocalizedString("panels.shortcuts.no_readable", comment: ""))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
-                        } else {
-                             Text(NSLocalizedString("panels.shortcuts.no_readable", comment: ""))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
                         }
+                    }
 
+                    GlassCard {
                         CustomAppShortcutRulesCard(
                             rules: $appState.customAppShortcutRules,
                             onCopy: {
@@ -870,7 +874,6 @@ struct InputSettingsView: View {
                             }
                         )
                     }
-                }
                 }
 
                 if section == .insights {
@@ -2082,6 +2085,10 @@ private struct VoiceUsageInsightsCard: View {
         AppLocalization.isChinese
     }
 
+    private let summaryColumns = [
+        GridItem(.adaptive(minimum: 140), spacing: 10, alignment: .leading)
+    ]
+
     private var recentEvents: [AppState.VoiceUsageEvent] {
         Array(appState.voiceUsageHistory.prefix(30))
     }
@@ -2108,6 +2115,8 @@ private struct VoiceUsageInsightsCard: View {
                     Spacer()
                     Toggle("", isOn: $appState.isVoiceUsageHistoryEnabled)
                         .labelsHidden()
+                        .controlSize(.small)
+                        .accessibilityLabel(Text(isChinese ? "启用语音统计" : "Enable usage history"))
                 }
 
                 HStack {
@@ -2147,7 +2156,9 @@ private struct VoiceUsageInsightsCard: View {
                     .foregroundColor(.secondary)
                 } else {
                     let summary = appState.voiceUsageSummary
-                    HStack(spacing: 10) {
+                    Text(isChinese ? "概览统计" : "Summary")
+                        .font(.subheadline.weight(.semibold))
+                    LazyVGrid(columns: summaryColumns, alignment: .leading, spacing: 10) {
                         VoiceUsageSummaryBadge(
                             title: isChinese ? "总计" : "Total",
                             value: "\(summary.total)"
@@ -2175,6 +2186,8 @@ private struct VoiceUsageInsightsCard: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     } else {
+                        Divider()
+
                         VStack(alignment: .leading, spacing: 8) {
                             Text(isChinese ? "按 App 统计" : "Per-App Summary")
                                 .font(.subheadline.weight(.semibold))
@@ -2192,42 +2205,43 @@ private struct VoiceUsageInsightsCard: View {
                                 Text(isChinese ? "最近记录" : "Recent Activity")
                                     .font(.subheadline.weight(.semibold))
                                 Spacer()
-                                Button(LocalizedStringKey("insights.copy_diagnostic_history")) {
-                                    do {
-                                        try appState.copyVoiceUsageHistoryForDiagnostics()
-                                        HUDManager.shared.showTemporary(
-                                            message: String(localized: "insights.copy_diagnostic_history_done"),
-                                            icon: "doc.on.doc"
-                                        )
-                                    } catch {
-                                        HUDManager.shared.showTemporary(
-                                            message: String(localized: "insights.copy_diagnostic_history_failed"),
-                                            icon: "xmark.circle.fill"
-                                        )
+                                Menu {
+                                    Button(LocalizedStringKey("insights.copy_diagnostic_history")) {
+                                        do {
+                                            try appState.copyVoiceUsageHistoryForDiagnostics()
+                                            HUDManager.shared.showTemporary(
+                                                message: String(localized: "insights.copy_diagnostic_history_done"),
+                                                icon: "doc.on.doc"
+                                            )
+                                        } catch {
+                                            HUDManager.shared.showTemporary(
+                                                message: String(localized: "insights.copy_diagnostic_history_failed"),
+                                                icon: "xmark.circle.fill"
+                                            )
+                                        }
                                     }
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                Button(LocalizedStringKey("insights.export_ai_prompt")) {
-                                    do {
-                                        try appState.exportAetherAIConfigPrompt()
-                                        HUDManager.shared.showTemporary(
-                                            message: String(localized: "insights.export_ai_prompt_done"),
-                                            icon: "doc.on.doc"
-                                        )
-                                    } catch {
-                                        HUDManager.shared.showTemporary(
-                                            message: String(localized: "insights.export_ai_prompt_failed"),
-                                            icon: "xmark.circle.fill"
-                                        )
+                                    Button(LocalizedStringKey("insights.export_ai_prompt")) {
+                                        do {
+                                            try appState.exportAetherAIConfigPrompt()
+                                            HUDManager.shared.showTemporary(
+                                                message: String(localized: "insights.export_ai_prompt_done"),
+                                                icon: "doc.on.doc"
+                                            )
+                                        } catch {
+                                            HUDManager.shared.showTemporary(
+                                                message: String(localized: "insights.export_ai_prompt_failed"),
+                                                icon: "xmark.circle.fill"
+                                            )
+                                        }
                                     }
+                                    Divider()
+                                    Button(isChinese ? "清空记录" : "Clear History") {
+                                        appState.clearVoiceUsageHistory()
+                                    }
+                                } label: {
+                                    Label(isChinese ? "更多操作" : "More Actions", systemImage: "ellipsis.circle")
                                 }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                Button(isChinese ? "清空记录" : "Clear History") {
-                                    appState.clearVoiceUsageHistory()
-                                }
-                                .buttonStyle(.bordered)
+                                .menuStyle(.borderlessButton)
                                 .controlSize(.small)
                             }
 
