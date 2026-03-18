@@ -774,7 +774,7 @@ class HeadMotionManager: ObservableObject {
                 action: defaultHeadGestureAction(for: .nod),
                 enabled: true,
                 cooldown: 1.0,
-                minimumScore: 0.70,
+                minimumScore: 0.64,
                 recordedDuration: 0.58,
                 points: builtInGesturePoints(kind: .nod),
                 alternateSamples: [builtInGesturePoints(kind: .nod, variant: 1)]
@@ -785,7 +785,7 @@ class HeadMotionManager: ObservableObject {
                 action: defaultHeadGestureAction(for: .shake),
                 enabled: true,
                 cooldown: 1.0,
-                minimumScore: 0.70,
+                minimumScore: 0.64,
                 recordedDuration: 0.62,
                 points: builtInGesturePoints(kind: .shake),
                 alternateSamples: [builtInGesturePoints(kind: .shake, variant: 1)]
@@ -841,7 +841,7 @@ class HeadMotionManager: ObservableObject {
             action: .none,
             enabled: true,
             cooldown: 1.0,
-            minimumScore: 0.78,
+            minimumScore: 0.70,
             recordedDuration: 0.0,
             points: [],
             alternateSamples: nil
@@ -1604,7 +1604,7 @@ class HeadMotionManager: ObservableObject {
         if candidate.didPlayStartSound, liveOverlayThreshold {
             let status: String
             if let tentativeMatch = bestGestureMatch(for: candidate.samples),
-               tentativeMatch.score >= max(0.56, tentativeMatch.gesture.minimumScore - 0.18) {
+               tentativeMatch.score >= requiredScore(for: tentativeMatch.gesture, fallback: 0.56) {
                 status = AppLocalization.isChinese
                     ? "可能：\(tentativeMatch.gesture.action.label)"
                     : "Possible: \(tentativeMatch.gesture.action.label)"
@@ -1681,7 +1681,8 @@ class HeadMotionManager: ObservableObject {
             return GestureMatch(gesture: gesture, score: bestScore)
         }.sorted { $0.score > $1.score }
 
-        guard let best = matches.first, best.score >= best.gesture.minimumScore else {
+        guard let best = matches.first,
+              best.score >= requiredScore(for: best.gesture) else {
             appendHeadGestureDebugEntry(
                 mode: "recognition",
                 result: HeadGestureHistoryResult.noMatch.rawValue,
@@ -1989,12 +1990,17 @@ class HeadMotionManager: ObservableObject {
             let dy = pair.0.y - pair.1.y
             return partial + Double(hypot(dx, dy))
         } / Double(candidate.points.count)
-        let distanceScore = max(0.0, 1.0 - (pointDistance / 1.48))
+        let distanceScore = max(0.0, 1.0 - (pointDistance / 1.65))
         let durationRatio = template.duration > 0 ? abs(candidate.duration - template.duration) / max(template.duration, 0.1) : 0
-        let durationScore = max(0.0, 1.0 - min(durationRatio, 1.0))
+        let durationScore = max(0.0, 1.0 - min(durationRatio, 0.8))
         let complexityDelta = abs(candidate.turnCount - template.turnCount)
         let complexityScore = max(0.0, 1.0 - (Double(complexityDelta) / 4.0))
-        return (distanceScore * 0.78) + (durationScore * 0.12) + (complexityScore * 0.10)
+        return (distanceScore * 0.85) + (durationScore * 0.07) + (complexityScore * 0.08)
+    }
+
+    private func requiredScore(for gesture: RecordedHeadGesture, fallback: Double = 0.58) -> Double {
+        // Apply a small tolerance so stored thresholds don't make custom gestures too strict.
+        max(fallback, gesture.minimumScore - 0.08)
     }
 
     private func builtInGestureKind(for gesture: RecordedHeadGesture) -> HeadGestureKind? {
