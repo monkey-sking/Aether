@@ -29,6 +29,7 @@ class HeadMotionManager: ObservableObject {
     private static let headHotZoneHeadInputEnabledKey = "AetherHeadHotZoneHeadInputEnabled"
     private static let headHotZoneMouseInputEnabledKey = "AetherHeadHotZoneMouseInputEnabled"
     private static let headHotZoneSizeScaleKey = "AetherHeadHotZoneSizeScale"
+    private static let mouseIdlePauseMinutesKey = "AetherMouseIdlePauseMinutes"
     private static let headGestureNodActionKey = "AetherHeadGestureNodAction"
     private static let headGestureShakeActionKey = "AetherHeadGestureShakeAction"
     private static let recordedHeadGesturesStorageKey = "AetherRecordedHeadGesturesV1"
@@ -611,6 +612,16 @@ class HeadMotionManager: ObservableObject {
             UserDefaults.standard.set(clamped, forKey: HeadMotionManager.headHotZoneSizeScaleKey)
         }
     }
+
+    @Published var mouseIdlePauseMinutes: Int = {
+        let stored = UserDefaults.standard.object(forKey: HeadMotionManager.mouseIdlePauseMinutesKey) as? Int ?? 15
+        return min(max(stored, 15), 60)
+    }() {
+        didSet {
+            let clamped = min(max(mouseIdlePauseMinutes, 15), 60)
+            UserDefaults.standard.set(clamped, forKey: HeadMotionManager.mouseIdlePauseMinutesKey)
+        }
+    }
     
     // Experience Optimization Constants
     private let deadzone: Double = 0.005  // Ignore movements smaller than ~0.3 degrees
@@ -668,12 +679,16 @@ class HeadMotionManager: ObservableObject {
     private var activeGestureRecordingSession: ActiveGestureRecordingSession?
     private var pendingHeadGestureRecordingCountdownWorkItem: DispatchWorkItem?
     private lazy var headGestureOverlayController = HeadGestureOverlayController()
+    private var lastObservedMouseHotZoneCursorLocation: CGPoint?
+    private var lastMouseHotZoneMovementAt: Date = Date()
+    private var isMouseInteractionPausedForInactivity: Bool = false
 
     private var hotZoneRevealDistance: CGFloat { hotZoneBaseRevealDistance * CGFloat(headHotZoneSizeScale) }
     private var hotZoneTargetRadius: CGFloat { hotZoneBaseTargetRadius * CGFloat(headHotZoneSizeScale) }
     private var hotZoneTargetInset: CGFloat {
         max(hotZoneBaseTargetInset * CGFloat(headHotZoneSizeScale), hotZoneTargetRadius + 18)
     }
+    private var mouseInteractionIdlePauseAfter: TimeInterval { TimeInterval(mouseIdlePauseMinutes * 60) }
     
     // Temporary override, usually from AirPods squeeze during a PTT session.
     @Published var transientRecognitionControlMode: RecognitionControlMode? = nil
@@ -763,6 +778,7 @@ class HeadMotionManager: ObservableObject {
     private var headsetRouteObserver: NSObjectProtocol?
     private let headTrackingConnectionTimeout: TimeInterval = 8.0
     private var headTrackingConnectionGraceUsed = false
+    private let mouseInteractionResumeDistance: CGFloat = 3.0
 
     private var hasActiveHeadsetConnection: Bool {
         lastObservedHeadsetRouteConnected || lastObservedAirPodSide != .none
@@ -1888,6 +1904,9 @@ class HeadMotionManager: ObservableObject {
 
         let now = Date()
         let cursorLocation = currentSystemCursorLocation()
+        if updateMouseInteractionInactivityState(now: now, cursorLocation: cursorLocation) {
+            return
+        }
         recentHeadGestureSamples.append(HeadGestureSample(at: now, yaw: yaw, pitch: pitch, cursorLocation: cursorLocation))
         recentHeadGestureSamples.removeAll { now.timeIntervalSince($0.at) > headGestureWindow }
         let nodMetrics = axisMetrics(samples: recentHeadGestureSamples, keyPath: \.pitch, threshold: headGestureNodThreshold)
@@ -1918,6 +1937,10 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     private func pollMouseHotZoneRecognition() {
+        let cursorLocation = currentSystemCursorLocation()
+        if updateMouseInteractionInactivityState(now: Date(), cursorLocation: cursorLocation) {
+            return
+        }
         guard headGestureToggleEnabled else {
             if activeHotZoneSession?.source == .mouse {
                 resetHeadGestureRecognition()
@@ -1936,7 +1959,40 @@ class HeadMotionManager: ObservableObject {
             }
             return
         }
-        trackHotZoneRecognition(now: Date(), cursorLocation: currentSystemCursorLocation(), source: .mouse)
+        trackHotZoneRecognition(now: Date(), cursorLocation: cursorLocation, source: .mouse)
+    }
+
+    @MainActor
+    private func updateMouseInteractionInactivityState(now: Date, cursorLocation: CGPoint?) -> Bool {
+        guard let cursorLocation else {
+            if isMouseInteractionPausedForInactivity {
+                resetHeadGestureRecognition()
+            }
+            return isMouseInteractionPausedForInactivity
+        }
+
+        if let lastLocation = lastObservedMouseHotZoneCursorLocation {
+            let movedDistance = hypot(cursorLocation.x - lastLocation.x, cursorLocation.y - lastLocation.y)
+            if movedDistance >= mouseInteractionResumeDistance {
+                lastMouseHotZoneMovementAt = now
+                lastObservedMouseHotZoneCursorLocation = cursorLocation
+                if isMouseInteractionPausedForInactivity {
+                    isMouseInteractionPausedForInactivity = false
+                }
+                return false
+            }
+        } else {
+            lastObservedMouseHotZoneCursorLocation = cursorLocation
+            lastMouseHotZoneMovementAt = now
+            return false
+        }
+
+        let shouldPause = now.timeIntervalSince(lastMouseHotZoneMovementAt) >= mouseInteractionIdlePauseAfter
+        if shouldPause && !isMouseInteractionPausedForInactivity {
+            isMouseInteractionPausedForInactivity = true
+            resetHeadGestureRecognition()
+        }
+        return isMouseInteractionPausedForInactivity
     }
 
     private func eligibleHotZoneGesturesForRecognition() -> [RecordedHeadGesture] {

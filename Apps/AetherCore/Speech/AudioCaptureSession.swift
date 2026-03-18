@@ -8,12 +8,26 @@ import os
 /// No business logic — only audio capture, downmix, RMS, and ring buffer.
 @MainActor
 final class AudioCaptureSession {
+    enum VoiceProcessingProfile: String {
+        case passthrough
+        case dictation
+        case speechCommand
+
+        var shouldEnableVoiceProcessing: Bool {
+            self != .passthrough
+        }
+
+        var shouldEnableAGC: Bool {
+            self != .passthrough
+        }
+    }
 
     // MARK: - Config
     var selectedDeviceID: AudioDeviceID = 0
     var useVoiceProcessing: Bool = false
     var allowAutomaticHeadsetVoiceProcessing: Bool = true
     var preferSystemManagedHeadsetRoute: Bool = false
+    var voiceProcessingProfile: VoiceProcessingProfile = .passthrough
 
     // MARK: - Callbacks
     /// Called on the audio thread for every buffer. Feed this to RecognitionSession.append().
@@ -37,6 +51,7 @@ final class AudioCaptureSession {
     private var diagnosticsBufferCount: Int = 0
     private var runningSelectedDeviceID: AudioDeviceID = 0
     private var runningSystemManagedRoute: Bool = false
+    private var runningVoiceProcessingProfile: VoiceProcessingProfile = .passthrough
     private let log = GlobalLogger.speech
 
     private struct BoundInputSnapshot {
@@ -56,6 +71,7 @@ final class AudioCaptureSession {
             let configChanged =
                 runningSelectedDeviceID != selectedDeviceID
                 || runningSystemManagedRoute != preferSystemManagedHeadsetRoute
+                || runningVoiceProcessingProfile != voiceProcessingProfile
             if !configChanged {
                 GlobalLogger.speech.info(
                     "AudioCaptureSession start skipped alreadyRunning selectedID=\(selectedDeviceID) systemManagedRoute=\(preferSystemManagedHeadsetRoute)"
@@ -96,13 +112,18 @@ final class AudioCaptureSession {
         setInputDevice(for: engine, preferSystemManagedRoute: preferSystemManagedRoute)
 
         if #available(macOS 10.15, *) {
-            let enable = useVoiceProcessing || shouldAutoEnableVoiceProcessingIO()
+            let enable = useVoiceProcessing || voiceProcessingProfile.shouldEnableVoiceProcessing || shouldAutoEnableVoiceProcessingIO()
             if enable {
                 do {
                     try inputNode.setVoiceProcessingEnabled(true)
                     os_log("VoiceProcessingIO: on", log: log, type: .info)
                 } catch {
                     os_log("VoiceProcessingIO set failed: %{public}@", log: log, type: .error, error.localizedDescription)
+                }
+                do {
+                    try engine.outputNode.setVoiceProcessingEnabled(true)
+                } catch {
+                    os_log("VoiceProcessingIO output set failed: %{public}@", log: log, type: .error, error.localizedDescription)
                 }
             } else if allowAutomaticHeadsetVoiceProcessing && shouldEnableVoiceProcessingForHeadsetMicMode() {
                 os_log(
@@ -115,6 +136,7 @@ final class AudioCaptureSession {
                 // reset the user's current Mic Mode back to Standard in Control Center.
                 os_log("VoiceProcessingIO: preserve system/default", log: log, type: .info)
             }
+            applyVoiceProcessingConfiguration(to: inputNode, profile: voiceProcessingProfile, reason: "engine-start")
         }
 
         let fmt = inputNode.outputFormat(forBus: 0)
@@ -150,6 +172,7 @@ final class AudioCaptureSession {
         isRunning = true
         runningSelectedDeviceID = selectedDeviceID
         runningSystemManagedRoute = preferSystemManagedRoute
+        runningVoiceProcessingProfile = voiceProcessingProfile
         resetCaptureDiagnostics()
         logRouteSnapshot(context: "after-start")
         logMicrophoneMode(context: "after-start")
@@ -172,6 +195,7 @@ final class AudioCaptureSession {
         isRunning = false
         runningSelectedDeviceID = 0
         runningSystemManagedRoute = false
+        runningVoiceProcessingProfile = .passthrough
         logRouteSnapshot(context: "after-stop")
         logMicrophoneMode(context: "after-stop")
         os_log("AudioCaptureSession stopped.", log: log, type: .info)
@@ -190,6 +214,25 @@ final class AudioCaptureSession {
     func currentBoundInputDeviceName() -> String {
         guard let engine = audioEngine else { return "" }
         return currentBoundInputSnapshot(for: engine).currentDeviceName
+    }
+
+    func currentDefaultOutputDeviceName() -> String {
+        if let engine = audioEngine {
+            return currentBoundInputSnapshot(for: engine).defaultOutputName
+        }
+        let defaultOutputID = defaultDeviceID(kAudioHardwarePropertyDefaultOutputDevice) ?? 0
+        return deviceName(defaultOutputID)
+    }
+
+    func isDefaultOutputHeadsetLike() -> Bool {
+        isHeadsetLikeInputName(currentDefaultOutputDeviceName())
+    }
+
+    func applyRuntimeVoiceProcessingProfile(_ profile: VoiceProcessingProfile, reason: String) {
+        voiceProcessingProfile = profile
+        runningVoiceProcessingProfile = profile
+        guard let engine = audioEngine else { return }
+        applyVoiceProcessingConfiguration(to: engine.inputNode, profile: profile, reason: reason)
     }
 
     // MARK: - Private
@@ -401,6 +444,53 @@ final class AudioCaptureSession {
         // VoiceProcessingIO or trying to mirror Control Center mic modes here
         // has repeatedly destabilized input capture after route changes.
         return false
+    }
+
+    private func applyVoiceProcessingConfiguration(
+        to node: AVAudioInputNode,
+        profile: VoiceProcessingProfile,
+        reason: String
+    ) {
+        guard #available(macOS 10.15, *) else { return }
+        guard node.isVoiceProcessingEnabled else { return }
+
+        node.isVoiceProcessingBypassed = (profile == .passthrough)
+        node.isVoiceProcessingAGCEnabled = profile.shouldEnableAGC
+
+        if #available(macOS 14.0, *) {
+            node.voiceProcessingOtherAudioDuckingConfiguration = duckingConfiguration(for: profile)
+        }
+
+        os_log(
+            "VoiceProcessingIO config reason=%{public}@ profile=%{public}@ bypassed=%{public}@ agc=%{public}@",
+            log: log,
+            type: .info,
+            reason,
+            profile.rawValue,
+            String(node.isVoiceProcessingBypassed),
+            String(node.isVoiceProcessingAGCEnabled)
+        )
+    }
+
+    @available(macOS 14.0, *)
+    private func duckingConfiguration(for profile: VoiceProcessingProfile) -> AVAudioVoiceProcessingOtherAudioDuckingConfiguration {
+        switch profile {
+        case .passthrough:
+            return AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
+                enableAdvancedDucking: false,
+                duckingLevel: .min
+            )
+        case .dictation:
+            return AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
+                enableAdvancedDucking: true,
+                duckingLevel: .mid
+            )
+        case .speechCommand:
+            return AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
+                enableAdvancedDucking: true,
+                duckingLevel: .max
+            )
+        }
     }
 
     private func defaultDeviceID(_ selector: AudioObjectPropertySelector) -> AudioDeviceID? {
