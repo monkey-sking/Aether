@@ -952,18 +952,20 @@ class HeadMotionManager: ObservableObject {
     }
 
     private static func builtInRecordedHeadGestures(existing gestures: [RecordedHeadGesture] = []) -> [RecordedHeadGesture] {
-        let existingTopZone = gestures.first(where: {
-            $0.id == builtInNodUpDownGestureID || $0.id == builtInNodDownUpGestureID
-        })
-        let existingSideZone = gestures.first(where: {
-            $0.id == builtInShakeLeftRightGestureID || $0.id == builtInShakeRightLeftGestureID
-        })
+        let existingTopZone = gestures.first(where: { $0.id == builtInNodUpDownGestureID })
+        let existingBottomZone = gestures.first(where: { $0.id == builtInNodDownUpGestureID })
+        let existingLeftZone = gestures.first(where: { $0.id == builtInShakeLeftRightGestureID })
+        let existingRightZone = gestures.first(where: { $0.id == builtInShakeRightLeftGestureID })
         let existingNodGesture = gestures.first(where: { $0.id == builtInNodGestureID })
         let existingShakeGesture = gestures.first(where: { $0.id == builtInShakeGestureID })
         let topZoneAction = existingTopZone?.action ?? defaultHeadGestureAction(for: .nod)
         let topZoneEnabled = existingTopZone?.enabled ?? true
-        let sideZoneAction = existingSideZone?.action ?? defaultHeadGestureAction(for: .shake)
-        let sideZoneEnabled = existingSideZone?.enabled ?? true
+        let bottomZoneAction = existingBottomZone?.action ?? defaultHeadGestureAction(for: .nod)
+        let bottomZoneEnabled = existingBottomZone?.enabled ?? true
+        let leftZoneAction = existingLeftZone?.action ?? defaultHeadGestureAction(for: .shake)
+        let leftZoneEnabled = existingLeftZone?.enabled ?? true
+        let rightZoneAction = existingRightZone?.action ?? defaultHeadGestureAction(for: .shake)
+        let rightZoneEnabled = existingRightZone?.enabled ?? true
         let nodGestureAction = existingNodGesture?.action ?? defaultHeadGestureAction(for: .nod)
         let nodGestureEnabled = existingNodGesture?.enabled ?? true
         let shakeGestureAction = existingShakeGesture?.action ?? defaultHeadGestureAction(for: .shake)
@@ -988,8 +990,8 @@ class HeadMotionManager: ObservableObject {
             RecordedHeadGesture(
                 id: builtInNodDownUpGestureID,
                 name: AppLocalization.isChinese ? "下边热区" : "Bottom Edge Zone",
-                action: topZoneAction,
-                enabled: topZoneEnabled,
+                action: bottomZoneAction,
+                enabled: bottomZoneEnabled,
                 cooldown: 1.0,
                 minimumScore: 0.64,
                 recordedDuration: 0.58,
@@ -1003,8 +1005,8 @@ class HeadMotionManager: ObservableObject {
             RecordedHeadGesture(
                 id: builtInShakeLeftRightGestureID,
                 name: AppLocalization.isChinese ? "左边热区" : "Left Edge Zone",
-                action: sideZoneAction,
-                enabled: sideZoneEnabled,
+                action: leftZoneAction,
+                enabled: leftZoneEnabled,
                 cooldown: 1.0,
                 minimumScore: 0.64,
                 recordedDuration: 0.62,
@@ -1018,8 +1020,8 @@ class HeadMotionManager: ObservableObject {
             RecordedHeadGesture(
                 id: builtInShakeRightLeftGestureID,
                 name: AppLocalization.isChinese ? "右边热区" : "Right Edge Zone",
-                action: sideZoneAction,
-                enabled: sideZoneEnabled,
+                action: rightZoneAction,
+                enabled: rightZoneEnabled,
                 cooldown: 1.0,
                 minimumScore: 0.64,
                 recordedDuration: 0.62,

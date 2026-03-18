@@ -2080,6 +2080,8 @@ private struct CustomAppShortcutRuleEditorSheet: View {
 
 private struct VoiceUsageInsightsCard: View {
     @EnvironmentObject var appState: AppState
+    @State private var isPerAppSummaryExpanded: Bool = true
+    @State private var isRecentActivityExpanded: Bool = true
 
     private var isChinese: Bool {
         AppLocalization.isChinese
@@ -2170,6 +2172,10 @@ private struct VoiceUsageInsightsCard: View {
                             value: "\(summary.dictationCount)"
                         )
                         VoiceUsageSummaryBadge(
+                            title: isChinese ? "输入字数" : "Input Characters",
+                            value: "\(summary.dictationCharacterCount)"
+                        )
+                        VoiceUsageSummaryBadge(
                             title: isChinese ? "失败" : "Failed",
                             value: "\(summary.failureCount)"
                         )
@@ -2190,75 +2196,87 @@ private struct VoiceUsageInsightsCard: View {
                     } else {
                         Divider()
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(isChinese ? "按 App 统计" : "Per-App Summary")
-                                .font(.subheadline.weight(.semibold))
-                            Text(isChinese ? "以下为各 App 的统计，不包含上面的总览。" : "Below are per-app totals; overall summary is above.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(isChinese ? "格式：输入 / 失败 / 未识别 / 控制 · 右侧为总计" : "Format: Dictation / Failed / Unrecognized / Control · Total on the right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            VStack(spacing: 8) {
-                                ForEach(topApps) { item in
-                                    VoiceUsageAppSummaryRow(summary: item)
+                        DisclosureGroup(
+                            isExpanded: $isPerAppSummaryExpanded,
+                            content: {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(isChinese ? "以下为各 App 的统计，格式：输入次数 / 输入字数 / 失败 / 未识别 / 控制，右侧为总计。" : "Below are per-app totals. Format: Dictation Count / Input Characters / Failed / Unrecognized / Control, with total on the right.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    VStack(spacing: 8) {
+                                        ForEach(topApps) { item in
+                                            VoiceUsageAppSummaryRow(summary: item)
+                                        }
+                                    }
                                 }
+                                .padding(.top, 6)
+                            },
+                            label: {
+                                Text(isChinese ? "按 App 统计" : "Per-App Summary")
+                                    .font(.subheadline.weight(.semibold))
                             }
-                        }
+                        )
+                        .controlSize(.small)
 
                         Divider()
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text(isChinese ? "最近记录" : "Recent Activity")
-                                    .font(.subheadline.weight(.semibold))
-                                Spacer()
-                                Menu {
-                                    Button(LocalizedStringKey("insights.copy_diagnostic_history")) {
-                                        do {
-                                            try appState.copyVoiceUsageHistoryForDiagnostics()
-                                            HUDManager.shared.showTemporary(
-                                                message: String(localized: "insights.copy_diagnostic_history_done"),
-                                                icon: "doc.on.doc"
-                                            )
-                                        } catch {
-                                            HUDManager.shared.showTemporary(
-                                                message: String(localized: "insights.copy_diagnostic_history_failed"),
-                                                icon: "xmark.circle.fill"
-                                            )
-                                        }
+                        DisclosureGroup(
+                            isExpanded: $isRecentActivityExpanded,
+                            content: {
+                                VStack(spacing: 8) {
+                                    ForEach(recentEvents) { event in
+                                        VoiceUsageEventRow(event: event)
                                     }
-                                    Button(LocalizedStringKey("insights.export_ai_prompt")) {
-                                        do {
-                                            try appState.exportAetherAIConfigPrompt()
-                                            HUDManager.shared.showTemporary(
-                                                message: String(localized: "insights.export_ai_prompt_done"),
-                                                icon: "doc.on.doc"
-                                            )
-                                        } catch {
-                                            HUDManager.shared.showTemporary(
-                                                message: String(localized: "insights.export_ai_prompt_failed"),
-                                                icon: "xmark.circle.fill"
-                                            )
-                                        }
-                                    }
-                                    Divider()
-                                    Button(isChinese ? "清空记录" : "Clear History") {
-                                        appState.clearVoiceUsageHistory()
-                                    }
-                                } label: {
-                                    Label(isChinese ? "更多操作" : "More Actions", systemImage: "ellipsis.circle")
                                 }
-                                .menuStyle(.borderlessButton)
-                                .controlSize(.small)
-                            }
-
-                            VStack(spacing: 8) {
-                                ForEach(recentEvents) { event in
-                                    VoiceUsageEventRow(event: event)
+                                .padding(.top, 6)
+                            },
+                            label: {
+                                HStack(spacing: 10) {
+                                    Text(isChinese ? "最近记录" : "Recent Activity")
+                                        .font(.subheadline.weight(.semibold))
+                                    Spacer()
+                                    Menu {
+                                        Button(LocalizedStringKey("insights.copy_diagnostic_history")) {
+                                            do {
+                                                try appState.copyVoiceUsageHistoryForDiagnostics()
+                                                HUDManager.shared.showTemporary(
+                                                    message: String(localized: "insights.copy_diagnostic_history_done"),
+                                                    icon: "doc.on.doc"
+                                                )
+                                            } catch {
+                                                HUDManager.shared.showTemporary(
+                                                    message: String(localized: "insights.copy_diagnostic_history_failed"),
+                                                    icon: "xmark.circle.fill"
+                                                )
+                                            }
+                                        }
+                                        Button(LocalizedStringKey("insights.export_ai_prompt")) {
+                                            do {
+                                                try appState.exportAetherAIConfigPrompt()
+                                                HUDManager.shared.showTemporary(
+                                                    message: String(localized: "insights.export_ai_prompt_done"),
+                                                    icon: "doc.on.doc"
+                                                )
+                                            } catch {
+                                                HUDManager.shared.showTemporary(
+                                                    message: String(localized: "insights.export_ai_prompt_failed"),
+                                                    icon: "xmark.circle.fill"
+                                                )
+                                            }
+                                        }
+                                        Divider()
+                                        Button(isChinese ? "清空记录" : "Clear History") {
+                                            appState.clearVoiceUsageHistory()
+                                        }
+                                    } label: {
+                                        Label(isChinese ? "更多操作" : "More Actions", systemImage: "ellipsis.circle")
+                                    }
+                                    .menuStyle(.borderlessButton)
+                                    .controlSize(.small)
                                 }
                             }
-                        }
+                        )
+                        .controlSize(.small)
                     }
                 }
             }
@@ -2306,7 +2324,7 @@ private struct VoiceUsageAppSummaryRow: View {
                     .lineLimit(1)
             }
             Spacer()
-            Text("\(summary.dictationCount)/\(summary.failureCount)/\(summary.unrecognizedCount)/\(summary.controlCount)")
+            Text("\(summary.dictationCount)/\(summary.dictationCharacterCount)/\(summary.failureCount)/\(summary.unrecognizedCount)/\(summary.controlCount)")
                 .font(.caption.monospacedDigit())
                 .foregroundColor(.secondary)
             Text("\(summary.total)")

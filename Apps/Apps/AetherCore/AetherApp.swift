@@ -570,6 +570,7 @@ class AppState: ObservableObject {
     struct VoiceUsageSummary {
         let total: Int
         let dictationCount: Int
+        let dictationCharacterCount: Int
         let failureCount: Int
         let unrecognizedCount: Int
         let mismatchCount: Int
@@ -582,6 +583,7 @@ class AppState: ObservableObject {
         let bundleIdentifier: String
         let total: Int
         let dictationCount: Int
+        let dictationCharacterCount: Int
         let failureCount: Int
         let unrecognizedCount: Int
         let mismatchCount: Int
@@ -1309,6 +1311,7 @@ class AppState: ObservableObject {
 
     var voiceUsageSummary: VoiceUsageSummary {
         var dictation = 0
+        var dictationCharacters = 0
         var failure = 0
         var unrecognized = 0
         var mismatch = 0
@@ -1316,6 +1319,7 @@ class AppState: ObservableObject {
         for entry in voiceUsageHistory {
             if isVoiceUsageSuccessfulDictation(entry) {
                 dictation += 1
+                dictationCharacters += voiceUsageCharacterCount(for: entry)
             } else if isVoiceUsageFailure(entry) {
                 failure += 1
             } else if isVoiceUsageUnrecognized(entry) {
@@ -1329,6 +1333,7 @@ class AppState: ObservableObject {
         return VoiceUsageSummary(
             total: voiceUsageHistory.count,
             dictationCount: dictation,
+            dictationCharacterCount: dictationCharacters,
             failureCount: failure,
             unrecognizedCount: unrecognized,
             mismatchCount: mismatch,
@@ -1340,6 +1345,11 @@ class AppState: ObservableObject {
         let grouped = Dictionary(grouping: voiceUsageHistory) { $0.bundleIdentifier }
         let summaries = grouped.map { bundleID, entries -> VoiceUsageAppSummary in
             let dictationCount = entries.filter(isVoiceUsageSuccessfulDictation).count
+            let dictationCharacterCount = entries
+                .filter(isVoiceUsageSuccessfulDictation)
+                .reduce(0) { partialResult, entry in
+                    partialResult + voiceUsageCharacterCount(for: entry)
+                }
             let failureCount = entries.filter(isVoiceUsageFailure).count
             let unrecognizedCount = entries.filter(isVoiceUsageUnrecognized).count
             let mismatchCount = entries.filter(isVoiceUsageHUDControlMismatch).count
@@ -1350,6 +1360,7 @@ class AppState: ObservableObject {
                 bundleIdentifier: bundleID,
                 total: entries.count,
                 dictationCount: dictationCount,
+                dictationCharacterCount: dictationCharacterCount,
                 failureCount: failureCount,
                 unrecognizedCount: unrecognizedCount,
                 mismatchCount: mismatchCount,
@@ -1371,6 +1382,10 @@ class AppState: ObservableObject {
     private func isVoiceUsageSuccessfulDictation(_ entry: VoiceUsageEvent) -> Bool {
         guard entry.kind == .dictation else { return false }
         return entry.action == "输入" || entry.action == "Dictation"
+    }
+
+    private func voiceUsageCharacterCount(for entry: VoiceUsageEvent) -> Int {
+        entry.content?.count ?? 0
     }
 
     private func localizedVoiceUsageAction(_ key: String, fallback: String) -> String {
