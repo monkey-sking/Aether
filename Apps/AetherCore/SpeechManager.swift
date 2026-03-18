@@ -369,7 +369,7 @@ final class SpeechManager: ObservableObject {
     private var isContinuousDictationWaitingForInputFocus: Bool = false
     private var lastRecognitionBufferWithoutSessionAt: Date = .distantPast
     private var pendingExplicitCommandPrefixExpiry: Date?
-    private let pendingExplicitCommandPrefixWindow: TimeInterval = 1.8
+    private let pendingExplicitCommandPrefixWindow: TimeInterval = 4.0
     private var cancellables = Set<AnyCancellable>()
     private let intentPipeline = IntentPipeline()
     private var utteranceExecutionGuard = UtteranceExecutionGuard(maxHistory: 128)
@@ -392,6 +392,10 @@ final class SpeechManager: ObservableObject {
     private var lastAdaptiveTextCount: Int = 0
     private var lastAdaptiveSampleAt: Date = .distantPast
     private var deferredAudioStopWorkItem: DispatchWorkItem?
+    private var startupInputHealthProbeWorkItem: DispatchWorkItem?
+    private var temporaryFallbackInputDeviceID: AudioDeviceID?
+    private var startupDetectedUsableAudioForSession = false
+    private var startupFallbackAttemptedForSession = false
     private var pttAudioCaptureGracePeriod: TimeInterval {
         let raw = UserDefaults.standard.object(forKey: "pttAudioCaptureGracePeriod") as? Double ?? 8.0
         return min(max(raw, 1.5), 20.0)
@@ -806,6 +810,10 @@ final class SpeechManager: ObservableObject {
     }
 
     private func effectiveCaptureInputDeviceID() -> AudioDeviceID {
+        if let temporaryFallbackInputDeviceID,
+           availableInputDevices.contains(where: { $0.id == temporaryFallbackInputDeviceID }) {
+            return temporaryFallbackInputDeviceID
+        }
         if selectedInputDeviceID != 0 {
             if let remappedID = remapSelectedInputDeviceIfNeeded(using: availableInputDevices) {
                 return remappedID
@@ -829,6 +837,7 @@ final class SpeechManager: ObservableObject {
 
     private func applySelectedInputDeviceID(_ newValue: AudioDeviceID, allowRestart: Bool, reason: String) {
         guard selectedInputDeviceID != newValue else { return }
+        temporaryFallbackInputDeviceID = nil
         let previous = suppressInputSelectionRestart
         suppressInputSelectionRestart = !allowRestart
         GlobalLogger.speech.info(
@@ -843,6 +852,10 @@ final class SpeechManager: ObservableObject {
     }
 
     private var currentResolvedInputDeviceName: String {
+        if audioCapture.isRunning {
+            let boundName = audioCapture.currentBoundInputDeviceName().trimmingCharacters(in: .whitespacesAndNewlines)
+            if !boundName.isEmpty { return boundName }
+        }
         let deviceIDToUse = effectiveCaptureInputDeviceID()
         return availableInputDevices.first(where: { $0.id == deviceIDToUse })?.name ?? ""
     }
@@ -858,6 +871,65 @@ final class SpeechManager: ObservableObject {
             || name.contains("earphone")
             || name.contains("bluetooth")
             || name.contains("耳机")
+    }
+
+    private func cancelStartupInputHealthProbe() {
+        startupInputHealthProbeWorkItem?.cancel()
+        startupInputHealthProbeWorkItem = nil
+    }
+
+    private func bestNonHeadsetFallbackInputDeviceID(excluding excludedID: AudioDeviceID) -> AudioDeviceID? {
+        let candidates = availableInputDevices.filter { $0.id != 0 && $0.id != excludedID && !isHeadsetLikeDeviceName($0.name) }
+        guard !candidates.isEmpty else { return nil }
+
+        if let defaultInputID = audioDeviceID(for: kAudioHardwarePropertyDefaultInputDevice),
+           defaultInputID != excludedID,
+           let defaultCandidate = candidates.first(where: { $0.id == defaultInputID }) {
+            return defaultCandidate.id
+        }
+
+        return candidates.first?.id
+    }
+
+    private func scheduleStartupInputHealthProbe(for generation: Int) {
+        cancelStartupInputHealthProbe()
+        startupDetectedUsableAudioForSession = false
+        startupFallbackAttemptedForSession = false
+        guard isPTTHeld || !isAlwaysListeningEnabled else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.startupInputHealthProbeWorkItem = nil
+            guard self.sessionGeneration == generation else { return }
+            guard self.audioCapture.isRunning, self.recognitionSession.isRunning, !self.isStopping else { return }
+            guard self.isHeadsetLikeInputDevice else { return }
+            guard !self.startupDetectedUsableAudioForSession, !self.startupFallbackAttemptedForSession else { return }
+
+            let effectiveInputID = self.effectiveCaptureInputDeviceID()
+            guard let fallbackID = self.bestNonHeadsetFallbackInputDeviceID(excluding: effectiveInputID) else {
+                GlobalLogger.speech.info(
+                    "[AudioRoute] startup health probe found no non-headset fallback selectedInputID=\(self.selectedInputDeviceID) effectiveInputID=\(effectiveInputID) boundInputID=\(self.audioCapture.currentBoundInputDeviceID())"
+                )
+                return
+            }
+
+            let boundInputID = self.audioCapture.currentBoundInputDeviceID()
+            let boundInputName = self.audioCapture.currentBoundInputDeviceName()
+            let fallbackName = self.availableInputDevices.first(where: { $0.id == fallbackID })?.name ?? self.audioDeviceName(fallbackID)
+            self.startupFallbackAttemptedForSession = true
+            self.temporaryFallbackInputDeviceID = fallbackID
+            GlobalLogger.speech.info(
+                "[AudioRoute] startup health probe fallback selectedInputID=\(self.selectedInputDeviceID) effectiveInputID=\(effectiveInputID) effectiveInputName=\(self.currentResolvedInputDeviceName) boundInputID=\(boundInputID) boundInputName=\(boundInputName) latestRMS=\(self.latestVoiceRMS) fallbackID=\(fallbackID) fallbackName=\(fallbackName)"
+            )
+            HUDManager.shared.showTemporary(
+                message: AppLocalization.isChinese ? "耳机麦不可用，已改用 Mac 麦克风" : "Headset mic unavailable, switched to Mac microphone",
+                icon: "mic.badge.xmark",
+                duration: 1.2
+            )
+            self.scheduleEngineRestart(reason: "startup-headset-unavailable", debounce: 0.01)
+        }
+        startupInputHealthProbeWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: workItem)
     }
 
     func isCurrentInputHeadsetLike() -> Bool {
@@ -1001,7 +1073,8 @@ final class SpeechManager: ObservableObject {
     var currentInputDeviceIcon: String {
         let realHardware = availableInputDevices.filter { $0.id != 0 }
         if realHardware.isEmpty { return "mic.slash.fill" }
-        let deviceIDToUse = effectiveCaptureInputDeviceID()
+        let boundInputID = audioCapture.currentBoundInputDeviceID()
+        let deviceIDToUse = (audioCapture.isRunning && boundInputID != 0) ? boundInputID : effectiveCaptureInputDeviceID()
         if let matched = availableInputDevices.first(where: { $0.id == deviceIDToUse }) {
             let lowerName = matched.name.lowercased()
             let isAP = lowerName.contains("airpods") || matched.iconName.contains("airpod")
@@ -1173,6 +1246,10 @@ final class SpeechManager: ObservableObject {
             guard let self else { return }
             self.latestVoiceActivity = active
             self.latestVoiceRMS = rms
+            if active || rms >= 0.05 {
+                self.startupDetectedUsableAudioForSession = true
+                self.cancelStartupInputHealthProbe()
+            }
             self.eosDetector.noteVoiceActivity(active)
         }
         eosDetector.onEndOfSpeech = { [weak self] in self?.handleEOS() }
@@ -1424,6 +1501,9 @@ final class SpeechManager: ObservableObject {
         recognitionStartupGraceUntil = now.addingTimeInterval(1.1)
         continuousRecoveryWorkItem?.cancel()
         continuousRecoveryWorkItem = nil
+        cancelStartupInputHealthProbe()
+        startupDetectedUsableAudioForSession = false
+        startupFallbackAttemptedForSession = false
         cancelDeferredAudioStop()
         isStopping = false
         activeUtteranceID = 0
@@ -1529,6 +1609,7 @@ final class SpeechManager: ObservableObject {
             }
             consecutiveRecognitionUnavailableCount = 0
             recognitionUnavailableUntil = .distantPast
+            scheduleStartupInputHealthProbe(for: gen)
         } catch {
             let backoff = min(0.8 + (Double(consecutiveRecognitionUnavailableCount) * 0.45), 3.5)
             consecutiveRecognitionUnavailableCount += 1
@@ -1594,6 +1675,8 @@ final class SpeechManager: ObservableObject {
         if text != prev {
             lastTranscript = text; lastChangeAt = now
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                startupDetectedUsableAudioForSession = true
+                cancelStartupInputHealthProbe()
                 noteHandsFreeHUDActivity(at: now)
                 if activeUtteranceID == 0 { activeUtteranceID = nextUtteranceID; nextUtteranceID += 1 }
                 eosDetector.noteUtteranceStarted()
@@ -1912,6 +1995,7 @@ final class SpeechManager: ObservableObject {
     }
 
     private func stopAudioCapture() {
+        cancelStartupInputHealthProbe()
         cancelDeferredAudioStop()
         headsetInputMuteRouter.deactivate()
         audioCapture.stop()
@@ -1938,6 +2022,7 @@ final class SpeechManager: ObservableObject {
     func teardownEngine() {
         continuousRecoveryWorkItem?.cancel()
         continuousRecoveryWorkItem = nil
+        cancelStartupInputHealthProbe()
         recognitionStartupGraceUntil = .distantPast
         cancelDeferredAudioStop()
         isStopping = false
@@ -2256,6 +2341,12 @@ final class SpeechManager: ObservableObject {
             )
         }
         let isForcedCommandMiss = decision.reason == "forced-command-no-match"
+        if consumedExplicitCommandPrefix && isForcedCommandMiss {
+            armPendingExplicitCommandPrefix()
+            GlobalLogger.router.info(
+                "[Route] re-armed pending explicit command prefix after forced-command miss transcript='\(textToRoute)'"
+            )
+        }
         if !isAlwaysListeningEnabled,
            recognitionControlMode != .command,
            !blockDictationWithoutInput,
@@ -3222,6 +3313,7 @@ final class SpeechManager: ObservableObject {
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             DispatchQueue.main.async { guard let self else { return }
                 let before = self.currentAudioRouteSnapshot()
+                self.temporaryFallbackInputDeviceID = nil
                 self.refreshInputDevices()
                 let after = self.currentAudioRouteSnapshot()
                 GlobalLogger.speech.info(

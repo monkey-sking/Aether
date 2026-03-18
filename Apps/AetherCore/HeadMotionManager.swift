@@ -1624,12 +1624,13 @@ class HeadMotionManager: ObservableObject {
         if !candidate.didPlayStartSound, duration >= 0.22 {
             candidate.didPlayStartSound = true
             activeGestureCandidate = candidate
-            playHeadGestureStartSound()
-            HUDManager.shared.showTemporary(
-                message: AppLocalization.isChinese ? "开始识别" : "Listening",
-                icon: "waveform",
-                duration: 0.6
-            )
+            if shouldAnnounceHeadGestureRecognitionFeedback {
+                HUDManager.shared.showTemporary(
+                    message: AppLocalization.isChinese ? "开始识别" : "Listening",
+                    icon: "waveform",
+                    duration: 0.6
+                )
+            }
         }
 
         if candidate.didPlayStartSound,
@@ -1637,7 +1638,9 @@ class HeadMotionManager: ObservableObject {
            shouldPlayBuiltInTurnCue(for: candidate.samples) {
             candidate.didPlayTurnCue = true
             activeGestureCandidate = candidate
-            playHeadGestureTurnCueSound()
+            if shouldAnnounceHeadGestureRecognitionFeedback {
+                playHeadGestureTurnCueSound()
+            }
         }
 
         let liveOverlayThreshold = candidate.samples.count >= 4 && duration >= 0.06 && liveOverlayDistance(for: candidate.samples) >= headGestureOverlayDistance
@@ -1698,11 +1701,13 @@ class HeadMotionManager: ObservableObject {
                 duration: summary?.duration ?? 0,
                 summary: AppLocalization.isChinese ? "轨迹长度不够，已忽略" : "Ignored because the path length was too short"
             )
-            HUDManager.shared.showTemporary(
-                message: AppLocalization.isChinese ? "动作太短" : "Gesture too short",
-                icon: "scribble"
-            )
-            playHeadGestureNoMatchSound()
+            if shouldAnnounceHeadGestureRecognitionFeedback {
+                HUDManager.shared.showTemporary(
+                    message: AppLocalization.isChinese ? "动作太短" : "Gesture too short",
+                    icon: "scribble"
+                )
+                playHeadGestureNoMatchSound()
+            }
             headGestureOverlayController.hide(after: 0.18)
             return
         }
@@ -1740,11 +1745,13 @@ class HeadMotionManager: ObservableObject {
                 duration: summary.duration,
                 summary: AppLocalization.isChinese ? "没有找到匹配的模板" : "No recorded gesture matched"
             )
-            HUDManager.shared.showTemporary(
-                message: AppLocalization.isChinese ? "没匹配上" : "No gesture matched",
-                icon: "xmark.circle"
-            )
-            playHeadGestureNoMatchSound()
+            if shouldAnnounceHeadGestureRecognitionFeedback {
+                HUDManager.shared.showTemporary(
+                    message: AppLocalization.isChinese ? "没匹配上" : "No gesture matched",
+                    icon: "xmark.circle"
+                )
+                playHeadGestureNoMatchSound()
+            }
             headGestureOverlayController.hide(after: 0.18)
             return
         }
@@ -1753,7 +1760,9 @@ class HeadMotionManager: ObservableObject {
         let preflightMessage = AppLocalization.isChinese
             ? "将触发：\(best.gesture.action.label)"
             : "About to trigger: \(best.gesture.action.label)"
-        HUDManager.shared.showTemporary(message: preflightMessage, icon: "bolt.fill", duration: 0.55)
+        if shouldAnnounceHeadGestureRecognitionFeedback {
+            HUDManager.shared.showTemporary(message: preflightMessage, icon: "bolt.fill", duration: 0.55)
+        }
         headGestureOverlayController.show(
             points: overlayTrailPoints(for: candidate.samples),
             status: preflightMessage,
@@ -2041,6 +2050,10 @@ class HeadMotionManager: ObservableObject {
     private func requiredScore(for gesture: RecordedHeadGesture, fallback: Double = 0.58) -> Double {
         // Apply a small tolerance so stored thresholds don't make custom gestures too strict.
         max(fallback, gesture.minimumScore - 0.08)
+    }
+
+    private var shouldAnnounceHeadGestureRecognitionFeedback: Bool {
+        isTracking
     }
 
     private func eligibleHeadGesturesForRecognition() -> [RecordedHeadGesture] {
