@@ -1038,9 +1038,9 @@ private struct HeadGestureShortcutMappingCard: View {
                     TransparencyModeIcon(size: 18, color: .secondary)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(isChinese ? "头控热区规则" : "Head Zone Rules")
+                        Text(isChinese ? "热区规则" : "Hot Zone Rules")
                             .font(.headline)
-                        Text(isChinese ? "固定 4 个边缘热区。只需要给每个热区配置动作；未配置动作的热区不会生效。" : "Use 4 fixed edge zones. Assign actions only; zones without actions stay inactive.")
+                        Text(isChinese ? "固定 4 个边缘热区。为每个热区配置动作，未配置则不生效。" : "Four fixed edge zones. Assign an action to activate a zone.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1050,7 +1050,7 @@ private struct HeadGestureShortcutMappingCard: View {
                 }
 
                 if fixedGestures.isEmpty {
-                    Text(isChinese ? "固定热区还没有准备好。" : "Fixed hot zones are not available yet.")
+                    Text(isChinese ? "热区尚未就绪。" : "Hot zones are not ready yet.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(14)
@@ -1074,7 +1074,7 @@ private struct HeadGestureShortcutMappingCard: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(isChinese ? "头部动作（点头/摇头）" : "Head Gestures (Nod/Shake)")
                             .font(.subheadline.weight(.semibold))
-                        Text(isChinese ? "保留点头和摇头作为独立触发，不和边缘热区混在一起。" : "Keep nod and shake as separate triggers, independent from edge zones.")
+                        Text(isChinese ? "点头和摇头作为独立触发，不与热区混用。" : "Nod and shake are separate triggers from hot zones.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1093,14 +1093,14 @@ private struct HeadGestureShortcutMappingCard: View {
                 DisclosureGroup(isChinese ? "高级与调试" : "Advanced & Diagnostics") {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Text(isChinese ? "热区历史" : "Hot Zone History")
+                            Text(isChinese ? "热区触发历史" : "Hot Zone History")
                                 .font(.subheadline.weight(.semibold))
                             Spacer()
-                            Button(isChinese ? "复制调试数据请求" : "Copy Debug Request") {
+                            Button(isChinese ? "复制调试数据" : "Copy Debug Data") {
                                 do {
                                     try motionManager.copyHeadGestureDebugData()
                                     HUDManager.shared.showTemporary(
-                                        message: isChinese ? "已复制调试请求和数据" : "Debug request and data copied",
+                                        message: isChinese ? "已复制调试数据" : "Debug data copied",
                                         icon: "doc.on.doc"
                                     )
                                 } catch {
@@ -1168,8 +1168,8 @@ private struct HeadGestureShortcutMappingCard: View {
                         if motionManager.headGestureHistory.isEmpty {
                             Text(
                                 isChinese
-                                    ? "还没有热区触发历史。调试数据入口始终可用；识别成功和未匹配都会写入调试数据。"
-                                    : "No hot zone history yet. Debug export stays available; successful matches and misses are written to debug data."
+                                ? "还没有热区触发历史。识别成功和未匹配都会写入调试数据。"
+                                : "No hot zone history yet. Matches and misses are written to debug data."
                             )
                                 .font(.caption)
                                 .foregroundColor(.secondary)
@@ -1205,7 +1205,7 @@ private struct HeadGestureShortcutMappingCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                     GridRow {
-                        Text(isChinese ? "动作" : "Action")
+                        Text(isChinese ? "执行动作" : "Action")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .frame(width: 56, alignment: .leading)
@@ -1219,7 +1219,7 @@ private struct HeadGestureShortcutMappingCard: View {
                 }
 
                 Text(gesture.action == .none
-                        ? (isChinese ? "未配置动作，这个触发当前不会生效。" : "No action assigned. This trigger is currently inactive.")
+                        ? (isChinese ? "未配置动作，该触发不会生效。" : "No action assigned. This trigger is inactive.")
                         : gestureHint(for: gesture))
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -3078,17 +3078,17 @@ struct HeadGestureSettingsView: View {
     var body: some View {
         SettingsPage(
             title: isChinese ? "头控触发" : "Head Triggers",
-            subtitle: isChinese ? "热区与点头/摇头等触发方式可在此统一配置。" : "Configure head-triggered actions here, including hot zones and nod/shake."
+            subtitle: isChinese ? "统一配置热区与点头/摇头触发。" : "Configure hot zones and nod/shake triggers here."
         ) {
             VStack(spacing: 16) {
-                GlassCard {
+                GlassCard(padding: 16) {
                     HStack(alignment: .top, spacing: 10) {
                         TransparencyModeIcon(size: 22, color: .secondary)
 
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(isChinese ? "启用头控热区" : "Enable Head Zones")
+                            Text(isChinese ? "启用热区触发" : "Enable Hot Zones")
                                 .font(.subheadline.weight(.semibold))
-                            Text(isChinese ? "上下左右热区固定在当前实体显示器的边缘；移入热区即可触发。" : "Directional hot zones stay on the active physical display edges and trigger when the cursor enters them.")
+                            Text(isChinese ? "四个边缘热区固定在当前显示器，移入即可触发。" : "Four edge zones stay on the active display and trigger on entry.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -3099,19 +3099,19 @@ struct HeadGestureSettingsView: View {
                         Toggle("", isOn: headGestureToggleBinding)
                             .labelsHidden()
                             .controlSize(.small)
-                            .accessibilityLabel(Text(isChinese ? "启用头控热区" : "Enable Head Zones"))
-                            .accessibilityHint(Text(isChinese ? "启用基于屏幕边缘的热区触发" : "Enable screen-edge hot zone triggers"))
+                            .accessibilityLabel(Text(isChinese ? "启用热区触发" : "Enable Hot Zones"))
+                            .accessibilityHint(Text(isChinese ? "启用基于屏幕边缘的热区触发" : "Enable edge hot zone triggers"))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                GlassCard {
+                GlassCard(padding: 16) {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .top, spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(isChinese ? "触发来源" : "Trigger Sources")
                                     .font(.subheadline.weight(.semibold))
-                                Text(isChinese ? "头控开启时可以用头控光标触发；未开启头控时也可以直接用普通鼠标触发。" : "When head tracking is active, the head-controlled cursor can trigger zones. When head tracking is off, a normal mouse can trigger them too.")
+                                Text(isChinese ? "头控开启时可用头控指针触发；关闭时可用鼠标触发。" : "Use the head cursor when tracking is on, or the mouse when it's off.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -3131,48 +3131,49 @@ struct HeadGestureSettingsView: View {
                 .disabled(!headManager.headGestureToggleEnabled)
                 .opacity(headManager.headGestureToggleEnabled ? 1.0 : 0.55)
 
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text(isChinese ? "热区大小" : "Zone Size")
-                                .font(.subheadline.weight(.semibold))
-                            Spacer()
-                            Text("\(Int(headManager.headHotZoneSizeScale * 100))%")
-                                .font(.caption.weight(.semibold).monospacedDigit())
+                GlassCard(padding: 16) {
+                    HStack(alignment: .top, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text(isChinese ? "热区大小" : "Zone Size")
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer()
+                                Text("\(Int(headManager.headHotZoneSizeScale * 100))%")
+                                    .font(.caption.weight(.semibold).monospacedDigit())
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Slider(value: hotZoneSizeBinding, in: 0.4...1.8, step: 0.05)
+                                .controlSize(.small)
+
+                            Text(isChinese ? "调大更容易进入热区，也更明显。" : "Larger zones are easier to enter and more visible.")
+                                .font(.caption)
                                 .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                        Slider(value: hotZoneSizeBinding, in: 0.4...1.8, step: 0.05)
-                            .controlSize(.small)
+                        Divider()
 
-                        Text(isChinese ? "调大后更容易进入热区，也会让显示区域更明显。" : "Larger zones are easier to enter and display more prominently.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .disabled(!headManager.headGestureToggleEnabled)
-                .opacity(headManager.headGestureToggleEnabled ? 1.0 : 0.55)
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text(isChinese ? "触发停留时间" : "Dwell Time")
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer()
+                                Text(String(format: isChinese ? "%.0f 毫秒" : "%.0f ms", headManager.headHotZoneTriggerDuration * 1000))
+                                    .font(.caption.weight(.semibold).monospacedDigit())
+                                    .foregroundColor(.secondary)
+                            }
 
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text(isChinese ? "热区触发时间" : "Zone Trigger Time")
-                                .font(.subheadline.weight(.semibold))
-                            Spacer()
-                            Text(String(format: isChinese ? "%.0f 毫秒" : "%.0f ms", headManager.headHotZoneTriggerDuration * 1000))
-                                .font(.caption.weight(.semibold).monospacedDigit())
+                            Slider(value: hotZoneTriggerDurationBinding, in: 0.08...1.2, step: 0.02)
+                                .controlSize(.small)
+
+                            Text(isChinese ? "进入热区后停留这么久才触发。调大可减少误触，调小更快。" : "How long to dwell before triggering. Increase to reduce false triggers.")
+                                .font(.caption)
                                 .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-
-                        Slider(value: hotZoneTriggerDurationBinding, in: 0.08...1.2, step: 0.02)
-                            .controlSize(.small)
-
-                        Text(isChinese ? "进入热区后停留这么久才触发。调大可以减少误触，调小会更快。" : "The cursor must stay in the zone for this long before triggering. Increase it to reduce false triggers, or decrease it for faster activation.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
