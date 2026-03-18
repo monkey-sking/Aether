@@ -500,6 +500,8 @@ class HeadMotionManager: ObservableObject {
     @Published private(set) var isHeadGestureRecording: Bool = false
     @Published private(set) var headGestureRecordingStatusText: String = ""
     @Published private(set) var isAppendingHeadGestureSample: Bool = false
+    @Published private(set) var isGloballyPausedForIdle: Bool = false
+    private var wasTrackingBeforeIdlePause: Bool = false
     
     // Callback for critical errors (to show UI alerts)
     var onError: ((String) -> Void)?
@@ -1501,6 +1503,7 @@ class HeadMotionManager: ObservableObject {
     }
     
     func startTracking() {
+        guard !isGloballyPausedForIdle else { return }
         guard !isTracking else { return }
         GlobalLogger.lifecycle.info(
             "HeadMotion startTracking requested autoStart=\(autoStartTrackingOnHeadsetConnection) routeConnected=\(lastObservedHeadsetRouteConnected) airPodsSide=\(lastObservedAirPodSide.rawValue) hasHeadset=\(hasActiveHeadsetConnection) motionAvailable=\(motionManager.isDeviceMotionAvailable)"
@@ -1583,6 +1586,10 @@ class HeadMotionManager: ObservableObject {
             }
             
             guard let attitude = motion?.attitude else { return }
+
+            if self.isGloballyPausedForIdle {
+                return
+            }
             
             // --- First Packet Connection Logic ---
             if !self.isTracking {
@@ -1917,6 +1924,7 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     private func processHeadGestureSample(yaw: Double, pitch: Double) {
+        guard !isGloballyPausedForIdle else { return }
         guard headGestureToggleEnabled else { return }
 
         let now = Date()
@@ -1958,6 +1966,7 @@ class HeadMotionManager: ObservableObject {
         if updateMouseInteractionInactivityState(now: Date(), cursorLocation: cursorLocation) {
             return
         }
+        guard !isGloballyPausedForIdle else { return }
         guard headGestureToggleEnabled else {
             if activeHotZoneSession?.source == .mouse {
                 resetHeadGestureRecognition()
@@ -1995,6 +2004,7 @@ class HeadMotionManager: ObservableObject {
                 lastObservedMouseHotZoneCursorLocation = cursorLocation
                 if isMouseInteractionPausedForInactivity {
                     isMouseInteractionPausedForInactivity = false
+                    setGlobalIdlePause(false)
                 }
                 return false
             }
@@ -2008,8 +2018,38 @@ class HeadMotionManager: ObservableObject {
         if shouldPause && !isMouseInteractionPausedForInactivity {
             isMouseInteractionPausedForInactivity = true
             resetHeadGestureRecognition()
+            setGlobalIdlePause(true)
         }
         return isMouseInteractionPausedForInactivity
+    }
+
+    @MainActor
+    private func setGlobalIdlePause(_ paused: Bool) {
+        guard paused != isGloballyPausedForIdle else { return }
+        isGloballyPausedForIdle = paused
+        if paused {
+            wasTrackingBeforeIdlePause = isTracking
+            if isTracking {
+                stopTracking()
+            }
+            endAllPTT(reason: "idle-pause")
+            resetHeadGestureRecognition()
+        } else {
+            if wasTrackingBeforeIdlePause {
+                startTracking()
+            }
+            wasTrackingBeforeIdlePause = false
+        }
+    }
+
+    private func endAllPTT(reason: String) {
+        let wasPressed = isPTTPressed
+        activePTTSources.removeAll()
+        if wasPressed {
+            os_log("PTT UP (%{public}@)", log: log, type: .info, reason)
+            NotificationCenter.default.post(name: HeadMotionManager.pttUpNotification, object: nil)
+        }
+        updateNowPlayingInfo()
     }
 
     private func eligibleHotZoneGesturesForRecognition() -> [RecordedHeadGesture] {
@@ -2060,6 +2100,7 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     private func trackHotZoneRecognition(now: Date, cursorLocation: CGPoint?, source: HotZoneInputSource) {
+        guard !isGloballyPausedForIdle else { return }
         guard !isHeadGestureRecording else { return }
         guard now.timeIntervalSince(lastHeadGestureTriggerAt) >= 0.75 else { return }
         guard let cursorLocation else {
@@ -2643,6 +2684,7 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     private func trackRecordedHeadGestureCandidate(yaw: Double, pitch: Double, now: Date, cursorLocation: CGPoint?) {
+        guard !isGloballyPausedForIdle else { return }
         guard !isHeadGestureRecording else { return }
         guard now.timeIntervalSince(lastHeadGestureTriggerAt) >= 1.25 else { return }
         let enabledGestures = eligibleHeadGesturesForRecognition()
@@ -4505,6 +4547,7 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     func toggleRecognitionInputControlMode(source: String = "hotkey", persist: Bool = true) {
+        guard !isGloballyPausedForIdle else { return }
         let currentlyTyping = HUDManager.shared.lastKnownTypingState()
         let currentResolvedMode = resolvedRecognitionControlMode(currentlyTyping: currentlyTyping)
         let nextMode: RecognitionControlMode = (currentResolvedMode == .command) ? .dictation : .command
@@ -4622,6 +4665,7 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     private func performHeadsetAction(_ action: HotkeyAction, source: String) {
+        guard !isGloballyPausedForIdle else { return }
         switch action {
         case .toggleTracking:
             performTrackingToggle(source: source)
@@ -4949,6 +4993,10 @@ class HeadMotionManager: ObservableObject {
                 } else {
                     GlobalLogger.lifecycle.error("HeadMotionManager: Event tap disabled (\(type.rawValue)); tap ref missing.")
                 }
+                return Unmanaged.passUnretained(event)
+            }
+
+            if manager.isGloballyPausedForIdle {
                 return Unmanaged.passUnretained(event)
             }
             
