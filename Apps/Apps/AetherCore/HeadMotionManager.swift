@@ -417,6 +417,7 @@ class HeadMotionManager: ObservableObject {
         var hoveredDirection: HeadGestureDirection?
         var hoveredEnteredAt: Date?
         var hoveredProgress: CGFloat = 0
+        var rearmRequiredDirection: HeadGestureDirection?
     }
 
     private struct GestureTemplateSummary {
@@ -2097,7 +2098,8 @@ class HeadMotionManager: ObservableObject {
                 screenFrame: screenFrame,
                 hoveredDirection: nil,
                 hoveredEnteredAt: nil,
-                hoveredProgress: 0
+                hoveredProgress: 0,
+                rearmRequiredDirection: nil
             )
         }
 
@@ -2106,6 +2108,27 @@ class HeadMotionManager: ObservableObject {
         guard shouldReveal else {
             resetHeadGestureRecognition()
             return
+        }
+
+        if let rearmDirection = session.rearmRequiredDirection,
+           let rearmTarget = targets.first(where: { $0.direction == rearmDirection }) {
+            let rearmDistance = hypot(cursorLocation.x - rearmTarget.globalCenter.x, cursorLocation.y - rearmTarget.globalCenter.y)
+            if rearmDistance > (hotZoneRevealDistance + hotZoneTargetRadius) {
+                session.rearmRequiredDirection = nil
+            } else {
+                session.hoveredDirection = rearmDirection
+                session.hoveredEnteredAt = nil
+                session.hoveredProgress = 1
+                activeHotZoneSession = session
+                showHotZoneGuide(
+                    screenFrame: screenFrame,
+                    targets: targets,
+                    hoveredDirection: session.hoveredDirection,
+                    branchProgressByDirection: session.hoveredDirection.map { [$0: session.hoveredProgress] } ?? [:],
+                    status: ""
+                )
+                return
+            }
         }
 
         if let guidedState = hotZoneGuidedState(
@@ -2125,7 +2148,11 @@ class HeadMotionManager: ObservableObject {
                let gesture = gestures.first(where: { recordedHotZoneDirection(for: $0) == guidedState.direction }) {
                 let sample = HeadGestureSample(at: now, yaw: 0, pitch: 0, cursorLocation: cursorLocation)
                 lastHeadGestureTriggerAt = now
-                activeHotZoneSession = nil
+                session.rearmRequiredDirection = guidedState.direction
+                session.hoveredDirection = guidedState.direction
+                session.hoveredEnteredAt = nil
+                session.hoveredProgress = 1
+                activeHotZoneSession = session
                 fireMatchedHeadGesture(GestureMatch(gesture: gesture, score: 1.0), duration: hotZoneTargetDwellDuration, samples: [sample])
                 return
             }
