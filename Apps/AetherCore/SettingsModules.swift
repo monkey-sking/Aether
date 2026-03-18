@@ -1951,6 +1951,10 @@ private struct CustomAppShortcutRuleRow: View {
         return bundleIDs.map(SpeechAppMetaStore.name(for:)).joined(separator: " · ")
     }
 
+    private var isChinese: Bool {
+        AppLocalization.isChinese
+    }
+
     private var aliasPreview: String {
         let aliases = rule.effectiveAliases
         return aliases.prefix(3).joined(separator: " / ")
