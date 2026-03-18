@@ -2172,7 +2172,9 @@ final class SpeechManager: ObservableObject {
 
     // MARK: - handleTranscript (unified finalization)
     private func handleTranscript(_ transcript: String, utteranceID: Int? = nil) {
-        let rawTrimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawTrimmed = canonicalizedExplicitCommandPrefixText(
+            transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         guard !rawTrimmed.isEmpty else { return }
         noteHandsFreeHUDActivity()
 
@@ -2267,7 +2269,7 @@ final class SpeechManager: ObservableObject {
         if typingContext,
            featureAvailability.commandEnabled,
            isExplicitCommandPrefixOnly(textToRoute) {
-            armPendingExplicitCommandPrefix()
+            armPendingExplicitCommandPrefix(reason: "prefix-only-transcript")
             status = NSLocalizedString("speech.waiting_command", comment: "")
             clearHUDOverride()
             refreshContinuousHUD(isDictating: false)
@@ -2342,10 +2344,13 @@ final class SpeechManager: ObservableObject {
         }
         let isForcedCommandMiss = decision.reason == "forced-command-no-match"
         if consumedExplicitCommandPrefix && isForcedCommandMiss {
-            armPendingExplicitCommandPrefix()
+            armPendingExplicitCommandPrefix(reason: "forced-command-miss")
             GlobalLogger.router.info(
                 "[Route] re-armed pending explicit command prefix after forced-command miss transcript='\(textToRoute)'"
             )
+        }
+        if case .toggleInputControlMode = intent {
+            armPendingExplicitCommandPrefix(reason: "mode-switch-follow-up")
         }
         if !isAlwaysListeningEnabled,
            recognitionControlMode != .command,
@@ -3427,7 +3432,9 @@ final class SpeechManager: ObservableObject {
     }
 
     private func partialHasExplicitCommandPrefix(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = canonicalizedExplicitCommandPrefixText(
+            text.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         guard !trimmed.isEmpty else { return false }
 
         let prefixes = VoiceCommandRouter.effectiveCommandPrefixes(
@@ -3447,7 +3454,9 @@ final class SpeechManager: ObservableObject {
     }
 
     private func partialMayBecomeExplicitCommandPrefix(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = canonicalizedExplicitCommandPrefixText(
+            text.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         guard !trimmed.isEmpty else { return false }
 
         let prefixes = VoiceCommandRouter.effectiveCommandPrefixes(
@@ -3467,7 +3476,9 @@ final class SpeechManager: ObservableObject {
     }
 
     private func isExplicitCommandPrefixOnly(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let trimmed = canonicalizedExplicitCommandPrefixText(
+            text.trimmingCharacters(in: .whitespacesAndNewlines)
+        ).lowercased()
         guard !trimmed.isEmpty else { return false }
 
         return VoiceCommandRouter.effectiveCommandPrefixes(
@@ -3481,6 +3492,11 @@ final class SpeechManager: ObservableObject {
     private func armPendingExplicitCommandPrefix() {
         pendingExplicitCommandPrefixExpiry = Date().addingTimeInterval(pendingExplicitCommandPrefixWindow)
         GlobalLogger.router.info("[Route] armed pending explicit command prefix window")
+    }
+
+    private func armPendingExplicitCommandPrefix(reason: String) {
+        pendingExplicitCommandPrefixExpiry = Date().addingTimeInterval(pendingExplicitCommandPrefixWindow)
+        GlobalLogger.router.info("[Route] armed pending explicit command prefix window reason=\(reason)")
     }
 
     private func consumePendingExplicitCommandPrefixIfNeeded() -> Bool {
@@ -3503,6 +3519,28 @@ final class SpeechManager: ObservableObject {
     private func resetTypingStateCache() {
         cachedTypingMode = false
         lastTypingCheckAt = .distantPast
+    }
+
+    private func canonicalizedExplicitCommandPrefixText(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, activeLocale.identifier.hasPrefix("zh") else { return trimmed }
+
+        let prefixes = VoiceCommandRouter.effectiveCommandPrefixes(
+            for: activeLocale.identifier,
+            overrides: commandRouter.languageTermsOverrides
+        )
+        guard prefixes.contains(where: { $0 == "执行" }) else { return trimmed }
+
+        let variants = ["直径", "致敬", "制景", "之景", "知景"]
+        for variant in variants {
+            if trimmed == variant {
+                return "执行"
+            }
+            if trimmed.hasPrefix(variant) {
+                return "执行" + trimmed.dropFirst(variant.count)
+            }
+        }
+        return trimmed
     }
 
     private func shouldWaitForInputFocusBeforeContinuousDictationStart(

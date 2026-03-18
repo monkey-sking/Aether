@@ -366,6 +366,8 @@ class HeadMotionManager: ObservableObject {
         var gestureIDs: Set<UUID>
         var startedAt: Date
         var lastAdvancedAt: Date
+        var committedCursorPoints: [CGPoint]
+        var branchAnchorCursorPoint: CGPoint
     }
 
     private struct GestureTemplateSummary {
@@ -1738,11 +1740,17 @@ class HeadMotionManager: ObservableObject {
             guard let firstDirection = sequence.first else { return }
             let matching = sequenceVariants.filter { $0.sequence.first == firstDirection }
             guard !matching.isEmpty else { return }
+            let committedCursorPoints = stabilizedOverlayCursorPoints(
+                from: recentHeadGestureSamples.compactMap(\.cursorLocation)
+            )
+            let anchorPoint = committedCursorPoints.last ?? cursorLocation ?? currentSystemCursorLocation() ?? .zero
             activeStepGestureSession = ActiveStepGestureSession(
                 prefix: [firstDirection],
                 gestureIDs: Set(matching.map(\.gesture.id)),
                 startedAt: now,
-                lastAdvancedAt: now
+                lastAdvancedAt: now,
+                committedCursorPoints: committedCursorPoints,
+                branchAnchorCursorPoint: anchorPoint
             )
         }
 
@@ -1771,6 +1779,15 @@ class HeadMotionManager: ObservableObject {
             session.prefix.append(nextDirection)
             session.gestureIDs = Set(advancedMatches.map(\.gesture.id))
             session.lastAdvancedAt = now
+            let committedCursorPoints = stabilizedOverlayCursorPoints(
+                from: recentHeadGestureSamples
+                    .filter { $0.at >= session.startedAt }
+                    .compactMap(\.cursorLocation)
+            )
+            if !committedCursorPoints.isEmpty {
+                session.committedCursorPoints = committedCursorPoints
+                session.branchAnchorCursorPoint = committedCursorPoints.last ?? session.branchAnchorCursorPoint
+            }
         }
 
         activeStepGestureSession = session
@@ -1787,7 +1804,8 @@ class HeadMotionManager: ObservableObject {
         showSequenceGuide(
             prefix: session.prefix,
             branches: branches,
-            cursorLocation: cursorLocation,
+            cursorLocation: session.branchAnchorCursorPoint,
+            completedCursorPoints: session.committedCursorPoints,
             highlightedDirection: sequence.last
         )
 
@@ -2508,10 +2526,17 @@ class HeadMotionManager: ObservableObject {
         prefix: [HeadGestureDirection],
         branches: [GestureBranchSummary],
         cursorLocation: CGPoint?,
+        completedCursorPoints: [CGPoint],
         highlightedDirection: HeadGestureDirection?
     ) {
         guard let cursorLocation,
-              let guide = overlayGuideLayout(prefix: prefix, branches: branches, cursorLocation: cursorLocation, highlightedDirection: highlightedDirection) else {
+              let guide = overlayGuideLayout(
+                prefix: prefix,
+                branches: branches,
+                cursorLocation: cursorLocation,
+                completedCursorPoints: completedCursorPoints,
+                highlightedDirection: highlightedDirection
+              ) else {
             headGestureOverlayController.hide(after: 0.05)
             return
         }
@@ -2528,6 +2553,7 @@ class HeadMotionManager: ObservableObject {
         prefix: [HeadGestureDirection],
         branches: [GestureBranchSummary],
         cursorLocation: CGPoint,
+        completedCursorPoints: [CGPoint],
         highlightedDirection: HeadGestureDirection?
     ) -> (completed: [HeadGestureOverlayPoint], branches: [HeadGestureOverlayBranch])? {
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(cursorLocation) })
@@ -2540,15 +2566,12 @@ class HeadMotionManager: ObservableObject {
         )
         let stepLength: CGFloat = 78
 
-        var completedPath: [CGPoint] = [center]
-        var running = center
-        for direction in prefix.reversed() {
-            let vector = overlayVector(for: direction, length: stepLength)
-            running = CGPoint(x: running.x - vector.dx, y: running.y - vector.dy)
-            completedPath.insert(running, at: 0)
+        let completed = completedCursorPoints.map { point in
+            HeadGestureOverlayPoint(
+                x: point.x - screen.frame.minX,
+                y: screen.frame.height - (point.y - screen.frame.minY)
+            )
         }
-
-        let completed = completedPath.map { HeadGestureOverlayPoint(x: $0.x, y: $0.y) }
         let overlayBranches = branches.map { branch in
             let vector = overlayVector(for: branch.direction, length: stepLength)
             let endPoint = CGPoint(x: center.x + vector.dx, y: center.y + vector.dy)
