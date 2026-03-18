@@ -2564,7 +2564,7 @@ class HeadMotionManager: ObservableObject {
             x: cursorLocation.x - screen.frame.minX,
             y: screen.frame.height - (cursorLocation.y - screen.frame.minY)
         )
-        let stepLength: CGFloat = 78
+        let stepLength: CGFloat = 132
 
         let completed = completedCursorPoints.map { point in
             HeadGestureOverlayPoint(
@@ -2575,13 +2575,25 @@ class HeadMotionManager: ObservableObject {
         let overlayBranches = branches.map { branch in
             let vector = overlayVector(for: branch.direction, length: stepLength)
             let endPoint = CGPoint(x: center.x + vector.dx, y: center.y + vector.dy)
+            let labelOffset: CGPoint = switch branch.direction {
+            case .up:
+                CGPoint(x: 0, y: -26)
+            case .down:
+                CGPoint(x: 0, y: 26)
+            case .left:
+                CGPoint(x: -62, y: 0)
+            case .right:
+                CGPoint(x: 62, y: 0)
+            }
             return HeadGestureOverlayBranch(
                 points: [
                     HeadGestureOverlayPoint(x: center.x, y: center.y),
                     HeadGestureOverlayPoint(x: endPoint.x, y: endPoint.y)
                 ],
                 label: branch.label,
-                highlighted: branch.direction == highlightedDirection
+                highlighted: branch.direction == highlightedDirection,
+                labelOffsetX: labelOffset.x,
+                labelOffsetY: labelOffset.y
             )
         }
         return (completed, overlayBranches)
@@ -4423,6 +4435,8 @@ private struct HeadGestureOverlayBranch: Equatable {
     let points: [HeadGestureOverlayPoint]
     let label: String
     let highlighted: Bool
+    let labelOffsetX: CGFloat
+    let labelOffsetY: CGFloat
 }
 
 private enum HeadGestureOverlayEmphasis {
@@ -4631,11 +4645,17 @@ private struct HeadGestureSequenceGuideView: View {
                         .stroke(
                             branch.highlighted
                                 ? Color.cyan.opacity(0.95)
-                                : Color.white.opacity(0.45),
-                            style: StrokeStyle(lineWidth: branch.highlighted ? 10 : 8, lineCap: .round, lineJoin: .round, dash: [10, 10])
+                                : Color.white.opacity(0.68),
+                            style: StrokeStyle(lineWidth: branch.highlighted ? 10 : 8, lineCap: .round, lineJoin: .round, dash: [14, 10])
                         )
 
                         if let end = branch.points.last {
+                            Circle()
+                                .fill(branch.highlighted ? Color.cyan.opacity(0.96) : Color.white.opacity(0.9))
+                                .frame(width: branch.highlighted ? 14 : 12, height: branch.highlighted ? 14 : 12)
+                                .shadow(color: .white.opacity(0.22), radius: 8)
+                                .position(map(end, in: proxy.size))
+
                             Text(branch.label)
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(branch.highlighted ? .white : .white.opacity(0.78))
@@ -4643,7 +4663,14 @@ private struct HeadGestureSequenceGuideView: View {
                                 .padding(.vertical, 5)
                                 .background(.ultraThinMaterial.opacity(branch.highlighted ? 0.72 : 0.56))
                                 .clipShape(Capsule())
-                                .position(labelPosition(for: map(end, in: proxy.size), in: proxy.size))
+                                .position(
+                                    labelPosition(
+                                        for: map(end, in: proxy.size),
+                                        offsetX: branch.labelOffsetX,
+                                        offsetY: branch.labelOffsetY,
+                                        in: proxy.size
+                                    )
+                                )
                         }
                     }
                 }
@@ -4658,15 +4685,15 @@ private struct HeadGestureSequenceGuideView: View {
 
                 if !status.isEmpty, let current = completed.last {
                     Text(status)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.92))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.ultraThinMaterial.opacity(0.62))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.78))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.ultraThinMaterial.opacity(0.36))
                         .clipShape(Capsule())
                         .position(
-                            x: min(max(map(current, in: proxy.size).x, 70), max(proxy.size.width - 70, 70)),
-                            y: max(map(current, in: proxy.size).y - 34, 24)
+                            x: min(max(map(current, in: proxy.size).x, 54), max(proxy.size.width - 54, 54)),
+                            y: max(map(current, in: proxy.size).y - 26, 20)
                         )
                 }
             }
@@ -4680,10 +4707,10 @@ private struct HeadGestureSequenceGuideView: View {
         )
     }
 
-    private func labelPosition(for endPoint: CGPoint, in size: CGSize) -> CGPoint {
-        CGPoint(
-            x: min(max(endPoint.x, 64), max(size.width - 64, 64)),
-            y: min(max(endPoint.y - 24, 20), max(size.height - 20, 20))
+    private func labelPosition(for endPoint: CGPoint, offsetX: CGFloat, offsetY: CGFloat, in size: CGSize) -> CGPoint {
+        return CGPoint(
+            x: min(max(endPoint.x + offsetX, 72), max(size.width - 72, 72)),
+            y: min(max(endPoint.y + offsetY, 20), max(size.height - 20, 20))
         )
     }
 }

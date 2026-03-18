@@ -518,7 +518,7 @@ final class SpeechManager: ObservableObject {
             blockDictationWithoutInput = true
         }
 
-        if typingContext && commandEnabled && consumeExplicitCommandPrefix {
+        if commandEnabled && consumeExplicitCommandPrefix {
             routingBias = .forceCommand
             blockDictationWithoutInput = false
         }
@@ -1770,9 +1770,12 @@ final class SpeechManager: ObservableObject {
         else if isStopping { refreshContinuousHUD() }
 
         // Dispatch to handler
+        let pendingExplicitCommandPrefix = hasPendingExplicitCommandPrefix()
         if sessionTypingMode && featureAvailability.dictationEnabled {
             if featureAvailability.commandEnabled,
-               (partialHasExplicitCommandPrefix(text) || partialMayBecomeExplicitCommandPrefix(text)) {
+               (pendingExplicitCommandPrefix
+                || partialHasExplicitCommandPrefix(text)
+                || partialMayBecomeExplicitCommandPrefix(text)) {
                 commandHandler.onPartial(text)
             } else {
                 dictationHandler.onPartial(text)
@@ -3497,6 +3500,15 @@ final class SpeechManager: ObservableObject {
     private func armPendingExplicitCommandPrefix(reason: String) {
         pendingExplicitCommandPrefixExpiry = Date().addingTimeInterval(pendingExplicitCommandPrefixWindow)
         GlobalLogger.router.info("[Route] armed pending explicit command prefix window reason=\(reason)")
+    }
+
+    private func hasPendingExplicitCommandPrefix() -> Bool {
+        guard let expiry = pendingExplicitCommandPrefixExpiry else { return false }
+        if Date() > expiry {
+            pendingExplicitCommandPrefixExpiry = nil
+            return false
+        }
+        return true
     }
 
     private func consumePendingExplicitCommandPrefixIfNeeded() -> Bool {
