@@ -403,129 +403,147 @@ struct AboutCenterView: View {
     @State private var emailInput: String = ""
     @State private var codeInput: String = ""
     @State private var referralInput: String = ""
+    @State private var devicesExpanded: Bool = false
+    private let actionColumns = [
+        GridItem(.flexible(minimum: 280), spacing: 16),
+        GridItem(.flexible(minimum: 280), spacing: 16)
+    ]
 
     private var isChinese: Bool { appState.isChineseUI }
+    private var appDisplayName: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: kCFBundleNameKey as String) as? String
+            ?? "Aether"
+    }
+
+    private var statusTint: Color {
+        licenseManager.isActivated ? .green : .secondary
+    }
+
+    private var latestVersionDisplay: String {
+        updaterManager.latestVersion ?? "-"
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                headerCard
-                subscriptionCard
-                activationCard
-                devicesCard
+        SettingsPage(
+            title: isChinese ? "关于" : "About",
+            subtitle: isChinese ? "这里只保留状态、授权和更新，技术细节不占首屏。" : "This page keeps only status, licensing, and updates on the first screen."
+        ) {
+            overviewCard
+
+            LazyVGrid(columns: actionColumns, alignment: .leading, spacing: 16) {
+                licenseCard
                 updatesCard
-                installNotesCard
+                supportCard
             }
-            .padding(24)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             emailInput = licenseManager.email
             codeInput = licenseManager.licenseKey
         }
     }
 
-    private var headerCard: some View {
-        card(title: isChinese ? "App 信息" : "App Info") {
-            LabeledContent(isChinese ? "版本" : "Version", value: appState.appVersionDisplay)
-            LabeledContent(isChinese ? "系统要求" : "System", value: "macOS 15.0+")
-            linkRow(title: isChinese ? "官网" : "Website", key: "AetherWebsiteURL", fallback: "https://aether.app")
-            linkRow(title: isChinese ? "下载页" : "Downloads", key: "AetherDownloadPageURL", fallback: "https://aether.app/download")
-            linkRow(title: isChinese ? "更新日志" : "Changelog", key: "AetherChangelogURL", fallback: "https://aether.app/changelog")
+    private var overviewCard: some View {
+        GlassCard(padding: 18) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.14))
+                            .frame(width: 52, height: 52)
+
+                        Image(systemName: "app.connected.to.app.below.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(appDisplayName)
+                            .font(.title2.weight(.bold))
+                        Text(isChinese ? "当前应用状态" : "Current App Status")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    statusBadge(licenseManager.statusSummary, tint: statusTint)
+                }
+
+                LazyVGrid(columns: actionColumns, alignment: .leading, spacing: 10) {
+                    metricTile(title: isChinese ? "版本" : "Version", value: appState.appVersionDisplay)
+                    metricTile(title: isChinese ? "方案" : "Plan", value: licenseManager.planSummary)
+                    metricTile(title: isChinese ? "设备占用" : "Devices", value: "\(licenseManager.devicesUsed) / \(licenseManager.maxDevices)")
+                    metricTile(title: isChinese ? "最新版本" : "Latest Version", value: latestVersionDisplay)
+                }
+            }
         }
     }
 
-    private var subscriptionCard: some View {
-        card(title: isChinese ? "订阅状态" : "Subscription Status") {
-            LabeledContent(isChinese ? "当前状态" : "Status", value: licenseManager.statusSummary)
+    private var licenseCard: some View {
+        infoCard(title: isChinese ? "授权" : "License") {
+            HStack(alignment: .firstTextBaseline) {
+                Text(isChinese ? "当前状态" : "Current Status")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                statusBadge(licenseManager.statusSummary, tint: statusTint)
+            }
             LabeledContent(isChinese ? "方案" : "Plan", value: licenseManager.planSummary)
             LabeledContent(isChinese ? "试用截止" : "Trial ends", value: licenseManager.trialEndsAt ?? "-")
             LabeledContent(isChinese ? "订阅截止" : "Subscription ends", value: licenseManager.subscriptionEndsAt ?? "-")
-            LabeledContent(isChinese ? "设备占用" : "Devices", value: "\(licenseManager.devicesUsed) / \(licenseManager.maxDevices)")
             if let referralCode = licenseManager.referralCode, !referralCode.isEmpty {
                 LabeledContent(isChinese ? "我的邀请码" : "My referral code", value: referralCode)
             }
             Divider()
+            Text(isChinese ? "输入邮箱与激活码后可恢复授权；没有激活码时可直接开始试用。" : "Use your email and activation code to restore access, or start a trial if you do not have one yet.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             TextField(isChinese ? "邮箱" : "Email", text: $emailInput)
                 .textFieldStyle(.roundedBorder)
+                .controlSize(.regular)
+            TextField(isChinese ? "激活码" : "Activation code", text: $codeInput)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.regular)
             TextField(isChinese ? "邀请码（可选）" : "Referral code (optional)", text: $referralInput)
                 .textFieldStyle(.roundedBorder)
+                .controlSize(.regular)
             HStack {
+                Button(isChinese ? "激活" : "Activate") {
+                    Task { await licenseManager.activate(email: emailInput, code: codeInput) }
+                }
+                .buttonStyle(.borderedProminent)
                 Button(isChinese ? "开始试用" : "Start Trial") {
                     Task {
                         await licenseManager.startTrial(email: emailInput, referralCode: referralInput.isEmpty ? nil : referralInput)
                         codeInput = licenseManager.licenseKey
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                Button(isChinese ? "刷新状态" : "Refresh") {
-                    Task { await licenseManager.refreshEntitlement() }
-                }
-            }
-        }
-    }
-
-    private var activationCard: some View {
-        card(title: isChinese ? "激活中心" : "Activation") {
-            TextField(isChinese ? "邮箱" : "Email", text: $emailInput)
-                .textFieldStyle(.roundedBorder)
-            TextField(isChinese ? "激活码" : "Activation code", text: $codeInput)
-                .textFieldStyle(.roundedBorder)
-            HStack {
-                Button(isChinese ? "激活" : "Activate") {
-                    Task { await licenseManager.activate(email: emailInput, code: codeInput) }
-                }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
                 Button(isChinese ? "重发邮件" : "Resend Email") {
                     Task { await licenseManager.resendActivation(email: emailInput) }
                 }
+                .buttonStyle(.bordered)
+                Button(isChinese ? "刷新状态" : "Refresh") {
+                    Task { await licenseManager.refreshEntitlement() }
+                }
+                .buttonStyle(.bordered)
             }
+            .controlSize(.small)
             if let info = licenseManager.infoMessage, !info.isEmpty {
-                Text(info).foregroundStyle(.secondary)
+                Text(info)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             if let error = licenseManager.lastErrorMessage, !error.isEmpty {
-                Text(error).foregroundStyle(.red)
-            }
-        }
-    }
-
-    private var devicesCard: some View {
-        card(title: isChinese ? "设备管理" : "Devices") {
-            if licenseManager.devices.isEmpty {
-                Text(isChinese ? "当前没有已同步的设备信息。" : "No synced devices yet.")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(licenseManager.devices) { device in
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(device.name).font(.headline)
-                            Text(device.isCurrent ? (isChinese ? "当前设备" : "Current device") : (isChinese ? "其他设备" : "Other device"))
-                                .foregroundStyle(.secondary)
-                            Text("\(isChinese ? "激活于" : "Activated") \(device.activatedAt ?? "-")")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("\(isChinese ? "最近在线" : "Last seen") \(device.lastSeenAt ?? "-")")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button(isChinese ? "移除" : "Remove") {
-                            Task { await licenseManager.removeDevice(deviceId: device.id) }
-                        }
-                    }
-                    if device.id != licenseManager.devices.last?.id {
-                        Divider()
-                    }
-                }
-            }
-            Button(isChinese ? "刷新设备列表" : "Refresh devices") {
-                Task { await licenseManager.fetchDevices() }
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
         }
     }
 
     private var updatesCard: some View {
-        card(title: isChinese ? "更新渠道" : "Updates") {
+        infoCard(title: isChinese ? "更新" : "Updates") {
             Picker(isChinese ? "渠道" : "Channel", selection: Binding(
                 get: { updaterManager.channel },
                 set: {
@@ -537,9 +555,13 @@ struct AboutCenterView: View {
                 Text("Beta").tag(AetherUpdateChannel.beta)
             }
             .pickerStyle(.segmented)
+            .controlSize(.small)
 
-            LabeledContent(isChinese ? "当前 Feed" : "Current feed", value: updaterManager.feedURLString)
-            LabeledContent(isChinese ? "最新版本" : "Latest version", value: updaterManager.latestVersion ?? "-")
+            LabeledContent(isChinese ? "最新版本" : "Latest version", value: latestVersionDisplay)
+            LabeledContent(
+                isChinese ? "更新状态" : "Update status",
+                value: updaterManager.statusMessage.isEmpty ? "-" : updaterManager.statusMessage
+            )
 
             HStack {
                 Button(isChinese ? "检查更新" : "Check for Updates") {
@@ -549,50 +571,132 @@ struct AboutCenterView: View {
                 Button(isChinese ? "打开下载" : "Open Download") {
                     updaterManager.openLatestDownload()
                 }
+                .buttonStyle(.bordered)
             }
-
-            if !updaterManager.statusMessage.isEmpty {
-                Text(updaterManager.statusMessage).foregroundStyle(.secondary)
-            }
+            .controlSize(.small)
         }
     }
 
-    private var installNotesCard: some View {
-        card(title: isChinese ? "下载与更新说明" : "Install Notes") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(isChinese ? "1. 首次安装请将 App 拖到 /Applications 后再授予权限。" : "1. Move the app into /Applications before granting permissions.")
-                Text(isChinese ? "2. 正式版和 Beta 使用不同的 feed 与下载地址。" : "2. Stable and Beta use different feeds and download URLs.")
-                Text(isChinese ? "3. Beta 面向所有用户开放，但稳定性会低于正式版。" : "3. Beta is public, but stability is lower than Stable.")
+    private var supportCard: some View {
+        infoCard(title: isChinese ? "支持" : "Support") {
+            HStack(spacing: 8) {
+                linkButton(title: isChinese ? "官网" : "Website", key: "AetherWebsiteURL", fallback: "https://aether.app")
+                linkButton(title: isChinese ? "下载页" : "Downloads", key: "AetherDownloadPageURL", fallback: "https://aether.app/download")
+                linkButton(title: isChinese ? "更新日志" : "Changelog", key: "AetherChangelogURL", fallback: "https://aether.app/changelog")
             }
-            .foregroundStyle(.secondary)
+            .controlSize(.small)
+
+            Divider()
+
+            DisclosureGroup(isExpanded: $devicesExpanded) {
+                VStack(alignment: .leading, spacing: 12) {
+                    if licenseManager.devices.isEmpty {
+                        Text(isChinese ? "当前没有已同步的设备信息。" : "No synced devices yet.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(licenseManager.devices) { device in
+                            HStack(alignment: .top, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(device.name).font(.headline)
+                                    Text(device.isCurrent ? (isChinese ? "当前设备" : "Current device") : (isChinese ? "其他设备" : "Other device"))
+                                        .foregroundStyle(.secondary)
+                                    Text("\(isChinese ? "激活于" : "Activated") \(device.activatedAt ?? "-")")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text("\(isChinese ? "最近在线" : "Last seen") \(device.lastSeenAt ?? "-")")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button(isChinese ? "移除" : "Remove") {
+                                    Task { await licenseManager.removeDevice(deviceId: device.id) }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                            if device.id != licenseManager.devices.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                    Button(isChinese ? "刷新设备列表" : "Refresh devices") {
+                        Task { await licenseManager.fetchDevices() }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                .padding(.top, 6)
+            } label: {
+                disclosureLabel(
+                    title: isChinese ? "设备管理" : "Device Management",
+                    trailing: "\(licenseManager.devices.count)"
+                )
+            }
+            .controlSize(.small)
         }
     }
 
-    private func card<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func infoCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        GlassCard(padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+    }
+
+    private func metricTile(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.title3.weight(.semibold))
-            content()
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.headline.monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.86)
         }
-        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private func linkRow(title: String, key: String, fallback: String) -> some View {
+    private func statusBadge(_ title: String, tint: Color) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(tint.opacity(0.14))
+            .foregroundStyle(tint)
+            .clipShape(Capsule())
+    }
+
+    private func disclosureLabel(title: String, trailing: String) -> some View {
         HStack {
             Text(title)
+                .font(.body.weight(.semibold))
             Spacer()
-            Button(Bundle.main.object(forInfoDictionaryKey: key) as? String ?? fallback) {
-                let value = Bundle.main.object(forInfoDictionaryKey: key) as? String ?? fallback
-                if let url = URL(string: value) {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-            .buttonStyle(.link)
+            Text(trailing)
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.accentColor.opacity(0.12))
+                .foregroundStyle(Color.accentColor)
+                .clipShape(Capsule())
         }
+    }
+
+    private func linkButton(title: String, key: String, fallback: String) -> some View {
+        Button(title) {
+            let value = Bundle.main.object(forInfoDictionaryKey: key) as? String ?? fallback
+            if let url = URL(string: value) {
+                NSWorkspace.shared.open(url)
+            }
+        }
+        .buttonStyle(.bordered)
     }
 }

@@ -168,11 +168,18 @@ struct SidebarSectionHeader: View {
     let title: LocalizedStringKey
 
     var body: some View {
-        Text(title)
-            .font(AetherUI.sectionHeaderFont)
-            .foregroundStyle(.secondary)
-            .textCase(nil)
-            .tracking(0.2)
+        HStack(spacing: 8) {
+            Capsule()
+                .fill(Color.accentColor.opacity(0.75))
+                .frame(width: 4, height: 14)
+
+            Text(title)
+                .font(AetherUI.sectionHeaderFont)
+                .foregroundStyle(.secondary)
+                .textCase(nil)
+                .tracking(0.2)
+        }
+        .padding(.top, 4)
     }
 }
 
@@ -202,7 +209,7 @@ struct SidebarItemLabel: View {
                 Image(systemName: systemImage)
                     .font(.system(size: AetherUI.sidebarIconSize, weight: .semibold))
                     .frame(width: AetherUI.sidebarIconFrame, alignment: .center)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.secondary)
             }
 
             Text(title)
@@ -210,7 +217,42 @@ struct SidebarItemLabel: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
+    }
+}
+
+struct SettingsPageHero<HeaderTrailing: View>: View {
+    let title: String
+    let subtitle: String
+    let headerTrailing: HeaderTrailing
+
+    init(
+        title: String,
+        subtitle: String,
+        @ViewBuilder headerTrailing: () -> HeaderTrailing
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.headerTrailing = headerTrailing()
+    }
+
+    var body: some View {
+        GlassCard(padding: 18) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
+                        .font(AetherUI.pageTitleFont)
+                    Text(subtitle)
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                headerTrailing
+            }
+        }
     }
 }
 
@@ -368,20 +410,8 @@ struct SettingsPage<Content: View, HeaderTrailing: View, FooterOverlay: View>: V
     private var baseContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if showsInlineHeader {
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(title)
-                                .font(AetherUI.pageTitleFont)
-                            Text(subtitle)
-                                .font(.callout)
-                                .foregroundColor(.secondary)
-                        }
-
-                        Spacer()
-
-                        headerTrailing
-                    }
+                SettingsPageHero(title: title, subtitle: subtitle) {
+                    headerTrailing
                 }
 
                 content
@@ -427,18 +457,8 @@ struct SettingsPage<Content: View, HeaderTrailing: View, FooterOverlay: View>: V
 
     @ViewBuilder
     var body: some View {
-        if showsInlineHeader {
-            baseContent
-                .navigationTitle(title)
-        } else {
-            baseContent
-                .navigationTitle(title)
-                .toolbar {
-                    ToolbarItem(placement: .automatic) {
-                        headerTrailing
-                    }
-                }
-        }
+        baseContent
+            .navigationTitle(title)
     }
 }
 

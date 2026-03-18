@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Xcode user data
+xcuserdata/
+*.xcuserstate
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.xccheckout
+*.moved-aside
+*.hmap
+
+# Build outputs
+.build/
+build/
+DerivedData/
+.derivedData/
+*.ipa
+build*.log
+
+# Local signing / release material
+signing/
+*.provisionprofile
+
+# Local references and generated artifacts
+References/

@@ -25,57 +25,64 @@ struct AetherMainView: View {
         case shortcuts
     }
 
-    private var currentPanel: Panel {
-        selection ?? .overview
-    }
-
     var body: some View {
         NavigationSplitView {
-            List(selection: $selection) {
-                Section {
-                    NavigationLink(value: Panel.overview) {
-                        panelLabel(.overview)
-                    }
-                } header: {
-                    SidebarSectionHeader(title: LocalizedStringKey("main.section.workspace"))
-                }
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color.accentColor.opacity(0.08),
+                        Color.clear
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
 
-                Section {
-                    NavigationLink(value: Panel.about) {
-                        panelLabel(.about)
+                List(selection: $selection) {
+                    Section {
+                        NavigationLink(value: Panel.overview) {
+                            panelLabel(.overview)
+                        }
+                    } header: {
+                        SidebarSectionHeader(title: LocalizedStringKey("main.section.workspace"))
                     }
-                } header: {
-                    SidebarSectionHeader(title: LocalizedStringKey("main.section.app"))
-                }
 
-                Section {
-                    NavigationLink(value: Panel.voiceLexicon) {
-                        panelLabel(.voiceLexicon)
+                    Section {
+                        NavigationLink(value: Panel.headGestures) {
+                            panelLabel(.headGestures)
+                        }
+                        NavigationLink(value: Panel.shortcuts) {
+                            panelLabel(.shortcuts)
+                        }
+                    } header: {
+                        SidebarSectionHeader(title: LocalizedStringKey("main.section.controls"))
                     }
-                    NavigationLink(value: Panel.voiceAppControls) {
-                        panelLabel(.voiceAppControls)
-                    }
-                    NavigationLink(value: Panel.voiceInsights) {
-                        panelLabel(.voiceInsights)
-                    }
-                } header: {
-                    SidebarSectionHeader(title: LocalizedStringKey("main.section.voice"))
-                }
 
-                Section {
-                    NavigationLink(value: Panel.headGestures) {
-                        panelLabel(.headGestures)
+                    Section {
+                        NavigationLink(value: Panel.voiceAppControls) {
+                            panelLabel(.voiceAppControls)
+                        }
+                        NavigationLink(value: Panel.voiceInsights) {
+                            panelLabel(.voiceInsights)
+                        }
+                        NavigationLink(value: Panel.voiceLexicon) {
+                            panelLabel(.voiceLexicon)
+                        }
+                    } header: {
+                        SidebarSectionHeader(title: LocalizedStringKey("main.section.voice"))
                     }
-                    NavigationLink(value: Panel.shortcuts) {
-                        panelLabel(.shortcuts)
-                    }
-                } header: {
-                    SidebarSectionHeader(title: LocalizedStringKey("main.section.controls"))
-                }
 
+                    Section {
+                        NavigationLink(value: Panel.about) {
+                            panelLabel(.about)
+                        }
+                    } header: {
+                        SidebarSectionHeader(title: LocalizedStringKey("main.section.app"))
+                    }
+                }
+                .scrollContentBackground(.hidden)
+                .listStyle(.sidebar)
+                .environment(\.defaultMinListRowHeight, 44)
             }
-            .listStyle(.sidebar)
-            .environment(\.defaultMinListRowHeight, 40)
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
         } detail: {
             switch selection {
