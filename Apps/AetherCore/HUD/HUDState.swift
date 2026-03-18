@@ -18,6 +18,11 @@ enum HUDRecognitionControlMode: String {
 }
 
 final class HUDState: ObservableObject {
+    struct GestureTrailPoint: Equatable {
+        let x: CGFloat
+        let y: CGFloat
+    }
+
     @Published var mode: HUDMode = .hidden
     @Published var message: String = ""
     @Published var language: String = Locale.current.identifier
@@ -32,6 +37,9 @@ final class HUDState: ObservableObject {
     @Published var caretDebugIndicatorVisible: Bool = false
     @Published var caretDebugIndicatorColor: Color = .clear
     @Published var caretDebugIndicatorLabel: String = ""
+    @Published var gestureTrailPoints: [GestureTrailPoint] = []
+    @Published var gestureTrailStatus: String = ""
+    @Published var isGestureTrailVisible: Bool = false
 
     func update(
         mode: HUDMode,
@@ -47,5 +55,11 @@ final class HUDState: ObservableObject {
         self.isTypingContext = isTypingContext
         self.recognitionControlMode = recognitionControlMode
         self.inputDeviceIcon = inputDeviceIcon
+    }
+
+    func updateGestureTrail(points: [GestureTrailPoint], status: String, visible: Bool) {
+        gestureTrailPoints = points
+        gestureTrailStatus = status
+        isGestureTrailVisible = visible
     }
 }

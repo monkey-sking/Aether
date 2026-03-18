@@ -4,42 +4,76 @@ struct HUDView: View {
     @ObservedObject var state: HUDState
     
     var body: some View {
-        HStack(spacing: 8) {
-            switch state.mode {
-            case .hidden:
-                EmptyView()
+        VStack(alignment: .leading, spacing: state.isGestureTrailVisible ? 8 : 0) {
+            HStack(spacing: 8) {
+                switch state.mode {
+                case .hidden:
+                    EmptyView()
 
-            case .standby:
-                Circle()
-                    .fill(Color.green.opacity(0.8))
-                    .frame(width: 8, height: 8)
-                    .shadow(radius: 2)
-                if state.isLanguageIndicatorVisible {
-                    languageToggle(showDivider: true)
-                }
+                case .standby:
+                    Circle()
+                        .fill(Color.green.opacity(0.8))
+                        .frame(width: 8, height: 8)
+                        .shadow(radius: 2)
+                    if state.isLanguageIndicatorVisible {
+                        languageToggle(showDivider: true)
+                    }
 
-            case .listening:
-                micIcon
-                Text(state.message.isEmpty ? LocalizedStringKey("speech.listening") : LocalizedStringKey(state.message))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-                    .fixedSize()
-                contextIcon
-                if state.isLanguageIndicatorVisible {
-                    languageToggle(showDivider: true)
-                }
-
-            case .command:
-                if state.message.isEmpty {
+                case .listening:
                     micIcon
+                    Text(state.message.isEmpty ? LocalizedStringKey("speech.listening") : LocalizedStringKey(state.message))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+                        .fixedSize()
                     contextIcon
                     if state.isLanguageIndicatorVisible {
                         languageToggle(showDivider: true)
                     }
-                } else {
+
+                case .command:
+                    if state.message.isEmpty {
+                        micIcon
+                        contextIcon
+                        if state.isLanguageIndicatorVisible {
+                            languageToggle(showDivider: true)
+                        }
+                    } else {
+                        micIcon
+                        Text(state.message)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                            .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+                            .fixedSize()
+                        contextIcon
+                        if state.isLanguageIndicatorVisible {
+                            languageToggle(showDivider: true)
+                        }
+                    }
+
+                case .dictation:
                     micIcon
-                    Text(state.message)
+                    WaveformView(level: state.audioLevel)
+                    contextIcon
+                    if state.isLanguageIndicatorVisible {
+                        languageToggle(showDivider: true)
+                    }
+
+                case .dragging:
+                    micIcon
+                    Text(LocalizedStringKey("speech.dragging"))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+                        .fixedSize()
+                    contextIcon
+                    if state.isLanguageIndicatorVisible {
+                        languageToggle(showDivider: true)
+                    }
+
+                case .processing:
+                    micIcon
+                    Text(LocalizedStringKey("speech.recognizing"))
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
                         .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
@@ -49,37 +83,16 @@ struct HUDView: View {
                         languageToggle(showDivider: true)
                     }
                 }
+            }
 
-            case .dictation:
-                micIcon
-                WaveformView(level: state.audioLevel)
-                contextIcon
-                if state.isLanguageIndicatorVisible {
-                    languageToggle(showDivider: true)
-                }
-
-            case .dragging:
-                micIcon
-                Text(LocalizedStringKey("speech.dragging"))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-                    .fixedSize()
-                contextIcon
-                if state.isLanguageIndicatorVisible {
-                    languageToggle(showDivider: true)
-                }
-
-            case .processing:
-                micIcon
-                Text(LocalizedStringKey("speech.recognizing"))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-                    .fixedSize()
-                contextIcon
-                if state.isLanguageIndicatorVisible {
-                    languageToggle(showDivider: true)
+            if state.isGestureTrailVisible {
+                GestureTrailView(points: state.gestureTrailPoints)
+                    .frame(width: 172, height: 74)
+                if !state.gestureTrailStatus.isEmpty {
+                    Text(state.gestureTrailStatus)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.84))
+                        .fixedSize()
                 }
             }
         }
@@ -238,6 +251,58 @@ struct HUDView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+}
+
+private struct GestureTrailView: View {
+    let points: [HUDState.GestureTrailPoint]
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+
+                Path { path in
+                    guard let first = points.first else { return }
+                    let mappedFirst = map(first, in: proxy.size)
+                    path.move(to: mappedFirst)
+                    for point in points.dropFirst() {
+                        path.addLine(to: map(point, in: proxy.size))
+                    }
+                }
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.green.opacity(0.95), Color.cyan.opacity(0.85)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ),
+                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                )
+
+                if let first = points.first {
+                    Circle()
+                        .fill(Color.white.opacity(0.95))
+                        .frame(width: 6, height: 6)
+                        .position(map(first, in: proxy.size))
+                }
+                if let last = points.last {
+                    Circle()
+                        .fill(Color.green.opacity(0.95))
+                        .frame(width: 7, height: 7)
+                        .shadow(color: .green.opacity(0.4), radius: 4)
+                        .position(map(last, in: proxy.size))
+                }
+            }
+        }
+    }
+
+    private func map(_ point: HUDState.GestureTrailPoint, in size: CGSize) -> CGPoint {
+        let x = 10 + point.x * max(size.width - 20, 1)
+        let y = 10 + point.y * max(size.height - 20, 1)
+        return CGPoint(x: x, y: y)
     }
 }
 
