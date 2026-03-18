@@ -191,6 +191,7 @@ private struct OverviewDashboardView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var headManager = HeadMotionManager.shared
     @State private var readinessExpanded: Bool = false
+    private var isChinese: Bool { AppLocalization.isChinese }
 
     private let columns = [
         GridItem(.flexible(minimum: 280), spacing: 16),
@@ -288,12 +289,20 @@ private struct OverviewDashboardView: View {
                 OverviewFooterControls()
             }
         ) {
+            Text(isChinese ? "准备度" : "Readiness")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.secondary)
+
             OverviewReadinessCard(
                 setupItems: setupItems,
                 isCollapsed: readinessCanCollapse && !readinessExpanded,
                 canCollapse: readinessCanCollapse,
                 onToggle: { readinessExpanded.toggle() }
             )
+
+            Text(isChinese ? "核心功能" : "Core Features")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.secondary)
 
             LazyVGrid(columns: columns, spacing: 16) {
                 GlassCard {
@@ -381,8 +390,9 @@ private struct OverviewReadinessCard: View {
                         Text(String(localized: "main.readiness.subtitle"))
                             .font(.caption)
                             .foregroundColor(.secondary)
-                            .lineLimit(1)
+                            .lineLimit(2)
                             .truncationMode(.tail)
+                            .minimumScaleFactor(0.9)
                     }
                     Spacer()
                     OverviewStateTag(
@@ -427,6 +437,7 @@ private struct OverviewReadinessCard: View {
                                 } else if let actionTitle = item.actionTitle, let action = item.action {
                                     Button(actionTitle, action: action)
                                         .controlSize(.small)
+                                        .buttonStyle(.bordered)
                                 }
                             }
                             .padding(12)
@@ -525,7 +536,7 @@ private struct OverviewToggleTile: View {
     @Binding var isOn: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 ZStack {
                     Circle()
@@ -537,6 +548,7 @@ private struct OverviewToggleTile: View {
                 Spacer()
                 Toggle("", isOn: $isOn)
                     .labelsHidden()
+                    .controlSize(.small)
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -582,7 +594,7 @@ private struct PointerControlTile: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 16) {
                 DashboardTileHeader(
                     title: String(localized: "main.pointer.title"),
@@ -594,6 +606,7 @@ private struct PointerControlTile: View {
                 Toggle("", isOn: $isOn)
                     .labelsHidden()
                     .toggleStyle(.switch)
+                    .controlSize(.small)
             }
 
             VStack(spacing: 10) {
@@ -612,9 +625,9 @@ private struct PointerControlTile: View {
 
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(isChinese ? "鼠标静止后自动暂停" : "Pause After Mouse Idle")
+                        Text(isChinese ? "鼠标静止后暂停整个 App" : "Pause App After Mouse Idle")
                             .font(AetherUI.bodyFont)
-                        Text(isChinese ? "暂停整套功能，鼠标再次移动后恢复。" : "Pause the full feature set, then resume after mouse movement.")
+                        Text(isChinese ? "暂停头控、语音与快捷键，鼠标移动后恢复。" : "Pauses head tracking, voice, and shortcuts; resumes on movement.")
                             .font(AetherUI.captionFont)
                             .foregroundColor(.secondary)
                             .lineLimit(1)
@@ -775,7 +788,7 @@ private struct VoiceBasicsTile: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             DashboardTileHeader(
                 title: String(localized: "main.voice_basics.title"),
                 subtitle: String(localized: "main.voice_basics.subtitle"),
@@ -1094,7 +1107,7 @@ private struct VoiceFeatureToggleTile: View {
     @Binding var autoEnableOnHeadset: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 16) {
                 DashboardTileHeader(
                     title: title,
@@ -1106,6 +1119,7 @@ private struct VoiceFeatureToggleTile: View {
                 Toggle("", isOn: $isOn)
                     .labelsHidden()
                     .toggleStyle(.switch)
+                    .controlSize(.small)
             }
 
             inlineToggle(

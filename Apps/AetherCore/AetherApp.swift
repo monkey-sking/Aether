@@ -903,6 +903,7 @@ class AppState: ObservableObject {
     @Published var nowPlayingArtist: String = ""
     @Published var nowPlayingAlbum: String = ""
     @Published var nowPlayingStatus: String = "Idle"
+    @Published var isIdlePaused: Bool = false
     @Published var voiceActivationMode: VoiceActivationMode = AppState.loadActivationMode() {
         didSet {
             guard oldValue != voiceActivationMode else { return }
@@ -2069,14 +2070,15 @@ class AppState: ObservableObject {
         voiceService.onIntent = { [weak self] intent, appName, bundleIdentifier in
             guard let self else { return }
             DispatchQueue.main.async {
+                guard !self.isIdlePaused else { return }
                 self.applyVoiceIntent(intent, appName: appName, bundleIdentifier: bundleIdentifier)
             }
         }
         voiceService.isDictationExecutionEnabled = { [weak self] in
-            self?.isVoiceInputEnabled ?? true
+            (self?.isVoiceInputEnabled ?? true) && !(self?.isIdlePaused ?? false)
         }
         voiceService.isCommandExecutionEnabled = { [weak self] in
-            self?.isVoiceControlEnabled ?? true
+            (self?.isVoiceControlEnabled ?? true) && !(self?.isIdlePaused ?? false)
         }
         
         voiceService.onRecognitionFailure = { [weak self] transcript, reason, appName, bundleIdentifier in
@@ -2087,6 +2089,13 @@ class AppState: ObservableObject {
                 self.recordVoiceFailure(content, reason: reason, appName: appName, bundleIdentifier: bundleIdentifier)
             }
         }
+
+        HeadMotionManager.shared.$isGloballyPausedForIdle
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] paused in
+                self?.applyIdlePauseState(paused)
+            }
+            .store(in: &cancellables)
 
         permissions.$accessibilityTrusted
             .receive(on: DispatchQueue.main)
@@ -2265,6 +2274,7 @@ class AppState: ObservableObject {
     }
     
     func toggleMotionTracking() {
+        guard !isIdlePaused else { return }
         if isMotionTracking {
             motionService.stopTracking()
         } else {
@@ -2272,7 +2282,16 @@ class AppState: ObservableObject {
         }
     }
 
+    private func applyIdlePauseState(_ paused: Bool) {
+        guard paused != isIdlePaused else { return }
+        isIdlePaused = paused
+        if paused {
+            CurrentAppShortcutPanelManager.shared.hide()
+        }
+    }
+
     func showShortcutPanel(activateApp: Bool = true, focusSearchField: Bool = true) {
+        guard !isIdlePaused else { return }
         CurrentAppShortcutPanelManager.shared.show(activateApp: activateApp, focusSearchField: focusSearchField)
     }
 
@@ -2281,10 +2300,12 @@ class AppState: ObservableObject {
     }
 
     func toggleShortcutPanel(activateApp: Bool = true, focusSearchField: Bool = true) {
+        guard !isIdlePaused else { return }
         CurrentAppShortcutPanelManager.shared.toggle(activateApp: activateApp, focusSearchField: focusSearchField)
     }
 
     func toggleRecognitionInputControlMode() {
+        guard !isIdlePaused else { return }
         HeadMotionManager.shared.toggleRecognitionInputControlMode(source: "menu-bar", persist: true)
     }
 
@@ -2330,6 +2351,7 @@ class AppState: ObservableObject {
         appName: String? = nil,
         bundleIdentifier: String? = nil
     ) {
+        guard !isIdlePaused else { return }
         GlobalLogger.lifecycle.info("[VoiceIntent] execute \(voiceIntentActionTitle(intent))")
         switch intent {
         case .clickLeft:
