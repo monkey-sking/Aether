@@ -1045,12 +1045,11 @@ private struct HeadGestureShortcutMappingCard: View {
                     } label: {
                         Label(isChinese ? "新增动作" : "Add Gesture", systemImage: "plus")
                             .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
+                            .symbolRenderingMode(.hierarchical)
+                            .imageScale(.medium)
                     }
-                    .buttonStyle(.plain)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-                    .cornerRadius(10)
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
                 }
 
                 if motionManager.activeHeadGestureRecordingID != nil || motionManager.isHeadGestureRecording {
@@ -1103,7 +1102,8 @@ private struct HeadGestureShortcutMappingCard: View {
                                     )
                                 }
                             }
-                            .buttonStyle(.plain)
+                            .controlSize(.small)
+                            .buttonStyle(.borderless)
                             .font(.caption.weight(.semibold))
                             .foregroundColor(.secondary)
 
@@ -1122,7 +1122,8 @@ private struct HeadGestureShortcutMappingCard: View {
                                     )
                                 }
                             }
-                            .buttonStyle(.plain)
+                            .controlSize(.small)
+                            .buttonStyle(.borderless)
                             .font(.caption.weight(.semibold))
                             .foregroundColor(.secondary)
 
@@ -1140,14 +1141,16 @@ private struct HeadGestureShortcutMappingCard: View {
                                     )
                                 }
                             }
-                            .buttonStyle(.plain)
+                            .controlSize(.small)
+                            .buttonStyle(.borderless)
                             .font(.caption.weight(.semibold))
                             .foregroundColor(.secondary)
 
                             Button(isChinese ? "清空记录" : "Clear History") {
                                 motionManager.clearHeadGestureHistory()
                             }
-                            .buttonStyle(.plain)
+                            .controlSize(.small)
+                            .buttonStyle(.borderless)
                             .font(.caption.weight(.semibold))
                             .foregroundColor(.secondary)
                         }
@@ -1192,73 +1195,84 @@ private struct HeadGestureShortcutMappingCard: View {
                 }
             )
         ) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 10) {
-                    TextField(isChinese ? "动作名称" : "Gesture name", text: nameBinding(for: gesture.id))
-                        .textFieldStyle(.plain)
-                        .font(.subheadline.weight(.semibold))
-
-                    Text(gesture.points.isEmpty
-                            ? (isChinese ? "还没有录制模板。" : "No gesture template recorded.")
-                            : (isChinese
-                                ? "样本 \(motionManager.recordedSampleCount(for: gesture)) · 模板 \(gesture.points.count) 点"
-                                : "Samples \(motionManager.recordedSampleCount(for: gesture)) · Template \(gesture.points.count) pts"))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if !templates.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HeadGestureTemplatePreview(points: templates[currentSampleIndex])
-                                .frame(width: 170, height: 78)
-
-                            if templates.count > 1 {
-                                HStack(spacing: 8) {
-                                    Button {
-                                        let nextIndex = max(currentSampleIndex - 1, 0)
-                                        gestureSampleIndex[gesture.id] = nextIndex
-                                    } label: {
-                                        Image(systemName: "chevron.left")
-                                            .font(.system(size: 11, weight: .semibold))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .foregroundColor(.secondary)
-                                    .disabled(currentSampleIndex == 0)
-
-                                    Text(isChinese ? "样本 \(currentSampleIndex + 1)/\(templates.count)" : "Sample \(currentSampleIndex + 1)/\(templates.count)")
-                                        .font(.caption2.weight(.medium))
-                                        .foregroundColor(.secondary)
-
-                                    Button {
-                                        let nextIndex = min(currentSampleIndex + 1, templates.count - 1)
-                                        gestureSampleIndex[gesture.id] = nextIndex
-                                    } label: {
-                                        Image(systemName: "chevron.right")
-                                            .font(.system(size: 11, weight: .semibold))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .foregroundColor(.secondary)
-                                    .disabled(currentSampleIndex >= templates.count - 1)
-                                }
-                            }
-                        }
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 16) {
+                    HStack(spacing: 8) {
+                        Text(isChinese ? "名称" : "Name")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(width: 36, alignment: .leading)
+                        TextField(isChinese ? "动作名称" : "Gesture name", text: nameBinding(for: gesture.id))
+                            .textFieldStyle(.roundedBorder)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if isRecordingThisGesture {
-                        Text(motionManager.headGestureRecordingStatusText.isEmpty
-                                ? (isChinese ? "准备中…" : "Preparing…")
-                                : motionManager.headGestureRecordingStatusText)
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(.accentColor)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 10) {
                     FixedWidthPopUpMenu(
                         options: gestureActionOptions,
                         selection: selection(for: gesture.id)
                     )
+                    .controlSize(.small)
+                    .frame(width: 220, alignment: .leading)
+                }
+
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(gesture.points.isEmpty
+                                ? (isChinese ? "还没有录制模板。" : "No gesture template recorded.")
+                                : (isChinese
+                                    ? "样本 \(motionManager.recordedSampleCount(for: gesture)) · 模板 \(gesture.points.count) 点"
+                                    : "Samples \(motionManager.recordedSampleCount(for: gesture)) · Template \(gesture.points.count) pts"))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        if !templates.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HeadGestureTemplatePreview(points: templates[currentSampleIndex])
+                                    .frame(width: 170, height: 78)
+
+                                if templates.count > 1 {
+                                    HStack(spacing: 8) {
+                                        Button {
+                                            let nextIndex = max(currentSampleIndex - 1, 0)
+                                            gestureSampleIndex[gesture.id] = nextIndex
+                                        } label: {
+                                            Image(systemName: "chevron.left")
+                                                .font(.system(size: 11, weight: .semibold))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundColor(.secondary)
+                                        .accessibilityLabel(Text(isChinese ? "上一条样本" : "Previous sample"))
+                                        .disabled(currentSampleIndex == 0)
+
+                                        Text(isChinese ? "样本 \(currentSampleIndex + 1)/\(templates.count)" : "Sample \(currentSampleIndex + 1)/\(templates.count)")
+                                            .font(.caption2.weight(.medium))
+                                            .foregroundColor(.secondary)
+
+                                        Button {
+                                            let nextIndex = min(currentSampleIndex + 1, templates.count - 1)
+                                            gestureSampleIndex[gesture.id] = nextIndex
+                                        } label: {
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 11, weight: .semibold))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundColor(.secondary)
+                                        .accessibilityLabel(Text(isChinese ? "下一条样本" : "Next sample"))
+                                        .disabled(currentSampleIndex >= templates.count - 1)
+                                    }
+                                }
+                            }
+                        }
+
+                        if isRecordingThisGesture {
+                            Text(motionManager.headGestureRecordingStatusText.isEmpty
+                                    ? (isChinese ? "准备中…" : "Preparing…")
+                                    : motionManager.headGestureRecordingStatusText)
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.accentColor)
+                        }
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(spacing: 8) {
@@ -1269,39 +1283,30 @@ private struct HeadGestureShortcutMappingCard: View {
                                 motionManager.startRecordingRecordedHeadGesture(id: gesture.id)
                             }
                         }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.accentColor.opacity(isRecordingThisGesture ? 0.12 : 0.16))
-                        .cornerRadius(8)
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                        .tint(isRecordingThisGesture ? .accentColor : .secondary)
 
                         if !gesture.points.isEmpty && !isRecordingThisGesture {
                             Button(isChinese ? "追加录制" : "Add Sample") {
                                 motionManager.startRecordingRecordedHeadGesture(id: gesture.id, appendSample: true)
                             }
-                            .buttonStyle(.plain)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-                            .cornerRadius(8)
+                            .controlSize(.small)
+                            .buttonStyle(.bordered)
                         }
 
                         Button(isChinese ? "删除" : "Delete") {
                             motionManager.deleteRecordedHeadGesture(id: gesture.id)
                         }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.red.opacity(0.12))
-                        .cornerRadius(8)
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                        .tint(.red)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(width: 240, alignment: .leading)
                 }
-                .frame(width: 280, alignment: .leading)
             }
-            .padding(12)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
-            .cornerRadius(10)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
         } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -1320,6 +1325,9 @@ private struct HeadGestureShortcutMappingCard: View {
                 Spacer(minLength: 12)
                 Toggle("", isOn: enabledBinding(for: gesture.id))
                     .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityLabel(Text(isChinese ? "启用该动作" : "Enable gesture"))
+                    .accessibilityHint(Text(isChinese ? "启用或禁用此头部动作" : "Enable or disable this head gesture"))
                     .frame(width: 36, height: 22, alignment: .center)
             }
             .padding(.vertical, 4)
@@ -1375,7 +1383,9 @@ private struct HeadGestureShortcutMappingCard: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.secondary)
                 }
-                .buttonStyle(.plain)
+                .controlSize(.small)
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text(isChinese ? "复制该条历史" : "Copy this history item"))
 
                 Text(entry.date.formatted(date: .omitted, time: .shortened))
                     .font(.caption2.weight(.medium))
@@ -3138,6 +3148,9 @@ struct HeadGestureSettingsView: View {
 
                         Toggle("", isOn: headGestureToggleBinding)
                             .labelsHidden()
+                            .controlSize(.small)
+                            .accessibilityLabel(Text(String(localized: "head_gesture.toggle.enable")))
+                            .accessibilityHint(Text(String(localized: "head_gesture.toggle.detail")))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
