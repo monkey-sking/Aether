@@ -1067,7 +1067,7 @@ private struct HeadGestureShortcutMappingCard: View {
                 }
 
                 if motionManager.recordedHeadGestures.isEmpty {
-                    Text(isChinese ? "还没有录制任何头部动作。点击上面的“新增动作”，做一个点头、摇头或更复杂的轨迹都可以。" : "No recorded gestures yet. Click Add Gesture above to record a nod, shake, or a more complex path.")
+                    Text(isChinese ? "还没有录制任何头部动作。点击上面的“新增动作”，录一个由多个方向步骤组成的动作。" : "No recorded gestures yet. Click Add Gesture above to record a gesture made of directional steps.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(14)
@@ -1230,7 +1230,7 @@ private struct HeadGestureShortcutMappingCard: View {
                             .frame(width: 56, alignment: .leading)
                         VStack(alignment: .leading, spacing: 8) {
                             if templates.isEmpty {
-                                Text(isChinese ? "还没有录制模板。" : "No gesture template recorded.")
+                                Text(isChinese ? "还没有录制动作样本。" : "No gesture sample recorded.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             } else {
@@ -1310,10 +1310,10 @@ private struct HeadGestureShortcutMappingCard: View {
                 }
 
                 Text(gesture.points.isEmpty
-                        ? (isChinese ? "还没有录制模板。" : "No gesture template recorded.")
+                        ? (isChinese ? "还没有录制动作样本。" : "No gesture sample recorded.")
                         : (isChinese
-                            ? "样本 \(motionManager.recordedSampleCount(for: gesture)) · 模板 \(gesture.points.count) 点"
-                            : "Samples \(motionManager.recordedSampleCount(for: gesture)) · Template \(gesture.points.count) pts"))
+                            ? "样本 \(motionManager.recordedSampleCount(for: gesture)) · 步骤 \(motionManager.recordedStepSummary(for: gesture))"
+                            : "Samples \(motionManager.recordedSampleCount(for: gesture)) · Steps \(motionManager.recordedStepSummary(for: gesture))"))
                     .font(.caption)
                     .foregroundColor(.secondary)
 
@@ -1334,10 +1334,10 @@ private struct HeadGestureShortcutMappingCard: View {
                         .font(.subheadline.weight(.semibold))
                     if !isExpanded {
                         Text(gesture.points.isEmpty
-                                ? (isChinese ? "未录制模板" : "No template recorded")
+                                ? (isChinese ? "未录制动作" : "No gesture recorded")
                                 : (isChinese
-                                    ? "\(motionManager.recordedSampleCount(for: gesture)) 组样本 · \(gesture.action.label)"
-                                    : "\(motionManager.recordedSampleCount(for: gesture)) samples · \(gesture.action.label)"))
+                                    ? "\(motionManager.recordedSampleCount(for: gesture)) 组样本 · \(motionManager.recordedStepSummary(for: gesture))"
+                                    : "\(motionManager.recordedSampleCount(for: gesture)) samples · \(motionManager.recordedStepSummary(for: gesture))"))
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
