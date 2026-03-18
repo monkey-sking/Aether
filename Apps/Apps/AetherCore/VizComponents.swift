@@ -497,14 +497,16 @@ struct GlassCard<Content: View>: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var content: Content
+    var padding: CGFloat
     
-    init(@ViewBuilder content: () -> Content) {
+    init(padding: CGFloat = 20, @ViewBuilder content: () -> Content) {
+        self.padding = padding
         self.content = content()
     }
     
     var body: some View {
         content
-            .padding(20)
+            .padding(padding)
             .background {
                 RoundedRectangle(cornerRadius: AetherUI.cardCornerRadius, style: .continuous)
                     .fill(
