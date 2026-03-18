@@ -506,6 +506,8 @@ class HeadMotionManager: ObservableObject {
     private let headGestureMinPathDistance: Double = 0.12
     private let headGestureActivationDistance: Double = 0.12
     private let headGestureOverlayDistance: Double = 0.08
+    private let trackingGestureIntentDistanceMultiplier: Double = 1.15
+    private let trackingGestureIntentDominanceRatio: Double = 1.18
     // Restore head gesture sensitivity closer to the earlier tuning.
     private let headGestureSensitivityScale: Double = 0.8
     private var headGestureNodThreshold: Double { 0.11 * headGestureSensitivityScale }
@@ -777,7 +779,11 @@ class HeadMotionManager: ObservableObject {
                 minimumScore: 0.64,
                 recordedDuration: 0.58,
                 points: builtInGesturePoints(kind: .nod),
-                alternateSamples: [builtInGesturePoints(kind: .nod, variant: 1)]
+                alternateSamples: [
+                    builtInGesturePoints(kind: .nod, variant: 1),
+                    mirroredBuiltInGesturePoints(kind: .nod),
+                    mirroredBuiltInGesturePoints(kind: .nod, variant: 1)
+                ]
             ),
             RecordedHeadGesture(
                 id: builtInShakeGestureID,
@@ -788,7 +794,11 @@ class HeadMotionManager: ObservableObject {
                 minimumScore: 0.64,
                 recordedDuration: 0.62,
                 points: builtInGesturePoints(kind: .shake),
-                alternateSamples: [builtInGesturePoints(kind: .shake, variant: 1)]
+                alternateSamples: [
+                    builtInGesturePoints(kind: .shake, variant: 1),
+                    mirroredBuiltInGesturePoints(kind: .shake),
+                    mirroredBuiltInGesturePoints(kind: .shake, variant: 1)
+                ]
             )
         ]
     }
@@ -802,6 +812,17 @@ class HeadMotionManager: ObservableObject {
                 y: point.1,
                 t: Double(index) / Double(maxIndex)
             )
+        }
+    }
+
+    private static func mirroredBuiltInGesturePoints(kind: HeadGestureKind, variant: Int = 0) -> [RecordedHeadGesturePoint] {
+        builtInGesturePoints(kind: kind, variant: variant).map { point in
+            switch kind {
+            case .nod:
+                return RecordedHeadGesturePoint(x: point.x, y: 1.0 - point.y, t: point.t)
+            case .shake:
+                return RecordedHeadGesturePoint(x: 1.0 - point.x, y: point.y, t: point.t)
+            }
         }
     }
 
@@ -1604,7 +1625,7 @@ class HeadMotionManager: ObservableObject {
 
         if activeGestureCandidate == nil {
             let seedSamples = candidateSeedSamples(from: recentHeadGestureSamples, now: now)
-            guard gestureActivationDistance(from: seedSamples) >= headGestureActivationDistance else { return }
+            guard shouldStartGestureCandidate(with: seedSamples) else { return }
             activeGestureCandidate = ActiveGestureCandidate(
                 samples: seedSamples,
                 startedAt: seedSamples.first?.at ?? now,
@@ -1720,7 +1741,7 @@ class HeadMotionManager: ObservableObject {
             }
             let bestScore = recordedTemplates(for: gesture)
                 .compactMap { summarizeGesture(points: $0) }
-                .map { scoreGesture(summary, against: $0) }
+                .map { scoreGesture(summary, against: $0, gesture: gesture) }
                 .max()
             guard let bestScore else { return nil }
             return GestureMatch(gesture: gesture, score: bestScore)
@@ -2032,19 +2053,36 @@ class HeadMotionManager: ObservableObject {
         return summary.totalDistance >= headGestureMinPathDistance
     }
 
-    private func scoreGesture(_ candidate: GestureTemplateSummary, against template: GestureTemplateSummary) -> Double {
+    private func scoreGesture(_ candidate: GestureTemplateSummary, against template: GestureTemplateSummary, gesture: RecordedHeadGesture? = nil) -> Double {
         guard candidate.points.count == template.points.count else { return 0 }
-        let pointDistance = zip(candidate.points, template.points).reduce(0.0) { partial, pair in
-            let dx = pair.0.x - pair.1.x
-            let dy = pair.0.y - pair.1.y
-            return partial + Double(hypot(dx, dy))
-        } / Double(candidate.points.count)
-        let distanceScore = max(0.0, 1.0 - (pointDistance / 1.65))
+        let weights = axisWeights(for: gesture)
+        let axisDistance = zip(candidate.points, template.points).reduce((x: 0.0, y: 0.0)) { partial, pair in
+            let dx = abs(pair.0.x - pair.1.x)
+            let dy = abs(pair.0.y - pair.1.y)
+            return (partial.x + Double(dx), partial.y + Double(dy))
+        }
+        let averageXDistance = axisDistance.x / Double(candidate.points.count)
+        let averageYDistance = axisDistance.y / Double(candidate.points.count)
+        let weightedDistance = ((averageXDistance * weights.x) + (averageYDistance * weights.y))
+            / (weights.x + weights.y)
+        let distanceScore = max(0.0, 1.0 - (weightedDistance / 0.92))
         let durationRatio = template.duration > 0 ? abs(candidate.duration - template.duration) / max(template.duration, 0.1) : 0
         let durationScore = max(0.0, 1.0 - min(durationRatio, 0.8))
         let complexityDelta = abs(candidate.turnCount - template.turnCount)
         let complexityScore = max(0.0, 1.0 - (Double(complexityDelta) / 4.0))
         return (distanceScore * 0.85) + (durationScore * 0.07) + (complexityScore * 0.08)
+    }
+
+    private func axisWeights(for gesture: RecordedHeadGesture?) -> (x: Double, y: Double) {
+        guard let gesture, let kind = builtInGestureKind(for: gesture) else {
+            return (1.0, 1.0)
+        }
+        switch kind {
+        case .nod:
+            return (0.38, 1.0)
+        case .shake:
+            return (1.0, 0.38)
+        }
     }
 
     private func requiredScore(for gesture: RecordedHeadGesture, fallback: Double = 0.58) -> Double {
@@ -2110,7 +2148,7 @@ class HeadMotionManager: ObservableObject {
                 guard gesturePassesDirectionalGate(gesture: gesture, samples: samples) else { return nil }
                 let bestScore = recordedTemplates(for: gesture)
                     .compactMap { summarizeGesture(points: $0) }
-                    .map { scoreGesture(summary, against: $0) }
+                    .map { scoreGesture(summary, against: $0, gesture: gesture) }
                     .max()
                 guard let bestScore else { return nil }
                 return GestureMatch(gesture: gesture, score: bestScore)
@@ -2145,6 +2183,51 @@ class HeadMotionManager: ObservableObject {
     private func candidateSeedSamples(from samples: [HeadGestureSample], now: Date) -> [HeadGestureSample] {
         let seeded = samples.filter { now.timeIntervalSince($0.at) <= 0.24 }
         return seeded.isEmpty ? Array(samples.suffix(3)) : seeded
+    }
+
+    private func shouldStartGestureCandidate(with samples: [HeadGestureSample]) -> Bool {
+        let activationDistance = gestureActivationDistance(from: samples)
+        guard activationDistance >= headGestureActivationDistance else { return false }
+        guard isTracking else { return true }
+
+        let summary = summarizeRawGestureMotion(samples: samples)
+        let hasDirectionalReversal = summary.xSignChanges >= 1 || summary.ySignChanges >= 1
+        let hasMeaningfulTurn = summary.turnCount >= 1
+        let dominantAxis = max(summary.xAmplitude, summary.yAmplitude)
+        let secondaryAxis = min(summary.xAmplitude, summary.yAmplitude)
+        let dominantRatio = dominantAxis / max(secondaryAxis, 0.0001)
+        let hasMultiAxisPattern = summary.xSignChanges >= 1 && summary.ySignChanges >= 1
+
+        guard activationDistance >= (headGestureActivationDistance * trackingGestureIntentDistanceMultiplier) else {
+            return false
+        }
+
+        if hasMeaningfulTurn || hasMultiAxisPattern {
+            return true
+        }
+
+        return hasDirectionalReversal && dominantRatio >= trackingGestureIntentDominanceRatio
+    }
+
+    private func summarizeRawGestureMotion(samples: [HeadGestureSample]) -> (turnCount: Int, xSignChanges: Int, ySignChanges: Int, xAmplitude: Double, yAmplitude: Double) {
+        guard samples.count >= 2 else {
+            return (0, 0, 0, 0, 0)
+        }
+
+        let points = samples.map { scaledGesturePoint(yaw: $0.yaw, pitch: $0.pitch) }
+        let translated = points.map { CGPoint(x: $0.x - points[0].x, y: $0.y - points[0].y) }
+        let xValues = translated.map(\.x)
+        let yValues = translated.map(\.y)
+        let xAmplitude = Double((xValues.max() ?? 0) - (xValues.min() ?? 0))
+        let yAmplitude = Double((yValues.max() ?? 0) - (yValues.min() ?? 0))
+
+        return (
+            turnCount: gestureTurnCount(points: translated),
+            xSignChanges: signChanges(values: xValues),
+            ySignChanges: signChanges(values: yValues),
+            xAmplitude: xAmplitude,
+            yAmplitude: yAmplitude
+        )
     }
 
     private func gestureActivationDistance(from samples: [HeadGestureSample]) -> Double {
