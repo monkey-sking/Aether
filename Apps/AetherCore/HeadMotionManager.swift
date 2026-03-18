@@ -30,8 +30,10 @@ class HeadMotionManager: ObservableObject {
     private static let headGestureShakeActionKey = "AetherHeadGestureShakeAction"
     private static let recordedHeadGesturesStorageKey = "AetherRecordedHeadGesturesV1"
     private static let headGestureHistoryStorageKey = "AetherHeadGestureHistoryV1"
-    private static let builtInNodGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1001")!
-    private static let builtInShakeGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1002")!
+    private static let builtInNodUpDownGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1001")!
+    private static let builtInShakeLeftRightGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1002")!
+    private static let builtInNodDownUpGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1003")!
+    private static let builtInShakeRightLeftGestureID = UUID(uuidString: "7A6C3C40-6A61-4B70-AE79-3E4F0D4C1004")!
 
     enum RecognitionControlMode: String, Sendable {
         case auto
@@ -335,6 +337,8 @@ class HeadMotionManager: ObservableObject {
         var totalDistance: Double
         var duration: TimeInterval
         var sampleCount: Int
+        var detectedSequence: [String]?
+        var matchedPrefix: [String]?
         var samples: [HeadGestureDebugSample]
     }
 
@@ -343,6 +347,28 @@ class HeadMotionManager: ObservableObject {
         var recordedGestures: [RecordedHeadGesture]
         var history: [HeadGestureHistoryEntry]
         var debugEntries: [HeadGestureDebugEntry]
+    }
+
+    private struct CompactRecordedHeadGestureDefinition: Codable {
+        var name: String
+        var actionName: String
+        var enabled: Bool
+        var minimumScore: Double
+        var stepSequences: [[String]]
+    }
+
+    private struct HeadGestureDebugSnapshot: Codable {
+        var totalEntryCount: Int
+        var countsByResult: [String: Int]
+        var countsByMode: [String: Int]
+        var recentEntries: [HeadGestureDebugEntry]
+    }
+
+    private struct HeadGestureCompactDebugPayload: Codable {
+        var exportedAt: Date
+        var recordedGestures: [CompactRecordedHeadGestureDefinition]
+        var history: [HeadGestureHistoryEntry]
+        var debugSnapshot: HeadGestureDebugSnapshot
     }
 
     private struct ActiveGestureRecordingSession {
@@ -366,8 +392,10 @@ class HeadMotionManager: ObservableObject {
         var gestureIDs: Set<UUID>
         var startedAt: Date
         var lastAdvancedAt: Date
+        var strokeStartCursorPoint: CGPoint
         var committedCursorPoints: [CGPoint]
-        var branchAnchorCursorPoint: CGPoint
+        var guideAnchorCursorPoint: CGPoint
+        var isGuideAnchorCommitted: Bool
         var hoveredDirection: HeadGestureDirection?
         var hoveredProgress: CGFloat = 0
     }
@@ -551,6 +579,7 @@ class HeadMotionManager: ObservableObject {
     private let headGestureCrossAxisLimitRatio: Double = 0.85
     private let headGestureMinPathDistance: Double = 0.12
     private let headGestureActivationDistance: Double = 0.12
+    private let headGestureRecognitionStartDistanceFloor: Double = 0.05
     private let headGestureOverlayDistance: Double = 0.08
     private let trackingGestureIntentDistanceMultiplier: Double = 1.15
     private let trackingGestureIntentDominanceRatio: Double = 1.18
@@ -821,49 +850,85 @@ class HeadMotionManager: ObservableObject {
     }
 
     private static func mergeBuiltInHeadGestures(into gestures: [RecordedHeadGesture]) -> [RecordedHeadGesture] {
-        var merged = gestures
-        let builtIns = builtInRecordedHeadGestures()
-        for builtIn in builtIns where !merged.contains(where: { $0.id == builtIn.id }) {
-            merged.append(builtIn)
-        }
+        let builtIns = builtInRecordedHeadGestures(existing: gestures)
+        let builtInIDs = Set(builtIns.map(\.id))
+        var merged = gestures.filter { !builtInIDs.contains($0.id) }
+        merged.append(contentsOf: builtIns)
         return merged
     }
 
-    private static func builtInRecordedHeadGestures() -> [RecordedHeadGesture] {
-        [
+    private static func builtInRecordedHeadGestures(existing gestures: [RecordedHeadGesture] = []) -> [RecordedHeadGesture] {
+        let existingNod = gestures.first(where: {
+            $0.id == builtInNodUpDownGestureID || $0.id == builtInNodDownUpGestureID
+        })
+        let existingShake = gestures.first(where: {
+            $0.id == builtInShakeLeftRightGestureID || $0.id == builtInShakeRightLeftGestureID
+        })
+        let nodAction = existingNod?.action ?? defaultHeadGestureAction(for: .nod)
+        let nodEnabled = existingNod?.enabled ?? true
+        let shakeAction = existingShake?.action ?? defaultHeadGestureAction(for: .shake)
+        let shakeEnabled = existingShake?.enabled ?? true
+
+        return [
             RecordedHeadGesture(
-                id: builtInNodGestureID,
-                name: AppLocalization.isChinese ? "内置点头" : "Built-in Nod",
-                action: defaultHeadGestureAction(for: .nod),
-                enabled: true,
+                id: builtInNodUpDownGestureID,
+                name: AppLocalization.isChinese ? "内置点头（上到下）" : "Built-in Nod (Up to Down)",
+                action: nodAction,
+                enabled: nodEnabled,
                 cooldown: 1.0,
                 minimumScore: 0.64,
                 recordedDuration: 0.58,
                 points: builtInGesturePoints(kind: .nod),
                 alternateSamples: [
-                    builtInGesturePoints(kind: .nod, variant: 1),
-                    mirroredBuiltInGesturePoints(kind: .nod),
-                    mirroredBuiltInGesturePoints(kind: .nod, variant: 1)
+                    builtInGesturePoints(kind: .nod, variant: 1)
                 ],
                 stepSequence: [.up, .down],
-                alternateStepSequences: [[.down, .up]]
+                alternateStepSequences: nil
             ),
             RecordedHeadGesture(
-                id: builtInShakeGestureID,
-                name: AppLocalization.isChinese ? "内置摇头" : "Built-in Shake",
-                action: defaultHeadGestureAction(for: .shake),
-                enabled: true,
+                id: builtInNodDownUpGestureID,
+                name: AppLocalization.isChinese ? "内置点头（下到上）" : "Built-in Nod (Down to Up)",
+                action: nodAction,
+                enabled: nodEnabled,
+                cooldown: 1.0,
+                minimumScore: 0.64,
+                recordedDuration: 0.58,
+                points: mirroredBuiltInGesturePoints(kind: .nod),
+                alternateSamples: [
+                    mirroredBuiltInGesturePoints(kind: .nod, variant: 1)
+                ],
+                stepSequence: [.down, .up],
+                alternateStepSequences: nil
+            ),
+            RecordedHeadGesture(
+                id: builtInShakeLeftRightGestureID,
+                name: AppLocalization.isChinese ? "内置摇头（左到右）" : "Built-in Shake (Left to Right)",
+                action: shakeAction,
+                enabled: shakeEnabled,
                 cooldown: 1.0,
                 minimumScore: 0.64,
                 recordedDuration: 0.62,
                 points: builtInGesturePoints(kind: .shake),
                 alternateSamples: [
-                    builtInGesturePoints(kind: .shake, variant: 1),
-                    mirroredBuiltInGesturePoints(kind: .shake),
-                    mirroredBuiltInGesturePoints(kind: .shake, variant: 1)
+                    builtInGesturePoints(kind: .shake, variant: 1)
                 ],
                 stepSequence: [.left, .right],
-                alternateStepSequences: [[.right, .left]]
+                alternateStepSequences: nil
+            ),
+            RecordedHeadGesture(
+                id: builtInShakeRightLeftGestureID,
+                name: AppLocalization.isChinese ? "内置摇头（右到左）" : "Built-in Shake (Right to Left)",
+                action: shakeAction,
+                enabled: shakeEnabled,
+                cooldown: 1.0,
+                minimumScore: 0.64,
+                recordedDuration: 0.62,
+                points: mirroredBuiltInGesturePoints(kind: .shake),
+                alternateSamples: [
+                    mirroredBuiltInGesturePoints(kind: .shake, variant: 1)
+                ],
+                stepSequence: [.right, .left],
+                alternateStepSequences: nil
             )
         ]
     }
@@ -876,7 +941,7 @@ class HeadMotionManager: ObservableObject {
 
         let smoothed = smoothStaticGesturePoints(deduped, radius: 1)
         let translated = smoothed.map { CGPoint(x: $0.x - smoothed[0].x, y: $0.y - smoothed[0].y) }
-        return extractDirectionalSequence(from: translated, threshold: 0.14, dominanceRatio: 1.08)
+        return extractDirectionalSequence(from: translated, xThreshold: 0.14, yThreshold: 0.12, dominanceRatio: 1.08)
     }
 
     private static func dedupeStaticGesturePoints(_ points: [CGPoint]) -> [CGPoint] {
@@ -1026,11 +1091,11 @@ class HeadMotionManager: ObservableObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        let payload = HeadGestureDebugExportPayload(
+        let payload = HeadGestureCompactDebugPayload(
             exportedAt: Date(),
-            recordedGestures: recordedHeadGestures,
-            history: headGestureHistory,
-            debugEntries: headGestureDebugEntries
+            recordedGestures: compactRecordedHeadGestureDefinitions(),
+            history: Array(headGestureHistory.prefix(10)),
+            debugSnapshot: compactHeadGestureDebugSnapshot()
         )
         let data = try encoder.encode(payload)
         guard let text = String(data: data, encoding: .utf8) else {
@@ -1043,42 +1108,106 @@ class HeadMotionManager: ObservableObject {
         try copyTextToPasteboard(formattedHeadGestureDebugRequest(json: text))
     }
 
+    private func compactRecordedHeadGestureDefinitions() -> [CompactRecordedHeadGestureDefinition] {
+        recordedHeadGestures.map { gesture in
+            CompactRecordedHeadGestureDefinition(
+                name: gesture.name,
+                actionName: gesture.action.label,
+                enabled: gesture.enabled,
+                minimumScore: gesture.minimumScore,
+                stepSequences: recordedStepSequences(for: gesture).map { $0.map(\.rawValue) }
+            )
+        }
+    }
+
+    private func compactHeadGestureDebugSnapshot() -> HeadGestureDebugSnapshot {
+        let entryLimit = 16
+        let failureLimit = 12
+        let successLimit = 4
+        let failures = headGestureDebugEntries
+            .filter { $0.result != HeadGestureHistoryResult.triggered.rawValue }
+            .prefix(failureLimit)
+        let successes = headGestureDebugEntries
+            .filter { $0.result == HeadGestureHistoryResult.triggered.rawValue }
+            .prefix(successLimit)
+
+        let selected = Array(Set(failures.map(\.id) + successes.map(\.id)))
+        let entriesByID = Dictionary(uniqueKeysWithValues: headGestureDebugEntries.map { ($0.id, $0) })
+        let recentEntries = selected
+            .compactMap { entriesByID[$0] }
+            .sorted { $0.date > $1.date }
+            .prefix(entryLimit)
+            .map { trimmedHeadGestureDebugEntry($0, sampleLimit: 12) }
+
+        return HeadGestureDebugSnapshot(
+            totalEntryCount: headGestureDebugEntries.count,
+            countsByResult: Dictionary(headGestureDebugEntries.map { ($0.result, 1) }, uniquingKeysWith: +),
+            countsByMode: Dictionary(headGestureDebugEntries.map { ($0.mode, 1) }, uniquingKeysWith: +),
+            recentEntries: recentEntries
+        )
+    }
+
+    private func trimmedHeadGestureDebugEntry(_ entry: HeadGestureDebugEntry, sampleLimit: Int) -> HeadGestureDebugEntry {
+        var trimmed = entry
+        trimmed.samples = compactDebugSamples(entry.samples, limit: sampleLimit)
+        return trimmed
+    }
+
+    private func compactDebugSamples(_ samples: [HeadGestureDebugSample], limit: Int) -> [HeadGestureDebugSample] {
+        guard samples.count > limit, limit > 2 else { return samples }
+        let lastIndex = samples.count - 1
+        let step = Double(lastIndex) / Double(limit - 1)
+        var selectedIndices = Set((0..<limit).map { Int(round(Double($0) * step)) })
+        selectedIndices.insert(0)
+        selectedIndices.insert(lastIndex)
+        return selectedIndices
+            .sorted()
+            .compactMap { index in
+                guard samples.indices.contains(index) else { return nil }
+                return samples[index]
+            }
+    }
+
     private func formattedHeadGestureDebugRequest(json: String) -> String {
         if AppLocalization.isChinese {
             return [
-                "请基于下面这份 Aether 头部动作调试数据做分析，并按这个格式反馈：",
+                "请基于下面这份 Aether 头部动作紧凑调试数据做分析，并按这个格式反馈：",
+                "注意：这不是全量原始日志，而是为第三方分析压缩后的摘要。请不要复述 JSON，也不要要求我先补发整份日志；只有在信息确实不足时，再明确列出缺少的字段名。",
                 "1. 先判断问题主要是参数问题，还是算法/特征设计问题，不要只说“调阈值试试”。",
                 "2. 请分别说明：",
                 "   - 点头 / 摇头 / 自定义动作，各自最可能失败的原因",
                 "   - 是时长问题、幅度问题、轴耦合问题、模板问题，还是评分逻辑问题",
-                "3. 请结合具体样本说明，至少点名这些字段：result、gestureName、bestMatchName、bestScore、duration、totalDistance、samples。",
+                "3. 请结合具体样本说明，优先点名这些字段：result、gestureName、bestMatchName、bestScore、duration、totalDistance、sampleCount、detectedSequence、matchedPrefix。",
                 "4. 如果你建议改代码，请尽量给到可落地的改法，优先回答：",
                 "   - 应不应该引入 DTW 或类似时序匹配",
                 "   - 是否应该做动态基线 / 自动校准",
                 "   - 是否应该给主轴和副轴不同权重",
                 "   - 自定义动作要如何避免逐个手调参数",
                 "5. 请给出“先改什么、后改什么”的优先级，不要泛泛而谈。",
+                "6. 回复尽量精简，优先给结论、证据、改法，不要长篇重述背景。",
                 "",
-                "调试数据 JSON：",
+                "紧凑调试数据 JSON：",
                 json
             ].joined(separator: "\n")
         }
 
         return [
-            "Please analyze the Aether head-gesture debug data below and reply in this format:",
+            "Please analyze the compact Aether head-gesture debug data below and reply in this format:",
+            "Important: this is a compressed debug snapshot for third-party review, not the full raw log. Do not restate the JSON and do not ask for the full dump unless the missing field names are explicitly required.",
             "1. First decide whether the main issue is parameter tuning or the algorithm/feature design. Do not stop at 'try adjusting thresholds'.",
             "2. Explain separately for nod, shake, and custom gestures:",
             "   - the most likely failure mode",
             "   - whether the issue is duration, amplitude, axis coupling, template quality, or scoring logic",
-            "3. Use concrete samples and reference these fields when possible: result, gestureName, bestMatchName, bestScore, duration, totalDistance, samples.",
+            "3. Use concrete samples and reference these fields when possible: result, gestureName, bestMatchName, bestScore, duration, totalDistance, sampleCount, detectedSequence, matchedPrefix.",
             "4. If you recommend code changes, make them actionable and prioritize these questions:",
             "   - Should we introduce DTW or another temporal matching approach?",
             "   - Should we add dynamic baseline / auto-calibration?",
             "   - Should primary and secondary axes use different weights?",
             "   - How should custom gestures work without per-gesture manual tuning?",
             "5. Give a clear priority order for the fixes.",
+            "6. Keep the answer concise: conclusions, evidence, and proposed changes only.",
             "",
-            "Debug JSON:",
+            "Compact debug JSON:",
             json
         ].joined(separator: "\n")
     }
@@ -1684,7 +1813,6 @@ class HeadMotionManager: ObservableObject {
             pitch: pitch
         )
 
-        trackRecordedHeadGestureCapture(yaw: yaw, pitch: pitch, now: now, cursorLocation: cursorLocation)
         trackStepGestureRecognition(now: now, cursorLocation: cursorLocation)
     }
 
@@ -1729,6 +1857,16 @@ class HeadMotionManager: ObservableObject {
         guard !isHeadGestureRecording else { return }
         guard now.timeIntervalSince(lastHeadGestureTriggerAt) >= 1.25 else { return }
 
+        let activationDistance = gestureActivationDistance(from: recentHeadGestureSamples)
+        guard activationDistance >= headGestureRecognitionStartDistanceFloor else {
+            if let session = activeStepGestureSession,
+               now.timeIntervalSince(session.lastAdvancedAt) >= 1.0 {
+                activeStepGestureSession = nil
+                headGestureOverlayController.hide(after: 0.08)
+            }
+            return
+        }
+
         let eligibleGestures = eligibleHeadGesturesForRecognition()
         let sequenceVariants = eligibleGestureSequenceVariants(from: eligibleGestures)
         guard !sequenceVariants.isEmpty else {
@@ -1741,27 +1879,79 @@ class HeadMotionManager: ObservableObject {
         guard !sequence.isEmpty else {
             if let session = activeStepGestureSession,
                now.timeIntervalSince(session.lastAdvancedAt) >= 1.0 {
+                appendHeadGestureDebugEntry(
+                    mode: "step-recognition",
+                    result: "timeout-no-sequence",
+                    samples: recentHeadGestureSamples,
+                    gestureName: nil,
+                    actionName: nil,
+                    bestMatchName: nil,
+                    bestScore: nil,
+                    detectedSequence: [],
+                    matchedPrefix: session.prefix
+                )
                 activeStepGestureSession = nil
                 headGestureOverlayController.hide(after: 0.15)
             }
             return
         }
 
+        // When pointer tracking is off, rely on head-direction sequence only (no cursor targets).
+        if !isTracking {
+            if let matched = sequenceVariants.first(where: { variant in
+                let count = variant.sequence.count
+                guard count >= 2, sequence.count >= count else { return false }
+                return Array(sequence.suffix(count)) == variant.sequence
+            }) {
+                lastHeadGestureTriggerAt = now
+                activeStepGestureSession = nil
+                appendHeadGestureDebugEntry(
+                    mode: "step-recognition",
+                    result: HeadGestureHistoryResult.triggered.rawValue,
+                    samples: recentHeadGestureSamples,
+                    gestureName: matched.gesture.name,
+                    actionName: matched.gesture.action.label,
+                    bestMatchName: matched.gesture.name,
+                    bestScore: 1.0,
+                    detectedSequence: sequence,
+                    matchedPrefix: matched.sequence
+                )
+                fireMatchedHeadGesture(
+                    GestureMatch(gesture: matched.gesture, score: 1.0),
+                    duration: max(recentHeadGestureSamples.last?.at.timeIntervalSince(recentHeadGestureSamples.first?.at ?? .distantPast) ?? 0, 0),
+                    samples: recentHeadGestureSamples
+                )
+                return
+            }
+        }
+
         if activeStepGestureSession == nil {
             guard let firstDirection = sequence.first else { return }
             let matching = sequenceVariants.filter { $0.sequence.first == firstDirection }
-            guard !matching.isEmpty else { return }
-            let committedCursorPoints = stabilizedOverlayCursorPoints(
-                from: recentHeadGestureSamples.compactMap(\.cursorLocation)
-            )
-            let anchorPoint = committedCursorPoints.last ?? cursorLocation ?? currentSystemCursorLocation() ?? .zero
+            guard !matching.isEmpty else {
+                appendHeadGestureDebugEntry(
+                    mode: "step-recognition",
+                    result: "no-start-match",
+                    samples: recentHeadGestureSamples,
+                    gestureName: nil,
+                    actionName: nil,
+                    bestMatchName: nil,
+                    bestScore: nil,
+                    detectedSequence: sequence,
+                    matchedPrefix: nil
+                )
+                return
+            }
+            let anchorPoint = cursorLocation ?? currentSystemCursorLocation() ?? .zero
             activeStepGestureSession = ActiveStepGestureSession(
                 prefix: [firstDirection],
                 gestureIDs: Set(matching.map(\.gesture.id)),
                 startedAt: now,
                 lastAdvancedAt: now,
-                committedCursorPoints: committedCursorPoints,
-                branchAnchorCursorPoint: anchorPoint,
+                strokeStartCursorPoint: anchorPoint,
+                committedCursorPoints: [anchorPoint],
+                guideAnchorCursorPoint: anchorPoint,
+                isGuideAnchorCommitted: false,
                 hoveredDirection: nil,
                 hoveredProgress: 0
             )
@@ -1769,6 +1959,17 @@ class HeadMotionManager: ObservableObject {
 
         guard var session = activeStepGestureSession else { return }
         guard now.timeIntervalSince(session.lastAdvancedAt) <= 1.2 else {
+            appendHeadGestureDebugEntry(
+                mode: "step-recognition",
+                result: "timeout",
+                samples: recentHeadGestureSamples,
+                gestureName: nil,
+                actionName: nil,
+                bestMatchName: nil,
+                bestScore: nil,
+                detectedSequence: sequence,
+                matchedPrefix: session.prefix
+            )
             activeStepGestureSession = nil
             headGestureOverlayController.hide(after: 0.18)
             return
@@ -1777,39 +1978,79 @@ class HeadMotionManager: ObservableObject {
         var matchingForPrefix = sequenceVariants.filter { variant in
             variant.sequence.starts(with: session.prefix)
         }
+        if let lastDirection = session.prefix.last {
+            matchingForPrefix.removeAll { variant in
+                guard variant.sequence.count > session.prefix.count else { return false }
+                return variant.sequence[session.prefix.count] == lastDirection
+            }
+        }
         if matchingForPrefix.isEmpty {
+            appendHeadGestureDebugEntry(
+                mode: "step-recognition",
+                result: "no-match-for-prefix",
+                samples: recentHeadGestureSamples,
+                gestureName: nil,
+                actionName: nil,
+                bestMatchName: nil,
+                bestScore: nil,
+                detectedSequence: sequence,
+                matchedPrefix: session.prefix
+            )
             activeStepGestureSession = nil
             headGestureOverlayController.hide(after: 0.12)
             return
         }
 
-        if let cursorLocation,
-           let guidedState = guidedBranchState(
-                from: cursorLocation,
-                branchAnchor: session.branchAnchorCursorPoint,
-                branches: matchingForPrefix,
-                prefix: session.prefix
-           ) {
+        let attemptSamples = recentHeadGestureSamples.filter { $0.at >= session.startedAt }
+        let attemptSequence = extractDirectionalSequence(from: attemptSamples)
+        let hasNewDirection = attemptSequence.count > session.prefix.count
+        let nextDetectedDirection = hasNewDirection ? attemptSequence[session.prefix.count] : nil
+
+        if session.prefix.count == 1, !session.isGuideAnchorCommitted {
+            if let cursorLocation {
+                session.guideAnchorCursorPoint = cursorLocation
+            }
+            if let nextDetectedDirection,
+               nextDetectedDirection != session.prefix.last {
+                session.isGuideAnchorCommitted = true
+                session.lastAdvancedAt = now
+                session.committedCursorPoints = overlayCompletedCursorPoints(
+                    committed: [session.strokeStartCursorPoint],
+                    currentCursorLocation: cursorLocation ?? session.guideAnchorCursorPoint,
+                    anchorPoint: session.strokeStartCursorPoint
+                )
+            }
+            session.hoveredDirection = nil
+            session.hoveredProgress = 0
+        } else if let cursorLocation,
+                  let guidedState = guidedBranchState(
+                    from: cursorLocation,
+                    branchAnchor: session.guideAnchorCursorPoint,
+                    branches: matchingForPrefix,
+                    prefix: session.prefix
+                  ) {
             session.hoveredDirection = guidedState.direction
             session.hoveredProgress = guidedState.progress
             if guidedState.reachedTarget {
-            let advancedMatches = matchingForPrefix.filter { variant in
-                variant.sequence.count > session.prefix.count && variant.sequence[session.prefix.count] == guidedState.direction
-            }
-            if !advancedMatches.isEmpty {
-                session.prefix.append(guidedState.direction)
-                session.gestureIDs = Set(advancedMatches.map(\.gesture.id))
-                session.lastAdvancedAt = now
-                if session.committedCursorPoints.last != cursorLocation {
-                    session.committedCursorPoints.append(cursorLocation)
+                let advancedMatches = matchingForPrefix.filter { variant in
+                    variant.sequence.count > session.prefix.count && variant.sequence[session.prefix.count] == guidedState.direction
                 }
-                session.branchAnchorCursorPoint = cursorLocation
-                session.hoveredDirection = nil
-                session.hoveredProgress = 0
-                matchingForPrefix = sequenceVariants.filter { variant in
-                    variant.sequence.starts(with: session.prefix)
+                if !advancedMatches.isEmpty {
+                    session.prefix.append(guidedState.direction)
+                    session.gestureIDs = Set(advancedMatches.map(\.gesture.id))
+                    session.lastAdvancedAt = now
+                    if session.committedCursorPoints.last != cursorLocation {
+                        session.committedCursorPoints.append(cursorLocation)
+                    }
+                    session.strokeStartCursorPoint = cursorLocation
+                    session.guideAnchorCursorPoint = cursorLocation
+                    session.isGuideAnchorCommitted = true
+                    session.hoveredDirection = nil
+                    session.hoveredProgress = 0
+                    matchingForPrefix = sequenceVariants.filter { variant in
+                        variant.sequence.starts(with: session.prefix)
+                    }
                 }
-            }
             }
         } else {
             session.hoveredDirection = nil
@@ -1827,25 +2068,86 @@ class HeadMotionManager: ObservableObject {
 
         let completed = currentMatches.filter { $0.sequence == session.prefix }
         let branches = branchSummaries(for: currentMatches, prefix: session.prefix)
+        let displayCompletedCursorPoints = overlayCompletedCursorPoints(
+            committed: session.committedCursorPoints,
+            currentCursorLocation: cursorLocation,
+            anchorPoint: session.prefix.count == 1 && !session.isGuideAnchorCommitted
+                ? session.strokeStartCursorPoint
+                : session.guideAnchorCursorPoint
+        )
         showSequenceGuide(
             prefix: session.prefix,
             branches: branches,
-            cursorLocation: session.branchAnchorCursorPoint,
-            completedCursorPoints: session.committedCursorPoints,
-            highlightedDirection: session.hoveredDirection ?? sequence.last,
+            panelCursorLocation: cursorLocation ?? session.guideAnchorCursorPoint,
+            guideAnchorCursorLocation: session.guideAnchorCursorPoint,
+            completedCursorPoints: displayCompletedCursorPoints,
+            highlightedDirection: session.isGuideAnchorCommitted ? (session.hoveredDirection ?? sequence.last) : nil,
             branchProgressByDirection: session.hoveredDirection.map { [$0: session.hoveredProgress] } ?? [:]
         )
 
         if let matched = completed.first, branches.isEmpty {
+            guard attemptSequence == session.prefix else {
+                appendHeadGestureDebugEntry(
+                    mode: "step-recognition",
+                    result: "complete-but-sequence-mismatch",
+                    samples: recentHeadGestureSamples,
+                    gestureName: nil,
+                    actionName: nil,
+                    bestMatchName: matched.gesture.name,
+                    bestScore: nil,
+                    detectedSequence: attemptSequence,
+                    matchedPrefix: session.prefix
+                )
+                activeStepGestureSession = nil
+                headGestureOverlayController.hide(after: 0.12)
+                return
+            }
             lastHeadGestureTriggerAt = now
             activeStepGestureSession = nil
             let duration = now.timeIntervalSince(session.startedAt)
+            appendHeadGestureDebugEntry(
+                mode: "step-recognition",
+                result: HeadGestureHistoryResult.triggered.rawValue,
+                samples: recentHeadGestureSamples,
+                gestureName: matched.gesture.name,
+                actionName: matched.gesture.action.label,
+                bestMatchName: matched.gesture.name,
+                bestScore: 1.0,
+                detectedSequence: attemptSequence,
+                matchedPrefix: session.prefix
+            )
             fireMatchedHeadGesture(
                 GestureMatch(gesture: matched.gesture, score: 1.0),
                 duration: duration,
                 samples: recentHeadGestureSamples
             )
         }
+    }
+
+    private func overlayCompletedCursorPoints(
+        committed: [CGPoint],
+        currentCursorLocation: CGPoint?,
+        anchorPoint: CGPoint
+    ) -> [CGPoint] {
+        if committed.count >= 2 {
+            return committed
+        }
+
+        guard let currentCursorLocation else {
+            return committed.isEmpty ? [anchorPoint] : committed
+        }
+
+        if let first = committed.first {
+            if hypot(currentCursorLocation.x - first.x, currentCursorLocation.y - first.y) >= 3 {
+                return [first, currentCursorLocation]
+            }
+            return committed
+        }
+
+        if hypot(currentCursorLocation.x - anchorPoint.x, currentCursorLocation.y - anchorPoint.y) >= 3 {
+            return [anchorPoint, currentCursorLocation]
+        }
+        return [anchorPoint]
     }
 
     private struct GestureSequenceVariant {
@@ -1861,7 +2163,7 @@ class HeadMotionManager: ObservableObject {
     private func eligibleGestureSequenceVariants(from gestures: [RecordedHeadGesture]) -> [GestureSequenceVariant] {
         gestures.flatMap { gesture in
             recordedStepSequences(for: gesture)
-                .filter { !$0.isEmpty }
+                .filter { $0.count >= 2 }
                 .map { GestureSequenceVariant(gesture: gesture, sequence: $0) }
         }
     }
@@ -2415,9 +2717,9 @@ class HeadMotionManager: ObservableObject {
 
     private func builtInGestureKind(for gesture: RecordedHeadGesture) -> HeadGestureKind? {
         switch gesture.id {
-        case Self.builtInNodGestureID:
+        case Self.builtInNodUpDownGestureID, Self.builtInNodDownUpGestureID:
             return .nod
-        case Self.builtInShakeGestureID:
+        case Self.builtInShakeLeftRightGestureID, Self.builtInShakeRightLeftGestureID:
             return .shake
         default:
             return nil
@@ -2504,10 +2806,10 @@ class HeadMotionManager: ObservableObject {
         let translated = points.map { CGPoint(x: $0.x - points[0].x, y: $0.y - points[0].y) }
         let deduped = dedupedGesturePoints(translated)
         let smoothed = smoothedGesturePoints(deduped, radius: 1)
-        return Self.extractDirectionalSequence(from: smoothed, threshold: 0.08, dominanceRatio: 1.10)
+        return Self.extractDirectionalSequence(from: smoothed, xThreshold: 0.08, yThreshold: 0.06, dominanceRatio: 1.10)
     }
 
-    private static func extractDirectionalSequence(from points: [CGPoint], threshold: Double, dominanceRatio: Double) -> [HeadGestureDirection] {
+    private static func extractDirectionalSequence(from points: [CGPoint], xThreshold: Double, yThreshold: Double, dominanceRatio: Double) -> [HeadGestureDirection] {
         guard points.count >= 2 else { return [] }
 
         var sequence: [HeadGestureDirection] = []
@@ -2515,7 +2817,7 @@ class HeadMotionManager: ObservableObject {
         var candidateCount = 0
 
         for point in points {
-            let direction = dominantDirection(for: point, threshold: threshold, dominanceRatio: dominanceRatio)
+            let direction = dominantDirection(for: point, xThreshold: xThreshold, yThreshold: yThreshold, dominanceRatio: dominanceRatio)
             if direction == candidateDirection {
                 candidateCount += 1
             } else {
@@ -2532,18 +2834,18 @@ class HeadMotionManager: ObservableObject {
         return sequence
     }
 
-    private static func dominantDirection(for point: CGPoint, threshold: Double, dominanceRatio: Double) -> HeadGestureDirection? {
+    private static func dominantDirection(for point: CGPoint, xThreshold: Double, yThreshold: Double, dominanceRatio: Double) -> HeadGestureDirection? {
         let absX = Double(abs(point.x))
         let absY = Double(abs(point.y))
 
-        if absX < threshold && absY < threshold {
+        if absX < xThreshold && absY < yThreshold {
             return nil
         }
 
-        if absY >= threshold && absY >= (absX * dominanceRatio) {
-            return point.y < 0 ? .up : .down
+        if absY >= yThreshold && absY >= (absX * dominanceRatio) {
+            return point.y < 0 ? .down : .up
         }
-        if absX >= threshold && absX >= (absY * dominanceRatio) {
+        if absX >= xThreshold && absX >= (absY * dominanceRatio) {
             return point.x < 0 ? .left : .right
         }
         return nil
@@ -2552,16 +2854,18 @@ class HeadMotionManager: ObservableObject {
     private func showSequenceGuide(
         prefix: [HeadGestureDirection],
         branches: [GestureBranchSummary],
-        cursorLocation: CGPoint?,
+        panelCursorLocation: CGPoint?,
+        guideAnchorCursorLocation: CGPoint?,
         completedCursorPoints: [CGPoint],
         highlightedDirection: HeadGestureDirection?,
         branchProgressByDirection: [HeadGestureDirection: CGFloat]
     ) {
-        guard let cursorLocation,
+        guard let panelCursorLocation,
+              let guideAnchorCursorLocation,
               let guide = overlayGuideLayout(
                 prefix: prefix,
                 branches: branches,
-                cursorLocation: cursorLocation,
+                guideAnchorCursorLocation: guideAnchorCursorLocation,
                 completedCursorPoints: completedCursorPoints,
                 highlightedDirection: highlightedDirection,
                 branchProgressByDirection: branchProgressByDirection
@@ -2574,25 +2878,25 @@ class HeadMotionManager: ObservableObject {
             completed: guide.completed,
             branches: guide.branches,
             status: status,
-            cursorLocation: cursorLocation
+            cursorLocation: panelCursorLocation
         )
     }
 
     private func overlayGuideLayout(
         prefix: [HeadGestureDirection],
         branches: [GestureBranchSummary],
-        cursorLocation: CGPoint,
+        guideAnchorCursorLocation: CGPoint,
         completedCursorPoints: [CGPoint],
         highlightedDirection: HeadGestureDirection?,
         branchProgressByDirection: [HeadGestureDirection: CGFloat]
     ) -> (completed: [HeadGestureOverlayPoint], branches: [HeadGestureOverlayBranch])? {
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(cursorLocation) })
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(guideAnchorCursorLocation) })
             ?? NSScreen.main
             ?? NSScreen.screens.first else { return nil }
 
         let center = CGPoint(
-            x: cursorLocation.x - screen.frame.minX,
-            y: screen.frame.height - (cursorLocation.y - screen.frame.minY)
+            x: guideAnchorCursorLocation.x - screen.frame.minX,
+            y: screen.frame.height - (guideAnchorCursorLocation.y - screen.frame.minY)
         )
         let stepLength: CGFloat = 132
 
@@ -2662,7 +2966,7 @@ class HeadMotionManager: ObservableObject {
         var bestScore: CGFloat = -.greatestFiniteMagnitude
 
         for direction in availableDirections {
-            let vector = overlayVector(for: direction, length: branchLength)
+            let vector = screenVector(for: direction, length: branchLength)
             let directionLength = hypot(vector.dx, vector.dy)
             guard directionLength > 0 else { continue }
 
@@ -2686,6 +2990,19 @@ class HeadMotionManager: ObservableObject {
         }
 
         return bestState
+    }
+
+    private func screenVector(for direction: HeadGestureDirection, length: CGFloat) -> (dx: CGFloat, dy: CGFloat) {
+        switch direction {
+        case .up:
+            return (0, length)
+        case .down:
+            return (0, -length)
+        case .left:
+            return (-length, 0)
+        case .right:
+            return (length, 0)
+        }
     }
 
     private func overlayVector(for direction: HeadGestureDirection, length: CGFloat) -> (dx: CGFloat, dy: CGFloat) {
@@ -2924,7 +3241,9 @@ class HeadMotionManager: ObservableObject {
         gestureName: String?,
         actionName: String?,
         bestMatchName: String?,
-        bestScore: Double?
+        bestScore: Double?,
+        detectedSequence: [HeadGestureDirection]? = nil,
+        matchedPrefix: [HeadGestureDirection]? = nil
     ) {
         let duration = max(samples.last?.at.timeIntervalSince(samples.first?.at ?? .distantPast) ?? 0, 0)
         let totalDistance = gestureActivationDistance(from: samples)
@@ -2941,6 +3260,8 @@ class HeadMotionManager: ObservableObject {
             totalDistance: totalDistance,
             duration: duration,
             sampleCount: samples.count,
+            detectedSequence: detectedSequence?.map(\.rawValue),
+            matchedPrefix: matchedPrefix?.map(\.rawValue),
             samples: debugSamples
         )
         headGestureDebugEntries.insert(entry, at: 0)
