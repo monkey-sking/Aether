@@ -1198,6 +1198,7 @@ final class SpeechManager: ObservableObject {
     // MARK: - Init
     init() {
         self.dictationHandler = DictationHandler(injector: injector)
+        headsetInputMuteRouter.deactivate()
         self.dictationHandler.onStatusUpdate = { [weak self] _ in
             guard let self else { return }
             DispatchQueue.main.async {
@@ -1596,17 +1597,9 @@ final class SpeechManager: ObservableObject {
             GlobalLogger.speech.info(
                 "[ASR Session] start locale=\(activeLocale.identifier) mode=\(recognitionControlMode.rawValue) taskHint=\(String(describing: taskHint)) preferOnDevice=\(preferOnDevice) selectedInputID=\(selectedInputDeviceID) effectiveInputID=\(effectiveCaptureInputDeviceID()) selectedInputName=\(selectedDeviceName) autoPunctuation=\(isAutoPunctuationEnabled) contextualCount=\(contextual.count)"
             )
-            if shouldSuppressSystemHeadsetMicControl {
-                headsetInputMuteRouter.activate { [weak self] inputShouldBeMuted in
-                    guard let self else { return }
-                    GlobalLogger.speech.info(
-                        "[HeadsetMute] accepted system mic-control gesture input=\(self.currentResolvedInputDeviceName) muted=\(inputShouldBeMuted)"
-                    )
-                    self.handleHeadsetInputMuteGesture(inputShouldBeMuted)
-                }
-            } else {
-                headsetInputMuteRouter.deactivate()
-            }
+            // Headset button / system microphone-control interception is disabled.
+            // Keep the router torn down so AirPods presses stay owned by the system.
+            headsetInputMuteRouter.deactivate()
             consecutiveRecognitionUnavailableCount = 0
             recognitionUnavailableUntil = .distantPast
             scheduleStartupInputHealthProbe(for: gen)

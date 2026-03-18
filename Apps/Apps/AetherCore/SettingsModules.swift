@@ -988,16 +988,11 @@ private struct HeadGestureShortcutMappingCard: View {
     @ObservedObject private var motionManager = HeadMotionManager.shared
     @State private var expandedGestureIDs: Set<UUID> = []
     private var isChinese: Bool { AppLocalization.isChinese }
+    private var fixedGestures: [HeadMotionManager.RecordedHeadGesture] { motionManager.fixedHotZoneGestures }
 
     private var gestureActionOptions: [FixedPopUpOption] {
         HeadMotionManager.HeadGestureAction.allCases.map {
             FixedPopUpOption(id: $0.rawValue, title: $0.label)
-        }
-    }
-
-    private var gestureDirectionOptions: [FixedPopUpOption] {
-        HeadMotionManager.HeadGestureDirection.allCases.map {
-            FixedPopUpOption(id: $0.rawValue, title: "\($0.symbol) \($0.label)")
         }
     }
 
@@ -1014,34 +1009,10 @@ private struct HeadGestureShortcutMappingCard: View {
         )
     }
 
-    private func nameBinding(for gestureID: UUID) -> Binding<String> {
-        Binding(
-            get: { motionManager.recordedHeadGestures.first(where: { $0.id == gestureID })?.name ?? "" },
-            set: { motionManager.updateRecordedHeadGestureName(id: gestureID, name: $0) }
-        )
-    }
-
     private func enabledBinding(for gestureID: UUID) -> Binding<Bool> {
         Binding(
             get: { motionManager.recordedHeadGestures.first(where: { $0.id == gestureID })?.enabled ?? true },
             set: { motionManager.toggleRecordedHeadGestureEnabled(id: gestureID, enabled: $0) }
-        )
-    }
-
-    private func stepSequence(for gestureID: UUID) -> [HeadMotionManager.HeadGestureDirection] {
-        motionManager.recordedHeadGestures.first(where: { $0.id == gestureID })?.stepSequence ?? []
-    }
-
-    private func directionSelectionBinding(for gestureID: UUID) -> Binding<String> {
-        Binding(
-            get: {
-                let steps = stepSequence(for: gestureID)
-                return steps.first?.rawValue ?? HeadMotionManager.HeadGestureDirection.up.rawValue
-            },
-            set: { newValue in
-                guard let direction = HeadMotionManager.HeadGestureDirection(rawValue: newValue) else { return }
-                motionManager.updateRecordedHeadGestureSteps(id: gestureID, steps: [direction])
-            }
         )
     }
 
@@ -1054,31 +1025,17 @@ private struct HeadGestureShortcutMappingCard: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(isChinese ? "头控热区规则" : "Head Zone Rules")
                             .font(.headline)
-                        Text(isChinese ? "用单方向热区触发动作。热区固定在当前实体显示器的边缘。" : "Bind single-direction hot zones. Zones are fixed to the active physical display edges.")
+                        Text(isChinese ? "固定 4 个边缘热区。只需要给每个热区配置动作；未配置动作的热区不会生效。" : "Use 4 fixed edge zones. Assign actions only; zones without actions stay inactive.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Spacer(minLength: 12)
-
-                    Button {
-                        motionManager.createRecordedHeadGesture()
-                        if let createdID = motionManager.recordedHeadGestures.first?.id {
-                            expandedGestureIDs.insert(createdID)
-                        }
-                    } label: {
-                        Label(isChinese ? "新增热区" : "Add Zone", systemImage: "plus")
-                            .font(.subheadline.weight(.semibold))
-                            .symbolRenderingMode(.hierarchical)
-                            .imageScale(.medium)
-                    }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
                 }
 
-                if motionManager.recordedHeadGestures.isEmpty {
-                    Text(isChinese ? "还没有热区规则。点击上面的“新增热区”，先定义方向和动作。" : "No hot zone rules yet. Click Add Zone above to define a direction and action.")
+                if fixedGestures.isEmpty {
+                    Text(isChinese ? "固定热区还没有准备好。" : "Fixed hot zones are not available yet.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(14)
@@ -1090,7 +1047,7 @@ private struct HeadGestureShortcutMappingCard: View {
                         GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .leading)
                     ]
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
-                        ForEach(motionManager.recordedHeadGestures) { gesture in
+                        ForEach(fixedGestures) { gesture in
                             gestureRow(gesture)
                         }
                     }
@@ -1193,8 +1150,6 @@ private struct HeadGestureShortcutMappingCard: View {
     @ViewBuilder
     private func gestureRow(_ gesture: HeadMotionManager.RecordedHeadGesture) -> some View {
         let isExpanded = expandedGestureIDs.contains(gesture.id)
-        let steps = gesture.stepSequence ?? []
-        let direction = steps.first
 
         DisclosureGroup(
             isExpanded: Binding(
@@ -1211,16 +1166,6 @@ private struct HeadGestureShortcutMappingCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                     GridRow {
-                        Text(isChinese ? "名称" : "Name")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .frame(width: 56, alignment: .leading)
-                        TextField(isChinese ? "动作名称" : "Gesture name", text: nameBinding(for: gesture.id))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 260, alignment: .leading)
-                    }
-
-                    GridRow {
                         Text(isChinese ? "动作" : "Action")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -1232,54 +1177,26 @@ private struct HeadGestureShortcutMappingCard: View {
                         .controlSize(.small)
                         .frame(maxWidth: 260, alignment: .leading)
                     }
-
-                    GridRow {
-                        Text(isChinese ? "方向" : "Direction")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .frame(width: 56, alignment: .leading)
-                        FixedWidthPopUpMenu(
-                            options: gestureDirectionOptions,
-                            selection: directionSelectionBinding(for: gesture.id)
-                        )
-                        .controlSize(.small)
-                        .frame(maxWidth: 160, alignment: .leading)
-                    }
-
                 }
 
-                Text(direction == nil
-                        ? (isChinese ? "还没有定义热区方向。" : "No direction selected.")
-                        : (isChinese
-                            ? "方向 \(motionManager.recordedStepSummary(for: gesture))"
-                            : "Direction \(motionManager.recordedStepSummary(for: gesture))"))
+                Text(gesture.action == .none
+                        ? (isChinese ? "未配置动作，这个热区当前不会生效。" : "No action assigned. This zone is currently inactive.")
+                        : (isChinese ? "移入该边缘热区并停留即可触发。" : "Move into this edge zone and dwell to trigger."))
                     .font(.caption)
                     .foregroundColor(.secondary)
-
-                HStack(spacing: 8) {
-                    Spacer()
-                    Button(isChinese ? "删除" : "Delete") {
-                        motionManager.deleteRecordedHeadGesture(id: gesture.id)
-                    }
-                    .controlSize(.small)
-                    .buttonStyle(.bordered)
-                    .tint(.red)
-                }
             }
             .padding(.top, 6)
             .padding(.bottom, 2)
         } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(gesture.name.isEmpty ? (isChinese ? "未命名动作" : "Untitled Gesture") : gesture.name)
+                    Text(gesture.name)
                         .font(.subheadline.weight(.semibold))
                     if !isExpanded {
                         Text(
-                            direction == nil
-                                ? (isChinese ? "未定义方向" : "No direction selected")
-                                : (isChinese
-                                    ? "方向 · \(motionManager.recordedStepSummary(for: gesture))"
-                                    : "Direction · \(motionManager.recordedStepSummary(for: gesture))")
+                            gesture.action == .none
+                                ? (isChinese ? "未配置动作" : "Inactive")
+                                : gesture.action.label
                         )
                             .font(.caption2)
                             .foregroundColor(.secondary)
@@ -3098,6 +3015,13 @@ struct HeadGestureSettingsView: View {
         )
     }
 
+    private var hotZoneSizeBinding: Binding<Double> {
+        Binding(
+            get: { headManager.headHotZoneSizeScale },
+            set: { headManager.headHotZoneSizeScale = $0 }
+        )
+    }
+
     var body: some View {
         SettingsPage(
             title: isChinese ? "头控热区" : "Head Zones",
@@ -3140,6 +3064,26 @@ struct HeadGestureSettingsView: View {
                             .toggleStyle(.switch)
 
                         Text(isChinese ? "头控开启时可以用头控光标触发；未开启头控时也可以直接用普通鼠标触发。" : "When head tracking is active, the head-controlled cursor can trigger zones. When head tracking is off, a normal mouse can trigger them too.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text(isChinese ? "热区大小" : "Zone Size")
+                                .font(.headline)
+                            Spacer()
+                            Text("\(Int(headManager.headHotZoneSizeScale * 100))%")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.secondary)
+                        }
+
+                        Slider(value: hotZoneSizeBinding, in: 0.8...1.8, step: 0.05)
+
+                        Text(isChinese ? "调大后更容易进入热区，也会让显示区域更明显。" : "Larger zones are easier to enter and display more prominently.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

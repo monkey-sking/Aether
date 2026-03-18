@@ -53,6 +53,7 @@
 "headset.event.single_end" = "Headset Single Press End";
 "headset.event.single_toggle" = "Headset Single Press Toggle";
 "headset.experiment.notice" = "Experimental: on some devices macOS may show mic prompts or intercept the event, which can cause occasional missed presses.";
+"motion.error.tracking_unavailable" = "Head tracking is unavailable. Reconnect the headset and try again.";
 "custom_app_rule_editor.title" = "Edit Custom App Rule";
 "custom_app_rule_editor.done" = "Done";
 "custom_app_rule_editor.enable_rule" = "Enable this rule";
@@ -81,6 +82,7 @@
 "headset.hud.scroll_top" = "Scroll Top";
 "headset.hud.start_tracking" = "Start Head Tracking";
 "headset.hud.stop_tracking" = "Stop Head Tracking";
+"headset.hud.tracking_unavailable" = "Head tracking unavailable. Reconnect the headset and try again.";
 "headset.hud.switched_control" = "Switched to Control Mode";
 "headset.hud.switched_input" = "Switched to Input Mode";
 "headset.hud.unsupported" = "This headset does not support head motion tracking";

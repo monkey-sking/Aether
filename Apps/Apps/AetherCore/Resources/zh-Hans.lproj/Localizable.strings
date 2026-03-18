@@ -426,6 +426,7 @@
 "headset.hud.stop_tracking" = "停止头控";
 "headset.hud.start_tracking" = "开启头控";
 "headset.hud.exit_input_mode" = "已退出输入模式";
+"headset.hud.tracking_unavailable" = "头控暂不可用，请重戴耳机";
 "headset.remote.disabled" = "耳机遥控未启用";
 "headset.remote.stream_connected" = "媒体遥控已注册，耳机姿态数据流已连接";
 "headset.remote.waiting" = "媒体遥控已注册，等待系统把单按 / 双按 / 三按事件转发给 Aether";
@@ -434,6 +435,7 @@
 "headset.event.single_end" = "耳机单按结束";
 "headset.event.single_toggle" = "耳机单按切换";
 "headset.experiment.notice" = "实验功能：部分机型会出现系统麦克风提示或事件被系统拦截，导致单按偶发失效。";
+"motion.error.tracking_unavailable" = "头控暂不可用，请重连耳机后重试。";
 "custom_app_rule_editor.title" = "编辑自定义 App 规则";
 "custom_app_rule_editor.done" = "完成";
 "custom_app_rule_editor.enable_rule" = "启用这条规则";
