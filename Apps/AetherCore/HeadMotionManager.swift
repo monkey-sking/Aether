@@ -2618,6 +2618,7 @@ class HeadMotionManager: ObservableObject {
                 ],
                 label: branch.label,
                 highlighted: branch.direction == highlightedDirection,
+                targetRadius: branch.direction == highlightedDirection ? 28 : 24,
                 labelOffsetX: labelOffset.x,
                 labelOffsetY: labelOffset.y
             )
@@ -2645,6 +2646,7 @@ class HeadMotionManager: ObservableObject {
         guard candidateLength >= 18 else { return nil }
 
         let branchLength: CGFloat = 132
+        let targetRadius: CGFloat = 28
         var bestDirection: HeadGestureDirection?
         var bestProjection: CGFloat = 0
 
@@ -2655,8 +2657,9 @@ class HeadMotionManager: ObservableObject {
 
             let projection = ((deltaX * vector.dx) + (deltaY * vector.dy)) / directionLength
             let orthogonal = abs((deltaX * vector.dy) - (deltaY * vector.dx)) / directionLength
-            guard projection >= branchLength * guidedBranchProgressTrigger else { continue }
-            guard orthogonal <= 44 else { continue }
+            let radialDistance = hypot(deltaX - vector.dx, deltaY - vector.dy)
+            guard projection >= branchLength * guidedBranchProgressTrigger || radialDistance <= targetRadius else { continue }
+            guard orthogonal <= 46 || radialDistance <= targetRadius else { continue }
 
             if projection > bestProjection {
                 bestProjection = projection
@@ -4503,6 +4506,7 @@ private struct HeadGestureOverlayBranch: Equatable {
     let points: [HeadGestureOverlayPoint]
     let label: String
     let highlighted: Bool
+    let targetRadius: CGFloat
     let labelOffsetX: CGFloat
     let labelOffsetY: CGFloat
 }
@@ -4696,16 +4700,19 @@ private struct HeadGestureSequenceGuideView: View {
                         }
                     }
                     .stroke(
-                        LinearGradient(colors: [Color.white.opacity(0.92), Color.green.opacity(0.88)], startPoint: .leading, endPoint: .trailing),
-                        style: StrokeStyle(lineWidth: 12, lineCap: .round, lineJoin: .round)
+                        LinearGradient(colors: [Color.white.opacity(0.32), Color.green.opacity(0.34)], startPoint: .leading, endPoint: .trailing),
+                        style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
                     )
-                    .shadow(color: .white.opacity(0.20), radius: 8)
+                    .shadow(color: .white.opacity(0.08), radius: 4)
                 }
 
                 ForEach(Array(branches.enumerated()), id: \.offset) { _, branch in
                     if branch.points.count >= 2 {
+                        let start = map(branch.points[0], in: proxy.size)
+                        let end = map(branch.points[1], in: proxy.size)
+
                         Path { path in
-                            path.move(to: map(branch.points[0], in: proxy.size))
+                            path.move(to: start)
                             for point in branch.points.dropFirst() {
                                 path.addLine(to: map(point, in: proxy.size))
                             }
@@ -4717,29 +4724,36 @@ private struct HeadGestureSequenceGuideView: View {
                             style: StrokeStyle(lineWidth: branch.highlighted ? 10 : 8, lineCap: .round, lineJoin: .round, dash: [14, 10])
                         )
 
-                        if let end = branch.points.last {
-                            Circle()
-                                .fill(branch.highlighted ? Color.cyan.opacity(0.96) : Color.white.opacity(0.9))
-                                .frame(width: branch.highlighted ? 14 : 12, height: branch.highlighted ? 14 : 12)
-                                .shadow(color: .white.opacity(0.22), radius: 8)
-                                .position(map(end, in: proxy.size))
+                        Circle()
+                            .fill(branch.highlighted ? Color.cyan.opacity(0.14) : Color.white.opacity(0.08))
+                            .overlay(
+                                Circle()
+                                    .stroke(branch.highlighted ? Color.cyan.opacity(0.65) : Color.white.opacity(0.30), lineWidth: branch.highlighted ? 2.5 : 1.5)
+                            )
+                            .frame(width: branch.targetRadius * 2, height: branch.targetRadius * 2)
+                            .position(end)
 
-                            Text(branch.label)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(branch.highlighted ? .white : .white.opacity(0.78))
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 5)
-                                .background(.ultraThinMaterial.opacity(branch.highlighted ? 0.72 : 0.56))
-                                .clipShape(Capsule())
-                                .position(
-                                    labelPosition(
-                                        for: map(end, in: proxy.size),
-                                        offsetX: branch.labelOffsetX,
-                                        offsetY: branch.labelOffsetY,
-                                        in: proxy.size
-                                    )
+                        Circle()
+                            .fill(branch.highlighted ? Color.cyan.opacity(0.96) : Color.white.opacity(0.92))
+                            .frame(width: branch.highlighted ? 14 : 12, height: branch.highlighted ? 14 : 12)
+                            .shadow(color: .white.opacity(0.22), radius: 8)
+                            .position(end)
+
+                        Text(branch.label)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(branch.highlighted ? .white : .white.opacity(0.82))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(.ultraThinMaterial.opacity(branch.highlighted ? 0.72 : 0.56))
+                            .clipShape(Capsule())
+                            .position(
+                                labelPosition(
+                                    for: end,
+                                    offsetX: branch.labelOffsetX,
+                                    offsetY: branch.labelOffsetY,
+                                    in: proxy.size
                                 )
-                        }
+                            )
                     }
                 }
 
