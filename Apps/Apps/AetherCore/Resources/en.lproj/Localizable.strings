@@ -550,6 +550,12 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "voice_usage.failure.dictation_disabled" = "Voice Input Off";
 "voice_usage.failure.injection_failed" = "Input Failed";
 "voice_usage.failure.injection_unverified" = "Input Unverified";
+"settings.voice.playback_leak_suppression" = "Enhance suppression during speaker playback";
+"settings.voice.playback_leak_suppression_hint" = "When media is playing through built-in speakers, Aether uses stronger voice processing and ducks other audio.";
+"speech.playback_leak.detected" = "Speaker playback interference detected. Use headphones if possible";
+"speech.playback_leak.suppression_active" = "Speaker playback suppression is active";
+"menu.status.playback_leak_suspected" = "Speaker playback interference detected";
+"menu.status.playback_leak_suppression" = "Speaker playback suppression active";
 
 /* Menu Bar Quick Toggles */
 "menu.toggle_voice_input" = "Voice Input";

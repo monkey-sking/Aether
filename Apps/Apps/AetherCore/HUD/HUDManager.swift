@@ -483,6 +483,13 @@ final class HUDManager {
             state.updateGestureTrail(points: [], status: "", visible: false)
             hideLanguageIndicator()
         }
+
+        if mode != .hidden, shouldSuppressHUDForFullscreenVideo() {
+            cancelHide()
+            hudWindow?.orderOut(nil)
+            updateCaretDebugDot(point: nil, enabled: false)
+            return
+        }
         
         // Mode-specific behavior
         switch mode {

@@ -422,6 +422,20 @@ struct InputSettingsView: View {
                                 .foregroundColor(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Toggle(isOn: Binding(
+                                get: { appState.voiceService.enhancedPlaybackLeakSuppressionEnabled },
+                                set: { appState.voiceService.enhancedPlaybackLeakSuppressionEnabled = $0 }
+                            )) {
+                                Text(String(localized: "settings.voice.playback_leak_suppression"))
+                                    .font(.body)
+                            }
+                            Text(String(localized: "settings.voice.playback_leak_suppression_hint"))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         
                         // Activation mode (single choice)
                         VStack(spacing: 10) {
@@ -3052,6 +3066,23 @@ struct HeadGestureSettingsView: View {
         )
     }
 
+    private var mouseIdlePauseMinutesBinding: Binding<String> {
+        Binding(
+            get: { String(headManager.mouseIdlePauseMinutes) },
+            set: { newValue in
+                guard let minutes = Int(newValue) else { return }
+                headManager.mouseIdlePauseMinutes = minutes
+            }
+        )
+    }
+
+    private var mouseIdlePauseOptions: [FixedPopUpOption] {
+        stride(from: 15, through: 60, by: 5).map { minutes in
+            let title = isChinese ? "\(minutes) 分钟" : "\(minutes) min"
+            return FixedPopUpOption(id: String(minutes), title: title)
+        }
+    }
+
     var body: some View {
         SettingsPage(
             title: isChinese ? "头控热区" : "Head Zones",
@@ -3117,6 +3148,26 @@ struct HeadGestureSettingsView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(isChinese ? "鼠标静止后自动暂停" : "Pause After Mouse Idle")
+                                    .font(.headline)
+                                Text(isChinese ? "鼠标持续静止这么久后，暂停这套功能；鼠标再次移动后恢复。" : "Pause this feature set after the mouse stays still for the selected duration, then resume when the mouse moves again.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer()
+                            FixedWidthPopUpMenu(
+                                options: mouseIdlePauseOptions,
+                                selection: mouseIdlePauseMinutesBinding
+                            )
+                        }
                     }
                 }
 

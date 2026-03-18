@@ -622,6 +622,12 @@
 "voice_usage.failure.dictation_disabled" = "语音输入已关闭";
 "voice_usage.failure.injection_failed" = "输入失败";
 "voice_usage.failure.injection_unverified" = "输入未确认";
+"settings.voice.playback_leak_suppression" = "外放时增强语音抑制";
+"settings.voice.playback_leak_suppression_hint" = "检测到电脑外放且使用内建扬声器时，自动启用更强的语音处理与压低其他音频。";
+"speech.playback_leak.detected" = "检测到外放干扰，建议使用耳机";
+"speech.playback_leak.suppression_active" = "外放干扰抑制已启用";
+"menu.status.playback_leak_suspected" = "检测到外放干扰";
+"menu.status.playback_leak_suppression" = "外放干扰抑制中";
 
 /* Menu Bar Quick Toggles */
 "menu.toggle_voice_input" = "语音输入";

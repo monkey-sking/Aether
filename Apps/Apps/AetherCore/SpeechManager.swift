@@ -44,6 +44,32 @@ struct UtteranceExecutionGuard {
 
 @MainActor
 final class SpeechManager: ObservableObject {
+    enum PlaybackLeakState: String {
+        case none
+        case suspectedPlaybackLeak
+        case speechSuppressionActive
+    }
+
+    private enum SessionSpeechProcessingProfile: String {
+        case passthrough
+        case dictation
+        case speechCommand
+
+        var audioProfile: AudioCaptureSession.VoiceProcessingProfile {
+            switch self {
+            case .passthrough: return .passthrough
+            case .dictation: return .dictation
+            case .speechCommand: return .speechCommand
+            }
+        }
+    }
+
+    private struct AudioEnergyObservation {
+        let at: Date
+        let rms: Float
+        let active: Bool
+    }
+
     private let log = GlobalLogger.speech
     private let headsetInputMuteRouter = HeadsetInputMuteRouter()
 
@@ -94,6 +120,13 @@ final class SpeechManager: ObservableObject {
     @Published var status: String = "Idle"
     @Published var lastTranscript: String = ""
     @Published var lastError: String = ""
+    @Published private(set) var playbackLeakState: PlaybackLeakState = .none
+    @Published var enhancedPlaybackLeakSuppressionEnabled: Bool = UserDefaults.standard.object(forKey: "enhancedPlaybackLeakSuppressionEnabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(enhancedPlaybackLeakSuppressionEnabled, forKey: "enhancedPlaybackLeakSuppressionEnabled")
+            refreshPlaybackLeakStateForCurrentSession()
+        }
+    }
     @Published private(set) var accessibilityTrustedSnapshot: Bool = false
     @Published var availableInputDevices: [AudioInputDevice] = []
     @Published var selectedInputDeviceID: AudioDeviceID = 0 {
@@ -396,6 +429,9 @@ final class SpeechManager: ObservableObject {
     private var temporaryFallbackInputDeviceID: AudioDeviceID?
     private var startupDetectedUsableAudioForSession = false
     private var startupFallbackAttemptedForSession = false
+    private var startupPlaybackLeakHintShownForSession = false
+    private var audioEnergyObservations: [AudioEnergyObservation] = []
+    private var currentSpeechProcessingProfile: SessionSpeechProcessingProfile = .passthrough
     private var pttAudioCaptureGracePeriod: TimeInterval {
         let raw = UserDefaults.standard.object(forKey: "pttAudioCaptureGracePeriod") as? Double ?? 8.0
         return min(max(raw, 1.5), 20.0)
@@ -873,6 +909,87 @@ final class SpeechManager: ObservableObject {
             || name.contains("耳机")
     }
 
+    private var isPlaybackLeakRiskEnvironment: Bool {
+        guard enhancedPlaybackLeakSuppressionEnabled else { return false }
+        guard !audioCapture.isDefaultOutputHeadsetLike() else { return false }
+        return NowPlayingService.shared.playbackRate > 0.05
+    }
+
+    private func desiredSpeechProcessingProfile(forTypingMode typingMode: Bool) -> SessionSpeechProcessingProfile {
+        typingMode ? .dictation : .speechCommand
+    }
+
+    private func setPlaybackLeakState(_ newValue: PlaybackLeakState) {
+        guard playbackLeakState != newValue else { return }
+        playbackLeakState = newValue
+    }
+
+    private func appendAudioEnergyObservation(active: Bool, rms: Float, at now: Date) {
+        audioEnergyObservations.append(AudioEnergyObservation(at: now, rms: rms, active: active))
+        audioEnergyObservations.removeAll { now.timeIntervalSince($0.at) > 1.6 }
+    }
+
+    private func recentAudioEnergyObservations(window: TimeInterval = 0.9) -> [AudioEnergyObservation] {
+        let now = Date()
+        return audioEnergyObservations.filter { now.timeIntervalSince($0.at) <= window }
+    }
+
+    private func isCloseSpeechLikely(in observations: [AudioEnergyObservation]) -> Bool {
+        guard !observations.isEmpty else { return false }
+        let values = observations.map(\.rms)
+        let maxRMS = values.max() ?? 0
+        let minRMS = values.min() ?? 0
+        let avgRMS = values.reduce(0, +) / Float(values.count)
+        let earlySlice = observations.prefix(max(1, observations.count / 2))
+        let earlyAvg = earlySlice.map(\.rms).reduce(0, +) / Float(earlySlice.count)
+        let activeCount = observations.filter(\.active).count
+        let rise = maxRMS - earlyAvg
+        let range = maxRMS - minRMS
+        return maxRMS >= 0.12
+            || (maxRMS >= 0.085 && (rise >= 0.025 || range >= 0.035) && activeCount >= 3)
+            || (avgRMS >= 0.07 && range >= 0.04 && activeCount >= 4)
+    }
+
+    private func isStablePlaybackLeakLikely(in observations: [AudioEnergyObservation]) -> Bool {
+        guard observations.count >= 6 else { return false }
+        let values = observations.map(\.rms)
+        let maxRMS = values.max() ?? 0
+        let minRMS = values.min() ?? 0
+        let avgRMS = values.reduce(0, +) / Float(values.count)
+        let activeRatio = Float(observations.filter(\.active).count) / Float(observations.count)
+        let range = maxRMS - minRMS
+        return avgRMS >= 0.035 && range <= 0.025 && activeRatio >= 0.65
+    }
+
+    private func applySpeechProcessingProfile(_ profile: SessionSpeechProcessingProfile, reason: String) {
+        currentSpeechProcessingProfile = profile
+        audioCapture.voiceProcessingProfile = profile.audioProfile
+        if audioCapture.isRunning {
+            audioCapture.applyRuntimeVoiceProcessingProfile(profile.audioProfile, reason: reason)
+        }
+        refreshPlaybackLeakStateForCurrentSession()
+    }
+
+    private func refreshPlaybackLeakStateForCurrentSession() {
+        guard audioCapture.isRunning || recognitionSession.isRunning else {
+            setPlaybackLeakState(.none)
+            return
+        }
+        guard enhancedPlaybackLeakSuppressionEnabled else {
+            setPlaybackLeakState(.none)
+            return
+        }
+        if playbackLeakState == .suspectedPlaybackLeak,
+           !didRecordFirstPartialForSession {
+            return
+        }
+        if isPlaybackLeakRiskEnvironment, currentSpeechProcessingProfile != .passthrough {
+            setPlaybackLeakState(.speechSuppressionActive)
+        } else {
+            setPlaybackLeakState(.none)
+        }
+    }
+
     private func cancelStartupInputHealthProbe() {
         startupInputHealthProbeWorkItem?.cancel()
         startupInputHealthProbeWorkItem = nil
@@ -1247,9 +1364,32 @@ final class SpeechManager: ObservableObject {
             guard let self else { return }
             self.latestVoiceActivity = active
             self.latestVoiceRMS = rms
-            if active || rms >= 0.05 {
+            let now = Date()
+            self.appendAudioEnergyObservation(active: active, rms: rms, at: now)
+            let observations = self.recentAudioEnergyObservations()
+            let closeSpeechLikely = self.isCloseSpeechLikely(in: observations)
+            if closeSpeechLikely {
                 self.startupDetectedUsableAudioForSession = true
                 self.cancelStartupInputHealthProbe()
+            }
+            if self.isPlaybackLeakRiskEnvironment,
+               !self.didRecordFirstPartialForSession,
+               self.audioCapture.isRunning,
+               self.recognitionSession.isRunning,
+               !self.isStopping,
+               self.isStablePlaybackLeakLikely(in: observations) {
+                self.applySpeechProcessingProfile(.speechCommand, reason: "playback-leak-suspected")
+                if !self.startupPlaybackLeakHintShownForSession {
+                    self.startupPlaybackLeakHintShownForSession = true
+                    self.setPlaybackLeakState(.suspectedPlaybackLeak)
+                    HUDManager.shared.showTemporary(
+                        message: String(localized: "speech.playback_leak.detected"),
+                        icon: "speaker.wave.2.bubble.left.fill",
+                        duration: 1.6
+                    )
+                }
+            } else if closeSpeechLikely {
+                self.refreshPlaybackLeakStateForCurrentSession()
             }
             self.eosDetector.noteVoiceActivity(active)
         }
@@ -1505,6 +1645,9 @@ final class SpeechManager: ObservableObject {
         cancelStartupInputHealthProbe()
         startupDetectedUsableAudioForSession = false
         startupFallbackAttemptedForSession = false
+        startupPlaybackLeakHintShownForSession = false
+        audioEnergyObservations.removeAll()
+        setPlaybackLeakState(.none)
         cancelDeferredAudioStop()
         isStopping = false
         activeUtteranceID = 0
@@ -1530,11 +1673,27 @@ final class SpeechManager: ObservableObject {
         }
         isContinuousDictationWaitingForInputFocus = false
 
+        let predictedTypingMode: Bool = {
+            if isWakeWordEnabled && !isAwake && !isDirectCommandEnabled { return false }
+            if recognitionControlMode == .auto,
+               !isTypingMode,
+               isTypingRecoveryHoldActive,
+               sessionTargetPID != nil || sessionTargetBundleID != nil || sessionTargetElementFingerprint != nil {
+                return true
+            }
+            return isTypingMode
+        }()
+        applySpeechProcessingProfile(
+            desiredSpeechProcessingProfile(forTypingMode: predictedTypingMode),
+            reason: "session-start"
+        )
+
         // Start audio capture
         refreshHeadsetVoiceProcessingPolicy()
         let selectedInputID = selectedInputDeviceID
         let effectiveInputID = effectiveCaptureInputDeviceID()
         audioCapture.selectedDeviceID = effectiveInputID
+        audioCapture.voiceProcessingProfile = currentSpeechProcessingProfile.audioProfile
         // AirPods / bluetooth headsets behave more like dynamic routes than
         // fixed capture devices. Let the system own those routes; explicit
         // binding has proven to fail with AVFAudio -10868 even when the UI
@@ -1579,6 +1738,10 @@ final class SpeechManager: ObservableObject {
             )
         }
         isDictating = sessionTypingMode
+        let finalProfile = desiredSpeechProcessingProfile(forTypingMode: sessionTypingMode)
+        if finalProfile != currentSpeechProcessingProfile {
+            applySpeechProcessingProfile(finalProfile, reason: "session-mode-finalized")
+        }
 
         // Start recognition
         do {
@@ -1995,6 +2158,9 @@ final class SpeechManager: ObservableObject {
         cancelDeferredAudioStop()
         headsetInputMuteRouter.deactivate()
         audioCapture.stop()
+        setPlaybackLeakState(.none)
+        audioEnergyObservations.removeAll()
+        currentSpeechProcessingProfile = .passthrough
     }
 
     private func cancelDeferredAudioStop() {
@@ -2010,6 +2176,9 @@ final class SpeechManager: ObservableObject {
             guard !self.recognitionSession.isRunning, !self.isStopping, !self.isAlwaysListeningEnabled, !self.isPTTHeld else { return }
             self.headsetInputMuteRouter.deactivate()
             self.audioCapture.stop()
+            self.setPlaybackLeakState(.none)
+            self.audioEnergyObservations.removeAll()
+            self.currentSpeechProcessingProfile = .passthrough
         }
         deferredAudioStopWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + pttAudioCaptureGracePeriod, execute: workItem)
@@ -2695,9 +2864,12 @@ final class SpeechManager: ObservableObject {
         guard !didRecordFirstPartialForSession else { return }
         guard sessionStartedAt != .distantPast else { return }
         didRecordFirstPartialForSession = true
+        startupDetectedUsableAudioForSession = true
+        cancelStartupInputHealthProbe()
         let latency = max(0, now.timeIntervalSince(sessionStartedAt) * 1000.0)
         metrics.firstPartialSamples += 1
         metrics.firstPartialLatencyTotalMs += latency
+        refreshPlaybackLeakStateForCurrentSession()
         maybeLogRuntimeMetrics(force: false)
     }
 
@@ -3037,6 +3209,18 @@ final class SpeechManager: ObservableObject {
         else if effectiveDictating { mode = .dictation }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
         else { mode = .listening }
+        if message.isEmpty {
+            switch playbackLeakState {
+            case .suspectedPlaybackLeak:
+                message = String(localized: "speech.playback_leak.detected")
+            case .speechSuppressionActive:
+                if mode == .listening || mode == .dictation {
+                    message = String(localized: "speech.playback_leak.suppression_active")
+                }
+            case .none:
+                break
+            }
+        }
         HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon())
     }
 

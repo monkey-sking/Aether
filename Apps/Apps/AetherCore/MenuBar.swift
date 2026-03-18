@@ -37,17 +37,26 @@ struct AetherMenuBar: Scene {
         if !appState.speechAuthorized {
             return String(localized: "menu.status.speech_missing")
         }
+        if appState.voiceService.playbackLeakState == .suspectedPlaybackLeak {
+            return String(localized: "menu.status.playback_leak_suspected")
+        }
+        if appState.voiceService.playbackLeakState == .speechSuppressionActive {
+            return String(localized: "menu.status.playback_leak_suppression")
+        }
         return appState.voiceStatus
     }
 
     private var statusAccentColor: Color {
         if needsAttention { return .orange }
+        if appState.voiceService.playbackLeakState == .suspectedPlaybackLeak { return .orange }
         if appState.isMotionTracking { return .green }
         return .secondary
     }
 
     private var statusSymbolName: String {
         if needsAttention { return "exclamationmark.triangle.fill" }
+        if appState.voiceService.playbackLeakState == .suspectedPlaybackLeak { return "speaker.slash.fill" }
+        if appState.voiceService.playbackLeakState == .speechSuppressionActive { return "waveform.badge.magnifyingglass" }
         if appState.isMotionTracking { return "viewfinder.circle.fill" }
         return "waveform.circle.fill"
     }

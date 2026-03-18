@@ -88,10 +88,13 @@ final class MotionService: ObservableObject {
 
 @MainActor
 final class VoiceService: ObservableObject {
+    typealias PlaybackLeakState = SpeechManager.PlaybackLeakState
+
     @Published private(set) var status: String = String(localized: "voice.status.idle")
     @Published private(set) var lastTranscript: String = ""
     @Published private(set) var lastError: String = ""
     @Published private(set) var lastWakeTime: Date?
+    @Published private(set) var playbackLeakState: PlaybackLeakState = .none
     
     @Published var isAlwaysListeningEnabled: Bool = false
     @Published var isDirectCommandEnabled: Bool = false
@@ -174,6 +177,14 @@ final class VoiceService: ObservableObject {
         manager.isCurrentInputHeadsetLike()
     }
 
+    var enhancedPlaybackLeakSuppressionEnabled: Bool {
+        get { manager.enhancedPlaybackLeakSuppressionEnabled }
+        set {
+            objectWillChange.send()
+            manager.enhancedPlaybackLeakSuppressionEnabled = newValue
+        }
+    }
+
     private let manager: SpeechManager
     private var cancellables = Set<AnyCancellable>()
 
@@ -199,6 +210,10 @@ final class VoiceService: ObservableObject {
         manager.$lastWakeTime
             .receive(on: DispatchQueue.main)
             .assign(to: &$lastWakeTime)
+
+        manager.$playbackLeakState
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$playbackLeakState)
             
         manager.$isAlwaysListeningEnabled
             .receive(on: DispatchQueue.main)
