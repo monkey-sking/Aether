@@ -3360,8 +3360,8 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private var chromeBackground: Color {
-        let base = colorScheme == .dark ? 0.14 : 0.06
-        return Color.primary.opacity(isPanelFocused ? base : base * 1.35)
+        let base = colorScheme == .dark ? 0.18 : 0.10
+        return Color.primary.opacity(isPanelFocused ? base : base * 1.2)
     }
 
     private var emptyStateBackground: Color {
@@ -3373,16 +3373,9 @@ private struct CurrentAppShortcutPanelView: View {
             VisualEffectView(material: colorScheme == .dark ? .hudWindow : .popover, blendingMode: .behindWindow)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-            // Semi-opaque backing to boost text contrast (system panels do this internally)
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(colorScheme == .dark
-                    ? Color.black.opacity(0.25)
-                    : Color.white.opacity(0.35)
-                )
-
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.white.opacity(colorScheme == .dark ? 0.15 : 0.4), lineWidth: 0.5)
-                .shadow(color: .black.opacity(isPanelFocused ? 0.25 : 0.15), radius: isPanelFocused ? 20 : 12, y: isPanelFocused ? 10 : 6)
+                .stroke(Color.white.opacity(colorScheme == .dark ? 0.12 : 0.28), lineWidth: 0.5)
+                .shadow(color: .black.opacity(isPanelFocused ? 0.22 : 0.12), radius: isPanelFocused ? 18 : 10, y: isPanelFocused ? 9 : 5)
 
             VStack(alignment: .leading, spacing: 20) {
                 header
@@ -3536,14 +3529,6 @@ private struct CurrentAppShortcutPanelView: View {
                     .foregroundColor(.accentColor)
                     .clipShape(Capsule())
 
-                Text(LocalizedStringKey("panels.shortcuts.clickable_hint"))
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(chromeBackground)
-                    .foregroundColor(.secondary)
-                    .clipShape(Capsule())
-
                 Toggle(isOn: $hideUnavailableShortcuts) {
                     Text(isChinese ? "隐藏不可用项" : "Hide unavailable items")
                         .font(.caption.weight(.semibold))
@@ -3594,6 +3579,14 @@ private struct CurrentAppShortcutPanelView: View {
                 }
                 .buttonStyle(.bordered)
             }
+
+            Text(LocalizedStringKey("panels.shortcuts.clickable_hint"))
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(chromeBackground)
+                .foregroundColor(.secondary)
+                .clipShape(Capsule())
         }
     }
 
@@ -3817,14 +3810,14 @@ private struct AetherGlobalShortcutRow: View {
                     HoverMarqueeText(
                         text: entry.action.label,
                         font: .system(size: 16, weight: .medium),
-                        color: isHovered ? .white : Color(nsColor: .labelColor),
+                        color: isHovered ? Color(nsColor: .labelColor) : Color(nsColor: .labelColor),
                         isActive: isHovered,
                         height: 20
                     )
                     HoverMarqueeText(
                         text: entry.action.helperText,
                         font: .system(size: 13, weight: .regular),
-                        color: isHovered ? .white.opacity(0.84) : Color(nsColor: .secondaryLabelColor),
+                        color: isHovered ? Color(nsColor: .secondaryLabelColor) : Color(nsColor: .secondaryLabelColor),
                         isActive: isHovered,
                         gap: 24,
                         height: 17
@@ -3840,7 +3833,7 @@ private struct AetherGlobalShortcutRow: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isHovered ? Color.accentColor : Color.clear)
+                    .fill(isHovered ? Color.accentColor.opacity(0.14) : Color.clear)
             )
             .padding(.horizontal, 6)
             .contentShape(Rectangle())
@@ -3872,13 +3865,13 @@ private struct CurrentAppShortcutRow: View {
             HStack(alignment: .center, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        HoverMarqueeText(
-                            text: command.title,
-                            font: .system(size: 16, weight: .medium),
-                            color: isHovered ? .white : (command.isEnabled ? Color(nsColor: .labelColor) : .secondary.opacity(0.8)),
-                            isActive: isHovered,
-                            height: 20
-                        )
+                    HoverMarqueeText(
+                        text: command.title,
+                        font: .system(size: 16, weight: .medium),
+                        color: isHovered ? (command.isEnabled ? Color(nsColor: .labelColor) : .secondary.opacity(0.8)) : (command.isEnabled ? Color(nsColor: .labelColor) : .secondary.opacity(0.8)),
+                        isActive: isHovered,
+                        height: 20
+                    )
                         if !command.isEnabled {
                             Text(isChinese ? "灰置" : "Disabled")
                                 .font(.system(size: 11, weight: .medium))
@@ -3894,7 +3887,7 @@ private struct CurrentAppShortcutRow: View {
                             HoverMarqueeText(
                                 text: submenuPath,
                                 font: .system(size: 12, weight: .regular),
-                                color: isHovered ? .white.opacity(0.84) : Color(nsColor: .secondaryLabelColor),
+                                color: isHovered ? Color(nsColor: .secondaryLabelColor) : Color(nsColor: .secondaryLabelColor),
                                 isActive: isHovered,
                                 gap: 24,
                                 height: 16
@@ -3921,7 +3914,7 @@ private struct CurrentAppShortcutRow: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isHovered ? Color.accentColor : Color.clear)
+                    .fill(isHovered ? Color.accentColor.opacity(0.14) : Color.clear)
             )
             .padding(.horizontal, 6)
             .contentShape(Rectangle())

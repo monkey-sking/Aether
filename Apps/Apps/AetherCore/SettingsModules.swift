@@ -1227,42 +1227,42 @@ private struct HeadGestureShortcutMappingCard: View {
                             .fixedSize(horizontal: false, vertical: true)
 
                         if !templates.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Button {
+                                    let nextIndex = max(currentSampleIndex - 1, 0)
+                                    gestureSampleIndex[gesture.id] = nextIndex
+                                } label: {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(.secondary)
+                                .accessibilityLabel(Text(isChinese ? "上一条样本" : "Previous sample"))
+                                .disabled(currentSampleIndex == 0)
+                                .frame(width: 20)
+
                                 HeadGestureTemplatePreview(points: templates[currentSampleIndex])
                                     .frame(width: 170, height: 78)
 
-                                if templates.count > 1 {
-                                    HStack(spacing: 8) {
-                                        Button {
-                                            let nextIndex = max(currentSampleIndex - 1, 0)
-                                            gestureSampleIndex[gesture.id] = nextIndex
-                                        } label: {
-                                            Image(systemName: "chevron.left")
-                                                .font(.system(size: 11, weight: .semibold))
-                                        }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(.secondary)
-                                        .accessibilityLabel(Text(isChinese ? "上一条样本" : "Previous sample"))
-                                        .disabled(currentSampleIndex == 0)
-
-                                        Text(isChinese ? "样本 \(currentSampleIndex + 1)/\(templates.count)" : "Sample \(currentSampleIndex + 1)/\(templates.count)")
-                                            .font(.caption2.weight(.medium))
-                                            .foregroundColor(.secondary)
-
-                                        Button {
-                                            let nextIndex = min(currentSampleIndex + 1, templates.count - 1)
-                                            gestureSampleIndex[gesture.id] = nextIndex
-                                        } label: {
-                                            Image(systemName: "chevron.right")
-                                                .font(.system(size: 11, weight: .semibold))
-                                        }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(.secondary)
-                                        .accessibilityLabel(Text(isChinese ? "下一条样本" : "Next sample"))
-                                        .disabled(currentSampleIndex >= templates.count - 1)
-                                    }
+                                Button {
+                                    let nextIndex = min(currentSampleIndex + 1, templates.count - 1)
+                                    gestureSampleIndex[gesture.id] = nextIndex
+                                } label: {
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 11, weight: .semibold))
                                 }
+                                .buttonStyle(.plain)
+                                .foregroundColor(.secondary)
+                                .accessibilityLabel(Text(isChinese ? "下一条样本" : "Next sample"))
+                                .disabled(currentSampleIndex >= templates.count - 1)
+                                .frame(width: 20)
                             }
+                        }
+
+                        if templates.count > 1 {
+                            Text(isChinese ? "样本 \(currentSampleIndex + 1)/\(templates.count)" : "Sample \(currentSampleIndex + 1)/\(templates.count)")
+                                .font(.caption2.weight(.medium))
+                                .foregroundColor(.secondary)
                         }
 
                         if isRecordingThisGesture {
@@ -1275,7 +1275,7 @@ private struct HeadGestureShortcutMappingCard: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Button(isRecordingThisGesture ? (isChinese ? "取消录制" : "Cancel Recording") : (gesture.points.isEmpty ? (isChinese ? "开始录制" : "Start Recording") : (isChinese ? "重新录制" : "Re-record"))) {
                             if isRecordingThisGesture {
                                 motionManager.cancelRecordedHeadGestureRecording()
@@ -1302,7 +1302,6 @@ private struct HeadGestureShortcutMappingCard: View {
                         .buttonStyle(.bordered)
                         .tint(.red)
                     }
-                    .frame(width: 240, alignment: .leading)
                 }
             }
             .padding(.top, 6)
@@ -2006,12 +2005,14 @@ private struct CustomAppShortcutRuleRow: View {
                 Image(systemName: "pencil")
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel(Text(isChinese ? "编辑规则" : "Edit rule"))
 
             Button(action: onDelete) {
                 Image(systemName: "trash")
                     .foregroundColor(.red)
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel(Text(isChinese ? "删除规则" : "Delete rule"))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
