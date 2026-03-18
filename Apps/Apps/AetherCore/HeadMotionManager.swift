@@ -370,6 +370,8 @@ class HeadMotionManager: ObservableObject {
         var branchAnchorCursorPoint: CGPoint
     }
 
+    private let guidedBranchProgressTrigger: CGFloat = 0.68
+
     private struct GestureTemplateSummary {
         let points: [CGPoint]
         let duration: TimeInterval
@@ -1761,13 +1763,37 @@ class HeadMotionManager: ObservableObject {
             return
         }
 
-        let matchingForPrefix = sequenceVariants.filter { variant in
+        var matchingForPrefix = sequenceVariants.filter { variant in
             variant.sequence.starts(with: session.prefix)
         }
         if matchingForPrefix.isEmpty {
             activeStepGestureSession = nil
             headGestureOverlayController.hide(after: 0.12)
             return
+        }
+
+        if let cursorLocation,
+           let guidedDirection = guidedBranchDirection(
+                from: cursorLocation,
+                branchAnchor: session.branchAnchorCursorPoint,
+                branches: matchingForPrefix,
+                prefix: session.prefix
+           ) {
+            let advancedMatches = matchingForPrefix.filter { variant in
+                variant.sequence.count > session.prefix.count && variant.sequence[session.prefix.count] == guidedDirection
+            }
+            if !advancedMatches.isEmpty {
+                session.prefix.append(guidedDirection)
+                session.gestureIDs = Set(advancedMatches.map(\.gesture.id))
+                session.lastAdvancedAt = now
+                if session.committedCursorPoints.last != cursorLocation {
+                    session.committedCursorPoints.append(cursorLocation)
+                }
+                session.branchAnchorCursorPoint = cursorLocation
+                matchingForPrefix = sequenceVariants.filter { variant in
+                    variant.sequence.starts(with: session.prefix)
+                }
+            }
         }
 
         while sequence.count > session.prefix.count {
@@ -2597,6 +2623,48 @@ class HeadMotionManager: ObservableObject {
             )
         }
         return (completed, overlayBranches)
+    }
+
+    private func guidedBranchDirection(
+        from cursorLocation: CGPoint,
+        branchAnchor: CGPoint,
+        branches: [GestureSequenceVariant],
+        prefix: [HeadGestureDirection]
+    ) -> HeadGestureDirection? {
+        let availableDirections: Set<HeadGestureDirection> = Set(
+            branches.compactMap { variant in
+                guard variant.sequence.count > prefix.count else { return nil }
+                return variant.sequence[prefix.count]
+            }
+        )
+        guard !availableDirections.isEmpty else { return nil }
+
+        let deltaX = cursorLocation.x - branchAnchor.x
+        let deltaY = cursorLocation.y - branchAnchor.y
+        let candidateLength = hypot(deltaX, deltaY)
+        guard candidateLength >= 18 else { return nil }
+
+        let branchLength: CGFloat = 132
+        var bestDirection: HeadGestureDirection?
+        var bestProjection: CGFloat = 0
+
+        for direction in availableDirections {
+            let vector = overlayVector(for: direction, length: branchLength)
+            let directionLength = hypot(vector.dx, vector.dy)
+            guard directionLength > 0 else { continue }
+
+            let projection = ((deltaX * vector.dx) + (deltaY * vector.dy)) / directionLength
+            let orthogonal = abs((deltaX * vector.dy) - (deltaY * vector.dx)) / directionLength
+            guard projection >= branchLength * guidedBranchProgressTrigger else { continue }
+            guard orthogonal <= 44 else { continue }
+
+            if projection > bestProjection {
+                bestProjection = projection
+                bestDirection = direction
+            }
+        }
+
+        return bestDirection
     }
 
     private func overlayVector(for direction: HeadGestureDirection, length: CGFloat) -> (dx: CGFloat, dy: CGFloat) {
