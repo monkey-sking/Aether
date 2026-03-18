@@ -2974,23 +2974,6 @@ struct OutputSettingsView: View {
         )
     }
 
-    private var mouseIdlePauseMinutesBinding: Binding<String> {
-        Binding(
-            get: { String(headManager.mouseIdlePauseMinutes) },
-            set: { newValue in
-                guard let minutes = Int(newValue) else { return }
-                headManager.mouseIdlePauseMinutes = minutes
-            }
-        )
-    }
-
-    private var mouseIdlePauseOptions: [FixedPopUpOption] {
-        stride(from: 15, through: 60, by: 5).map { minutes in
-            let title = isChinese ? "\(minutes) 分钟" : "\(minutes) min"
-            return FixedPopUpOption(id: String(minutes), title: title)
-        }
-    }
-
     var body: some View {
         SettingsPage(
             title: String(localized: "settings.page.pointer.title"),
@@ -3044,24 +3027,6 @@ struct OutputSettingsView: View {
                             .cornerRadius(10)
                             .disabled(!headManager.isTracking)
                         }
-
-                        Divider()
-
-                        HStack(alignment: .top, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(isChinese ? "鼠标静止后自动暂停" : "Pause After Mouse Idle")
-                                    .font(.subheadline.weight(.semibold))
-                                Text(isChinese ? "鼠标持续静止这么久后，暂停整套功能；鼠标再次移动后恢复。" : "Pause the full feature set after the mouse stays still for the selected duration, then resume when the mouse moves again.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer(minLength: 12)
-                            FixedWidthPopUpMenu(
-                                options: mouseIdlePauseOptions,
-                                selection: mouseIdlePauseMinutesBinding
-                            )
-                        }
                     }
                 }
             }
@@ -3098,6 +3063,13 @@ struct HeadGestureSettingsView: View {
         Binding(
             get: { headManager.headHotZoneSizeScale },
             set: { headManager.headHotZoneSizeScale = $0 }
+        )
+    }
+
+    private var hotZoneTriggerDurationBinding: Binding<Double> {
+        Binding(
+            get: { headManager.headHotZoneTriggerDuration },
+            set: { headManager.headHotZoneTriggerDuration = $0 }
         )
     }
 
@@ -3163,6 +3135,26 @@ struct HeadGestureSettingsView: View {
                         Slider(value: hotZoneSizeBinding, in: 0.4...1.8, step: 0.05)
 
                         Text(isChinese ? "调大后更容易进入热区，也会让显示区域更明显。" : "Larger zones are easier to enter and display more prominently.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text(isChinese ? "热区触发时间" : "Zone Trigger Time")
+                                .font(.headline)
+                            Spacer()
+                            Text(String(format: isChinese ? "%.0f 毫秒" : "%.0f ms", headManager.headHotZoneTriggerDuration * 1000))
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.secondary)
+                        }
+
+                        Slider(value: hotZoneTriggerDurationBinding, in: 0.08...1.2, step: 0.02)
+
+                        Text(isChinese ? "进入热区后停留这么久才触发。调大可以减少误触，调小会更快。" : "The cursor must stay in the zone for this long before triggering. Increase it to reduce false triggers, or decrease it for faster activation.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

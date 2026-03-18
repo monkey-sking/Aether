@@ -29,6 +29,7 @@ class HeadMotionManager: ObservableObject {
     private static let headHotZoneHeadInputEnabledKey = "AetherHeadHotZoneHeadInputEnabled"
     private static let headHotZoneMouseInputEnabledKey = "AetherHeadHotZoneMouseInputEnabled"
     private static let headHotZoneSizeScaleKey = "AetherHeadHotZoneSizeScale"
+    private static let headHotZoneTriggerDurationKey = "AetherHeadHotZoneTriggerDuration"
     private static let mouseIdlePauseMinutesKey = "AetherMouseIdlePauseMinutes"
     private static let headGestureNodActionKey = "AetherHeadGestureNodAction"
     private static let headGestureShakeActionKey = "AetherHeadGestureShakeAction"
@@ -614,6 +615,16 @@ class HeadMotionManager: ObservableObject {
         }
     }
 
+    @Published var headHotZoneTriggerDuration: Double = {
+        let stored = UserDefaults.standard.object(forKey: HeadMotionManager.headHotZoneTriggerDurationKey) as? Double ?? 0.18
+        return min(max(stored, 0.08), 1.2)
+    }() {
+        didSet {
+            let clamped = min(max(headHotZoneTriggerDuration, 0.08), 1.2)
+            UserDefaults.standard.set(clamped, forKey: HeadMotionManager.headHotZoneTriggerDurationKey)
+        }
+    }
+
     @Published var mouseIdlePauseMinutes: Int = {
         let stored = UserDefaults.standard.object(forKey: HeadMotionManager.mouseIdlePauseMinutesKey) as? Int ?? 15
         return min(max(stored, 15), 60)
@@ -643,7 +654,7 @@ class HeadMotionManager: ObservableObject {
     private let hotZoneBaseRevealDistance: CGFloat = 116
     private let hotZoneBaseTargetRadius: CGFloat = 28
     private let hotZoneBaseTargetInset: CGFloat = 68
-    private let hotZoneTargetDwellDuration: TimeInterval = 0.12
+    private let hotZoneSizeNormalizationFactor: CGFloat = 0.4
     private let headGestureOverlayDistance: Double = 0.08
     private let trackingGestureIntentDistanceMultiplier: Double = 1.15
     private let trackingGestureIntentDominanceRatio: Double = 1.18
@@ -684,11 +695,16 @@ class HeadMotionManager: ObservableObject {
     private var lastMouseHotZoneMovementAt: Date = Date()
     private var isMouseInteractionPausedForInactivity: Bool = false
 
-    private var hotZoneRevealDistance: CGFloat { hotZoneBaseRevealDistance * CGFloat(headHotZoneSizeScale) }
-    private var hotZoneTargetRadius: CGFloat { hotZoneBaseTargetRadius * CGFloat(headHotZoneSizeScale) }
-    private var hotZoneTargetInset: CGFloat {
-        max(hotZoneBaseTargetInset * CGFloat(headHotZoneSizeScale), hotZoneTargetRadius + 18)
+    private var hotZoneRevealDistance: CGFloat {
+        hotZoneBaseRevealDistance * hotZoneSizeNormalizationFactor * CGFloat(headHotZoneSizeScale)
     }
+    private var hotZoneTargetRadius: CGFloat {
+        hotZoneBaseTargetRadius * hotZoneSizeNormalizationFactor * CGFloat(headHotZoneSizeScale)
+    }
+    private var hotZoneTargetInset: CGFloat {
+        max(hotZoneBaseTargetInset * hotZoneSizeNormalizationFactor * CGFloat(headHotZoneSizeScale), hotZoneTargetRadius + 18)
+    }
+    private var hotZoneTargetDwellDuration: TimeInterval { headHotZoneTriggerDuration }
     private var mouseInteractionIdlePauseAfter: TimeInterval { TimeInterval(mouseIdlePauseMinutes * 60) }
     
     // Temporary override, usually from AirPods squeeze during a PTT session.
