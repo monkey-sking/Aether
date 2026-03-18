@@ -3360,8 +3360,8 @@ private struct CurrentAppShortcutPanelView: View {
     }
 
     private var chromeBackground: Color {
-        let base = colorScheme == .dark ? 0.18 : 0.10
-        return Color.primary.opacity(isPanelFocused ? base : base * 1.2)
+        let base = colorScheme == .dark ? 0.24 : 0.10
+        return Color.primary.opacity(isPanelFocused ? base : base * 1.15)
     }
 
     private var emptyStateBackground: Color {
@@ -3525,8 +3525,12 @@ private struct CurrentAppShortcutPanelView: View {
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(chromeBackground)
-                    .foregroundColor(Color(nsColor: .secondaryLabelColor))
+                    .background(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.12)
+                            : Color(nsColor: .controlBackgroundColor).opacity(0.9)
+                    )
+                    .foregroundColor(Color(nsColor: .labelColor))
                     .clipShape(Capsule())
 
                 Toggle(isOn: $hideUnavailableShortcuts) {
