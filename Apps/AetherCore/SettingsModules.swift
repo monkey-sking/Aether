@@ -2974,6 +2974,23 @@ struct OutputSettingsView: View {
         )
     }
 
+    private var mouseIdlePauseMinutesBinding: Binding<String> {
+        Binding(
+            get: { String(headManager.mouseIdlePauseMinutes) },
+            set: { newValue in
+                guard let minutes = Int(newValue) else { return }
+                headManager.mouseIdlePauseMinutes = minutes
+            }
+        )
+    }
+
+    private var mouseIdlePauseOptions: [FixedPopUpOption] {
+        stride(from: 15, through: 60, by: 5).map { minutes in
+            let title = isChinese ? "\(minutes) 分钟" : "\(minutes) min"
+            return FixedPopUpOption(id: String(minutes), title: title)
+        }
+    }
+
     var body: some View {
         SettingsPage(
             title: String(localized: "settings.page.pointer.title"),
@@ -3027,6 +3044,24 @@ struct OutputSettingsView: View {
                             .cornerRadius(10)
                             .disabled(!headManager.isTracking)
                         }
+
+                        Divider()
+
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(isChinese ? "鼠标静止后自动暂停" : "Pause After Mouse Idle")
+                                    .font(.subheadline.weight(.semibold))
+                                Text(isChinese ? "鼠标持续静止这么久后，暂停整套功能；鼠标再次移动后恢复。" : "Pause the full feature set after the mouse stays still for the selected duration, then resume when the mouse moves again.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 12)
+                            FixedWidthPopUpMenu(
+                                options: mouseIdlePauseOptions,
+                                selection: mouseIdlePauseMinutesBinding
+                            )
+                        }
                     }
                 }
             }
@@ -3064,23 +3099,6 @@ struct HeadGestureSettingsView: View {
             get: { headManager.headHotZoneSizeScale },
             set: { headManager.headHotZoneSizeScale = $0 }
         )
-    }
-
-    private var mouseIdlePauseMinutesBinding: Binding<String> {
-        Binding(
-            get: { String(headManager.mouseIdlePauseMinutes) },
-            set: { newValue in
-                guard let minutes = Int(newValue) else { return }
-                headManager.mouseIdlePauseMinutes = minutes
-            }
-        )
-    }
-
-    private var mouseIdlePauseOptions: [FixedPopUpOption] {
-        stride(from: 15, through: 60, by: 5).map { minutes in
-            let title = isChinese ? "\(minutes) 分钟" : "\(minutes) min"
-            return FixedPopUpOption(id: String(minutes), title: title)
-        }
     }
 
     var body: some View {
@@ -3148,26 +3166,6 @@ struct HeadGestureSettingsView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(alignment: .top, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(isChinese ? "鼠标静止后自动暂停" : "Pause After Mouse Idle")
-                                    .font(.headline)
-                                Text(isChinese ? "鼠标持续静止这么久后，暂停这套功能；鼠标再次移动后恢复。" : "Pause this feature set after the mouse stays still for the selected duration, then resume when the mouse moves again.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer()
-                            FixedWidthPopUpMenu(
-                                options: mouseIdlePauseOptions,
-                                selection: mouseIdlePauseMinutesBinding
-                            )
-                        }
                     }
                 }
 
