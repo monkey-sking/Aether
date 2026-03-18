@@ -919,7 +919,47 @@ class HeadMotionManager: ObservableObject {
                 userInfo: [NSLocalizedDescriptionKey: AppLocalization.isChinese ? "复制调试数据失败" : "Failed to copy head gesture debug data"]
             )
         }
-        try copyTextToPasteboard(text)
+        try copyTextToPasteboard(formattedHeadGestureDebugRequest(json: text))
+    }
+
+    private func formattedHeadGestureDebugRequest(json: String) -> String {
+        if AppLocalization.isChinese {
+            return [
+                "请基于下面这份 Aether 头部动作调试数据做分析，并按这个格式反馈：",
+                "1. 先判断问题主要是参数问题，还是算法/特征设计问题，不要只说“调阈值试试”。",
+                "2. 请分别说明：",
+                "   - 点头 / 摇头 / 自定义动作，各自最可能失败的原因",
+                "   - 是时长问题、幅度问题、轴耦合问题、模板问题，还是评分逻辑问题",
+                "3. 请结合具体样本说明，至少点名这些字段：result、gestureName、bestMatchName、bestScore、duration、totalDistance、samples。",
+                "4. 如果你建议改代码，请尽量给到可落地的改法，优先回答：",
+                "   - 应不应该引入 DTW 或类似时序匹配",
+                "   - 是否应该做动态基线 / 自动校准",
+                "   - 是否应该给主轴和副轴不同权重",
+                "   - 自定义动作要如何避免逐个手调参数",
+                "5. 请给出“先改什么、后改什么”的优先级，不要泛泛而谈。",
+                "",
+                "调试数据 JSON：",
+                json
+            ].joined(separator: "\n")
+        }
+
+        return [
+            "Please analyze the Aether head-gesture debug data below and reply in this format:",
+            "1. First decide whether the main issue is parameter tuning or the algorithm/feature design. Do not stop at 'try adjusting thresholds'.",
+            "2. Explain separately for nod, shake, and custom gestures:",
+            "   - the most likely failure mode",
+            "   - whether the issue is duration, amplitude, axis coupling, template quality, or scoring logic",
+            "3. Use concrete samples and reference these fields when possible: result, gestureName, bestMatchName, bestScore, duration, totalDistance, samples.",
+            "4. If you recommend code changes, make them actionable and prioritize these questions:",
+            "   - Should we introduce DTW or another temporal matching approach?",
+            "   - Should we add dynamic baseline / auto-calibration?",
+            "   - Should primary and secondary axes use different weights?",
+            "   - How should custom gestures work without per-gesture manual tuning?",
+            "5. Give a clear priority order for the fixes.",
+            "",
+            "Debug JSON:",
+            json
+        ].joined(separator: "\n")
     }
 
     @MainActor
@@ -1556,7 +1596,7 @@ class HeadMotionManager: ObservableObject {
     private func trackRecordedHeadGestureCandidate(yaw: Double, pitch: Double, now: Date, cursorLocation: CGPoint?) {
         guard !isHeadGestureRecording else { return }
         guard now.timeIntervalSince(lastHeadGestureTriggerAt) >= 1.25 else { return }
-        let enabledGestures = recordedHeadGestures.filter { $0.enabled && !$0.points.isEmpty }
+        let enabledGestures = eligibleHeadGesturesForRecognition()
         guard !enabledGestures.isEmpty else { return }
 
         let magnitude = hypot(yaw, pitch)
@@ -1668,7 +1708,7 @@ class HeadMotionManager: ObservableObject {
         }
 
         guard let summary else { return }
-        let enabledGestures = recordedHeadGestures.filter { $0.enabled && !$0.points.isEmpty }
+        let enabledGestures = eligibleHeadGesturesForRecognition()
         let matches = enabledGestures.compactMap { gesture -> GestureMatch? in
             guard gesturePassesDirectionalGate(gesture: gesture, samples: candidate.samples) else {
                 return nil
@@ -2003,6 +2043,12 @@ class HeadMotionManager: ObservableObject {
         max(fallback, gesture.minimumScore - 0.08)
     }
 
+    private func eligibleHeadGesturesForRecognition() -> [RecordedHeadGesture] {
+        let enabled = recordedHeadGestures.filter { $0.enabled && !$0.points.isEmpty }
+        guard !isTracking else { return enabled }
+        return enabled.filter { $0.action == .toggleTracking }
+    }
+
     private func builtInGestureKind(for gesture: RecordedHeadGesture) -> HeadGestureKind? {
         switch gesture.id {
         case Self.builtInNodGestureID:
@@ -2046,8 +2092,7 @@ class HeadMotionManager: ObservableObject {
 
     private func bestGestureMatch(for samples: [HeadGestureSample]) -> GestureMatch? {
         guard let summary = summarizeGesture(samples: samples), isMatchableGesture(summary) else { return nil }
-        return recordedHeadGestures
-            .filter { $0.enabled && !$0.points.isEmpty }
+        return eligibleHeadGesturesForRecognition()
             .compactMap { gesture -> GestureMatch? in
                 guard gesturePassesDirectionalGate(gesture: gesture, samples: samples) else { return nil }
                 let bestScore = recordedTemplates(for: gesture)

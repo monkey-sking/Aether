@@ -1091,11 +1091,11 @@ private struct HeadGestureShortcutMappingCard: View {
                             .font(.subheadline.weight(.semibold))
                         Spacer()
                         if !motionManager.headGestureHistory.isEmpty {
-                            Button(isChinese ? "复制调试数据" : "Copy Debug Data") {
+                            Button(isChinese ? "复制调试数据请求" : "Copy Debug Request") {
                                 do {
                                     try motionManager.copyHeadGestureDebugData()
                                     HUDManager.shared.showTemporary(
-                                        message: isChinese ? "已复制头部动作调试数据" : "Head gesture debug data copied",
+                                        message: isChinese ? "已复制调试请求和数据" : "Debug request and data copied",
                                         icon: "doc.on.doc"
                                     )
                                 } catch {
