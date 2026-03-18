@@ -1975,15 +1975,7 @@ class HeadMotionManager: ObservableObject {
             return
         }
 
-        var matchingForPrefix = sequenceVariants.filter { variant in
-            variant.sequence.starts(with: session.prefix)
-        }
-        if let lastDirection = session.prefix.last {
-            matchingForPrefix.removeAll { variant in
-                guard variant.sequence.count > session.prefix.count else { return false }
-                return variant.sequence[session.prefix.count] == lastDirection
-            }
-        }
+        var matchingForPrefix = continuationVariants(from: sequenceVariants, prefix: session.prefix)
         if matchingForPrefix.isEmpty {
             appendHeadGestureDebugEntry(
                 mode: "step-recognition",
@@ -2047,9 +2039,7 @@ class HeadMotionManager: ObservableObject {
                     session.isGuideAnchorCommitted = true
                     session.hoveredDirection = nil
                     session.hoveredProgress = 0
-                    matchingForPrefix = sequenceVariants.filter { variant in
-                        variant.sequence.starts(with: session.prefix)
-                    }
+                    matchingForPrefix = continuationVariants(from: sequenceVariants, prefix: session.prefix)
                 }
             }
         } else {
@@ -2059,7 +2049,7 @@ class HeadMotionManager: ObservableObject {
 
         activeStepGestureSession = session
 
-        let currentMatches = sequenceVariants.filter { $0.sequence.starts(with: session.prefix) }
+        let currentMatches = continuationVariants(from: sequenceVariants, prefix: session.prefix)
         guard !currentMatches.isEmpty else {
             activeStepGestureSession = nil
             headGestureOverlayController.hide(after: 0.12)
@@ -2192,6 +2182,15 @@ class HeadMotionManager: ObservableObject {
             }
         }
         return HeadGestureDirection.allCases.compactMap { summaries[$0] }
+    }
+
+    private func continuationVariants(from variants: [GestureSequenceVariant], prefix: [HeadGestureDirection]) -> [GestureSequenceVariant] {
+        variants.filter { variant in
+            guard variant.sequence.starts(with: prefix) else { return false }
+            guard variant.sequence.count > prefix.count else { return true }
+            guard let lastDirection = prefix.last else { return true }
+            return variant.sequence[prefix.count] != lastDirection
+        }
     }
 
     @MainActor
