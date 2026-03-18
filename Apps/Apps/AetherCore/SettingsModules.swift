@@ -987,7 +987,6 @@ struct InputSettingsView: View {
 private struct HeadGestureShortcutMappingCard: View {
     @ObservedObject private var motionManager = HeadMotionManager.shared
     @State private var expandedGestureIDs: Set<UUID> = []
-    @State private var gestureSampleIndex: [UUID: Int] = [:]
     private var isChinese: Bool { AppLocalization.isChinese }
 
     private var gestureActionOptions: [FixedPopUpOption] {
@@ -1075,7 +1074,7 @@ private struct HeadGestureShortcutMappingCard: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(String(localized: "head_gesture.mapping.title"))
                             .font(.headline)
-                        Text(isChinese ? "用方向步骤定义头部动作，再绑定成全局行为。录制只作为辅助示教，不再是主要配置方式。" : "Define head gestures with directional steps, then bind them to global actions. Recording is optional guidance, not the primary setup.")
+                        Text(isChinese ? "用方向步骤定义头部动作，再绑定成全局行为。" : "Define head gestures with directional steps, then bind them to global actions.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1098,22 +1097,8 @@ private struct HeadGestureShortcutMappingCard: View {
                     .buttonStyle(.borderedProminent)
                 }
 
-                if motionManager.activeHeadGestureRecordingID != nil || motionManager.isHeadGestureRecording {
-                    VStack(alignment: .leading, spacing: 8) {
-                        statusRow(
-                            title: isChinese ? "录制状态" : "Recording",
-                            value: motionManager.headGestureRecordingStatusText.isEmpty
-                                ? (isChinese ? "准备中" : "Preparing")
-                                : motionManager.headGestureRecordingStatusText
-                        )
-                    }
-                    .padding(12)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-
                 if motionManager.recordedHeadGestures.isEmpty {
-                    Text(isChinese ? "还没有头部动作。点击上面的“新增动作”，先定义上下左右步骤，再按需要录制示教样本。" : "No head gestures yet. Click Add Gesture above to define directional steps first, then optionally record a guided sample.")
+                    Text(isChinese ? "还没有头部动作。点击上面的“新增动作”，先定义上下左右步骤。" : "No head gestures yet. Click Add Gesture above to define directional steps.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(14)
@@ -1136,46 +1121,46 @@ private struct HeadGestureShortcutMappingCard: View {
                         Text(isChinese ? "头部历史" : "Head Gesture History")
                             .font(.subheadline.weight(.semibold))
                         Spacer()
+                        Button(isChinese ? "复制调试数据请求" : "Copy Debug Request") {
+                            do {
+                                try motionManager.copyHeadGestureDebugData()
+                                HUDManager.shared.showTemporary(
+                                    message: isChinese ? "已复制调试请求和数据" : "Debug request and data copied",
+                                    icon: "doc.on.doc"
+                                )
+                            } catch {
+                                HUDManager.shared.showTemporary(
+                                    message: error.localizedDescription,
+                                    icon: "xmark.circle.fill"
+                                )
+                            }
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.borderless)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
+
+                        Button(isChinese ? "导出调试数据" : "Export Debug Data") {
+                            do {
+                                if let _ = try motionManager.exportHeadGestureDebugData() {
+                                    HUDManager.shared.showTemporary(
+                                        message: isChinese ? "已导出头部动作调试数据" : "Head gesture debug data exported",
+                                        icon: "square.and.arrow.up"
+                                    )
+                                }
+                            } catch {
+                                HUDManager.shared.showTemporary(
+                                    message: error.localizedDescription,
+                                    icon: "xmark.circle.fill"
+                                )
+                            }
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.borderless)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
+
                         if !motionManager.headGestureHistory.isEmpty {
-                            Button(isChinese ? "复制调试数据请求" : "Copy Debug Request") {
-                                do {
-                                    try motionManager.copyHeadGestureDebugData()
-                                    HUDManager.shared.showTemporary(
-                                        message: isChinese ? "已复制调试请求和数据" : "Debug request and data copied",
-                                        icon: "doc.on.doc"
-                                    )
-                                } catch {
-                                    HUDManager.shared.showTemporary(
-                                        message: error.localizedDescription,
-                                        icon: "xmark.circle.fill"
-                                    )
-                                }
-                            }
-                            .controlSize(.small)
-                            .buttonStyle(.borderless)
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(.secondary)
-
-                            Button(isChinese ? "导出调试数据" : "Export Debug Data") {
-                                do {
-                                    if let _ = try motionManager.exportHeadGestureDebugData() {
-                                        HUDManager.shared.showTemporary(
-                                            message: isChinese ? "已导出头部动作调试数据" : "Head gesture debug data exported",
-                                            icon: "square.and.arrow.up"
-                                        )
-                                    }
-                                } catch {
-                                    HUDManager.shared.showTemporary(
-                                        message: error.localizedDescription,
-                                        icon: "xmark.circle.fill"
-                                    )
-                                }
-                            }
-                            .controlSize(.small)
-                            .buttonStyle(.borderless)
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(.secondary)
-
                             Button(isChinese ? "复制全部" : "Copy All") {
                                 do {
                                     try motionManager.copyHeadGestureHistory()
@@ -1194,19 +1179,23 @@ private struct HeadGestureShortcutMappingCard: View {
                             .buttonStyle(.borderless)
                             .font(.caption.weight(.semibold))
                             .foregroundColor(.secondary)
-
-                            Button(isChinese ? "清空记录" : "Clear History") {
-                                motionManager.clearHeadGestureHistory()
-                            }
-                            .controlSize(.small)
-                            .buttonStyle(.borderless)
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(.secondary)
                         }
+
+                        Button(isChinese ? "清空记录" : "Clear History") {
+                            motionManager.clearHeadGestureHistory()
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.borderless)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
                     }
 
                     if motionManager.headGestureHistory.isEmpty {
-                        Text(isChinese ? "还没有头部动作历史。识别成功、没匹配上、取消录制，都会记录在这里。" : "No head gesture history yet. Successful matches, misses, and cancelled recordings will appear here.")
+                        Text(
+                            isChinese
+                                ? "还没有头部动作历史。调试数据入口始终可用；识别成功和未匹配都会写入调试数据。"
+                                : "No head gesture history yet. Debug export stays available; successful matches and misses are written to debug data."
+                        )
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .padding(.vertical, 4)
@@ -1219,17 +1208,10 @@ private struct HeadGestureShortcutMappingCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: motionManager.activeHeadGestureRecordingID) { _, newValue in
-            guard let id = newValue else { return }
-            expandedGestureIDs.insert(id)
-        }
     }
 
     @ViewBuilder
     private func gestureRow(_ gesture: HeadMotionManager.RecordedHeadGesture) -> some View {
-        let isRecordingThisGesture = motionManager.activeHeadGestureRecordingID == gesture.id || (motionManager.isHeadGestureRecording && motionManager.activeHeadGestureRecordingID == gesture.id)
-        let templates = templatesForGesture(gesture)
-        let currentSampleIndex = min(max(gestureSampleIndex[gesture.id] ?? 0, 0), max(templates.count - 1, 0))
         let isExpanded = expandedGestureIDs.contains(gesture.id)
         let steps = gesture.stepSequence ?? []
 
@@ -1321,102 +1303,24 @@ private struct HeadGestureShortcutMappingCard: View {
                         }
                     }
 
-                    GridRow {
-                        Text(isChinese ? "示教" : "Guide")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .frame(width: 56, alignment: .leading)
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
-                                Button(isRecordingThisGesture ? (isChinese ? "取消示教" : "Cancel Guide") : (templates.isEmpty ? (isChinese ? "录制示教" : "Record Guide") : (isChinese ? "重录示教" : "Re-record Guide"))) {
-                                if isRecordingThisGesture {
-                                    motionManager.cancelRecordedHeadGestureRecording()
-                                } else {
-                                    motionManager.startRecordingRecordedHeadGesture(id: gesture.id)
-                                }
-                            }
-                                .controlSize(.small)
-                                .buttonStyle(.bordered)
-                                .tint(isRecordingThisGesture ? .accentColor : .secondary)
-
-                                if !gesture.points.isEmpty && !isRecordingThisGesture {
-                                    Button(isChinese ? "追加示教" : "Add Guide Sample") {
-                                        motionManager.startRecordingRecordedHeadGesture(id: gesture.id, appendSample: true)
-                                    }
-                                    .controlSize(.small)
-                                    .buttonStyle(.bordered)
-                                }
-
-                                Button(isChinese ? "删除" : "Delete") {
-                                    motionManager.deleteRecordedHeadGesture(id: gesture.id)
-                                }
-                                .controlSize(.small)
-                                .buttonStyle(.bordered)
-                                .tint(.red)
-                            }
-
-                            Text(isChinese ? "示教只用于辅助预览和后续调试，动作本身由上、下、左、右步骤定义。" : "Guide samples are optional. The gesture itself is defined by directional steps.")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
-                if !templates.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HeadGestureTemplatePreview(points: templates[currentSampleIndex])
-                            .frame(width: 190, height: 84)
-
-                        if templates.count > 1 {
-                            HStack(spacing: 8) {
-                                Button {
-                                    let nextIndex = max(currentSampleIndex - 1, 0)
-                                    gestureSampleIndex[gesture.id] = nextIndex
-                                } label: {
-                                    Image(systemName: "chevron.left")
-                                        .font(.system(size: 11, weight: .semibold))
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundColor(.secondary)
-                                .accessibilityLabel(Text(isChinese ? "上一条样本" : "Previous sample"))
-                                .disabled(currentSampleIndex == 0)
-                                .frame(width: 20)
-
-                                Text(isChinese ? "示教 \(currentSampleIndex + 1)/\(templates.count)" : "Guide \(currentSampleIndex + 1)/\(templates.count)")
-                                    .font(.caption2.weight(.medium))
-                                    .foregroundColor(.secondary)
-
-                                Button {
-                                    let nextIndex = min(currentSampleIndex + 1, templates.count - 1)
-                                    gestureSampleIndex[gesture.id] = nextIndex
-                                } label: {
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 11, weight: .semibold))
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundColor(.secondary)
-                                .accessibilityLabel(Text(isChinese ? "下一条样本" : "Next sample"))
-                                .disabled(currentSampleIndex >= templates.count - 1)
-                                .frame(width: 20)
-                            }
-                        }
-                    }
                 }
 
                 Text(steps.isEmpty
                         ? (isChinese ? "还没有定义动作步骤。" : "No step sequence defined.")
                         : (isChinese
-                            ? "步骤 \(motionManager.recordedStepSummary(for: gesture)) · 示教 \(motionManager.recordedSampleCount(for: gesture))"
-                            : "Steps \(motionManager.recordedStepSummary(for: gesture)) · Guide samples \(motionManager.recordedSampleCount(for: gesture))"))
+                            ? "步骤 \(motionManager.recordedStepSummary(for: gesture))"
+                            : "Steps \(motionManager.recordedStepSummary(for: gesture))"))
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                if isRecordingThisGesture {
-                    Text(motionManager.headGestureRecordingStatusText.isEmpty
-                            ? (isChinese ? "准备中…" : "Preparing…")
-                            : motionManager.headGestureRecordingStatusText)
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.accentColor)
+                HStack(spacing: 8) {
+                    Spacer()
+                    Button(isChinese ? "删除" : "Delete") {
+                        motionManager.deleteRecordedHeadGesture(id: gesture.id)
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .tint(.red)
                 }
             }
             .padding(.top, 6)
@@ -1427,11 +1331,13 @@ private struct HeadGestureShortcutMappingCard: View {
                     Text(gesture.name.isEmpty ? (isChinese ? "未命名动作" : "Untitled Gesture") : gesture.name)
                         .font(.subheadline.weight(.semibold))
                     if !isExpanded {
-                        Text(gesture.points.isEmpty
-                                ? (isChinese ? "未录制动作" : "No gesture recorded")
+                        Text(
+                            steps.isEmpty
+                                ? (isChinese ? "未定义步骤" : "No step sequence defined")
                                 : (isChinese
-                                    ? "\(motionManager.recordedSampleCount(for: gesture)) 组样本 · \(motionManager.recordedStepSummary(for: gesture))"
-                                    : "\(motionManager.recordedSampleCount(for: gesture)) samples · \(motionManager.recordedStepSummary(for: gesture))"))
+                                    ? "\(steps.count) 步 · \(motionManager.recordedStepSummary(for: gesture))"
+                                    : "\(steps.count) steps · \(motionManager.recordedStepSummary(for: gesture))")
+                        )
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -1449,17 +1355,6 @@ private struct HeadGestureShortcutMappingCard: View {
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
         .cornerRadius(10)
-    }
-
-    private func templatesForGesture(_ gesture: HeadMotionManager.RecordedHeadGesture) -> [[HeadMotionManager.RecordedHeadGesturePoint]] {
-        var templates: [[HeadMotionManager.RecordedHeadGesturePoint]] = []
-        if !gesture.points.isEmpty {
-            templates.append(gesture.points)
-        }
-        if let alternates = gesture.alternateSamples, !alternates.isEmpty {
-            templates.append(contentsOf: alternates)
-        }
-        return templates
     }
 
     @ViewBuilder
