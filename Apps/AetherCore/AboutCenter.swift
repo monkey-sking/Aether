@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import CryptoKit
 
 struct AetherEntitlementDevice: Identifiable {
     let id: String
@@ -10,6 +11,35 @@ struct AetherEntitlementDevice: Identifiable {
     let isCurrent: Bool
 }
 
+private struct AetherEntitlementSnapshot: Codable {
+    var status: String
+    var plan: String
+    var trialEndsAt: String?
+    var subscriptionEndsAt: String?
+    var devicesUsed: Int
+    var maxDevices: Int
+    var channel: String
+    var referralCode: String?
+    var verifiedAt: Date
+}
+
+private struct AetherEntitlementTokenClaims: Codable {
+    var sub: String?
+    var email: String?
+    var deviceId: String?
+    var appId: String?
+    var status: String
+    var plan: String
+    var trialEndsAt: String?
+    var subscriptionEndsAt: String?
+    var devicesUsed: Int?
+    var maxDevices: Int?
+    var channel: String?
+    var referralCode: String?
+    var exp: TimeInterval
+    var iat: TimeInterval?
+}
+
 enum AetherUpdateChannel: String, CaseIterable, Identifiable {
     case stable
     case beta
@@ -17,9 +47,30 @@ enum AetherUpdateChannel: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum AetherEntitlementGateState: Equatable {
+    case loading
+    case active
+    case trialing
+    case inactive
+    case expired
+    case deviceLimitReached
+
+    var allowsProductAccess: Bool {
+        switch self {
+        case .active, .trialing:
+            return true
+        case .loading, .inactive, .expired, .deviceLimitReached:
+            return false
+        }
+    }
+}
+
 @MainActor
 final class AetherLicenseManager: ObservableObject {
     static let shared = AetherLicenseManager()
+    private static let entitlementSnapshotStorageKey = "aether.license.snapshot.v1"
+    private static let entitlementTokenStorageKey = "aether.license.token.v1"
+    private static let offlineGraceInterval: TimeInterval = 7 * 24 * 60 * 60
 
     @Published var email: String = UserDefaults.standard.string(forKey: "aether.license.email") ?? ""
     @Published var licenseKey: String = UserDefaults.standard.string(forKey: "aether.license.key") ?? ""
@@ -34,8 +85,13 @@ final class AetherLicenseManager: ObservableObject {
     @Published private(set) var devices: [AetherEntitlementDevice] = []
     @Published private(set) var lastErrorMessage: String?
     @Published private(set) var infoMessage: String?
+    @Published private(set) var isRefreshingEntitlement: Bool = true
+    @Published private(set) var gateState: AetherEntitlementGateState = .loading
+    @Published private(set) var isUsingOfflineGraceAccess: Bool = false
 
     private init() {
+        restoreTokenIfAvailable()
+        restoreSnapshotIfAvailable()
         Task {
             await refreshEntitlement()
         }
@@ -43,6 +99,10 @@ final class AetherLicenseManager: ObservableObject {
 
     var isActivated: Bool {
         ["active", "trialing", "valid", "activated"].contains(status)
+    }
+
+    var isProductUnlocked: Bool {
+        gateState.allowsProductAccess
     }
 
     var statusSummary: String {
@@ -87,16 +147,20 @@ final class AetherLicenseManager: ObservableObject {
     }
 
     func refreshEntitlement() async {
+        isRefreshingEntitlement = true
+        recomputeGateState()
         guard !email.isEmpty, !licenseKey.isEmpty else {
             status = "inactive"
             devices = []
+            isRefreshingEntitlement = false
+            recomputeGateState()
             return
         }
         await verifyCurrentCredentials()
     }
 
     func fetchDevices() async {
-        guard isActivated else { return }
+        guard canManageDevices else { return }
         do {
             let json = try await postJSON(path: "/devices", body: credentialBody())
             devices = parseDevices(json["devices"])
@@ -107,6 +171,7 @@ final class AetherLicenseManager: ObservableObject {
     }
 
     func removeDevice(deviceId: String) async {
+        guard canManageDevices else { return }
         do {
             let payload = credentialBody().merging(["targetDeviceId": deviceId]) { _, new in new }
             let json = try await postJSON(path: "/devices/remove", body: payload)
@@ -141,8 +206,12 @@ final class AetherLicenseManager: ObservableObject {
         do {
             var body: [String: Any] = [
                 "email": self.email,
+                "deviceId": installationID,
                 "appId": appBundleID,
                 "channel": channel,
+                "deviceModel": Host.current().localizedName ?? "Mac",
+                "osVersion": ProcessInfo.processInfo.operatingSystemVersionString,
+                "appVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
             ]
             if let referralCode, !referralCode.isEmpty {
                 body["referralCode"] = referralCode
@@ -176,26 +245,65 @@ final class AetherLicenseManager: ObservableObject {
     private func verifyCurrentCredentials() async {
         lastErrorMessage = nil
         infoMessage = nil
+        isUsingOfflineGraceAccess = false
+        isRefreshingEntitlement = true
+        recomputeGateState()
 
         do {
             let json = try await postJSON(path: "/verify", body: credentialBody())
             updateSharedState(from: json)
             await fetchDevices()
         } catch {
-            status = "inactive"
             lastErrorMessage = error.localizedDescription
+            if !restoreRecentUnlockedSnapshot() {
+                status = "inactive"
+                devices = []
+            }
+        }
+        isRefreshingEntitlement = false
+        recomputeGateState()
+    }
+
+    private var canManageDevices: Bool {
+        isActivated || status == "limit_reached" || status == "device_limit_reached"
+    }
+
+    private func recomputeGateState() {
+        if isRefreshingEntitlement {
+            gateState = .loading
+            return
+        }
+
+        switch status {
+        case "active", "valid", "activated":
+            gateState = .active
+        case "trialing":
+            gateState = .trialing
+        case "expired":
+            gateState = .expired
+        case "limit_reached", "device_limit_reached":
+            gateState = .deviceLimitReached
+        default:
+            gateState = .inactive
         }
     }
 
     private func updateSharedState(from json: [String: Any]) {
-        if let value = json["status"] as? String { status = value }
-        if let value = json["plan"] as? String { plan = value }
-        if let value = json["trialEndsAt"] as? String, !value.isEmpty { trialEndsAt = value } else { trialEndsAt = nil }
-        if let value = json["subscriptionEndsAt"] as? String, !value.isEmpty { subscriptionEndsAt = value } else { subscriptionEndsAt = nil }
-        if let value = json["devicesUsed"] as? Int { devicesUsed = value }
-        if let value = json["maxDevices"] as? Int { maxDevices = value }
-        if let value = json["channel"] as? String { channel = value }
-        if let value = json["referralCode"] as? String { referralCode = value }
+        if let token = entitlementToken(from: json),
+           let claims = verifyEntitlementToken(token) {
+            apply(claims: claims)
+            persistEntitlementToken(token)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.entitlementTokenStorageKey)
+            if let value = json["status"] as? String { status = value }
+            if let value = json["plan"] as? String { plan = value }
+            if let value = json["trialEndsAt"] as? String, !value.isEmpty { trialEndsAt = value } else { trialEndsAt = nil }
+            if let value = json["subscriptionEndsAt"] as? String, !value.isEmpty { subscriptionEndsAt = value } else { subscriptionEndsAt = nil }
+            if let value = json["devicesUsed"] as? Int { devicesUsed = value }
+            if let value = json["maxDevices"] as? Int { maxDevices = value }
+            if let value = json["channel"] as? String { channel = value }
+            if let value = json["referralCode"] as? String { referralCode = value }
+        }
         if let value = json["licenseKey"] as? String, !value.isEmpty {
             licenseKey = value
             persistCredentials()
@@ -203,6 +311,170 @@ final class AetherLicenseManager: ObservableObject {
         if let value = json["message"] as? String, !value.isEmpty {
             infoMessage = value
         }
+        isUsingOfflineGraceAccess = false
+        persistSnapshotIfEligible()
+    }
+
+    private func persistSnapshotIfEligible() {
+        guard isActivated else { return }
+        let snapshot = AetherEntitlementSnapshot(
+            status: status,
+            plan: plan,
+            trialEndsAt: trialEndsAt,
+            subscriptionEndsAt: subscriptionEndsAt,
+            devicesUsed: devicesUsed,
+            maxDevices: maxDevices,
+            channel: channel,
+            referralCode: referralCode,
+            verifiedAt: Date()
+        )
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        UserDefaults.standard.set(data, forKey: Self.entitlementSnapshotStorageKey)
+    }
+
+    private func restoreSnapshotIfAvailable() {
+        guard UserDefaults.standard.string(forKey: Self.entitlementTokenStorageKey) == nil else { return }
+        guard let data = UserDefaults.standard.data(forKey: Self.entitlementSnapshotStorageKey),
+              let snapshot = try? JSONDecoder().decode(AetherEntitlementSnapshot.self, from: data) else {
+            return
+        }
+        guard snapshotStillGrantsAccess(snapshot) else { return }
+        apply(snapshot: snapshot)
+        isRefreshingEntitlement = false
+        isUsingOfflineGraceAccess = true
+        recomputeGateState()
+    }
+
+    private func restoreRecentUnlockedSnapshot() -> Bool {
+        if restoreRecentUnlockedToken() {
+            return true
+        }
+        guard let data = UserDefaults.standard.data(forKey: Self.entitlementSnapshotStorageKey),
+              let snapshot = try? JSONDecoder().decode(AetherEntitlementSnapshot.self, from: data),
+              snapshotStillGrantsAccess(snapshot) else {
+            return false
+        }
+        apply(snapshot: snapshot)
+        isUsingOfflineGraceAccess = true
+        return true
+    }
+
+    private func snapshotStillGrantsAccess(_ snapshot: AetherEntitlementSnapshot) -> Bool {
+        guard ["active", "trialing", "valid", "activated"].contains(snapshot.status),
+              Date().timeIntervalSince(snapshot.verifiedAt) <= Self.offlineGraceInterval else {
+            return false
+        }
+
+        let formatter = ISO8601DateFormatter()
+        let now = Date()
+        if let trialEndsAt = snapshot.trialEndsAt,
+           let trialEndDate = formatter.date(from: trialEndsAt),
+           now > trialEndDate {
+            return false
+        }
+        if let subscriptionEndsAt = snapshot.subscriptionEndsAt,
+           let subscriptionEndDate = formatter.date(from: subscriptionEndsAt),
+           now > subscriptionEndDate {
+            return false
+        }
+        return true
+    }
+
+    private func apply(snapshot: AetherEntitlementSnapshot) {
+        status = snapshot.status
+        plan = snapshot.plan
+        trialEndsAt = snapshot.trialEndsAt
+        subscriptionEndsAt = snapshot.subscriptionEndsAt
+        devicesUsed = snapshot.devicesUsed
+        maxDevices = snapshot.maxDevices
+        channel = snapshot.channel
+        referralCode = snapshot.referralCode
+    }
+
+    private func apply(claims: AetherEntitlementTokenClaims) {
+        status = claims.status
+        plan = claims.plan
+        trialEndsAt = claims.trialEndsAt
+        subscriptionEndsAt = claims.subscriptionEndsAt
+        devicesUsed = claims.devicesUsed ?? devicesUsed
+        maxDevices = claims.maxDevices ?? maxDevices
+        channel = claims.channel ?? channel
+        referralCode = claims.referralCode
+    }
+
+    private func restoreTokenIfAvailable() {
+        guard let token = UserDefaults.standard.string(forKey: Self.entitlementTokenStorageKey),
+              let claims = verifyEntitlementToken(token) else {
+            return
+        }
+        apply(claims: claims)
+        isRefreshingEntitlement = false
+        recomputeGateState()
+    }
+
+    private func restoreRecentUnlockedToken() -> Bool {
+        guard let token = UserDefaults.standard.string(forKey: Self.entitlementTokenStorageKey),
+              let claims = verifyEntitlementToken(token),
+              ["active", "trialing", "valid", "activated"].contains(claims.status) else {
+            return false
+        }
+        apply(claims: claims)
+        isUsingOfflineGraceAccess = true
+        return true
+    }
+
+    private func entitlementToken(from json: [String: Any]) -> String? {
+        let candidates = ["entitlementToken", "signedEntitlementToken", "accessToken"]
+        for key in candidates {
+            if let token = json[key] as? String, !token.isEmpty {
+                return token
+            }
+        }
+        return nil
+    }
+
+    private func persistEntitlementToken(_ token: String) {
+        UserDefaults.standard.set(token, forKey: Self.entitlementTokenStorageKey)
+    }
+
+    private func verifyEntitlementToken(_ token: String) -> AetherEntitlementTokenClaims? {
+        let segments = token.split(separator: ".")
+        guard segments.count == 3,
+              let headerData = Data(base64URL: String(segments[0])),
+              let payloadData = Data(base64URL: String(segments[1])),
+              let signatureData = Data(base64URL: String(segments[2])),
+              let header = try? JSONSerialization.jsonObject(with: headerData) as? [String: Any],
+              let alg = header["alg"] as? String,
+              alg == "ES256",
+              let publicKey = entitlementTokenPublicKey(),
+              let signature = try? P256.Signing.ECDSASignature(rawRepresentation: signatureData) else {
+            return nil
+        }
+
+        let signingInput = Data("\(segments[0]).\(segments[1])".utf8)
+        guard publicKey.isValidSignature(signature, for: signingInput),
+              let claims = try? JSONDecoder().decode(AetherEntitlementTokenClaims.self, from: payloadData) else {
+            return nil
+        }
+
+        guard Date().timeIntervalSince1970 <= claims.exp else { return nil }
+        if let deviceId = claims.deviceId, deviceId != installationID { return nil }
+        if let appId = claims.appId, appId != appBundleID { return nil }
+        if let claimEmail = claims.email ?? claims.sub,
+           !email.isEmpty,
+           claimEmail.lowercased() != email.lowercased() {
+            return nil
+        }
+        return claims
+    }
+
+    private func entitlementTokenPublicKey() -> P256.Signing.PublicKey? {
+        guard let pem = Bundle.main.object(forInfoDictionaryKey: "AetherAuthJWTPublicKeyPEM") as? String,
+              !pem.isEmpty else {
+            return nil
+        }
+        let normalizedPEM = pem.replacingOccurrences(of: "\\n", with: "\n")
+        return try? P256.Signing.PublicKey(pemRepresentation: normalizedPEM)
     }
 
     private func parseDevices(_ raw: Any?) -> [AetherEntitlementDevice] {
@@ -249,8 +521,13 @@ final class AetherLicenseManager: ObservableObject {
         licenseKey = ""
         status = "inactive"
         devices = []
+        isRefreshingEntitlement = false
+        isUsingOfflineGraceAccess = false
+        recomputeGateState()
         UserDefaults.standard.removeObject(forKey: "aether.license.email")
         UserDefaults.standard.removeObject(forKey: "aether.license.key")
+        UserDefaults.standard.removeObject(forKey: Self.entitlementSnapshotStorageKey)
+        UserDefaults.standard.removeObject(forKey: Self.entitlementTokenStorageKey)
     }
 
     private var authBaseURL: String {
@@ -269,6 +546,19 @@ final class AetherLicenseManager: ObservableObject {
         let value = UUID().uuidString
         UserDefaults.standard.set(value, forKey: key)
         return value
+    }
+}
+
+private extension Data {
+    init?(base64URL value: String) {
+        var base64 = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder != 0 {
+            base64.append(String(repeating: "=", count: 4 - remainder))
+        }
+        self.init(base64Encoded: base64)
     }
 }
 

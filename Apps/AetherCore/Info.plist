@@ -4,6 +4,11 @@
 <dict>
 	<key>AetherAuthBaseURL</key>
 	<string>https://auth.aether.7caifei.com</string>
+	<key>AetherAuthJWTPublicKeyPEM</key>
+	<string>-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV/cf+qTr/UdDcmJGNOFdSxMIz7ed
+tBZdSCkYGeR+5gE1FE0Yg2jqeOGAsC4vSTEh45bnhPDKHFiQ7MPeIpuNMg==
+-----END PUBLIC KEY-----</string>
 	<key>AetherBetaDownloadURL</key>
 	<string>https://auth.aether.7caifei.com/beta/Aether.dmg?source=update&amp;channel=beta</string>
 	<key>AetherBetaFeedURL</key>

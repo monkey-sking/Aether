@@ -131,6 +131,7 @@ Apps/
 - `Scripts/Notarize.sh`
 - `Scripts/PrepareAppBundle.sh`
 - `Scripts/configure_signing.py`
+- `Scripts/PublishSparkleRelease.sh`
 
 常用命令：
 
@@ -153,6 +154,7 @@ NOTARY_PROFILE=YourNotaryProfile ./Scripts/ReleaseForUsers.sh
 - `BuildRelease.sh` 默认拒绝静默回退到 unsigned
 - `BuildAndInstall.sh` 会走发布链路后重装到 `/Applications/Aether.app`
 - `ReleaseForUsers.sh` 会处理签名、DMG、ZIP 和可选公证
+- `PublishSparkleRelease.sh` 会把已签名 DMG 同步到 Website 仓库并重写 Sparkle appcast
 
 ## 测试
 

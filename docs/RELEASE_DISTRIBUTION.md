@@ -60,6 +60,16 @@ NOTARY_PROFILE=AetherNotary \
 - `.build/release/Aether_Installer.dmg`
 - `.build/release/Aether.zip`
 
+如果这次发布还要同步官网下载与 Sparkle appcast，再执行：
+
+```bash
+PUBLISH_SPARKLE=1 SPARKLE_CHANNEL=stable NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh
+```
+
+如需发布 Beta 通道，把 `SPARKLE_CHANNEL` 改为 `beta`。
+
+这一步会把 DMG 复制到 `Website/public/download/` 或 `Website/public/beta/`，并重写对应的 `appcast.xml`。
+
 ## 4. 本地快速验证（跳过公证）
 
 ```bash

@@ -15,6 +15,8 @@ import MediaPlayer
 
 class HeadMotionManager: ObservableObject {
     static let shared = HeadMotionManager()
+    var isTrackingExecutionEnabled: (() -> Bool)?
+    var onTrackingExecutionDenied: (() -> Void)?
 
     static let pttDownNotification = Notification.Name("AetherPTTDown")
     static let pttUpNotification = Notification.Name("AetherPTTUp")
@@ -1503,6 +1505,10 @@ class HeadMotionManager: ObservableObject {
     }
     
     func startTracking() {
+        guard isTrackingExecutionEnabled?() ?? true else {
+            onTrackingExecutionDenied?()
+            return
+        }
         guard !isGloballyPausedForIdle else { return }
         guard !isTracking else { return }
         GlobalLogger.lifecycle.info(

@@ -66,6 +66,14 @@ final class MotionService: ObservableObject {
         manager.setGlobalHotkeysEnabled(enabled)
     }
 
+    func setTrackingExecutionEnabled(_ check: (() -> Bool)?) {
+        manager.isTrackingExecutionEnabled = check
+    }
+
+    func setTrackingExecutionDeniedHandler(_ handler: (() -> Void)?) {
+        manager.onTrackingExecutionDenied = handler
+    }
+
     func recoverFromAccessibilityTrustChange(_ trusted: Bool, source: String = "permissions-refresh") {
         manager.recoverFromAccessibilityTrustChange(trusted: trusted, source: source)
     }
@@ -1988,6 +1996,7 @@ class AppState: ObservableObject {
     let motionService = MotionService()
     let voiceService = VoiceService()
     let nowPlayingService = NowPlayingService.shared
+    let licenseManager = AetherLicenseManager.shared
     private let permissions = PermissionsService()
 
     private var windowController: NSWindowController?
@@ -1996,6 +2005,14 @@ class AppState: ObservableObject {
     private var hasRequestedAccessibilityPromptThisRun: Bool = false
     private var lastObservedAccessibilityTrusted: Bool?
     private var accessibilityRecoveryTimer: Timer?
+
+    var entitlementGateState: AetherEntitlementGateState {
+        licenseManager.gateState
+    }
+
+    var isProductUnlocked: Bool {
+        licenseManager.isProductUnlocked
+    }
 
     
     init() {
@@ -2030,6 +2047,14 @@ class AppState: ObservableObject {
         nowPlayingService.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        licenseManager.$gateState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+                self?.syncProductAccessGate()
+            }
             .store(in: &cancellables)
         
         voiceService.$availableInputDevices
@@ -2070,6 +2095,12 @@ class AppState: ObservableObject {
         voiceService.setVoiceCommandOverrides(self.voiceCommandOverrides)
         voiceService.setVoiceLanguageTermsOverrides(self.voiceLanguageTermsOverrides)
         voiceService.setCustomAppShortcutRules(self.customAppShortcutRules)
+        motionService.setTrackingExecutionEnabled { [weak self] in
+            self?.isProductUnlocked ?? false
+        }
+        motionService.setTrackingExecutionDeniedHandler { [weak self] in
+            self?.presentActivationRequiredFeedback()
+        }
 
         voiceService.$status
             .assign(to: &$voiceStatus)
@@ -2098,15 +2129,23 @@ class AppState: ObservableObject {
         voiceService.onIntent = { [weak self] intent, appName, bundleIdentifier in
             guard let self else { return }
             DispatchQueue.main.async {
+                guard self.isProductUnlocked else {
+                    self.presentActivationRequiredFeedback()
+                    return
+                }
                 guard !self.isIdlePaused else { return }
                 self.applyVoiceIntent(intent, appName: appName, bundleIdentifier: bundleIdentifier)
             }
         }
         voiceService.isDictationExecutionEnabled = { [weak self] in
-            (self?.isVoiceInputEnabled ?? true) && !(self?.isIdlePaused ?? false)
+            (self?.isProductUnlocked ?? false) &&
+            (self?.isVoiceInputEnabled ?? true) &&
+            !(self?.isIdlePaused ?? false)
         }
         voiceService.isCommandExecutionEnabled = { [weak self] in
-            (self?.isVoiceControlEnabled ?? true) && !(self?.isIdlePaused ?? false)
+            (self?.isProductUnlocked ?? false) &&
+            (self?.isVoiceControlEnabled ?? true) &&
+            !(self?.isIdlePaused ?? false)
         }
         
         voiceService.onRecognitionFailure = { [weak self] transcript, reason, appName, bundleIdentifier in
@@ -2234,7 +2273,56 @@ class AppState: ObservableObject {
             }
             .store(in: &cancellables)
 
+        syncProductAccessGate()
         refreshPermissions()
+    }
+
+    private func syncProductAccessGate() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.syncProductAccessGate()
+            }
+            return
+        }
+
+        if isProductUnlocked {
+            applyVoiceEnabledState()
+            return
+        }
+
+        if motionService.isTracking {
+            motionService.stopTracking()
+        }
+
+        voiceService.setPTTEnabled(false)
+        voiceService.setAlwaysListeningEnabled(false)
+        voiceService.setDirectCommandEnabled(false)
+        voiceService.setWakeWordEnabled(false)
+        voiceService.syncHUDState()
+        HotkeyManager.shared.unregisterPTT()
+        HeadMotionManager.shared.isPTTEnabled = false
+        CurrentAppShortcutPanelManager.shared.hide()
+    }
+
+    private func presentActivationRequiredFeedback() {
+        let message: String
+        switch entitlementGateState {
+        case .expired:
+            message = AppLocalization.isChinese ? "授权已过期，请先恢复激活。" : "Your access has expired. Restore activation first."
+        case .deviceLimitReached:
+            message = AppLocalization.isChinese ? "设备数已满，请先移除旧设备。" : "Device limit reached. Remove an old device first."
+        case .loading:
+            message = AppLocalization.isChinese ? "正在验证授权，请稍候。" : "Checking access. Please wait."
+        case .inactive:
+            message = AppLocalization.isChinese ? "请先激活或开始试用。" : "Activate or start a trial first."
+        case .active, .trialing:
+            return
+        }
+
+        HUDManager.shared.showTemporary(
+            message: message,
+            icon: "lock.shield.fill"
+        )
     }
 
     private func handleAccessibilityTrustTransitionIfNeeded(trusted: Bool, source: String) {
@@ -4140,7 +4228,7 @@ struct AetherApp: App {
     
     var body: some Scene {
         Window("Aether", id: "main") {
-            AetherMainView()
+            AetherRootView()
                 .environmentObject(appState)
                 .environment(\.locale, appState.appLocale)
         }

@@ -14,6 +14,9 @@ SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 SKIP_NOTARIZE="${SKIP_NOTARIZE:-0}"
 UNIVERSAL_BUILD="${AETHER_UNIVERSAL:-1}"
+PUBLISH_SPARKLE="${PUBLISH_SPARKLE:-0}"
+SPARKLE_CHANNEL="${SPARKLE_CHANNEL:-stable}"
+WEBSITE_ROOT="${WEBSITE_ROOT:-${PROJECT_ROOT}/../Website}"
 
 APP_ENTITLEMENTS="${PROJECT_ROOT}/Apps/AetherCore/AetherCore.entitlements"
 APP_SIGN_ENTITLEMENTS="${BUILD_DIR}/app-sign.entitlements"
@@ -128,6 +131,20 @@ notarize() {
   xcrun stapler staple "$DMG_PATH"
 }
 
+publish_sparkle_assets() {
+  if [[ "$PUBLISH_SPARKLE" != "1" ]]; then
+    log "Skipping Sparkle publish (PUBLISH_SPARKLE != 1)."
+    return
+  fi
+
+  log "Publishing Sparkle assets to website repo..."
+  "${PROJECT_ROOT}/Scripts/PublishSparkleRelease.sh" \
+    --channel "$SPARKLE_CHANNEL" \
+    --app "$APP_PATH" \
+    --dmg "$DMG_PATH" \
+    --website-root "$WEBSITE_ROOT"
+}
+
 main() {
   cd "$PROJECT_ROOT"
   local identity
@@ -138,6 +155,7 @@ main() {
   package_outputs
   sign_dmg "$identity"
   notarize
+  publish_sparkle_assets
   log "Done. Outputs:"
   log "App: ${APP_PATH}"
   log "DMG: ${DMG_PATH}"
