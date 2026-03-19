@@ -237,15 +237,17 @@ struct SettingsPageHero<HeaderTrailing: View>: View {
     }
 
     var body: some View {
-        GlassCard(padding: 18) {
+        GlassCard(padding: 16) {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
                         .font(AetherUI.pageTitleFont)
-                    Text(subtitle)
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.callout)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 Spacer(minLength: 12)
@@ -409,7 +411,7 @@ struct SettingsPage<Content: View, HeaderTrailing: View, FooterOverlay: View>: V
 
     private var baseContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
                 SettingsPageHero(title: title, subtitle: subtitle) {
                     headerTrailing
                 }
@@ -418,7 +420,8 @@ struct SettingsPage<Content: View, HeaderTrailing: View, FooterOverlay: View>: V
             }
             .frame(maxWidth: 960, alignment: .leading)
             .padding(.horizontal, 22)
-            .padding(.vertical, 18)
+            .padding(.top, 12)
+            .padding(.bottom, 18)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
@@ -458,7 +461,7 @@ struct SettingsPage<Content: View, HeaderTrailing: View, FooterOverlay: View>: V
     @ViewBuilder
     var body: some View {
         baseContent
-            .navigationTitle(title)
+            .toolbar(removing: .title)
     }
 }
 

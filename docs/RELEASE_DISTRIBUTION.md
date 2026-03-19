@@ -69,6 +69,64 @@ PUBLISH_SPARKLE=1 SPARKLE_CHANNEL=stable NOTARY_PROFILE=AetherNotary ./Scripts/R
 如需发布 Beta 通道，把 `SPARKLE_CHANNEL` 改为 `beta`。
 
 这一步会把 DMG 复制到 `Website/public/download/` 或 `Website/public/beta/`，并重写对应的 `appcast.xml`。
+同时会把 Sparkle 更新用的版本化 ZIP 复制到 `Website/public/aether/` 或 `Website/public/aether-beta/`，
+并用 Sparkle 的 `generate_appcast` 生成 `appcast.xml` 和 delta 更新文件（`.delta`）。
+
+## 3.1 常用发布命令
+
+### 3.1.1 从指定 Git 记录/分支发布（推荐）
+
+`Apps/` 与 `Website/` 是两个独立 Git 仓库。发布包使用的是 `Apps/` 当前检出的代码与版本号。
+
+发布前建议先确保 `Apps/` 工作区干净，并切到你要发布的 commit / 分支 / tag：
+
+```bash
+cd /Volumes/SSD/Projects/Aether/Apps
+git fetch
+git checkout <branch-or-sha-or-tag>
+git status
+```
+
+正式包，不同步官网：
+
+```bash
+cd /Volumes/SSD/Projects/Aether/Apps
+NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh
+```
+
+正式包，并同步 Stable 官网与 Sparkle：
+
+```bash
+cd /Volumes/SSD/Projects/Aether/Apps
+PUBLISH_SPARKLE=1 SPARKLE_CHANNEL=stable NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh
+```
+
+Beta 包，并同步 Beta 官网与 Sparkle：
+
+```bash
+cd /Volumes/SSD/Projects/Aether/Apps
+PUBLISH_SPARKLE=1 SPARKLE_CHANNEL=beta NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh
+```
+
+本地快速验证，跳过公证：
+
+```bash
+cd /Volumes/SSD/Projects/Aether/Apps
+SKIP_NOTARIZE=1 ./Scripts/ReleaseForUsers.sh
+```
+
+### 3.1.2 部署官网（Website 仓库）
+
+如果 `PUBLISH_SPARKLE=1`，脚本会修改 `Website/public/` 下的静态文件（DMG、版本化 ZIP、appcast、delta）。
+随后需要在 `Website/` 仓库提交并 push，触发站点部署：
+
+```bash
+cd /Volumes/SSD/Projects/Aether/Website
+git status
+git add public
+git commit -m "Release: update Sparkle feeds"
+git push
+```
 
 ## 4. 本地快速验证（跳过公证）
 

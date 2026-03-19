@@ -1417,12 +1417,20 @@ class AppState: ObservableObject {
 
     private func isVoiceUsageUnrecognized(_ entry: VoiceUsageEvent) -> Bool {
         guard entry.kind == .dictation else { return false }
-        return entry.action == "未识别" || entry.action == "Unrecognized"
+        // Backward-compatible: older builds recorded different labels for the same bucket.
+        return entry.action == "未识别" ||
+            entry.action == "Unrecognized" ||
+            entry.action == "未输入（无输入框）" ||
+            entry.action == "No Input Target"
     }
 
     private func isVoiceUsageHUDControlMismatch(_ entry: VoiceUsageEvent) -> Bool {
         guard entry.kind == .dictation else { return false }
-        return entry.action == "控制模式下输入" || entry.action == "Dictation While HUD Control"
+        // Backward-compatible: older builds used different labels.
+        return entry.action == "控制模式下输入" ||
+            entry.action == "Dictation While HUD Control" ||
+            entry.action == "控制模式误输入" ||
+            entry.action == "Dictation While Control Mode"
     }
 
     func mergedFrontmostAppCommandSnapshot(_ snapshot: FrontmostAppCommandSnapshot?) -> FrontmostAppCommandSnapshot? {
@@ -2400,6 +2408,10 @@ class AppState: ObservableObject {
 
     func showShortcutPanel(activateApp: Bool = true, focusSearchField: Bool = true) {
         guard !isIdlePaused else { return }
+        guard isProductUnlocked else {
+            presentActivationRequiredFeedback()
+            return
+        }
         CurrentAppShortcutPanelManager.shared.show(activateApp: activateApp, focusSearchField: focusSearchField)
     }
 
@@ -2409,6 +2421,10 @@ class AppState: ObservableObject {
 
     func toggleShortcutPanel(activateApp: Bool = true, focusSearchField: Bool = true) {
         guard !isIdlePaused else { return }
+        guard isProductUnlocked else {
+            presentActivationRequiredFeedback()
+            return
+        }
         CurrentAppShortcutPanelManager.shared.toggle(activateApp: activateApp, focusSearchField: focusSearchField)
     }
 
@@ -2649,7 +2665,7 @@ class AppState: ObservableObject {
     private func recordVoiceDictationWhileHUDControl(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
         recordVoiceUsageEvent(
             kind: .dictation,
-            action: AppLocalization.isChinese ? "控制模式误输入" : "Dictation While Control Mode",
+            action: AppLocalization.isChinese ? "控制模式下输入" : "Dictation While HUD Control",
             content: text,
             appName: appName,
             bundleIdentifier: bundleIdentifier
@@ -2659,7 +2675,7 @@ class AppState: ObservableObject {
     private func recordVoiceUnrecognized(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
         recordVoiceUsageEvent(
             kind: .dictation,
-            action: AppLocalization.isChinese ? "未输入（无输入框）" : "No Input Target",
+            action: AppLocalization.isChinese ? "未识别" : "Unrecognized",
             content: text,
             appName: appName,
             bundleIdentifier: bundleIdentifier
@@ -4232,6 +4248,7 @@ struct AetherApp: App {
                 .environmentObject(appState)
                 .environment(\.locale, appState.appLocale)
         }
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1120, height: 760)
         .commands {
             SidebarCommands() // Enable View -> Show/Hide Sidebar

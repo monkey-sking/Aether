@@ -575,7 +575,7 @@
 "panels.shortcuts.clickable_hint" = "可点击触发";
 "main.panel.head_gestures" = "头部动作";
 "settings.page.head_gestures.title" = "头部动作";
-"settings.page.head_gestures.subtitle" = "配置点头与摇头的动作。";
+"settings.page.head_gestures.subtitle" = "统一配置热区与点头/摇头触发。";
 "head_gesture.toggle.enable" = "启用头部动作";
 "head_gesture.toggle.detail" = "佩戴支持的耳机时检测点头与摇头。";
 "head_gesture.mapping.title" = "动作映射";

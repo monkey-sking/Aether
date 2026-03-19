@@ -141,6 +141,7 @@ publish_sparkle_assets() {
   "${PROJECT_ROOT}/Scripts/PublishSparkleRelease.sh" \
     --channel "$SPARKLE_CHANNEL" \
     --app "$APP_PATH" \
+    --zip "$ZIP_PATH" \
     --dmg "$DMG_PATH" \
     --website-root "$WEBSITE_ROOT"
 }

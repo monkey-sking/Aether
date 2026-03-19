@@ -247,9 +247,31 @@ struct AetherRootView: View {
         Group {
             if appState.isProductUnlocked {
                 AetherMainView()
+            } else if shouldKeepMainVisibleWhileRefreshing {
+                ZStack {
+                    AetherMainView()
+                    Color.black.opacity(0.12)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .allowsHitTesting(true)
+                    VStack(spacing: 10) {
+                        ProgressView()
+                        Text(appState.isChineseUI ? "正在验证授权…" : "Checking access…")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(16)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .disabled(true)
             } else {
                 ActivationGateView()
             }
         }
+    }
+
+    private var shouldKeepMainVisibleWhileRefreshing: Bool {
+        appState.entitlementGateState == .loading &&
+        (appState.licenseManager.isActivated || appState.licenseManager.isUsingOfflineGraceAccess)
     }
 }

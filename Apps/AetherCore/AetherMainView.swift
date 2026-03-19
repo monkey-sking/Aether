@@ -13,6 +13,7 @@ private struct OverviewSetupItem: Identifiable {
 
 struct AetherMainView: View {
     @State private var selection: Panel? = .overview
+    private let sidebarWidth: CGFloat = 200
 
     enum Panel: Hashable {
         case overview
@@ -27,89 +28,53 @@ struct AetherMainView: View {
 
     var body: some View {
         NavigationSplitView {
-            ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(nsColor: .windowBackgroundColor),
-                        Color(nsColor: .underPageBackgroundColor)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+            List(selection: $selection) {
+                Color.clear
+                    .frame(height: 30)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
 
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.white.opacity(0.035))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .stroke(Color.white.opacity(0.04), lineWidth: 1)
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 14)
+                Section {
+                    sidebarItem(.overview)
+                        .tag(Panel.overview)
+                } header: {
+                    sidebarHeader("main.section.workspace")
+                }
 
-                VStack(spacing: 0) {
-                    List(selection: $selection) {
-                        Section {
-                            NavigationLink(value: Panel.overview) {
-                                Label(panelTitle(.overview), systemImage: panelSymbol(.overview))
-                            }
-                        } header: {
-                            Text(LocalizedStringKey("main.section.workspace"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textCase(nil)
-                        }
+                Section {
+                    sidebarItem(.headGestures)
+                        .tag(Panel.headGestures)
+                    sidebarItem(.shortcuts)
+                        .tag(Panel.shortcuts)
+                    sidebarItem(.voiceAppControls)
+                        .tag(Panel.voiceAppControls)
+                } header: {
+                    sidebarHeader("main.section.controls")
+                }
 
-                        Section {
-                            NavigationLink(value: Panel.headGestures) {
-                                Label(panelTitle(.headGestures), systemImage: panelSymbol(.headGestures))
-                            }
-                            NavigationLink(value: Panel.shortcuts) {
-                                Label(panelTitle(.shortcuts), systemImage: panelSymbol(.shortcuts))
-                            }
-                        } header: {
-                            Text(LocalizedStringKey("main.section.controls"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textCase(nil)
-                        }
+                Section {
+                    sidebarItem(.voiceLexicon)
+                        .tag(Panel.voiceLexicon)
+                    sidebarItem(.voiceInsights)
+                        .tag(Panel.voiceInsights)
+                } header: {
+                    sidebarHeader("main.section.voice")
+                }
 
-                        Section {
-                            NavigationLink(value: Panel.voiceAppControls) {
-                                Label(panelTitle(.voiceAppControls), systemImage: panelSymbol(.voiceAppControls))
-                            }
-                            NavigationLink(value: Panel.voiceInsights) {
-                                Label(panelTitle(.voiceInsights), systemImage: panelSymbol(.voiceInsights))
-                            }
-                            NavigationLink(value: Panel.voiceLexicon) {
-                                Label(panelTitle(.voiceLexicon), systemImage: panelSymbol(.voiceLexicon))
-                            }
-                        } header: {
-                            Text(LocalizedStringKey("main.section.voice"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textCase(nil)
-                        }
-
-                        Section {
-                            NavigationLink(value: Panel.about) {
-                                Label(panelTitle(.about), systemImage: panelSymbol(.about))
-                            }
-                        } header: {
-                            Text(LocalizedStringKey("main.section.app"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textCase(nil)
-                        }
-                    }
-                    .listStyle(.sidebar)
-                    .scrollContentBackground(.hidden)
-                    .environment(\.defaultMinListRowHeight, 44)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 18)
-                    .padding(.bottom, 18)
+                Section {
+                    sidebarItem(.about)
+                        .tag(Panel.about)
+                } header: {
+                    sidebarHeader("main.section.app")
                 }
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 250)
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 188, ideal: sidebarWidth, max: 250)
+            .toolbar(removing: .sidebarToggle)
+            .toolbarBackground(.hidden, for: .windowToolbar)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
         } detail: {
             switch selection {
             case .overview:
@@ -133,6 +98,12 @@ struct AetherMainView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .background(alignment: .leading) {
+            Rectangle()
+                .fill(.regularMaterial)
+                .frame(width: sidebarWidth + 18)
+                .ignoresSafeArea()
+        }
         .background(
             StandardWindowConfigurator(
                 title: "Aether",
@@ -144,6 +115,29 @@ struct AetherMainView: View {
                 selection = .overview
             }
         }
+    }
+
+    private func sidebarHeader(_ key: String) -> some View {
+        Text(LocalizedStringKey(key))
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(.secondary)
+            .textCase(nil)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
+    }
+
+    private func sidebarItem(_ panel: Panel) -> some View {
+        Label {
+            Text(panelTitle(panel))
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary)
+        } icon: {
+            Image(systemName: panelSymbol(panel))
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 20)
+        }
+        .symbolRenderingMode(.monochrome)
+            .listRowInsets(EdgeInsets(top: 7, leading: 8, bottom: 7, trailing: 8))
     }
 
     private func panelTitle(_ panel: Panel) -> String {
@@ -172,19 +166,19 @@ struct AetherMainView: View {
         case .overview:
             return "square.grid.2x2.fill"
         case .about:
-            return "info.circle"
+            return "info.circle.fill"
         case .voiceTerms:
             return "text.magnifyingglass"
         case .voiceLexicon:
-            return "text.badge.star"
+            return "text.book.closed.fill"
         case .voiceAppControls:
-            return "app.badge"
+            return "command.square.fill"
         case .voiceInsights:
-            return "chart.bar.xaxis"
+            return "waveform.path.ecg"
         case .headGestures:
-            return "person.crop.circle"
+            return "person.fill.viewfinder"
         case .shortcuts:
-            return "keyboard"
+            return "keyboard.fill"
         }
     }
 }
@@ -212,11 +206,13 @@ private struct StandardWindowConfigurator: NSViewRepresentable {
         window.identifier = NSUserInterfaceItemIdentifier("AetherMainWindow")
         window.title = title
         window.subtitle = subtitle
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.toolbarStyle = .unified
+        window.styleMask.insert(.fullSizeContentView)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.toolbarStyle = .unifiedCompact
         if #available(macOS 11.0, *) {
-            window.titlebarSeparatorStyle = .automatic
+            window.titlebarSeparatorStyle = .none
         }
         if !window.titlebarAccessoryViewControllers.contains(where: { $0 is SidebarToggleAccessoryViewController }) {
             let accessory = SidebarToggleAccessoryViewController()
@@ -231,7 +227,7 @@ private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryVie
         super.viewDidLoad()
         layoutAttribute = .left
 
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 42, height: 40))
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 44, height: 36))
         view = containerView
 
         let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
@@ -241,21 +237,38 @@ private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryVie
             ?? NSImage()
         let configuredImage = image.withSymbolConfiguration(configuration) ?? image
 
+        let background = NSVisualEffectView(frame: .zero)
+        background.material = .headerView
+        background.blendingMode = .withinWindow
+        background.state = .active
+        background.wantsLayer = true
+        background.layer?.cornerRadius = 8
+        background.layer?.masksToBounds = true
+        background.layer?.borderWidth = 0.5
+        background.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.22).cgColor
+        background.translatesAutoresizingMaskIntoConstraints = false
+
         let button = NSButton(image: configuredImage, target: self, action: #selector(toggleSidebar))
         button.isBordered = false
-        button.bezelStyle = .texturedRounded
-        button.controlSize = .large
         button.imageScaling = .scaleProportionallyDown
-        button.contentTintColor = .labelColor
+        button.contentTintColor = .secondaryLabelColor
+        button.toolTip = "Toggle Sidebar"
+        button.setAccessibilityLabel("Toggle Sidebar")
         button.translatesAutoresizingMaskIntoConstraints = false
 
+        containerView.addSubview(background)
         containerView.addSubview(button)
 
         NSLayoutConstraint.activate([
-            button.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            button.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 9),
-            button.widthAnchor.constraint(equalToConstant: 30),
-            button.heightAnchor.constraint(equalToConstant: 26)
+            background.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
+            background.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            background.widthAnchor.constraint(equalToConstant: 30),
+            background.heightAnchor.constraint(equalToConstant: 26),
+
+            button.centerXAnchor.constraint(equalTo: background.centerXAnchor),
+            button.centerYAnchor.constraint(equalTo: background.centerYAnchor),
+            button.widthAnchor.constraint(equalToConstant: 18),
+            button.heightAnchor.constraint(equalToConstant: 18)
         ])
     }
 

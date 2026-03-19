@@ -3139,8 +3139,8 @@ struct HeadGestureSettingsView: View {
 
     var body: some View {
         SettingsPage(
-            title: isChinese ? "头控触发" : "Head Triggers",
-            subtitle: isChinese ? "统一配置热区与点头/摇头触发。" : "Configure hot zones and nod/shake triggers here."
+            title: String(localized: "settings.page.head_gestures.title"),
+            subtitle: String(localized: "settings.page.head_gestures.subtitle")
         ) {
             VStack(spacing: 16) {
                 GlassCard(padding: 16) {

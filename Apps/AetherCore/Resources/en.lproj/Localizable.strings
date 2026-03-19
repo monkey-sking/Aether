@@ -503,7 +503,7 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "voice_lexicon.wake_words" = "Wake Words";
 "main.panel.head_gestures" = "Head Gestures";
 "settings.page.head_gestures.title" = "Head Gestures";
-"settings.page.head_gestures.subtitle" = "Configure nod and shake shortcuts.";
+"settings.page.head_gestures.subtitle" = "Configure hot zones plus nod and shake triggers.";
 "head_gesture.toggle.enable" = "Enable head gestures";
 "head_gesture.toggle.detail" = "Detect nods and shakes while wearing a supported headset.";
 "head_gesture.mapping.title" = "Gesture Mapping";

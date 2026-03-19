@@ -7,13 +7,13 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEFAULT_WEBSITE_ROOT="${PROJECT_ROOT}/../Website"
 DEFAULT_APP_PATH="${PROJECT_ROOT}/.build/release/${APP_NAME}.app"
 DEFAULT_DMG_PATH="${PROJECT_ROOT}/.build/release/${APP_NAME}_Installer.dmg"
-DEFAULT_SPARKLE_BIN="${PROJECT_ROOT}/.build/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update"
+DEFAULT_ZIP_PATH="${PROJECT_ROOT}/.build/release/${APP_NAME}.zip"
 DOWNLOAD_NAME="${APP_NAME}.dmg"
-SPARKLE_ACCOUNT="${SPARKLE_ACCOUNT:-aether}"
+SPARKLE_ACCOUNT="${SPARKLE_ACCOUNT:-aether}" # Ed25519 private key is stored in Keychain under this account.
 WEBSITE_ROOT="${WEBSITE_ROOT:-${DEFAULT_WEBSITE_ROOT}}"
 APP_PATH="${APP_PATH:-${DEFAULT_APP_PATH}}"
 DMG_PATH="${DMG_PATH:-${DEFAULT_DMG_PATH}}"
-SPARKLE_BIN="${SPARKLE_BIN:-${DEFAULT_SPARKLE_BIN}}"
+ZIP_PATH="${ZIP_PATH:-${DEFAULT_ZIP_PATH}}"
 CHANNEL=""
 SHORT_VERSION=""
 BUILD_VERSION=""
@@ -23,12 +23,15 @@ err() { echo "[sparkle-publish] ERROR: $*" >&2; exit 1; }
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") --channel stable|beta [--app PATH] [--dmg PATH] [--website-root PATH]
-                         [--sparkle-bin PATH] [--account NAME] [--short-version X.Y.Z]
-                         [--build-version N]
+Usage: $(basename "$0") --channel stable|beta [--app PATH] [--zip PATH] [--dmg PATH] [--website-root PATH]
+                         [--account NAME] [--short-version X.Y.Z] [--build-version N]
 
-Copies the release DMG into the website repo, signs it with Sparkle, and rewrites
-the matching appcast feed.
+Copies update archives into the website repo and uses Sparkle's generate_appcast
+to update the matching appcast feed and generate delta updates.
+
+Notes:
+- Sparkle auto-update uses a versioned ZIP (not DMG).
+- Website manual download can still use a fixed-name DMG (optional).
 EOF
 }
 
@@ -38,12 +41,12 @@ while [[ $# -gt 0 ]]; do
       CHANNEL="${2:-}"; shift 2 ;;
     --app)
       APP_PATH="${2:-}"; shift 2 ;;
+    --zip)
+      ZIP_PATH="${2:-}"; shift 2 ;;
     --dmg)
       DMG_PATH="${2:-}"; shift 2 ;;
     --website-root)
       WEBSITE_ROOT="${2:-}"; shift 2 ;;
-    --sparkle-bin)
-      SPARKLE_BIN="${2:-}"; shift 2 ;;
     --account)
       SPARKLE_ACCOUNT="${2:-}"; shift 2 ;;
     --short-version)
@@ -66,9 +69,8 @@ case "$CHANNEL" in
   *) err "--channel must be 'stable' or 'beta'." ;;
 esac
 
-[[ -f "$DMG_PATH" ]] || err "DMG not found: $DMG_PATH"
 [[ -d "$APP_PATH" ]] || err "App bundle not found: $APP_PATH"
-[[ -x "$SPARKLE_BIN" ]] || err "Sparkle signer not found or not executable: $SPARKLE_BIN"
+[[ -f "$ZIP_PATH" ]] || err "ZIP not found: $ZIP_PATH"
 [[ -d "$WEBSITE_ROOT" ]] || err "Website root not found: $WEBSITE_ROOT"
 
 if [[ -z "$SHORT_VERSION" ]]; then
@@ -78,86 +80,120 @@ if [[ -z "$BUILD_VERSION" ]]; then
   BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Contents/Info.plist")"
 fi
 
+GENERATE_APPCAST_BIN=""
+find_generate_appcast() {
+  local candidate
+  candidate="$(find "${PROJECT_ROOT}/.build" -type f -name "generate_appcast" -path "*sparkle*" 2>/dev/null | head -n 1 || true)"
+  if [[ -n "$candidate" ]]; then
+    echo "$candidate"
+    return
+  fi
+  candidate="$(find "${PROJECT_ROOT}/.build" -type f -name "generate-appcast" -path "*sparkle*" 2>/dev/null | head -n 1 || true)"
+  if [[ -n "$candidate" ]]; then
+    echo "$candidate"
+    return
+  fi
+  return 1
+}
+
+GENERATE_APPCAST_BIN="$(find_generate_appcast || true)"
+[[ -x "$GENERATE_APPCAST_BIN" ]] || err "Sparkle generate_appcast not found or not executable under ${PROJECT_ROOT}/.build. Build the app once to fetch Sparkle artifacts."
+
 case "$CHANNEL" in
   stable)
-    DEST_DIR="${WEBSITE_ROOT}/public/download"
-    FEED_PATH="${WEBSITE_ROOT}/public/aether/appcast.xml"
-    DOWNLOAD_URL="https://auth.aether.7caifei.com/download/${DOWNLOAD_NAME}?source=update&channel=stable&version=${SHORT_VERSION}"
+    DMG_DEST_DIR="${WEBSITE_ROOT}/public/download"
+    UPDATE_DIR="${WEBSITE_ROOT}/public/aether"
+    DOWNLOAD_URL_PREFIX="https://aether.7caifei.com/aether/"
     ;;
   beta)
-    DEST_DIR="${WEBSITE_ROOT}/public/beta"
-    FEED_PATH="${WEBSITE_ROOT}/public/aether-beta/appcast.xml"
-    DOWNLOAD_URL="https://auth.aether.7caifei.com/beta/${DOWNLOAD_NAME}?source=update&channel=beta&version=${SHORT_VERSION}"
+    DMG_DEST_DIR="${WEBSITE_ROOT}/public/beta"
+    UPDATE_DIR="${WEBSITE_ROOT}/public/aether-beta"
+    DOWNLOAD_URL_PREFIX="https://aether.7caifei.com/aether-beta/"
     ;;
 esac
 
-DEST_PATH="${DEST_DIR}/${DOWNLOAD_NAME}"
-mkdir -p "$DEST_DIR"
+mkdir -p "$UPDATE_DIR"
 
-log "Copying DMG to website asset path..."
-cp "$DMG_PATH" "$DEST_PATH"
+ZIP_NAME="${APP_NAME}_${SHORT_VERSION}_${BUILD_VERSION}.zip"
+ZIP_DEST_PATH="${UPDATE_DIR}/${ZIP_NAME}"
 
-log "Signing copied DMG with Sparkle account: ${SPARKLE_ACCOUNT}"
-SIGNATURE="$("$SPARKLE_BIN" --account "$SPARKLE_ACCOUNT" -p "$DEST_PATH")"
-[[ -n "$SIGNATURE" ]] || err "Sparkle signer did not return a signature."
+log "Copying update ZIP to: ${ZIP_DEST_PATH}"
+cp "$ZIP_PATH" "$ZIP_DEST_PATH"
 
-log "Verifying Sparkle signature..."
-"$SPARKLE_BIN" --account "$SPARKLE_ACCOUNT" --verify "$DEST_PATH" "$SIGNATURE" >/dev/null
+# Optional: keep website manual download paths stable.
+if [[ -f "$DMG_PATH" ]]; then
+  DMG_DEST_PATH="${DMG_DEST_DIR}/${DOWNLOAD_NAME}"
+  mkdir -p "$DMG_DEST_DIR"
+  log "Copying DMG to website download path: ${DMG_DEST_PATH}"
+  cp "$DMG_PATH" "$DMG_DEST_PATH"
+fi
 
-DMG_SIZE="$(stat -f%z "$DEST_PATH")"
+FULL_RELEASE_NOTES_URL="https://aether.7caifei.com/changelog"
+PRODUCT_LINK="https://aether.7caifei.com/download"
 
-log "Updating appcast: ${FEED_PATH}"
-python3 - "$FEED_PATH" "$DOWNLOAD_URL" "$BUILD_VERSION" "$SHORT_VERSION" "$DMG_SIZE" "$SIGNATURE" <<'PY'
+LEGACY_FEED_PATH="${UPDATE_DIR}/appcast.xml"
+if [[ -f "$LEGACY_FEED_PATH" ]]; then
+  # generate_appcast re-uses and updates an existing feed file. Ensure the feed declares the
+  # Sparkle namespace, otherwise it may become invalid after inserting <sparkle:...> elements.
+  if ! grep -q "xmlns:sparkle=\"http://www.andymatuschak.org/xml-namespaces/sparkle\"" "$LEGACY_FEED_PATH" \
+    && ! grep -q "xmlns:ns0=\"http://www.andymatuschak.org/xml-namespaces/sparkle\"" "$LEGACY_FEED_PATH"; then
+    log "Existing appcast.xml is missing Sparkle namespace; resetting feed for ${CHANNEL}."
+    rm -f "$LEGACY_FEED_PATH"
+  fi
+fi
+
+if [[ -f "$LEGACY_FEED_PATH" ]]; then
+  # We no longer publish DMG-based Sparkle updates. If any legacy DMG items exist in the feed,
+  # remove them so Sparkle doesn't see an invalid update archive type.
+  python3 - "$LEGACY_FEED_PATH" <<'PY'
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-feed_path = Path(sys.argv[1])
-download_url = sys.argv[2]
-build_version = sys.argv[3]
-short_version = sys.argv[4]
-length = sys.argv[5]
-signature = sys.argv[6]
-
 sparkle_ns = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 ET.register_namespace("sparkle", sparkle_ns)
 
+feed_path = Path(sys.argv[1])
+raw = feed_path.read_text(encoding="utf-8", errors="ignore")
+needs_prefix_fix = f'xmlns:ns0="{sparkle_ns}"' in raw
 tree = ET.parse(feed_path)
 root = tree.getroot()
+
 channel = root.find("channel")
 if channel is None:
-    raise SystemExit("appcast is missing <channel>")
-item = channel.find("item")
-if item is None:
-    raise SystemExit("appcast is missing <item>")
+    sys.exit(0)
 
-title = item.find("title")
-if title is None:
-    title = ET.SubElement(item, "title")
-title.text = f"Aether {short_version}"
+items = list(channel.findall("item"))
+removed = 0
+for item in items:
+    enclosure = item.find("enclosure")
+    if enclosure is None:
+        continue
+    url = (enclosure.get("url") or "").lower()
+    if ".dmg" in url:
+        channel.remove(item)
+        removed += 1
 
-version = item.find(f"{{{sparkle_ns}}}version")
-if version is None:
-    version = ET.SubElement(item, f"{{{sparkle_ns}}}version")
-version.text = str(build_version)
-
-short = item.find(f"{{{sparkle_ns}}}shortVersionString")
-if short is None:
-    short = ET.SubElement(item, f"{{{sparkle_ns}}}shortVersionString")
-short.text = short_version
-
-enclosure = item.find("enclosure")
-if enclosure is None:
-    enclosure = ET.SubElement(item, "enclosure")
-enclosure.set("url", download_url)
-enclosure.set("length", str(length))
-enclosure.set("type", "application/octet-stream")
-enclosure.set(f"{{{sparkle_ns}}}edSignature", signature)
-
-tree.write(feed_path, encoding="utf-8", xml_declaration=True)
+if removed:
+    tree.write(feed_path, encoding="utf-8", xml_declaration=True)
+elif needs_prefix_fix:
+    # Preserve the well-known 'sparkle:' prefix. Some tooling expects this prefix instead
+    # of an auto-generated one (e.g. ns0), even though the namespace URI is identical.
+    tree.write(feed_path, encoding="utf-8", xml_declaration=True)
 PY
+fi
+
+log "Generating appcast + deltas in: ${UPDATE_DIR}"
+"$GENERATE_APPCAST_BIN" \
+  --account "$SPARKLE_ACCOUNT" \
+  --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
+  --full-release-notes-url "$FULL_RELEASE_NOTES_URL" \
+  --link "$PRODUCT_LINK" \
+  --maximum-versions 6 \
+  --maximum-deltas 5 \
+  "$UPDATE_DIR"
 
 log "Done."
-log "DMG: ${DEST_PATH}"
-log "Feed: ${FEED_PATH}"
+log "ZIP: ${ZIP_DEST_PATH}"
+log "Appcast: ${UPDATE_DIR}/appcast.xml"
 log "Version: ${SHORT_VERSION} (${BUILD_VERSION})"

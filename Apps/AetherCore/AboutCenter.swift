@@ -558,7 +558,6 @@ final class AetherUpdaterManager: ObservableObject {
     }()
     @Published private(set) var feedURLString: String = ""
     @Published private(set) var latestVersion: String?
-    @Published private(set) var latestDownloadURL: String?
     @Published private(set) var statusMessage: String = ""
     @Published private(set) var hasAvailableUpdate: Bool = false
 
@@ -583,17 +582,26 @@ final class AetherUpdaterManager: ObservableObject {
         do {
             let (data, _) = try await URLSession.shared.data(from: feedURL)
             let parsed = AppcastParser.parse(data: data)
-            latestVersion = parsed.version
-            latestDownloadURL = parsed.downloadURL
+            latestVersion = parsed.shortVersion ?? parsed.buildVersion
 
-            guard let version = parsed.version else {
+            guard let remoteShort = parsed.shortVersion, !remoteShort.isEmpty else {
                 hasAvailableUpdate = false
                 statusMessage = AppLocalization.isChinese ? "更新源中没有可用版本。" : "No releases found in the feed."
                 return
             }
 
-            let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-            if version.compare(current, options: .numeric) == .orderedDescending {
+            let currentShort = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+            let currentBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+
+            let shortCompare = remoteShort.compare(currentShort, options: .numeric)
+            let buildCompare: ComparisonResult
+            if shortCompare == .orderedSame, let remoteBuild = parsed.buildVersion, !remoteBuild.isEmpty {
+                buildCompare = remoteBuild.compare(currentBuild, options: .numeric)
+            } else {
+                buildCompare = .orderedSame
+            }
+
+            if shortCompare == .orderedDescending || buildCompare == .orderedDescending {
                 hasAvailableUpdate = true
                 statusMessage = AppLocalization.isChinese ? "发现新版本。" : "Update available."
             } else {
@@ -609,10 +617,11 @@ final class AetherUpdaterManager: ObservableObject {
     }
 
     func openLatestDownload() {
-        let target = latestDownloadURL ?? AetherUpdateFeedResolver.downloadURLString(for: channel)
-        if let target, let url = URL(string: target) {
-            NSWorkspace.shared.open(url)
-        }
+        // Sparkle feeds may point to versioned ZIP archives intended for auto-update.
+        // For manual downloads, prefer the app's configured DMG URL (or page) instead.
+        let target = (Bundle.main.object(forInfoDictionaryKey: "AetherDownloadPageURL") as? String)
+            ?? AetherUpdateFeedResolver.downloadURLString(for: channel)
+        if let target, let url = URL(string: target) { NSWorkspace.shared.open(url) }
     }
 
     private func refreshFeedString() {
@@ -623,24 +632,21 @@ final class AetherUpdaterManager: ObservableObject {
 private final class AppcastParser: NSObject, XMLParserDelegate {
     private var seenItem = false
     private var currentText = ""
-    var version: String?
-    var downloadURL: String?
+    var shortVersion: String?
+    var buildVersion: String?
 
-    static func parse(data: Data) -> (version: String?, downloadURL: String?) {
+    static func parse(data: Data) -> (shortVersion: String?, buildVersion: String?) {
         let delegate = AppcastParser()
         let parser = XMLParser(data: data)
         parser.delegate = delegate
         parser.parse()
-        return (delegate.version, delegate.downloadURL)
+        return (delegate.shortVersion, delegate.buildVersion)
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String : String] = [:]) {
         currentText = ""
         if elementName == "item" {
             seenItem = true
-        }
-        if seenItem && elementName == "enclosure" && downloadURL == nil {
-            downloadURL = attributeDict["url"]
         }
     }
 
@@ -649,11 +655,13 @@ private final class AppcastParser: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
-        if seenItem && version == nil && (elementName == "sparkle:shortVersionString" || elementName == "sparkle:version") {
-            let value = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !value.isEmpty {
-                version = value
-            }
+        guard seenItem else { return }
+        let value = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty { return }
+        if elementName == "sparkle:shortVersionString", shortVersion == nil {
+            shortVersion = value
+        } else if elementName == "sparkle:version", buildVersion == nil {
+            buildVersion = value
         }
     }
 }
@@ -680,14 +688,80 @@ struct AboutCenterView: View {
     }
 
     private var statusPillTitle: String {
-        if licenseManager.isActivated {
+        switch licenseManager.gateState {
+        case .trialing:
+            return isChinese ? "试用中" : "Trial Active"
+        case .active:
             return isChinese ? "\(licenseManager.planSummary) 已激活" : "\(licenseManager.planSummary) Active"
+        case .expired:
+            return isChinese ? "授权已过期" : "License Expired"
+        case .deviceLimitReached:
+            return isChinese ? "设备数量已满" : "Device Limit Reached"
+        case .inactive:
+            return isChinese ? "尚未激活" : "Not Activated"
+        case .loading:
+            return isChinese ? "正在检查授权" : "Checking License"
         }
-        return licenseManager.statusSummary
     }
 
     private var tagline: String {
         isChinese ? "首动意之所向，言出事之既成。" : "Move with intent. Command with a word."
+    }
+
+    private var compactStatusDetail: String {
+        switch licenseManager.gateState {
+        case .trialing:
+            if let endsAt = formattedEntitlementDate(licenseManager.trialEndsAt) {
+                return isChinese ? "试用至 \(endsAt)" : "Trial until \(endsAt)"
+            }
+            return isChinese ? "试用已启用" : "Trial is active"
+        case .active:
+            if let endsAt = formattedEntitlementDate(licenseManager.subscriptionEndsAt) {
+                return isChinese ? "有效期至 \(endsAt)" : "Valid until \(endsAt)"
+            }
+            return isChinese ? "\(licenseManager.planSummary) 已激活" : "\(licenseManager.planSummary) active"
+        case .expired:
+            if let endsAt = formattedEntitlementDate(licenseManager.subscriptionEndsAt ?? licenseManager.trialEndsAt) {
+                return isChinese ? "已于 \(endsAt) 到期" : "Expired on \(endsAt)"
+            }
+            return isChinese ? "授权已过期" : "License expired"
+        case .deviceLimitReached:
+            return isChinese ? "设备数量已满" : "Device limit reached"
+        case .inactive:
+            return isChinese ? "尚未激活" : "Not activated"
+        case .loading:
+            return isChinese ? "正在同步授权状态" : "Refreshing license state"
+        }
+    }
+
+    private var statusDetail: String {
+        switch licenseManager.gateState {
+        case .trialing:
+            if let endsAt = formattedEntitlementDate(licenseManager.trialEndsAt) {
+                return isChinese ? "试用至 \(endsAt)" : "Trial until \(endsAt)"
+            }
+            return isChinese ? "试用已启用，可在授权管理中查看详情。" : "Trial is active. Open License Management for details."
+        case .active:
+            if let endsAt = formattedEntitlementDate(licenseManager.subscriptionEndsAt) {
+                return isChinese ? "\(licenseManager.planSummary) · 有效期至 \(endsAt)" : "\(licenseManager.planSummary) · Valid until \(endsAt)"
+            }
+            return isChinese ? "\(licenseManager.planSummary) · 已激活" : "\(licenseManager.planSummary) · Active"
+        case .expired:
+            if let endsAt = formattedEntitlementDate(licenseManager.subscriptionEndsAt ?? licenseManager.trialEndsAt) {
+                return isChinese ? "已于 \(endsAt) 到期" : "Expired on \(endsAt)"
+            }
+            return isChinese ? "可在授权管理中恢复授权或开始试用。" : "Restore your license or start a trial in License Management."
+        case .deviceLimitReached:
+            return isChinese ? "请在授权管理中移除旧设备后再继续使用。" : "Remove an old device in License Management to continue."
+        case .inactive:
+            return isChinese ? "可在授权管理中开始试用或输入激活码。" : "Start a trial or enter an activation code in License Management."
+        case .loading:
+            return isChinese ? "正在同步授权状态。" : "Refreshing license state."
+        }
+    }
+
+    private var showsTrialStyling: Bool {
+        licenseManager.gateState == .trialing
     }
 
     private func channelLabel(_ channel: AetherUpdateChannel) -> String {
@@ -700,119 +774,139 @@ struct AboutCenterView: View {
     }
 
     var body: some View {
-        SettingsPage(
-            title: isChinese ? "关于" : "About",
-            subtitle: ""
-        ) {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+
+            RadialGradient(
+                colors: [
+                    Color(red: 0.20, green: 0.45, blue: 0.92).opacity(0.16),
+                    Color.clear
+                ],
+                center: .top,
+                startRadius: 40,
+                endRadius: 300
+            )
+            .frame(width: 520, height: 360)
+            .offset(y: -140)
+
             VStack(spacing: 0) {
-                Spacer(minLength: 20)
+                Spacer(minLength: 34)
 
-                Image(nsImage: appIcon)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 128, height: 128)
-                    .shadow(color: Color.accentColor.opacity(0.28), radius: 20, x: 0, y: 10)
-                    .padding(.bottom, 22)
+                VStack(spacing: 0) {
+                    Image(nsImage: appIcon)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 108, height: 108)
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .shadow(color: Color(red: 0.22, green: 0.54, blue: 0.98).opacity(0.28), radius: 24, y: 8)
 
-                Text(appDisplayName)
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    VStack(spacing: 6) {
+                        Text(appDisplayName)
+                            .font(.system(size: 34, weight: .bold))
 
-                Text(appState.appVersionDisplay)
-                    .font(.system(.title3, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 4)
+                        HStack(spacing: 8) {
+                            Text(appState.appVersionDisplay)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
 
-                Button {
-                    Task { await updaterManager.checkForUpdates() }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.clockwise.circle")
-                        Text(isChinese ? "检查更新" : "Check for Updates")
+                            Button {
+                                Task { await updaterManager.checkForUpdates() }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 18, height: 18)
+                            }
+                            .buttonStyle(.plain)
+                            .help(isChinese ? "检查更新" : "Check for updates")
+                            .accessibilityLabel(isChinese ? "检查更新" : "Check for updates")
+                        }
                     }
+                    .padding(.top, 16)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .padding(.top, 14)
 
-                VStack(spacing: 8) {
+                Spacer(minLength: 70)
+
+                VStack(spacing: 10) {
                     Text(tagline)
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 18, weight: .medium))
+                        .tracking(1.5)
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Text("© 2026 Aether Team")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                 }
-                .padding(.top, 36)
-
-                if licenseManager.isActivated {
-                    HStack(spacing: 10) {
-                        Image(systemName: "crown.fill")
-                            .foregroundStyle(.orange)
-                        Text(statusPillTitle)
-                            .fontWeight(.bold)
-                            .foregroundStyle(.orange)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-                    .background(Color.orange.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .padding(.top, 22)
-                } else {
-                    HStack(spacing: 10) {
-                        Image(systemName: "key.fill")
-                            .foregroundStyle(.secondary)
-                        Text(statusPillTitle)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .padding(.top, 22)
-                }
+                .frame(maxWidth: 520)
+                .padding(.horizontal, 40)
 
                 Spacer()
 
-                Divider()
-                    .padding(.horizontal, 38)
+                VStack(spacing: 18) {
+                    VStack(spacing: 8) {
+                        statusBadge(statusPillTitle, tint: badgeTint)
 
-                HStack(spacing: 22) {
-                    footerLink(title: isChinese ? "访问官网" : "Website", key: "AetherWebsiteURL", fallback: "https://aether.7caifei.com")
+                        Text(compactStatusDetail)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(1)
+                    }
 
-                    footerLink(title: isChinese ? "更新日志" : "Changelog", key: "AetherChangelogURL", fallback: "https://aether.7caifei.com/changelog")
+                    Divider()
+                        .opacity(0.32)
 
-                    Menu {
-                        ForEach(AetherUpdateChannel.allCases) { channel in
-                            Button(channelLabel(channel)) {
-                                updaterManager.setUpdateChannel(channel)
+                    VStack(spacing: 12) {
+                        HStack(spacing: 22) {
+                            footerLink(title: isChinese ? "访问官网" : "Website", key: "AetherWebsiteURL", fallback: "https://aether.7caifei.com")
+                            footerLink(title: isChinese ? "更新日志" : "Changelog", key: "AetherChangelogURL", fallback: "https://aether.7caifei.com/changelog")
+
+                            if let emailURL = URL(string: "mailto:aether@7caifei.com") {
+                                Link(destination: emailURL) {
+                                    FooterLinkText(text: isChinese ? "邮箱" : "Email")
+                                }
+                            }
+
+                            if let tgURL = URL(string: "https://t.me/+qmXSaOVwAeE4NDcx") {
+                                Link(destination: tgURL) {
+                                    FooterLinkText(text: "Telegram")
+                                }
                             }
                         }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(isChinese ? "更新通道" : "Update Channel")
-                            Text(channelLabel(updaterManager.channel))
-                                .foregroundStyle(.secondary)
-                            Image(systemName: "chevron.down")
-                                .font(.caption2)
+
+                        HStack(spacing: 22) {
+                            Menu {
+                                ForEach(AetherUpdateChannel.allCases) { channel in
+                                    Button(channelLabel(channel)) {
+                                        updaterManager.setUpdateChannel(channel)
+                                    }
+                                }
+                            } label: {
+                                FooterLinkText(text: isChinese ? "更新通道 · \(channelLabel(updaterManager.channel))" : "Channel · \(channelLabel(updaterManager.channel))")
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                showsLicenseSheet = true
+                            } label: {
+                                FooterLinkText(text: isChinese ? "管理授权" : "Manage License")
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint(isChinese ? "打开授权管理窗口" : "Opens license management")
                         }
                     }
-                    .menuStyle(.borderlessButton)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.blue)
-
-                    Button(isChinese ? "管理授权" : "Manage License") {
-                        showsLicenseSheet = true
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.blue)
+                    .font(.system(size: 11))
                 }
-                .font(.callout)
-                .padding(.vertical, 24)
+                .frame(maxWidth: 560)
+                .padding(.horizontal, 36)
+                .padding(.bottom, 22)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .toolbar(removing: .title)
         .sheet(isPresented: $showsLicenseSheet) {
             AboutLicenseSheet(
                 emailInput: $emailInput,
@@ -827,25 +921,71 @@ struct AboutCenterView: View {
         }
     }
 
+    private var badgeTint: Color {
+        switch licenseManager.gateState {
+        case .trialing:
+            return Color(red: 0.20, green: 0.41, blue: 0.82)
+        case .active:
+            return .orange
+        case .expired, .deviceLimitReached:
+            return .red
+        case .inactive, .loading:
+            return .secondary
+        }
+    }
+
+    private func formattedEntitlementDate(_ rawValue: String?) -> String? {
+        guard let rawValue, !rawValue.isEmpty else { return nil }
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fallbackISOFormatter = ISO8601DateFormatter()
+        fallbackISOFormatter.formatOptions = [.withInternetDateTime]
+
+        let date = isoFormatter.date(from: rawValue) ?? fallbackISOFormatter.date(from: rawValue)
+        guard let date else { return rawValue }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: isChinese ? "zh_Hans_CN" : Locale.current.identifier)
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
+    }
+
     private func footerLink(title: String, key: String, fallback: String) -> some View {
-        Button(title) {
-            let value = Bundle.main.object(forInfoDictionaryKey: key) as? String ?? fallback
+        let value = Bundle.main.object(forInfoDictionaryKey: key) as? String ?? fallback
+        return Group {
             if let url = URL(string: value) {
-                NSWorkspace.shared.open(url)
+                Link(destination: url) {
+                    FooterLinkText(text: title)
+                }
             }
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.blue)
     }
 
     private func statusBadge(_ title: String, tint: Color) -> some View {
         Text(title)
-            .font(.caption.weight(.semibold))
+            .font(.caption2.weight(.bold))
             .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(tint.opacity(0.14))
-            .foregroundStyle(tint)
+            .padding(.vertical, 4)
+            .background(tint.opacity(showsTrialStyling ? 0.22 : 0.12))
+            .foregroundStyle(showsTrialStyling ? Color.white : tint)
             .clipShape(Capsule())
+    }
+}
+
+private struct FooterLinkText: View {
+    let text: String
+    @State private var isHovering: Bool = false
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundStyle(isHovering ? Color.accentColor.opacity(0.95) : Color.accentColor)
+            .underline(isHovering)
+            .onHover { hovering in
+                isHovering = hovering
+            }
     }
 }
 
@@ -858,83 +998,63 @@ private struct AboutLicenseSheet: View {
     @Binding var referralInput: String
 
     private var isChinese: Bool { appState.isChineseUI }
+    private var isTrialing: Bool { licenseManager.gateState == .trialing }
 
     var body: some View {
-        SettingsPage(
-            title: isChinese ? "授权管理" : "License Management",
-            subtitle: isChinese ? "处理激活、试用和状态刷新。" : "Manage activation, trial, and refresh actions."
-        ) {
-            if licenseManager.isActivated {
-                activatedView
-            } else {
-                activationFormView
+        ScrollView {
+            VStack(spacing: 18) {
+                if licenseManager.isActivated {
+                    activatedView
+                } else {
+                    activationFormView
+                }
             }
         }
+        .padding(20)
+        .background(Color(nsColor: .windowBackgroundColor))
         .frame(minWidth: 620, minHeight: 340)
     }
 
     private var activatedView: some View {
         GlassCard(padding: 22) {
-            VStack(spacing: 22) {
-                Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 58))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.blue, .cyan],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 14) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 28, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.green)
+                        .frame(width: 36, height: 36)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(isTrialing ? (isChinese ? "Aether 试用中" : "Aether Trial Active") : (isChinese ? "Aether 已激活" : "Aether Activated"))
+                            .font(.title3.weight(.semibold))
+                        Text(licenseDetailLine)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                HStack(spacing: 12) {
+                    licenseStat(
+                        title: isChinese ? "方案" : "Plan",
+                        value: licenseManager.planSummary,
+                        systemImage: "crown"
                     )
-
-                VStack(spacing: 6) {
-                    Text(isChinese ? "Aether 已激活" : "Aether Activated")
-                        .font(.title2.weight(.bold))
-                    Text(isChinese ? "感谢支持独立开发。" : "Thank you for supporting indie development.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    licenseStat(
+                        title: isChinese ? "到期时间" : "Expires",
+                        value: expirationDisplay,
+                        systemImage: "calendar"
+                    )
                 }
 
-                HStack {
-                    Label {
-                        Text(licenseManager.planSummary)
-                    } icon: {
-                        Image(systemName: "crown")
-                    }
-
-                    Spacer()
-
-                    Label {
-                        Text("\(licenseManager.devicesUsed)/\(licenseManager.maxDevices) \(isChinese ? "台设备" : "devices")")
-                    } icon: {
-                        Image(systemName: "laptopcomputer")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-                HStack(spacing: 10) {
-                    Button(isChinese ? "刷新状态" : "Refresh") {
-                        Task { await licenseManager.refreshEntitlement() }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                    Button(isChinese ? "完成" : "Done") {
-                        dismiss()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .keyboardShortcut(.defaultAction)
-                }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
                     Text(isChinese ? "设备" : "Devices")
                         .font(.headline)
 
                     if licenseManager.devices.isEmpty {
                         Text(isChinese ? "当前没有已同步的设备信息。" : "No synced devices yet.")
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(licenseManager.devices) { device in
@@ -972,6 +1092,23 @@ private struct AboutLicenseSheet: View {
                     .controlSize(.small)
                 }
 
+                HStack(spacing: 10) {
+                    Button(isChinese ? "刷新状态" : "Refresh") {
+                        Task { await licenseManager.refreshEntitlement() }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Spacer()
+
+                    Button(isChinese ? "完成" : "Done") {
+                        dismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
+                }
+
                 if let info = licenseManager.infoMessage, !info.isEmpty {
                     Text(info)
                         .font(.caption)
@@ -990,9 +1127,10 @@ private struct AboutLicenseSheet: View {
     private var activationFormView: some View {
         GlassCard(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
-                Text(isChinese ? "输入邮箱与激活码进行授权；没有激活码时可以开始试用。" : "Enter your email and activation code, or start a trial if you do not have one yet.")
-                    .font(.caption)
+                Text(isChinese ? "输入邮箱和激活码以启用授权；如果还没有激活码，可以先开始试用。" : "Enter your email and activation code to activate your license. If you do not have one yet, you can start a trial first.")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 TextField(isChinese ? "邮箱" : "Email", text: $emailInput)
                     .textFieldStyle(.roundedBorder)
@@ -1020,6 +1158,7 @@ private struct AboutLicenseSheet: View {
                         Task { await licenseManager.refreshEntitlement() }
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.small)
 
                     Spacer(minLength: 0)
 
@@ -1027,6 +1166,7 @@ private struct AboutLicenseSheet: View {
                         dismiss()
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.small)
                     .keyboardShortcut(.cancelAction)
                 }
                 .controlSize(.small)
@@ -1043,5 +1183,66 @@ private struct AboutLicenseSheet: View {
                 }
             }
         }
+    }
+
+    private func licenseStat(title: String, value: String, systemImage: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.subheadline.weight(.semibold))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var licenseDetailLine: String {
+        if isTrialing {
+            return isChinese
+                ? "试用已启用，可在这里查看到期时间和设备占用。"
+                : "Your trial is active. Review the expiration date and device usage here."
+        }
+        if let expiresAt = formattedEntitlementDate(licenseManager.subscriptionEndsAt) {
+            return isChinese
+                ? "当前订阅有效，可使用至 \(expiresAt)。"
+                : "Your subscription is active through \(expiresAt)."
+        }
+        return isChinese
+            ? "当前授权可用，可在这里查看设备占用并管理设备。"
+            : "Your license is active. You can review device usage and manage devices here."
+    }
+
+    private var expirationDisplay: String {
+        if isTrialing {
+            return formattedEntitlementDate(licenseManager.trialEndsAt) ?? (isChinese ? "试用中" : "Active")
+        }
+        return formattedEntitlementDate(licenseManager.subscriptionEndsAt) ?? (isChinese ? "未设到期" : "No expiry")
+    }
+
+    private func formattedEntitlementDate(_ rawValue: String?) -> String? {
+        guard let rawValue, !rawValue.isEmpty else { return nil }
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fallbackISOFormatter = ISO8601DateFormatter()
+        fallbackISOFormatter.formatOptions = [.withInternetDateTime]
+
+        let date = isoFormatter.date(from: rawValue) ?? fallbackISOFormatter.date(from: rawValue)
+        guard let date else { return rawValue }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: isChinese ? "zh_Hans_CN" : Locale.current.identifier)
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
     }
 }
