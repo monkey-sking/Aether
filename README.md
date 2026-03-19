@@ -1,94 +1,196 @@
-# Project Aether
+# Aether Apps
 
-**全感知协同交互系统 (All-Sensing Collaborative Interaction System)**
+`Apps` 是 Aether 的 macOS 客户端仓库。这里放的是当前在维护的原生 App、构建脚本、文档和测试，而不是早期 README 里那种偏概念化的项目介绍。
 
-> "环境即计算，设备即感官。"
+这份 README 只按当前源码做导航，不再按历史阶段或提交摘要描述项目。
 
-Project Aether 是一个构建在 macOS 生态上的分布式感知网络。它聚合了 AirPods 的 **头部追踪 (Head Tracking)**、麦克风阵列、IMU 和端侧 AI，通过自研的 DriverKit 虚拟驱动，实现无缝的“隐形”交互。
+## 仓库里现在有什么
 
-## 🌟 核心特性 (Core Features)
-
-*   **⚡️ 头部光标 (Head Pointer)**
-    *   利用 AirPods 陀螺仪实现微秒级光标控制，支持平滑滤波 (Smoothing) 与边缘停靠 (Dwell Click)。
-    *   **手势**: 支持 Tilt Scroll (点头/仰头滚动) 与 Shake Stop (摇头停止)。
-*   **🗣 语音中枢 (Voice Core)**
-    *   支持 "Wake Word" 唤醒与上下文敏感指令，完全摆脱对物理键盘的依赖。
-    *   **智能交互**: 实现了 PTT (Push-to-Talk) 与 Continuous Mode (持续监听) 的无缝切换。
-*   **🔌 虚拟驱动 (Virtual HID)**
-    *   基于 Apple DriverKit (`com.apple.developer.driverkit`)，模拟底层硬件输入，绕过系统级限制。
-    *   **完全兼容**: 系统将此设备识别为原生鼠标/键盘，无需特殊 API 适配。
-*   **📍 智能 HUD (Context-Aware HUD)**
-    *   **零延迟响应**: 基于 Combine 的反应式状态管理，毫秒级切换显示内容。
-    *   **智能定位**: 自动识别输入框 (Text Field) 与非输入区域，动态切换跟随策略 (Caret vs Mouse)。
-    *   **抗干扰**: 针对各类无边框应用 (Electron/Arc) 的坐标系修正与容错处理 (Role-Based Fallback)。
-
-## 📁 项目结构 (Directory Structure)
-
-```
+```text
 Apps/
 ├── Apps/
-│   └── AetherCore/           # 主 App (macOS / SwiftUI) - 大脑
-│       ├── HeadMotionManager.swift   # 运动引擎 & 姿态解算
-│       ├── VoiceService.swift        # 语音意图识别 & PTT 逻辑
-│       └── HotkeyFeedbackHUD.swift   # 智能反馈与其定位逻辑 (Core Logic)
-├── Drivers/
-│   └── AetherDriver/         # DriverKit Extension - 虚拟神经中枢 (Virtual HID)
-│       ├── AetherDriver.cpp          # 驱动逻辑入口
-│       └── AetherUserClient.cpp      # App 与 Driver 通信层
-
-├── Shared/                   # 共享数据模型与协议 (IPC / XPC)
-├── Scripts/                  # 自动化构建脚手架 (Build, Sign, Package)
-├── docs/                     # 项目文档 (PRD, Roadmap, User Concept)
-└── .agent/                   # Agentic Workflows & Skills
+│   └── AetherCore/          # 主应用源码
+├── AetherTests/             # 单元测试
+├── Scripts/                 # 构建 / 安装 / 打包 / 签名脚本
+├── Shared/                  # 共享头文件
+├── Drivers/                 # 预留目录（当前只有空目录结构）
+├── docs/                    # 产品、设计、测试、发布、审计文档
+└── Aether.xcodeproj
 ```
 
-## 📚 文档索引 (Documentation)
+当前能直接看的主代码基本都在 `Apps/AetherCore/`。
 
-*   [**产品需求文档 (PRD v3.0)**](docs/PRD.md): 系统的技术蓝图与完整规格说明。
-*   [**用户体验白皮书 (User Concept)**](docs/User_Concept.md): 场景化描述与体验设计愿景。
-*   [**实施路线图 (Roadmap)**](docs/Roadmap.md): 分阶段开发计划 (P1 - P4)。
-*   [**Phase 1 实施清单 (TODO)**](docs/Phase1_TODO.md): 当前阶段的具体开发任务。
-*   [**开发规范 (Standards)**](docs/Standards.md): 文档与代码贡献指南。
-*   [**发布与公证指南 (Release Distribution)**](docs/RELEASE_DISTRIBUTION.md): 面向普通用户的签名、公证、验签流程。
+## 入口文件
 
-## 🚀 快速开始 (Getting Started)
+- `Apps/AetherCore/AetherApp.swift`
+  - `@main`
+  - 定义 `AppState`
+  - 管理语音开关、激活模式、权限状态、主窗口和菜单栏状态同步
+- `Apps/AetherCore/AetherMainView.swift`
+  - 主窗口
+  - 当前侧栏页面是：
+    - `Overview`
+    - `Head Gestures`
+    - `Shortcuts`
+    - `Current App Controls`
+    - `Voice Insights`
+    - `Voice Lexicon`
+    - `About`
+- `Apps/AetherCore/MenuBar.swift`
+  - 菜单栏入口
+  - 包含主状态、权限入口、语音输入/控制开关、主窗口唤起
 
-### 环境要求
-*   macOS 15.0+ (Sequoia)
-*   Xcode 16.0+
-*   Entitlements: 需申请 `com.apple.developer.driverkit` 权限。
+## 主要模块
 
-### 构建与安装
-项目包含完整的自动化构建脚本：
+### Head / Pointer
+
+- `Apps/AetherCore/HeadMotionManager.swift`
+  - 头部追踪主状态机
+  - 跟踪启停
+  - 校准 / 居中
+  - 全局快捷键联动
+  - 耳机单击 / 双击 / 三击动作
+  - 头部动作与热区相关持久化配置
+
+### Voice
+
+- `Apps/AetherCore/SpeechManager.swift`
+  - 语音总控
+  - 麦克风设备选择
+  - 语音识别会话
+  - 输入/控制状态同步
+- `Apps/AetherCore/Speech/RecognitionSession.swift`
+- `Apps/AetherCore/Speech/AudioCaptureSession.swift`
+- `Apps/AetherCore/Speech/WakeWordDetector.swift`
+- `Apps/AetherCore/Speech/VoiceCommandRouter.swift`
+- `Apps/AetherCore/Speech/DictationHandler.swift`
+- `Apps/AetherCore/Speech/TextInjector.swift`
+- `Apps/AetherCore/Speech/LLMProviders.swift`
+
+从 `AppState` 的实际代码看，当前语音激活模式是：
+
+- `pushToTalk`
+- `wakeWord`
+- `handsFree`
+
+另外语音输入和语音控制是分开的两个开关：
+
+- `isVoiceInputEnabled`
+- `isVoiceControlEnabled`
+
+### HUD
+
+- `Apps/AetherCore/HUD/HUDManager.swift`
+- `Apps/AetherCore/HUD/HUDState.swift`
+- `Apps/AetherCore/HUD/HUDView.swift`
+- `Apps/AetherCore/HUD/CaretDetector.swift`
+- `Apps/AetherCore/HUD/InputMethodCaretBridge.swift`
+
+### Settings / About
+
+- `Apps/AetherCore/SettingsModules.swift`
+  - Voice settings 页面
+  - Head gesture / Hot zone 配置页面
+  - Shortcuts 页面
+  - Voice Insights 页面
+- `Apps/AetherCore/AboutCenter.swift`
+  - About 页面
+  - License / Trial
+  - Update channel / appcast 检查
+  - 支持链接和设备列表
+
+## 当前 UI 结构
+
+按 `AetherMainView.swift` 和 `SettingsModules.swift`，现在这个 App 不是单页设置，也不是只做 AirPods 光标。
+
+首页 `Overview` 里当前实际有这些卡片：
+
+- Readiness / 权限与设备就绪状态
+- Pointer Control
+- Voice Basics
+- Voice Input
+- Voice Control
+
+`Head Gestures` 页面里当前能看到的是：
+
+- `Hot Zone Rules`
+- `Head Gestures (Nod/Shake)`
+- `Advanced & Diagnostics`
+
+`Shortcuts` 页面目前主要承载 `HotkeySettingsSection()`。
+
+## 构建与发布脚本
+
+常用脚本都在 `Scripts/`：
+
+- `Scripts/BuildRelease.sh`
+- `Scripts/BuildAndInstall.sh`
+- `Scripts/InstallToApplications.sh`
+- `Scripts/CreateDMG.sh`
+- `Scripts/ReleaseForUsers.sh`
+- `Scripts/Notarize.sh`
+- `Scripts/PrepareAppBundle.sh`
+- `Scripts/configure_signing.py`
+
+常用命令：
 
 ```bash
-# 1. 编译 App 与 Driver（默认要求签名成功；失败不会再自动回退未签名）
+cd Apps
+
 ./Scripts/BuildRelease.sh Release
+./Scripts/BuildRelease.sh Debug
 
-# 2. 生成发布级安装包 (DMG)
-./Scripts/CreateDMG.sh
-
-# 3. 安装到固定路径（推荐，避免 TCC 权限反复重置）
 ./Scripts/InstallToApplications.sh .build/release/Aether.app
 
-# 4. For end-user distribution (Developer ID signing + DMG + ZIP)
-NOTARY_PROFILE=YourNotaryProfile ./Scripts/ReleaseForUsers.sh
-
-# 5. [NEW] One-click Build, Install, and Restart (Recommended for active dev)
-# This script builds the production DMG, closes any running Aether instances,
-# replaces /Applications/Aether.app, and relaunches the new version.
 ./Scripts/BuildAndInstall.sh
+
+SKIP_NOTARIZE=1 ./Scripts/ReleaseForUsers.sh
+NOTARY_PROFILE=YourNotaryProfile ./Scripts/ReleaseForUsers.sh
 ```
 
-> 推荐：正式发布前按 [发布与公证指南](docs/RELEASE_DISTRIBUTION.md) 执行完整验签（`codesign` / `spctl` / `stapler`）。
+按脚本现状：
 
-> 注意：请不要从 DMG 挂载盘直接运行应用。辅助功能权限会绑定到应用签名与安装路径，推荐始终从 `/Applications/Aether.app` 启动。
+- `BuildRelease.sh` 默认拒绝静默回退到 unsigned
+- `BuildAndInstall.sh` 会走发布链路后重装到 `/Applications/Aether.app`
+- `ReleaseForUsers.sh` 会处理签名、DMG、ZIP 和可选公证
 
-## 🗓️ 最新动态 (Latest Updates - v0.1.0 RC)
-*   **Coordinate Normalization**: 修复了多显示器与屏幕旋转下的坐标系转换问题。
-*   **Role-Based Fallback**: 优化了 HUD 在非输入模式下的跟随逻辑，杜绝在该模式下吸附于按钮或背景的问题。
-*   **Chromium Defense**: 针对 Electron 应用的坐标异常 (0,0) 增加了严格的窗口校验机制。
-*   **Build Automation**: 实现了全自动化的 `CreateDMG` 脚本，支持自定义背景与图标布局。
+## 测试
 
-## 🤝 贡献 (Contributing)
-请遵循 `docs/Standards.md` 中的文档编写规范与 Git 提交规范。
+当前仓库里的测试文件很少，主要是：
+
+- `AetherTests/AetherTests.swift`
+- `AetherTests/VoiceCommandRouterTests.swift`
+
+## 文档入口
+
+当前更值得参考的是这些文档：
+
+- `docs/TESTING.md`
+- `docs/PERMISSION_TROUBLESHOOTING.md`
+- `docs/RELEASE_DISTRIBUTION.md`
+- `docs/user_guide.md`
+- `docs/VOICE_LEXICON_RULES.md`
+- `docs/project_audit_report_2026-03-15.md`
+- `docs/design/HUD_Architecture.md`
+- `docs/specs/README.md`
+
+这些文档更偏历史背景，不适合直接当“当前实现说明”：
+
+- `docs/PRD.md`
+- `docs/Roadmap.md`
+- `docs/Phase1_TODO.md`
+- `docs/Phase1.5_TODO.md`
+
+## 目前 README 的定位
+
+这份 README 现在只做三件事：
+
+- 说明仓库里哪些目录还在活跃使用
+- 给出主入口文件和页面结构
+- 给出本地开发最常用的脚本入口
+
+如果后面还要继续补，应该补的是：
+
+- 一份单独的 `docs/development.md`
+- 环境变量、签名要求、哪些文档已过期
+- 当前功能矩阵和对应源码位置

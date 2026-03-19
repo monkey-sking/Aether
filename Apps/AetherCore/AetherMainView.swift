@@ -323,9 +323,6 @@ private struct OverviewDashboardView: View {
             subtitle: overviewSubtitle,
             headerTrailing: {
                 EmptyView()
-            },
-            footerOverlay: {
-                OverviewFooterControls()
             }
         ) {
             Text(isChinese ? "准备度" : "Readiness")
@@ -344,24 +341,45 @@ private struct OverviewDashboardView: View {
                 .foregroundColor(.secondary)
 
             GlassCard {
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(isChinese ? "鼠标静止后暂停整个 App" : "Pause App After Mouse Idle")
-                            .font(AetherUI.bodyFont)
-                        Text(isChinese ? "暂停头控、语音与快捷键，鼠标移动后恢复。" : "Pauses head tracking, voice, and shortcuts; resumes on movement.")
-                            .font(AetherUI.captionFont)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .allowsTightening(true)
-                            .minimumScaleFactor(0.88)
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(isChinese ? "鼠标静止后暂停整个 App" : "Pause App After Mouse Idle")
+                                .font(AetherUI.bodyFont)
+                            Text(isChinese ? "暂停头控、语音与快捷键，鼠标移动后恢复。" : "Pauses head tracking, voice, and shortcuts; resumes on movement.")
+                                .font(AetherUI.captionFont)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .allowsTightening(true)
+                                .minimumScaleFactor(0.88)
+                        }
+                        .layoutPriority(1)
+                        Spacer()
+                        DashboardFixedWidthPopUpMenu(
+                            options: mouseIdlePauseOptions,
+                            selection: mouseIdlePauseMinutesBinding
+                        )
                     }
-                    .layoutPriority(1)
-                    Spacer()
-                    DashboardFixedWidthPopUpMenu(
-                        options: mouseIdlePauseOptions,
-                        selection: mouseIdlePauseMinutesBinding
-                    )
+
+                    Divider()
+
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(String(localized: "settings.app_language.title"))
+                                .font(AetherUI.bodyFont)
+                            Text(String(localized: "settings.app_language.restart_hint"))
+                                .font(AetherUI.captionFont)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .allowsTightening(true)
+                                .minimumScaleFactor(0.88)
+                        }
+                        .layoutPriority(1)
+                        Spacer()
+                        AppLanguageHeader(compact: true)
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 11)
@@ -1220,18 +1238,24 @@ private struct AppLanguageHeader: View {
 
     var body: some View {
         if compact {
-            HStack(spacing: 6) {
-                Image(systemName: "globe")
-                    .foregroundColor(.secondary)
-                Picker("", selection: $appState.appLanguageMode) {
-                    ForEach(AppLanguageMode.allCases) { mode in
-                        Text(AppLocalization.localizedString(mode.localizedTitleKey))
-                            .tag(mode)
+            Menu {
+                ForEach(AppLanguageMode.allCases) { mode in
+                    Button(AppLocalization.localizedString(mode.localizedTitleKey)) {
+                        appState.appLanguageMode = mode
                     }
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "globe")
+                        .foregroundColor(.secondary)
+                    Text(AppLocalization.localizedString(appState.appLanguageMode.localizedTitleKey))
+                        .foregroundColor(.secondary)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
             }
+            .menuStyle(.borderlessButton)
             .controlSize(.small)
         } else {
             VStack(alignment: .trailing, spacing: 6) {
@@ -1256,39 +1280,6 @@ private struct AppLanguageHeader: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-        }
-    }
-}
-
-private struct OverviewFooterControls: View {
-    @EnvironmentObject private var appState: AppState
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Menu {
-                ForEach(AppLanguageMode.allCases) { mode in
-                    Button(AppLocalization.localizedString(mode.localizedTitleKey)) {
-                        appState.appLanguageMode = mode
-                    }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "globe")
-                    Text(AppLocalization.localizedString(appState.appLanguageMode.localizedTitleKey))
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.92))
-                .clipShape(Capsule())
-            }
-            .menuStyle(.borderlessButton)
-
-            Text(appState.appVersionDisplay)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .textSelection(.enabled)
         }
     }
 }
