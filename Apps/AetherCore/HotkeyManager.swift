@@ -206,7 +206,6 @@ extension HotkeyBinding: Sendable {}
 
 enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
     case toggleTracking
-    case connectionLock
     case toggleInputControlMode
     case toggleLanguage
     case toggleShortcutPanel
@@ -225,7 +224,6 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
     var label: String {
         switch self {
         case .toggleTracking: return String(localized: "hotkey.toggle_tracking")
-        case .connectionLock: return String(localized: "hotkey.connection_lock")
         case .toggleInputControlMode: return String(localized: "hotkey.toggle_input_control_mode")
         case .toggleLanguage: return String(localized: "hotkey.toggle_language")
         case .toggleShortcutPanel: return String(localized: "hotkey.toggle_shortcut_panel")
@@ -239,8 +237,6 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
             return String(localized: "hotkey.helper.push_to_talk")
         case .toggleTracking:
             return String(localized: "hotkey.helper.toggle_tracking")
-        case .connectionLock:
-            return String(localized: "hotkey.helper.connection_lock")
         case .toggleInputControlMode:
             return String(localized: "hotkey.helper.toggle_input_control_mode")
         case .toggleLanguage:
@@ -254,8 +250,6 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .toggleTracking:
             return HotkeyBinding(keyCode: kVK_ANSI_S, modifiers: Self.optCmd)
-        case .connectionLock:
-            return HotkeyBinding(keyCode: kVK_ANSI_L, modifiers: Self.optCmd)
         case .toggleInputControlMode:
             return HotkeyBinding(keyCode: kVK_ANSI_M, modifiers: Self.optCmd)
         case .toggleLanguage:

@@ -254,7 +254,7 @@ final class AetherLicenseManager: ObservableObject {
     }
 
     private var authBaseURL: String {
-        Bundle.main.object(forInfoDictionaryKey: "AetherAuthBaseURL") as? String ?? "https://auth.aether.app"
+        Bundle.main.object(forInfoDictionaryKey: "AetherAuthBaseURL") as? String ?? "https://auth.aether.7caifei.com"
     }
 
     private var appBundleID: String {
@@ -275,10 +275,10 @@ final class AetherLicenseManager: ObservableObject {
 @MainActor
 final class AetherUpdaterManager: ObservableObject {
     static let shared = AetherUpdaterManager()
+    private let sparkleController = AetherSparkleController.shared
 
     @Published var channel: AetherUpdateChannel = {
-        let raw = UserDefaults.standard.string(forKey: "aether.update.channel") ?? "stable"
-        return AetherUpdateChannel(rawValue: raw) ?? .stable
+        AetherUpdateFeedResolver.currentChannel()
     }()
     @Published private(set) var feedURLString: String = ""
     @Published private(set) var latestVersion: String?
@@ -294,6 +294,7 @@ final class AetherUpdaterManager: ObservableObject {
         self.channel = channel
         UserDefaults.standard.set(channel.rawValue, forKey: "aether.update.channel")
         refreshFeedString()
+        sparkleController.refreshFeedSelection()
     }
 
     func checkForUpdates() async {
@@ -327,33 +328,19 @@ final class AetherUpdaterManager: ObservableObject {
             hasAvailableUpdate = false
             statusMessage = error.localizedDescription
         }
+
+        sparkleController.checkForUpdates()
     }
 
     func openLatestDownload() {
-        let target = latestDownloadURL ?? (channel == .beta ? betaDownloadURL : stableDownloadURL)
+        let target = latestDownloadURL ?? AetherUpdateFeedResolver.downloadURLString(for: channel)
         if let target, let url = URL(string: target) {
             NSWorkspace.shared.open(url)
         }
     }
 
     private func refreshFeedString() {
-        feedURLString = channel == .beta ? betaFeedURL : stableFeedURL
-    }
-
-    private var stableFeedURL: String {
-        Bundle.main.object(forInfoDictionaryKey: "AetherStableFeedURL") as? String ?? "https://aether.app/aether/appcast.xml"
-    }
-
-    private var betaFeedURL: String {
-        Bundle.main.object(forInfoDictionaryKey: "AetherBetaFeedURL") as? String ?? "https://aether.app/aether-beta/appcast.xml"
-    }
-
-    private var stableDownloadURL: String? {
-        Bundle.main.object(forInfoDictionaryKey: "AetherDownloadURL") as? String
-    }
-
-    private var betaDownloadURL: String? {
-        Bundle.main.object(forInfoDictionaryKey: "AetherBetaDownloadURL") as? String
+        feedURLString = AetherUpdateFeedResolver.feedURLString(for: channel)
     }
 }
 
@@ -580,9 +567,9 @@ struct AboutCenterView: View {
     private var supportCard: some View {
         infoCard(title: isChinese ? "支持" : "Support") {
             HStack(spacing: 8) {
-                linkButton(title: isChinese ? "官网" : "Website", key: "AetherWebsiteURL", fallback: "https://aether.app")
-                linkButton(title: isChinese ? "下载页" : "Downloads", key: "AetherDownloadPageURL", fallback: "https://aether.app/download")
-                linkButton(title: isChinese ? "更新日志" : "Changelog", key: "AetherChangelogURL", fallback: "https://aether.app/changelog")
+                linkButton(title: isChinese ? "官网" : "Website", key: "AetherWebsiteURL", fallback: "https://aether.7caifei.com")
+                linkButton(title: isChinese ? "下载页" : "Downloads", key: "AetherDownloadPageURL", fallback: "https://aether.7caifei.com/download")
+                linkButton(title: isChinese ? "更新日志" : "Changelog", key: "AetherChangelogURL", fallback: "https://aether.7caifei.com/changelog")
             }
             .controlSize(.small)
 

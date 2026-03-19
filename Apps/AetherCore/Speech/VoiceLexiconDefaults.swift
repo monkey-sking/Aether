@@ -26,13 +26,7 @@ enum VoiceLexiconDefaults {
                 return normalized
             }
 
-            let raw = NSLocalizedString("voice_lexicon.default_config", comment: "Default lexicon JSON in VoiceLexiconBackup format.")
-            guard raw.contains("{") else { return nil }
-            let data = Data(raw.utf8)
-            guard let decoded = try? decoder.decode(VoiceLexiconBackup.self, from: data) else { return nil }
-            let normalized = normalize(decoded)
-            cached = normalized
-            return normalized
+            return nil
         }
     }
 

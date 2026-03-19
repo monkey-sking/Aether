@@ -92,7 +92,6 @@ class HeadMotionManager: ObservableObject {
     enum HeadsetPressAction: String, CaseIterable, Identifiable, Sendable {
         case none
         case toggleLanguage
-        case connectionLock
         case toggleShortcutPanel
         case toggleInputControlMode
         case toggleTracking
@@ -113,8 +112,6 @@ class HeadMotionManager: ObservableObject {
                 return nil
             case .toggleLanguage:
                 return .toggleLanguage
-            case .connectionLock:
-                return .connectionLock
             case .toggleShortcutPanel:
                 return .toggleShortcutPanel
             case .toggleInputControlMode:
@@ -128,7 +125,7 @@ class HeadMotionManager: ObservableObject {
             switch self {
             case .none:
                 return String(localized: "headset.action.none")
-            case .toggleLanguage, .connectionLock, .toggleShortcutPanel, .toggleInputControlMode, .toggleTracking:
+            case .toggleLanguage, .toggleShortcutPanel, .toggleInputControlMode, .toggleTracking:
                 return hotkeyAction?.label ?? rawValue
             }
         }
@@ -137,7 +134,7 @@ class HeadMotionManager: ObservableObject {
             switch self {
             case .none:
                 return String(localized: "headset.action.none.detail")
-            case .toggleLanguage, .connectionLock, .toggleShortcutPanel, .toggleInputControlMode, .toggleTracking:
+            case .toggleLanguage, .toggleShortcutPanel, .toggleInputControlMode, .toggleTracking:
                 return hotkeyAction?.helperText ?? ""
             }
         }
@@ -1608,9 +1605,6 @@ class HeadMotionManager: ObservableObject {
                 GlobalLogger.lifecycle.info(
                     "HeadMotion first packet received routeConnected=\(self.lastObservedHeadsetRouteConnected) airPodsSide=\(self.lastObservedAirPodSide.rawValue)"
                 )
-                Task { @MainActor in
-                    ConnectionLockService.shared.setTrackingLockEnabled(true)
-                }
                 self.updateNowPlayingInfo()
                 os_log("Aether: Connection Established (First Data Received)", log: self.log)
                 
@@ -1822,10 +1816,6 @@ class HeadMotionManager: ObservableObject {
             HUDManager.shared.setDragStatusActive(false, language: AppLocalization.resolvedLocaleIdentifier)
         }
 
-        Task { @MainActor in
-            ConnectionLockService.shared.setTrackingLockEnabled(false)
-        }
-        
         motionManager.stopDeviceMotionUpdates()
 
         let finalizeTrackingStop = {
@@ -4709,12 +4699,6 @@ class HeadMotionManager: ObservableObject {
         switch action {
         case .toggleTracking:
             performTrackingToggle(source: source)
-        case .connectionLock:
-            HUDManager.shared.showTemporary(
-                message: String(localized: "headset.hud.connection_lock"),
-                icon: "lock.fill",
-            )
-            NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
         case .toggleInputControlMode:
             toggleRecognitionInputControlMode(source: source, persist: false)
         case .toggleLanguage:
@@ -5060,7 +5044,7 @@ class HeadMotionManager: ObservableObject {
                             manager.beginPTT(from: source, origin: "keyboard-flagsChanged")
                         }
                         return nil
-                    case .toggleTracking, .connectionLock, .toggleInputControlMode, .toggleShortcutPanel:
+                    case .toggleTracking, .toggleInputControlMode, .toggleShortcutPanel:
                         break
                     }
                 }
@@ -5113,15 +5097,6 @@ class HeadMotionManager: ObservableObject {
                             )
                             DispatchQueue.main.async { manager.startTracking() }
                         }
-                        return nil
-
-                    case .connectionLock:
-                        GlobalLogger.input.info("Hotkey: Toggle Connection Lock")
-                        HUDManager.shared.showTemporary(
-                            message: String(localized: "headset.hud.connection_lock"),
-                            icon: "lock.fill"
-                        )
-                        NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
                         return nil
 
                     case .toggleInputControlMode:
@@ -5201,15 +5176,6 @@ class HeadMotionManager: ObservableObject {
                         }
                         return nil
                         
-                    case .connectionLock:
-                        GlobalLogger.input.info("Mouse Hotkey: Toggle Connection Lock")
-                        HUDManager.shared.showTemporary(
-                            message: String(localized: "headset.hud.connection_lock"),
-                            icon: "lock.fill"
-                        )
-                        NotificationCenter.default.post(name: .toggleConnectionLock, object: nil)
-                        return nil
-
                     case .toggleInputControlMode:
                         GlobalLogger.input.info("Mouse Hotkey: Toggle Input/Control Mode")
                         DispatchQueue.main.async {

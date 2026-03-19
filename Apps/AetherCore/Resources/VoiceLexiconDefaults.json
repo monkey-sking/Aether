@@ -110,24 +110,6 @@
     },
     {
       "aliases": [
-        "切换连接锁定",
-        "切换耳机连接锁定",
-        "切换连接锁"
-      ],
-      "commandID": "toggleConnectionLock",
-      "localeIdentifier": "zh-CN"
-    },
-    {
-      "aliases": [
-        "toggle connection lock",
-        "toggle headset lock",
-        "toggle headset connection lock"
-      ],
-      "commandID": "toggleConnectionLock",
-      "localeIdentifier": "en-US"
-    },
-    {
-      "aliases": [
         "切换快捷键面板",
         "切换面板",
         "切换命令面板"
@@ -402,42 +384,6 @@
         "let go"
       ],
       "commandID": "dragEnd",
-      "localeIdentifier": "en-US"
-    },
-    {
-      "aliases": [
-        "锁定",
-        "lock",
-        "lock airpods"
-      ],
-      "commandID": "lockConnection",
-      "localeIdentifier": "zh-CN"
-    },
-    {
-      "aliases": [
-        "lock",
-        "lock airpods",
-        "lockairpods"
-      ],
-      "commandID": "lockConnection",
-      "localeIdentifier": "en-US"
-    },
-    {
-      "aliases": [
-        "解锁",
-        "unlock",
-        "unlock airpods"
-      ],
-      "commandID": "unlockConnection",
-      "localeIdentifier": "zh-CN"
-    },
-    {
-      "aliases": [
-        "unlock",
-        "unlock airpods",
-        "unlockairpods"
-      ],
-      "commandID": "unlockConnection",
       "localeIdentifier": "en-US"
     }
   ],

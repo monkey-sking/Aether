@@ -244,15 +244,6 @@ struct InputSettingsView: View {
                 presets: [.clearInput, .deleteBackward, .moveCursorLeft, .moveCursorRight, .selectLeft, .selectRight]
             ),
             VoiceLexiconSection(
-                title: isChinese ? "连接锁定" : "Connection Lock",
-                subtitle: isChinese
-                    ? "控制耳机连接锁定与手动锁定/解锁。"
-                    : "Control headset connection lock and manual lock or unlock actions.",
-                systemImage: "lock.circle",
-                tint: .indigo,
-                presets: [.toggleConnectionLock, .lockConnection, .unlockConnection]
-            ),
-            VoiceLexiconSection(
                 title: isChinese ? "媒体控制" : "Media Controls",
                 subtitle: isChinese
                     ? "低频媒体桥接动作默认折叠，需要时再展开配置。"
@@ -1540,8 +1531,6 @@ private extension VoiceCommandPreset {
             return isChinese ? "切换头控" : "Toggle Pointer Control"
         case .toggleLanguage:
             return isChinese ? "切换语言" : "Toggle Language"
-        case .toggleConnectionLock:
-            return isChinese ? "切换连接锁定" : "Toggle Connection Lock"
         case .toggleShortcutPanel:
             return isChinese ? "切换快捷键面板" : "Toggle Shortcuts Panel"
         case .mediaPlayPause:
@@ -1588,10 +1577,6 @@ private extension VoiceCommandPreset {
             return isChinese ? "向左选择" : "Select Left"
         case .selectRight:
             return isChinese ? "向右选择" : "Select Right"
-        case .lockConnection:
-            return isChinese ? "锁定耳机连接" : "Lock Headset Connection"
-        case .unlockConnection:
-            return isChinese ? "解锁耳机连接" : "Unlock Headset Connection"
         }
     }
 
@@ -1610,8 +1595,6 @@ private extension VoiceCommandPreset {
             return isChinese ? "开启中的头控会停止，停止中的头控会直接开启。" : "Toggles pointer tracking on or off."
         case .toggleLanguage:
             return isChinese ? "在已启用的语音语言之间循环切换。" : "Cycles through the enabled speech languages."
-        case .toggleConnectionLock:
-            return isChinese ? "切换耳机连接锁定状态，避免在多设备之间误切换。" : "Toggles the headset connection lock."
         case .toggleShortcutPanel:
             return isChinese ? "展开中的快捷键面板会收起，收起中的面板会展开。" : "Toggles the shortcut overlay for the current app."
         case .mediaPlayPause:
@@ -1658,10 +1641,6 @@ private extension VoiceCommandPreset {
             return isChinese ? "向左扩展选择，可带数量，比如“向左选择 4 个字”。" : "Extends selection to the left and supports counts like 'select left 4 chars'."
         case .selectRight:
             return isChinese ? "向右扩展选择，可带数量，比如“向右选择 4 个字”。" : "Extends selection to the right and supports counts like 'select right 4 chars'."
-        case .lockConnection:
-            return isChinese ? "锁定当前耳机连接，避免误切换。" : "Locks the active headset connection."
-        case .unlockConnection:
-            return isChinese ? "解除耳机连接锁定。" : "Releases the active headset connection lock."
         }
     }
 
@@ -1680,8 +1659,6 @@ private extension VoiceCommandPreset {
             return isChinese ? "例如：切换头控、切换指针控制" : "Example: toggle pointer control"
         case .toggleLanguage:
             return isChinese ? "例如：切换语言、切换语音语言" : "Example: toggle language"
-        case .toggleConnectionLock:
-            return isChinese ? "例如：切换连接锁定、切换耳机锁定" : "Example: toggle connection lock"
         case .toggleShortcutPanel:
             return isChinese ? "例如：切换快捷键面板、切换命令面板" : "Example: toggle shortcuts panel"
         case .mediaPlayPause:
@@ -1728,10 +1705,6 @@ private extension VoiceCommandPreset {
             return isChinese ? "例如：向左选择、左选 2 个字" : "Example: select left, extend left 2 chars"
         case .selectRight:
             return isChinese ? "例如：向右选择、右选 2 个字" : "Example: select right, extend right 2 chars"
-        case .lockConnection:
-            return isChinese ? "例如：锁定耳机" : "Example: lock headset"
-        case .unlockConnection:
-            return isChinese ? "例如：解锁耳机" : "Example: unlock headset"
         }
     }
 }

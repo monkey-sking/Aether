@@ -91,7 +91,6 @@ enum L10n {
     // Dynamic Menu Keys (Formatted)
     static func menuStartPointer(_ hotkey: String) -> LocalizedStringKey { "menu.start_pointer_fmt \(hotkey)" }
     static func menuStopPointer(_ hotkey: String) -> LocalizedStringKey { "menu.stop_pointer_fmt \(hotkey)" }
-    static func menuAirPodsLock(_ hotkey: String) -> LocalizedStringKey { "menu.airpods_lock_fmt \(hotkey)" }
     static func controlToggleTracking(_ hotkey: String) -> LocalizedStringKey { "control.toggle_tracking_fmt \(hotkey)" }
 
     // New Controls

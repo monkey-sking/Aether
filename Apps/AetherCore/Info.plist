@@ -3,21 +3,23 @@
 <plist version="1.0">
 <dict>
 	<key>AetherAuthBaseURL</key>
-	<string>https://auth.aether.app</string>
+	<string>https://auth.aether.7caifei.com</string>
 	<key>AetherBetaDownloadURL</key>
-	<string>https://aether.app/beta/Aether.dmg</string>
+	<string>https://auth.aether.7caifei.com/beta/Aether.dmg?source=update&amp;channel=beta</string>
 	<key>AetherBetaFeedURL</key>
-	<string>https://aether.app/aether-beta/appcast.xml</string>
+	<string>https://aether.7caifei.com/aether-beta/appcast.xml</string>
 	<key>AetherChangelogURL</key>
-	<string>https://aether.app/changelog</string>
+	<string>https://aether.7caifei.com/changelog</string>
 	<key>AetherDownloadPageURL</key>
-	<string>https://aether.app/download</string>
+	<string>https://aether.7caifei.com/download</string>
 	<key>AetherDownloadURL</key>
-	<string>https://aether.app/download/Aether.dmg</string>
+	<string>https://auth.aether.7caifei.com/download/Aether.dmg?source=update&amp;channel=stable</string>
 	<key>AetherStableFeedURL</key>
-	<string>https://aether.app/aether/appcast.xml</string>
+	<string>https://aether.7caifei.com/aether/appcast.xml</string>
+	<key>SUFeedURL</key>
+	<string>https://aether.7caifei.com/aether/appcast.xml</string>
 	<key>AetherWebsiteURL</key>
-	<string>https://aether.app</string>
+	<string>https://aether.7caifei.com</string>
 	<key>NSSupportsAutomaticTermination</key>
 	<false/>
 	<key>NSAppSleepDisabled</key>
@@ -25,6 +27,6 @@
 	<key>NSAlwaysAllowMicrophoneModeControl</key>
 	<true/>
 	<key>SUPublicEDKey</key>
-	<string>REPLACE_WITH_AETHER_SPARKLE_PUBLIC_KEY</string>
+	<string>1HS0kUk/uhzlpUMWXYKkFoadVNY6+cx3yPl9tk1W24M=</string>
 </dict>
 </plist>

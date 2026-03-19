@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		020D63FE98D947C096B56AC2 /* HUDManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA7BC5466FA47C190921F7C /* HUDManager.swift */; };
-		C0DEF00D0BADC0FFEE777771 /* AppLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE777770 /* AppLocalization.swift */; };
 		18DE7300FCE3F9872B01AD52 /* RecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7C64E195EDD6F1BC8660FB /* RecognitionSession.swift */; };
 		296C7A8991A64B1CBECDFBF5 /* HeadMotionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FAA72967637433DB33B061E /* HeadMotionManager.swift */; };
 		2C4EA293C03545F8952A233C /* CaretDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B04B778B904E9EBE08B8F1 /* CaretDetector.swift */; };
@@ -16,10 +15,11 @@
 		31B988EA77999AB6CC7B6D66 /* WakeWordDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A02A17193B719852F3F6799 /* WakeWordDetector.swift */; };
 		38E0C2865D2EF8EBA566137B /* CommandHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83D513A99130EC0F797EAF0 /* CommandHandler.swift */; };
 		4BDBBCA080E1B33D13F87E22 /* VoiceCommandRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D863E78A6DBBC070343227B /* VoiceCommandRouter.swift */; };
-		C0DEF00D0BADC0FFEE555557 /* VoiceLexiconDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE555556 /* VoiceLexiconDefaults.swift */; };
 		58F4FE2F0F3944ACA658AA5B /* HUDState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD149F2C14A14BBD874C58F7 /* HUDState.swift */; };
 		6CAFD84A56B2486181DB21D0 /* HUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDD62DBE56B946A9A7724D7D /* HUDView.swift */; };
 		752B8656CCE440E6FF74855D /* VoiceCommandRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAE13A5808AC6A480FF02900 /* VoiceCommandRouterTests.swift */; };
+		7538C6658F303E0F9F88B2AC /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F795E7530701568580707FBB /* Sparkle */; };
+		7B6C97DA4CFC0DEC0EDB1148 /* SparkleUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCB362410BB16740950C337A /* SparkleUpdater.swift */; };
 		80BFA81A4CB14209B6E96C5F /* InputMethodCaretBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B7AD64E322D43EBB7EB5CA2 /* InputMethodCaretBridge.swift */; };
 		94C13D4D41BCE1227E78927E /* AetherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35EEF3E8253127D05E0B8AF8 /* AetherTests.swift */; };
 		9BCF13220FAC4B6F8975A1FA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7B12389AB5C944F3B8BE3C75 /* Assets.xcassets */; };
@@ -37,12 +37,13 @@
 		C0DEF00D0BADC0FFEE222223 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE222224 /* Localizable.strings */; };
 		C0DEF00D0BADC0FFEE222225 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE222226 /* InfoPlist.strings */; };
 		C0DEF00D0BADC0FFEE222227 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE222228 /* InfoPlist.strings */; };
-		C0DEF00D0BADC0FFEE666662 /* VoiceLexiconDefaults.json in Resources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE666661 /* VoiceLexiconDefaults.json */; };
-		C0DEF00D0BADC0FFEE330001 /* ConnectionLockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE330002 /* ConnectionLockService.swift */; };
 		C0DEF00D0BADC0FFEE330003 /* AetherIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE330004 /* AetherIntents.swift */; };
 		C0DEF00D0BADC0FFEE440001 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE440002 /* HotkeyManager.swift */; };
 		C0DEF00D0BADC0FFEE440003 /* KeyRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE440004 /* KeyRecorderView.swift */; };
+		C0DEF00D0BADC0FFEE555557 /* VoiceLexiconDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE555556 /* VoiceLexiconDefaults.swift */; };
 		C0DEF00D0BADC0FFEE654321 /* AutomationOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE123456 /* AutomationOutput.swift */; };
+		C0DEF00D0BADC0FFEE666662 /* VoiceLexiconDefaults.json in Resources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE666661 /* VoiceLexiconDefaults.json */; };
+		C0DEF00D0BADC0FFEE777771 /* AppLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE777770 /* AppLocalization.swift */; };
 		C5578CA8C4E0CB8132E13F00 /* EOSDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D1E12D2F82BB5E4EAEB90D /* EOSDetector.swift */; };
 		C92C3F90B1616F0A4BD361F2 /* AirPodsDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A6E69406F013C80C167F40 /* AirPodsDetector.swift */; };
 		D6005F733C008EA04C26BBEA /* SpeechManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9C8E1A62B942CEEB23DF83 /* SpeechManager.swift */; };
@@ -64,10 +65,8 @@
 /* Begin PBXFileReference section */
 		053CF960D5E89CB16A8AD09A /* MenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/MenuBar.swift; sourceTree = "<group>"; };
 		0A2FFF0B546D7CEAD686E5CE /* LLMProviders.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LLMProviders.swift; path = ../Apps/AetherCore/Speech/LLMProviders.swift; sourceTree = "<group>"; };
-		C0DEF00D0BADC0FFEE777770 /* AppLocalization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/AppLocalization.swift; sourceTree = "<group>"; };
 		1BE0C0C41DAF3037CAB2EB06 /* DictationHandler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DictationHandler.swift; path = ../Apps/AetherCore/Speech/DictationHandler.swift; sourceTree = "<group>"; };
 		1D863E78A6DBBC070343227B /* VoiceCommandRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VoiceCommandRouter.swift; path = ../Apps/AetherCore/Speech/VoiceCommandRouter.swift; sourceTree = "<group>"; };
-		C0DEF00D0BADC0FFEE555556 /* VoiceLexiconDefaults.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VoiceLexiconDefaults.swift; path = ../Apps/AetherCore/Speech/VoiceLexiconDefaults.swift; sourceTree = "<group>"; };
 		2D7C64E195EDD6F1BC8660FB /* RecognitionSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RecognitionSession.swift; path = ../Apps/AetherCore/Speech/RecognitionSession.swift; sourceTree = "<group>"; };
 		35EEF3E8253127D05E0B8AF8 /* AetherTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AetherTests.swift; sourceTree = "<group>"; };
 		3CB4B825A058EED6F40CE230 /* SilentAudioManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SilentAudioManager.swift; path = Apps/AetherCore/SilentAudioManager.swift; sourceTree = "<group>"; };
@@ -91,14 +90,16 @@
 		C0DEF00D0BADC0FFEE222224 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Apps/AetherCore/Resources/zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE222226 /* InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Apps/AetherCore/Resources/en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE222228 /* InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Apps/AetherCore/Resources/zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
-		C0DEF00D0BADC0FFEE666661 /* VoiceLexiconDefaults.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Apps/AetherCore/Resources/VoiceLexiconDefaults.json; sourceTree = "<group>"; };
-		C0DEF00D0BADC0FFEE330002 /* ConnectionLockService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/ConnectionLockService.swift; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE330004 /* AetherIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/AetherIntents.swift; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE440002 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HotkeyManager.swift; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE440004 /* KeyRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/KeyRecorderView.swift; sourceTree = "<group>"; };
+		C0DEF00D0BADC0FFEE555556 /* VoiceLexiconDefaults.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VoiceLexiconDefaults.swift; path = ../Apps/AetherCore/Speech/VoiceLexiconDefaults.swift; sourceTree = "<group>"; };
+		C0DEF00D0BADC0FFEE666661 /* VoiceLexiconDefaults.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Apps/AetherCore/Resources/VoiceLexiconDefaults.json; sourceTree = "<group>"; };
+		C0DEF00D0BADC0FFEE777770 /* AppLocalization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/AppLocalization.swift; sourceTree = "<group>"; };
 		D1D1E12D2F82BB5E4EAEB90D /* EOSDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EOSDetector.swift; path = ../Apps/AetherCore/Speech/EOSDetector.swift; sourceTree = "<group>"; };
 		D4B04B778B904E9EBE08B8F1 /* CaretDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HUD/CaretDetector.swift; sourceTree = "<group>"; };
 		D5837AE8FD6964FF43A98002 /* AudioCaptureSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AudioCaptureSession.swift; path = ../Apps/AetherCore/Speech/AudioCaptureSession.swift; sourceTree = "<group>"; };
+		DCB362410BB16740950C337A /* SparkleUpdater.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SparkleUpdater.swift; path = Apps/AetherCore/SparkleUpdater.swift; sourceTree = "<group>"; };
 		DD149F2C14A14BBD874C58F7 /* HUDState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HUD/HUDState.swift; sourceTree = "<group>"; };
 		E3AE5E3C03244494B2DCC0DB /* AetherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/AetherApp.swift; sourceTree = "<group>"; };
 		E59E8BF63FEEE1FD8873BE4A /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
@@ -122,6 +123,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7538C6658F303E0F9F88B2AC /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -187,7 +189,6 @@
 				8567D0FA10ABB5C4430600CE /* PermissionsManager.swift */,
 				C0DEF00D0BADC0FFEE777770 /* AppLocalization.swift */,
 				053CF960D5E89CB16A8AD09A /* MenuBar.swift */,
-				C0DEF00D0BADC0FFEE330002 /* ConnectionLockService.swift */,
 				C0DEF00D0BADC0FFEE330004 /* AetherIntents.swift */,
 				C0DEF00D0BADC0FFEE440002 /* HotkeyManager.swift */,
 				C0DEF00D0BADC0FFEE440004 /* KeyRecorderView.swift */,
@@ -203,6 +204,7 @@
 				D4B04B778B904E9EBE08B8F1 /* CaretDetector.swift */,
 				4B7AD64E322D43EBB7EB5CA2 /* InputMethodCaretBridge.swift */,
 				782391CEEF473A714EA2267E /* Speech */,
+				DCB362410BB16740950C337A /* SparkleUpdater.swift */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -244,6 +246,9 @@
 			dependencies = (
 			);
 			name = Aether;
+			packageProductDependencies = (
+				F795E7530701568580707FBB /* Sparkle */,
+			);
 			productName = Aether;
 			productReference = B9C56A052F2BA1FE00EEEB9E /* Aether.app */;
 			productType = "com.apple.product-type.application";
@@ -290,6 +295,9 @@
 				"zh-Hans",
 			);
 			mainGroup = B9C569FC2F2BA1FE00EEEB9E;
+			packageReferences = (
+				6B755452D786B21E55CBDB87 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B9C56A062F2BA1FE00EEEB9E /* Products */;
 			projectDirPath = "";
@@ -358,7 +366,6 @@
 				D6005F733C008EA04C26BBEA /* SpeechManager.swift in Sources */,
 				BFF1C8786B9E21D1ADBCA003 /* PermissionsManager.swift in Sources */,
 				31A804FB9F879E0F7F149B12 /* MenuBar.swift in Sources */,
-				C0DEF00D0BADC0FFEE330001 /* ConnectionLockService.swift in Sources */,
 				C0DEF00D0BADC0FFEE330003 /* AetherIntents.swift in Sources */,
 				C0DEF00D0BADC0FFEE440001 /* HotkeyManager.swift in Sources */,
 				C0DEF00D0BADC0FFEE440003 /* KeyRecorderView.swift in Sources */,
@@ -380,6 +387,7 @@
 				A63C766AA1AB8C9891D38846 /* DictationHandler.swift in Sources */,
 				38E0C2865D2EF8EBA566137B /* CommandHandler.swift in Sources */,
 				E32035EFDCD97152052E8113 /* SilentAudioManager.swift in Sources */,
+				7B6C97DA4CFC0DEC0EDB1148 /* SparkleUpdater.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -572,6 +580,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		6B755452D786B21E55CBDB87 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F795E7530701568580707FBB /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6B755452D786B21E55CBDB87 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = B9C569FD2F2BA1FE00EEEB9E /* Project object */;
 }

@@ -111,10 +111,7 @@ struct HotkeySettingsSection: View {
     @State private var recordingAction: HotkeyAction? = nil // Exclusive recording state
 
     private var visibleActions: [HotkeyAction] {
-        HotkeyAction.allCases.filter { action in
-            if action == .connectionLock { return false }
-            return action != .pushToTalk || appState.voiceActivationMode == .pushToTalk
-        }
+        HotkeyAction.allCases.filter { $0 != .pushToTalk || appState.voiceActivationMode == .pushToTalk }
     }
 
     var body: some View {

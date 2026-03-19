@@ -1989,7 +1989,6 @@ class AppState: ObservableObject {
     let voiceService = VoiceService()
     let nowPlayingService = NowPlayingService.shared
     private let permissions = PermissionsService()
-    let connectionLock = ConnectionLockService.shared
 
     private var windowController: NSWindowController?
     private var cancellables = Set<AnyCancellable>()
@@ -2206,14 +2205,6 @@ class AppState: ObservableObject {
         }
         .store(in: &cancellables)
 
-        // Connection Lock hotkey listener
-        NotificationCenter.default.publisher(for: .toggleConnectionLock)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.connectionLock.toggle()
-            }
-            .store(in: &cancellables)
-
         NotificationCenter.default.publisher(for: .toggleShortcutPanel)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -2408,10 +2399,6 @@ class AppState: ObservableObject {
             guard isVoiceControlEnabled else { return }
             NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
             recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
-        case .toggleConnectionLock:
-            GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleConnectionLock")
-            connectionLock.toggle()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .toggleShortcutPanel:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleShortcutPanel")
             toggleShortcutPanel(activateApp: false, focusSearchField: false)
@@ -2509,14 +2496,6 @@ class AppState: ObservableObject {
         case .selectHorizontally(let offset):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=selectHorizontally offset=\(offset)")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
-        case .lockConnection:
-            GlobalLogger.lifecycle.info("[VoiceIntent] action=lockConnection")
-            connectionLock.lock()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
-        case .unlockConnection:
-            GlobalLogger.lifecycle.info("[VoiceIntent] action=unlockConnection")
-            connectionLock.unlock()
             recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .dictation(let text):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=dictation text=\(text)")
@@ -2688,7 +2667,6 @@ class AppState: ObservableObject {
         case .toggleInputControlMode: return String(localized: "hotkey.toggle_input_control_mode")
         case .toggleTracking: return String(localized: "hotkey.toggle_tracking")
         case .toggleLanguage: return String(localized: "hotkey.toggle_language")
-        case .toggleConnectionLock: return String(localized: "hotkey.connection_lock")
         case .toggleShortcutPanel: return String(localized: "hotkey.toggle_shortcut_panel")
         case .mediaPlayPause: return NSLocalizedString("intent.media_play_pause", comment: "")
         case .mediaPrevious: return NSLocalizedString("intent.media_previous", comment: "")
@@ -2728,8 +2706,6 @@ class AppState: ObservableObject {
                 return offset >= 0 ? "向右选择\(count)个字" : "向左选择\(count)个字"
             }
             return offset >= 0 ? "Select right \(count) chars" : "Select left \(count) chars"
-        case .lockConnection: return NSLocalizedString("intent.lock_connection", comment: "")
-        case .unlockConnection: return NSLocalizedString("intent.unlock_connection", comment: "")
         case .dictation: return NSLocalizedString("intent.dictation", comment: "")
         case .unknown: return NSLocalizedString("intent.unknown", comment: "")
         }
@@ -3065,8 +3041,8 @@ final class CurrentAppShortcutPanelManager: ObservableObject {
 
     private func preferredPanelSize(in visibleFrame: NSRect) -> CGSize {
         let visibleGlobalShortcutCount = (appState?.voiceActivationMode == .pushToTalk)
-            ? HotkeyAction.allCases.filter { $0 != .connectionLock }.count
-            : HotkeyAction.allCases.filter { $0 != .pushToTalk && $0 != .connectionLock }.count
+            ? HotkeyAction.allCases.count
+            : HotkeyAction.allCases.filter { $0 != .pushToTalk }.count
         let globalSectionHeight = CurrentAppShortcutPanelLayout.estimatedHeight(forGlobalShortcutCount: visibleGlobalShortcutCount)
         let mergedSnapshot = appState?.mergedFrontmostAppCommandSnapshot(FrontmostAppCommandCatalog.shared.snapshot)
         guard let snapshot = mergedSnapshot, !snapshot.commands.isEmpty else {
@@ -3785,8 +3761,6 @@ private struct CurrentAppShortcutPanelView: View {
             case .toggleTracking:
                 let manager = HeadMotionManager.shared
                 manager.isTracking ? manager.stopTracking() : manager.startTracking()
-            case .connectionLock:
-                ConnectionLockService.shared.toggle()
             case .toggleInputControlMode:
                 HeadMotionManager.shared.toggleRecognitionInputControlMode(source: "shortcut-panel", persist: false)
             case .toggleLanguage:
@@ -4173,6 +4147,9 @@ struct AetherApp: App {
         .defaultSize(width: 1120, height: 760)
         .commands {
             SidebarCommands() // Enable View -> Show/Hide Sidebar
+            CommandGroup(after: .appInfo) {
+                AetherCheckForUpdatesCommandView()
+            }
         }
         
         AetherMenuBar()
@@ -4183,7 +4160,6 @@ struct AetherApp: App {
 
 // MARK: - Notification Names
 extension Notification.Name {
-    static let toggleConnectionLock = Notification.Name("AetherToggleConnectionLock")
     static let toggleShortcutPanel = Notification.Name("AetherToggleShortcutPanel")
     static let aetherHeadsetRouteChanged = Notification.Name("AetherHeadsetRouteChanged")
 }

@@ -1134,7 +1134,6 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
     case toggleInputControlMode
     case toggleTracking
     case toggleLanguage
-    case toggleConnectionLock
     case toggleShortcutPanel
     case mediaPlayPause
     case mediaPrevious
@@ -1158,8 +1157,6 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
     case moveCursorRight
     case selectLeft
     case selectRight
-    case lockConnection
-    case unlockConnection
 
     var id: String { rawValue }
 
@@ -1209,8 +1206,6 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return .toggleTracking
         case .toggleLanguage:
             return .toggleLanguage
-        case .toggleConnectionLock:
-            return .toggleConnectionLock
         case .toggleShortcutPanel:
             return .toggleShortcutPanel
         case .mediaPlayPause:
@@ -1257,10 +1252,6 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return .selectHorizontally(-1)
         case .selectRight:
             return .selectHorizontally(1)
-        case .lockConnection:
-            return .lockConnection
-        case .unlockConnection:
-            return .unlockConnection
         }
     }
 
@@ -1288,8 +1279,6 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return isChinese ? "切换头控" : "Toggle Pointer Control"
         case .toggleLanguage:
             return isChinese ? "切换语言" : "Toggle Language"
-        case .toggleConnectionLock:
-            return isChinese ? "切换连接锁定" : "Toggle Connection Lock"
         case .toggleShortcutPanel:
             return isChinese ? "切换快捷键面板" : "Toggle Shortcuts Panel"
         case .mediaPlayPause:
@@ -1336,10 +1325,6 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return isChinese ? "向左选择" : "Select Left"
         case .selectRight:
             return isChinese ? "向右选择" : "Select Right"
-        case .lockConnection:
-            return isChinese ? "锁定连接" : "Lock Connection"
-        case .unlockConnection:
-            return isChinese ? "解锁连接" : "Unlock Connection"
         }
     }
 }
@@ -1359,7 +1344,6 @@ enum VoiceIntent: Equatable {
     case toggleInputControlMode
     case toggleTracking
     case toggleLanguage
-    case toggleConnectionLock
     case toggleShortcutPanel
     case mediaPlayPause
     case mediaPrevious
@@ -1380,8 +1364,6 @@ enum VoiceIntent: Equatable {
     case deleteBackward(Int)
     case moveCursorHorizontally(Int) // negative = left, positive = right
     case selectHorizontally(Int) // negative = left, positive = right
-    case lockConnection
-    case unlockConnection
     case dictation(String)
     case unknown(String)
 }

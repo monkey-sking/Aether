@@ -2992,7 +2992,6 @@ final class SpeechManager: ObservableObject {
         case .toggleInputControlMode: return "toggleInputControlMode"
         case .toggleTracking: return "toggleTracking"
         case .toggleLanguage: return "toggleLanguage"
-        case .toggleConnectionLock: return "toggleConnectionLock"
         case .toggleShortcutPanel: return "toggleShortcutPanel"
         case .mediaPlayPause: return "mediaPlayPause"
         case .mediaPrevious: return "mediaPrevious"
@@ -3012,8 +3011,6 @@ final class SpeechManager: ObservableObject {
         case .deleteBackward(let count): return "deleteBackward(\(count))"
         case .moveCursorHorizontally(let offset): return "moveCursorHorizontally(\(offset))"
         case .selectHorizontally(let offset): return "selectHorizontally(\(offset))"
-        case .lockConnection: return "lockConnection"
-        case .unlockConnection: return "unlockConnection"
         case .frontmostAppCommand(let command):
             return "frontmostAppCommand(\(command.appName):\(command.title):\(command.shortcut.displayString))"
         case .dictation(let text):
