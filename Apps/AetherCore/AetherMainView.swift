@@ -27,63 +27,71 @@ struct AetherMainView: View {
 
     var body: some View {
         NavigationSplitView {
-            ZStack {
-                LinearGradient(
-                    colors: [
-                        Color.accentColor.opacity(0.08),
-                        Color.clear
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-
-                List(selection: $selection) {
-                    Section {
-                        NavigationLink(value: Panel.overview) {
-                            panelLabel(.overview)
-                        }
-                    } header: {
-                        SidebarSectionHeader(title: LocalizedStringKey("main.section.workspace"))
+            List(selection: $selection) {
+                Section {
+                    NavigationLink(value: Panel.overview) {
+                        sidebarRow(.overview)
                     }
-
-                    Section {
-                        NavigationLink(value: Panel.headGestures) {
-                            panelLabel(.headGestures)
-                        }
-                        NavigationLink(value: Panel.shortcuts) {
-                            panelLabel(.shortcuts)
-                        }
-                    } header: {
-                        SidebarSectionHeader(title: LocalizedStringKey("main.section.controls"))
-                    }
-
-                    Section {
-                        NavigationLink(value: Panel.voiceAppControls) {
-                            panelLabel(.voiceAppControls)
-                        }
-                        NavigationLink(value: Panel.voiceInsights) {
-                            panelLabel(.voiceInsights)
-                        }
-                        NavigationLink(value: Panel.voiceLexicon) {
-                            panelLabel(.voiceLexicon)
-                        }
-                    } header: {
-                        SidebarSectionHeader(title: LocalizedStringKey("main.section.voice"))
-                    }
-
-                    Section {
-                        NavigationLink(value: Panel.about) {
-                            panelLabel(.about)
-                        }
-                    } header: {
-                        SidebarSectionHeader(title: LocalizedStringKey("main.section.app"))
-                    }
+                    .listRowBackground(Color.clear)
+                } header: {
+                    Text(LocalizedStringKey("main.section.workspace"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textCase(nil)
                 }
-                .scrollContentBackground(.hidden)
-                .listStyle(.sidebar)
-                .environment(\.defaultMinListRowHeight, 44)
+
+                Section {
+                    NavigationLink(value: Panel.headGestures) {
+                        sidebarRow(.headGestures)
+                    }
+                    .listRowBackground(Color.clear)
+                    NavigationLink(value: Panel.shortcuts) {
+                        sidebarRow(.shortcuts)
+                    }
+                    .listRowBackground(Color.clear)
+                } header: {
+                    Text(LocalizedStringKey("main.section.controls"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textCase(nil)
+                }
+
+                Section {
+                    NavigationLink(value: Panel.voiceAppControls) {
+                        sidebarRow(.voiceAppControls)
+                    }
+                    .listRowBackground(Color.clear)
+                    NavigationLink(value: Panel.voiceInsights) {
+                        sidebarRow(.voiceInsights)
+                    }
+                    .listRowBackground(Color.clear)
+                    NavigationLink(value: Panel.voiceLexicon) {
+                        sidebarRow(.voiceLexicon)
+                    }
+                    .listRowBackground(Color.clear)
+                } header: {
+                    Text(LocalizedStringKey("main.section.voice"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textCase(nil)
+                }
+
+                Section {
+                    NavigationLink(value: Panel.about) {
+                        sidebarRow(.about)
+                    }
+                    .listRowBackground(Color.clear)
+                } header: {
+                    Text(LocalizedStringKey("main.section.app"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textCase(nil)
+                }
             }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
+            .listStyle(.sidebar)
+            .environment(\.defaultMinListRowHeight, 40)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 250)
+            .toolbar(removing: .sidebarToggle)
         } detail: {
             switch selection {
             case .overview:
@@ -121,17 +129,13 @@ struct AetherMainView: View {
     }
 
     @ViewBuilder
-    private func panelLabel(_ panel: Panel) -> some View {
-        if panel == .headGestures {
-            SidebarItemLabel(title: panelTitle(panel)) {
-                TransparencyModeIcon(size: AetherUI.sidebarIconSize, color: .primary)
-            }
-        } else {
-            SidebarItemLabel(
-                title: panelTitle(panel),
-                systemImage: panelSymbol(panel)
-            )
-        }
+    private func sidebarRow(_ panel: Panel) -> some View {
+        SidebarRow(
+            title: panelTitle(panel),
+            systemImage: panel == .headGestures ? nil : panelSymbol(panel),
+            isSelected: selection == panel,
+            iconOverride: panel == .headGestures ? AnyView(TransparencyModeIcon(size: AetherUI.sidebarIconSize, color: .primary)) : nil
+        )
     }
 
     private func panelTitle(_ panel: Panel) -> String {
@@ -173,6 +177,50 @@ struct AetherMainView: View {
             return "person.crop.circle"
         case .shortcuts:
             return "keyboard"
+        }
+    }
+}
+
+private struct SidebarRow: View {
+    let title: String
+    let systemImage: String?
+    let isSelected: Bool
+    let iconOverride: AnyView?
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let iconOverride {
+                iconOverride
+                    .frame(width: AetherUI.sidebarIconFrame, alignment: .center)
+            } else if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: AetherUI.sidebarIconSize, weight: .semibold))
+                    .frame(width: AetherUI.sidebarIconFrame, alignment: .center)
+            }
+
+            Text(title)
+                .font(AetherUI.sidebarItemFont)
+                .lineLimit(1)
+        }
+        .foregroundStyle(isSelected ? .primary : (isHovered ? .primary : .secondary))
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(isSelected ? Color.accentColor.opacity(0.35) : Color.clear, lineWidth: 1)
+        )
+        .scaleEffect(isHovered && !isSelected ? 1.02 : 1)
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(.easeInOut(duration: 0.12), value: isSelected)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovered = hovering
         }
     }
 }

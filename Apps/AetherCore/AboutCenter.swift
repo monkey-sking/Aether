@@ -701,8 +701,7 @@ struct AboutCenterView: View {
 
     var body: some View {
         SettingsPage(
-            title: isChinese ? "关于" : "About",
-            subtitle: isChinese ? "应用信息、授权状态与更新入口。" : "App info, license status, and update entry points."
+            title: isChinese ? "关于" : "About"
         ) {
             VStack(spacing: 0) {
                 Spacer(minLength: 20)
@@ -859,6 +858,7 @@ struct AboutCenterView: View {
 
 private struct AboutLicenseSheet: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var licenseManager = AetherLicenseManager.shared
     @Binding var emailInput: String
     @Binding var codeInput: String
@@ -925,6 +925,13 @@ private struct AboutLicenseSheet: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+
+                    Button(isChinese ? "完成" : "Done") {
+                        dismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
                 }
 
                 if let info = licenseManager.infoMessage, !info.isEmpty {
@@ -975,6 +982,14 @@ private struct AboutLicenseSheet: View {
                         Task { await licenseManager.refreshEntitlement() }
                     }
                     .buttonStyle(.bordered)
+
+                    Spacer(minLength: 0)
+
+                    Button(isChinese ? "取消" : "Cancel") {
+                        dismiss()
+                    }
+                    .buttonStyle(.bordered)
+                    .keyboardShortcut(.cancelAction)
                 }
                 .controlSize(.small)
 
@@ -995,6 +1010,7 @@ private struct AboutLicenseSheet: View {
 
 private struct AboutDevicesSheet: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var licenseManager = AetherLicenseManager.shared
 
     private var isChinese: Bool { appState.isChineseUI }
@@ -1043,6 +1059,16 @@ private struct AboutDevicesSheet: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+
+                    HStack {
+                        Spacer()
+                        Button(isChinese ? "完成" : "Done") {
+                            dismiss()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .keyboardShortcut(.defaultAction)
+                    }
                 }
             }
         }
