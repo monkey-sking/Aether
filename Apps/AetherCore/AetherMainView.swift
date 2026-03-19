@@ -13,7 +13,7 @@ private struct OverviewSetupItem: Identifiable {
 
 struct AetherMainView: View {
     @State private var selection: Panel? = .overview
-    private let sidebarWidth: CGFloat = 200
+    private let sidebarWidth: CGFloat = 208
 
     enum Panel: Hashable {
         case overview
@@ -30,7 +30,7 @@ struct AetherMainView: View {
         NavigationSplitView {
             List(selection: $selection) {
                 Color.clear
-                    .frame(height: 30)
+                    .frame(height: 34)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
@@ -70,7 +70,7 @@ struct AetherMainView: View {
                 }
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 188, ideal: sidebarWidth, max: 250)
+            .navigationSplitViewColumnWidth(min: 196, ideal: sidebarWidth, max: 256)
             .toolbar(removing: .sidebarToggle)
             .toolbarBackground(.hidden, for: .windowToolbar)
             .scrollContentBackground(.hidden)
@@ -99,9 +99,16 @@ struct AetherMainView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .background(alignment: .leading) {
-            Rectangle()
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(.regularMaterial)
-                .frame(width: sidebarWidth + 18)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.09), lineWidth: 0.8)
+                }
+                .padding(.leading, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 10)
+                .frame(width: sidebarWidth + 30)
                 .ignoresSafeArea()
         }
         .background(
@@ -119,25 +126,25 @@ struct AetherMainView: View {
 
     private func sidebarHeader(_ key: String) -> some View {
         Text(LocalizedStringKey(key))
-            .font(.system(size: 12, weight: .bold))
+            .font(.system(size: 12.5, weight: .bold))
             .foregroundStyle(.secondary)
             .textCase(nil)
-            .padding(.top, 14)
+            .padding(.top, 16)
             .padding(.bottom, 8)
     }
 
     private func sidebarItem(_ panel: Panel) -> some View {
         Label {
             Text(panelTitle(panel))
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.primary)
         } icon: {
             Image(systemName: panelSymbol(panel))
-                .font(.system(size: 15, weight: .semibold))
-                .frame(width: 20)
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 22)
         }
         .symbolRenderingMode(.monochrome)
-            .listRowInsets(EdgeInsets(top: 7, leading: 8, bottom: 7, trailing: 8))
+            .listRowInsets(EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10))
     }
 
     private func panelTitle(_ panel: Panel) -> String {
@@ -203,9 +210,14 @@ private struct StandardWindowConfigurator: NSViewRepresentable {
 
     private func applyConfiguration(for window: NSWindow?) {
         guard let window else { return }
+        if window.identifier?.rawValue == "AetherMainWindow" {
+            return
+        }
         window.identifier = NSUserInterfaceItemIdentifier("AetherMainWindow")
         window.title = title
         window.subtitle = subtitle
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.styleMask.insert(.fullSizeContentView)
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -238,20 +250,20 @@ private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryVie
         let configuredImage = image.withSymbolConfiguration(configuration) ?? image
 
         let background = NSVisualEffectView(frame: .zero)
-        background.material = .headerView
+        background.material = .sidebar
         background.blendingMode = .withinWindow
         background.state = .active
         background.wantsLayer = true
-        background.layer?.cornerRadius = 8
+        background.layer?.cornerRadius = 10
         background.layer?.masksToBounds = true
         background.layer?.borderWidth = 0.5
-        background.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.22).cgColor
+        background.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
         background.translatesAutoresizingMaskIntoConstraints = false
 
         let button = NSButton(image: configuredImage, target: self, action: #selector(toggleSidebar))
         button.isBordered = false
         button.imageScaling = .scaleProportionallyDown
-        button.contentTintColor = .secondaryLabelColor
+        button.contentTintColor = .labelColor
         button.toolTip = "Toggle Sidebar"
         button.setAccessibilityLabel("Toggle Sidebar")
         button.translatesAutoresizingMaskIntoConstraints = false
