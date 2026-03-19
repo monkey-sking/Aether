@@ -1560,6 +1560,16 @@ private extension VoiceCommandPreset {
             return isChinese ? "粘贴" : "Paste"
         case .clearInput:
             return isChinese ? "清空输入" : "Clear Input"
+        case .deleteBackward:
+            return isChinese ? "删除文本" : "Delete Text"
+        case .moveCursorLeft:
+            return isChinese ? "光标左移" : "Move Cursor Left"
+        case .moveCursorRight:
+            return isChinese ? "光标右移" : "Move Cursor Right"
+        case .selectLeft:
+            return isChinese ? "向左选择" : "Select Left"
+        case .selectRight:
+            return isChinese ? "向右选择" : "Select Right"
         case .lockConnection:
             return isChinese ? "锁定耳机连接" : "Lock Headset Connection"
         case .unlockConnection:
@@ -1620,6 +1630,16 @@ private extension VoiceCommandPreset {
             return isChinese ? "发送系统粘贴操作。" : "Triggers the standard Paste shortcut."
         case .clearInput:
             return isChinese ? "先全选再删除当前输入框内容。" : "Selects all content in the current field, then deletes it."
+        case .deleteBackward:
+            return isChinese ? "删除光标左侧文本，可带数量，比如“删除 3 个字”。" : "Deletes text before the cursor and supports counts like 'delete 3 chars'."
+        case .moveCursorLeft:
+            return isChinese ? "光标向左移动，可带数量，比如“向左移动 5 个字”。" : "Moves the cursor left and supports counts like 'move left 5 chars'."
+        case .moveCursorRight:
+            return isChinese ? "光标向右移动，可带数量，比如“向右移动 5 个字”。" : "Moves the cursor right and supports counts like 'move right 5 chars'."
+        case .selectLeft:
+            return isChinese ? "向左扩展选择，可带数量，比如“向左选择 4 个字”。" : "Extends selection to the left and supports counts like 'select left 4 chars'."
+        case .selectRight:
+            return isChinese ? "向右扩展选择，可带数量，比如“向右选择 4 个字”。" : "Extends selection to the right and supports counts like 'select right 4 chars'."
         case .lockConnection:
             return isChinese ? "锁定当前耳机连接，避免误切换。" : "Locks the active headset connection."
         case .unlockConnection:
@@ -1680,6 +1700,16 @@ private extension VoiceCommandPreset {
             return isChinese ? "例如：粘贴内容" : "Example: paste here"
         case .clearInput:
             return isChinese ? "例如：清空输入、清空文本" : "Example: clear input, clear field"
+        case .deleteBackward:
+            return isChinese ? "例如：删除、删除 3 个字" : "Example: delete, delete 3 chars"
+        case .moveCursorLeft:
+            return isChinese ? "例如：向左移动、左移 2 个字" : "Example: move left, cursor left 2 chars"
+        case .moveCursorRight:
+            return isChinese ? "例如：向右移动、右移 2 个字" : "Example: move right, cursor right 2 chars"
+        case .selectLeft:
+            return isChinese ? "例如：向左选择、左选 2 个字" : "Example: select left, extend left 2 chars"
+        case .selectRight:
+            return isChinese ? "例如：向右选择、右选 2 个字" : "Example: select right, extend right 2 chars"
         case .lockConnection:
             return isChinese ? "例如：锁定耳机" : "Example: lock headset"
         case .unlockConnection:

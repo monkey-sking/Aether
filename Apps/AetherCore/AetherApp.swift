@@ -2488,6 +2488,14 @@ class AppState: ObservableObject {
             GlobalLogger.lifecycle.info("[VoiceIntent] action=deleteBackward count=\(count)")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
             recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+        case .moveCursorHorizontally(let offset):
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=moveCursorHorizontally offset=\(offset)")
+            // Already applied inside SpeechManager. Keep this branch for usage tracking only.
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+        case .selectHorizontally(let offset):
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=selectHorizontally offset=\(offset)")
+            // Already applied inside SpeechManager. Keep this branch for usage tracking only.
+            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
         case .lockConnection:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=lockConnection")
             connectionLock.lock()
@@ -2694,6 +2702,18 @@ class AppState: ObservableObject {
         case .clearInput: return NSLocalizedString("intent.clear_input", comment: "")
         case .deleteBackward(let count):
             return AppLocalization.isChinese ? "删除\(count)个字" : "Delete \(count) chars"
+        case .moveCursorHorizontally(let offset):
+            let count = abs(offset)
+            if AppLocalization.isChinese {
+                return offset >= 0 ? "向右移动\(count)个字" : "向左移动\(count)个字"
+            }
+            return offset >= 0 ? "Move right \(count) chars" : "Move left \(count) chars"
+        case .selectHorizontally(let offset):
+            let count = abs(offset)
+            if AppLocalization.isChinese {
+                return offset >= 0 ? "向右选择\(count)个字" : "向左选择\(count)个字"
+            }
+            return offset >= 0 ? "Select right \(count) chars" : "Select left \(count) chars"
         case .lockConnection: return NSLocalizedString("intent.lock_connection", comment: "")
         case .unlockConnection: return NSLocalizedString("intent.unlock_connection", comment: "")
         case .dictation: return NSLocalizedString("intent.dictation", comment: "")

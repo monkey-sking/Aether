@@ -29,6 +29,33 @@ final class VoiceCommandRouterTests: XCTestCase {
         XCTAssertEqual(router.route(transcript: "开始"), .startPointer)
         XCTAssertEqual(router.route(transcript: "居中"), .recenter)
     }
+
+    func testCursorMoveAndSelectionCommands() {
+        XCTAssertEqual(
+            router.route(transcript: "命令向左移动3个字", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .moveCursorHorizontally(-3)
+        )
+        XCTAssertEqual(
+            router.route(transcript: "命令向右移动十个字", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .moveCursorHorizontally(10)
+        )
+        XCTAssertEqual(
+            router.route(transcript: "命令向左选择2个字", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .selectHorizontally(-2)
+        )
+        XCTAssertEqual(
+            router.route(transcript: "命令向右选择3个字符", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .selectHorizontally(3)
+        )
+        XCTAssertEqual(
+            router.route(transcript: "左移", bias: .forceCommand, localeIdentifier: "zh-CN"),
+            .moveCursorHorizontally(-1)
+        )
+        XCTAssertEqual(
+            router.route(transcript: "右选", bias: .forceCommand, localeIdentifier: "zh-CN"),
+            .selectHorizontally(1)
+        )
+    }
     
     func testScrollingAndDragging() {
         XCTAssertEqual(router.route(transcript: "向上"), .scroll(0, -300))

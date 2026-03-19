@@ -37,10 +37,11 @@ enum VoiceLexiconDefaults {
     }
 
     private static func normalize(_ backup: VoiceLexiconBackup) -> VoiceLexiconBackup {
-        VoiceLexiconBackup(
+        let mergedOverrides = mergeSupplementalCommandOverrides(into: backup.commandOverrides)
+        return VoiceLexiconBackup(
             version: backup.version,
             exportedAt: backup.exportedAt,
-            commandOverrides: backup.commandOverrides.map { item in
+            commandOverrides: mergedOverrides.map { item in
                 VoiceCommandOverrideConfig(
                     localeIdentifier: item.localeIdentifier,
                     commandID: item.commandID,
@@ -56,6 +57,37 @@ enum VoiceLexiconDefaults {
                 )
             }
         )
+    }
+
+    private static func mergeSupplementalCommandOverrides(into existing: [VoiceCommandOverrideConfig]) -> [VoiceCommandOverrideConfig] {
+        var merged = existing
+
+        for item in supplementalCommandOverrides() {
+            if let index = merged.firstIndex(where: {
+                $0.localeIdentifier == item.localeIdentifier && $0.commandID == item.commandID
+            }) {
+                merged[index].aliases = VoiceLexiconSupport.uniqueTerms(merged[index].aliases + item.aliases)
+            } else {
+                merged.append(item)
+            }
+        }
+
+        return merged
+    }
+
+    private static func supplementalCommandOverrides() -> [VoiceCommandOverrideConfig] {
+        [
+            VoiceCommandOverrideConfig(localeIdentifier: "zh-CN", commandID: VoiceCommandPreset.deleteBackward.rawValue, aliases: ["删除", "删掉", "退格"]),
+            VoiceCommandOverrideConfig(localeIdentifier: "en-US", commandID: VoiceCommandPreset.deleteBackward.rawValue, aliases: ["delete", "erase", "backspace"]),
+            VoiceCommandOverrideConfig(localeIdentifier: "zh-CN", commandID: VoiceCommandPreset.moveCursorLeft.rawValue, aliases: ["向左移动", "往左移动", "左移"]),
+            VoiceCommandOverrideConfig(localeIdentifier: "en-US", commandID: VoiceCommandPreset.moveCursorLeft.rawValue, aliases: ["move left", "cursor left", "go left"]),
+            VoiceCommandOverrideConfig(localeIdentifier: "zh-CN", commandID: VoiceCommandPreset.moveCursorRight.rawValue, aliases: ["向右移动", "往右移动", "右移"]),
+            VoiceCommandOverrideConfig(localeIdentifier: "en-US", commandID: VoiceCommandPreset.moveCursorRight.rawValue, aliases: ["move right", "cursor right", "go right"]),
+            VoiceCommandOverrideConfig(localeIdentifier: "zh-CN", commandID: VoiceCommandPreset.selectLeft.rawValue, aliases: ["向左选择", "往左选择", "左选"]),
+            VoiceCommandOverrideConfig(localeIdentifier: "en-US", commandID: VoiceCommandPreset.selectLeft.rawValue, aliases: ["select left", "extend left", "highlight left"]),
+            VoiceCommandOverrideConfig(localeIdentifier: "zh-CN", commandID: VoiceCommandPreset.selectRight.rawValue, aliases: ["向右选择", "往右选择", "右选"]),
+            VoiceCommandOverrideConfig(localeIdentifier: "en-US", commandID: VoiceCommandPreset.selectRight.rawValue, aliases: ["select right", "extend right", "highlight right"])
+        ]
     }
 
     private static func sanitizeDefaults(_ values: [String], localeIdentifier: String) -> [String] {

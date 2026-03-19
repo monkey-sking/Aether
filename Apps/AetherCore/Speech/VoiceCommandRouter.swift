@@ -1153,6 +1153,11 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
     case undo
     case paste
     case clearInput
+    case deleteBackward
+    case moveCursorLeft
+    case moveCursorRight
+    case selectLeft
+    case selectRight
     case lockConnection
     case unlockConnection
 
@@ -1182,7 +1187,12 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
         .dragEnd,
         .undo,
         .paste,
-        .clearInput
+        .clearInput,
+        .deleteBackward,
+        .moveCursorLeft,
+        .moveCursorRight,
+        .selectLeft,
+        .selectRight
     ]
 
     var intent: VoiceIntent {
@@ -1237,6 +1247,16 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return .paste
         case .clearInput:
             return .clearInput
+        case .deleteBackward:
+            return .deleteBackward(1)
+        case .moveCursorLeft:
+            return .moveCursorHorizontally(-1)
+        case .moveCursorRight:
+            return .moveCursorHorizontally(1)
+        case .selectLeft:
+            return .selectHorizontally(-1)
+        case .selectRight:
+            return .selectHorizontally(1)
         case .lockConnection:
             return .lockConnection
         case .unlockConnection:
@@ -1246,7 +1266,7 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
 
     var isTypingSafe: Bool {
         switch self {
-        case .toggleShortcutPanel, .showShortcutPanel, .hideShortcutPanel, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .undo, .paste, .clearInput:
+        case .toggleShortcutPanel, .showShortcutPanel, .hideShortcutPanel, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .undo, .paste, .clearInput, .deleteBackward, .moveCursorLeft, .moveCursorRight, .selectLeft, .selectRight:
             return true
         default:
             return false
@@ -1306,6 +1326,16 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return isChinese ? "粘贴" : "Paste"
         case .clearInput:
             return isChinese ? "清空输入" : "Clear Input"
+        case .deleteBackward:
+            return isChinese ? "删除" : "Delete Backward"
+        case .moveCursorLeft:
+            return isChinese ? "向左移动" : "Move Cursor Left"
+        case .moveCursorRight:
+            return isChinese ? "向右移动" : "Move Cursor Right"
+        case .selectLeft:
+            return isChinese ? "向左选择" : "Select Left"
+        case .selectRight:
+            return isChinese ? "向右选择" : "Select Right"
         case .lockConnection:
             return isChinese ? "锁定连接" : "Lock Connection"
         case .unlockConnection:
@@ -1348,6 +1378,8 @@ enum VoiceIntent: Equatable {
     case paste
     case clearInput
     case deleteBackward(Int)
+    case moveCursorHorizontally(Int) // negative = left, positive = right
+    case selectHorizontally(Int) // negative = left, positive = right
     case lockConnection
     case unlockConnection
     case dictation(String)
@@ -1486,6 +1518,9 @@ final class VoiceCommandRouter {
                 localeIdentifier: localeIdentifier
             ) {
                 return deleteMatch
+            }
+            if let cursorMatch = matchCursorEditingCommand(text: commandText, localeIdentifier: localeIdentifier) {
+                return cursorMatch
             }
         }
 
@@ -1848,10 +1883,13 @@ final class VoiceCommandRouter {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        let prefixes = Self.defaultDeletePrefixes(for: localeIdentifier)
+        let currentState = stateSnapshot()
+        let prefixes = Self.effectiveAliases(for: .deleteBackward, localeIdentifier: localeIdentifier, overrides: currentState.overrides)
+            + Self.defaultDeletePrefixes(for: localeIdentifier)
+        let normalizedPrefixes = Self.uniqueAliases(prefixes)
             .sorted { $0.count > $1.count }
 
-        for prefix in prefixes {
+        for prefix in normalizedPrefixes {
             guard trimmed.lowercased().hasPrefix(prefix.lowercased()) else { continue }
             let suffix = String(trimmed.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
             if suffix.isEmpty {
@@ -1859,6 +1897,33 @@ final class VoiceCommandRouter {
             }
             if let count = parseDeleteCount(from: suffix) {
                 return VoiceCommandDecision(intent: .deleteBackward(count), confidence: .high, reason: "delete-prefix-count")
+            }
+        }
+
+        return nil
+    }
+
+    private func matchCursorEditingCommand(text raw: String, localeIdentifier: String) -> VoiceCommandDecision? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let currentState = stateSnapshot()
+        let rules: [(preset: VoiceCommandPreset, builder: (Int) -> VoiceIntent, reason: String)] = [
+            (.selectLeft, { .selectHorizontally(-$0) }, "select-left"),
+            (.selectRight, { .selectHorizontally($0) }, "select-right"),
+            (.moveCursorLeft, { .moveCursorHorizontally(-$0) }, "move-left"),
+            (.moveCursorRight, { .moveCursorHorizontally($0) }, "move-right")
+        ]
+
+        for rule in rules {
+            let prefixes = Self.effectiveAliases(for: rule.preset, localeIdentifier: localeIdentifier, overrides: currentState.overrides)
+                .sorted(by: { $0.count > $1.count })
+            for prefix in prefixes {
+                guard trimmed.lowercased().hasPrefix(prefix.lowercased()) else { continue }
+                let suffix = String(trimmed.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                let count = suffix.isEmpty ? 1 : (parseDeleteCount(from: suffix) ?? 0)
+                guard count > 0 else { continue }
+                return VoiceCommandDecision(intent: rule.builder(count), confidence: .high, reason: rule.reason)
             }
         }
 

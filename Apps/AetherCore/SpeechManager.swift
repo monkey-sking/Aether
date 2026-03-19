@@ -2681,6 +2681,30 @@ final class SpeechManager: ObservableObject {
             status = NSLocalizedString("speech.done", comment: "")
             onIntent?(.deleteBackward(count), usageContext.appName, usageContext.bundleIdentifier)
             clearHandledCommandPreview()
+        case .moveCursorHorizontally(let offset):
+            let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
+            let binding = HotkeyBinding(
+                keyCode: offset >= 0 ? kVK_RightArrow : kVK_LeftArrow,
+                modifiers: 0
+            )
+            for _ in 0..<min(abs(offset), 200) {
+                AutomationOutputs.shared.pressShortcut(binding, targetPID: injectionPID)
+            }
+            status = NSLocalizedString("speech.done", comment: "")
+            onIntent?(.moveCursorHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier)
+            clearHandledCommandPreview()
+        case .selectHorizontally(let offset):
+            let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
+            let binding = HotkeyBinding(
+                keyCode: offset >= 0 ? kVK_RightArrow : kVK_LeftArrow,
+                modifiers: CGEventFlags.maskShift.rawValue
+            )
+            for _ in 0..<min(abs(offset), 200) {
+                AutomationOutputs.shared.pressShortcut(binding, targetPID: injectionPID)
+            }
+            status = NSLocalizedString("speech.done", comment: "")
+            onIntent?(.selectHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier)
+            clearHandledCommandPreview()
         case .dictation(let text):
             guard isJobInputTargetValidForInjection(job) else {
                 let targetBundleLog = job.targetBundleID ?? "nil"
@@ -2986,6 +3010,8 @@ final class SpeechManager: ObservableObject {
         case .paste: return "paste"
         case .clearInput: return "clearInput"
         case .deleteBackward(let count): return "deleteBackward(\(count))"
+        case .moveCursorHorizontally(let offset): return "moveCursorHorizontally(\(offset))"
+        case .selectHorizontally(let offset): return "selectHorizontally(\(offset))"
         case .lockConnection: return "lockConnection"
         case .unlockConnection: return "unlockConnection"
         case .frontmostAppCommand(let command):
