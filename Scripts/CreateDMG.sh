@@ -20,9 +20,9 @@ BACKGROUND_IMAGE="${PROJECT_ROOT:-$(dirname "$0")/..}/Scripts/Resources/dmg_back
 ICON_SIZE=128
 WINDOW_WIDTH=600
 WINDOW_HEIGHT=400
-ICON_X=150
+ICON_X=140
 ICON_Y=200
-APPS_X=450
+APPS_X=460
 APPS_Y=200
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -668,16 +668,16 @@ struct AboutCenterView: View {
     @State private var referralInput: String = ""
     @State private var showsLicenseSheet: Bool = false
     @State private var showsDevicesSheet: Bool = false
-    private let actionColumns = [
-        GridItem(.flexible(minimum: 280), spacing: 16),
-        GridItem(.flexible(minimum: 280), spacing: 16)
-    ]
 
     private var isChinese: Bool { appState.isChineseUI }
     private var appDisplayName: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? Bundle.main.object(forInfoDictionaryKey: kCFBundleNameKey as String) as? String
             ?? "Aether"
+    }
+
+    private var appIcon: NSImage {
+        NSApp.applicationIconImage
     }
 
     private var statusTint: Color {
@@ -688,21 +688,134 @@ struct AboutCenterView: View {
         updaterManager.latestVersion ?? "-"
     }
 
-    private var statusSummaryLine: String {
-        let updateSummary = updaterManager.statusMessage.isEmpty ? latestVersionDisplay : updaterManager.statusMessage
-        if isChinese {
-            return "当前为\(licenseManager.statusSummary)，方案\(licenseManager.planSummary)，已绑定 \(licenseManager.devicesUsed)/\(licenseManager.maxDevices) 台设备。更新状态：\(updateSummary)。"
+    private var statusPillTitle: String {
+        if licenseManager.isActivated {
+            return isChinese ? "\(licenseManager.planSummary) 已激活" : "\(licenseManager.planSummary) Active"
         }
-        return "Status: \(licenseManager.statusSummary). Plan: \(licenseManager.planSummary). Devices: \(licenseManager.devicesUsed)/\(licenseManager.maxDevices). Update: \(updateSummary)."
+        return licenseManager.statusSummary
+    }
+
+    private var tagline: String {
+        isChinese ? "抬头即达，开口即控" : "Hands-free control for your Mac"
     }
 
     var body: some View {
         SettingsPage(
             title: isChinese ? "关于" : "About",
-            subtitle: isChinese ? "版本、授权与更新在这里统一查看和处理。" : "Version, license, and update actions are handled here."
+            subtitle: isChinese ? "应用信息、授权状态与更新入口。" : "App info, license status, and update entry points."
         ) {
-            overviewCard
-            supportRow
+            VStack(spacing: 0) {
+                Spacer(minLength: 20)
+
+                Image(nsImage: appIcon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 128, height: 128)
+                    .shadow(color: Color.accentColor.opacity(0.28), radius: 20, x: 0, y: 10)
+                    .padding(.bottom, 22)
+
+                Text(appDisplayName)
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
+
+                Text(appState.appVersionDisplay)
+                    .font(.system(.title3, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+
+                Button {
+                    Task { await updaterManager.checkForUpdates() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.clockwise.circle")
+                        Text(isChinese ? "检查更新" : "Check for Updates")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .padding(.top, 14)
+
+                VStack(spacing: 8) {
+                    Text(tagline)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+
+                    Text("© 2026 Aether Team")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.top, 36)
+
+                if licenseManager.isActivated {
+                    HStack(spacing: 10) {
+                        Image(systemName: "crown.fill")
+                            .foregroundStyle(.orange)
+                        Text(statusPillTitle)
+                            .fontWeight(.bold)
+                            .foregroundStyle(.orange)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                    .background(Color.orange.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(.top, 22)
+                } else {
+                    HStack(spacing: 10) {
+                        Image(systemName: "key.fill")
+                            .foregroundStyle(.secondary)
+                        Text(statusPillTitle)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(.top, 22)
+                }
+
+                if !updaterManager.statusMessage.isEmpty {
+                    Text(updaterManager.statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 12)
+                } else if let info = licenseManager.infoMessage, !info.isEmpty {
+                    Text(info)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 12)
+                } else if let error = licenseManager.lastErrorMessage, !error.isEmpty {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(.top, 12)
+                }
+
+                Spacer()
+
+                Divider()
+                    .padding(.horizontal, 38)
+
+                HStack(spacing: 22) {
+                    footerLink(title: isChinese ? "访问官网" : "Website", key: "AetherWebsiteURL", fallback: "https://aether.7caifei.com")
+
+                    footerLink(title: isChinese ? "更新日志" : "Changelog", key: "AetherChangelogURL", fallback: "https://aether.7caifei.com/changelog")
+
+                    Button(isChinese ? "管理授权" : "Manage License") {
+                        showsLicenseSheet = true
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+
+                    Button(isChinese ? "设备管理" : "Manage Devices") {
+                        showsDevicesSheet = true
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+                }
+                .font(.callout)
+                .padding(.vertical, 24)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .sheet(isPresented: $showsLicenseSheet) {
             AboutLicenseSheet(
@@ -722,149 +835,25 @@ struct AboutCenterView: View {
         }
     }
 
-    private var overviewCard: some View {
-        GlassCard(padding: 18) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 14) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.14))
-                            .frame(width: 52, height: 52)
-
-                        Image(systemName: "app.connected.to.app.below.fill")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(appDisplayName)
-                            .font(.title2.weight(.bold))
-                        Text(isChinese ? "当前应用状态" : "Current App Status")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    statusBadge(licenseManager.statusSummary, tint: statusTint)
-                }
-
-                LazyVGrid(columns: actionColumns, alignment: .leading, spacing: 10) {
-                    metricTile(title: isChinese ? "版本" : "Version", value: appState.appVersionDisplay)
-                    metricTile(title: isChinese ? "最新版本" : "Latest Version", value: latestVersionDisplay)
-                    metricTile(title: isChinese ? "方案" : "Plan", value: licenseManager.planSummary)
-                    metricTile(title: isChinese ? "设备占用" : "Devices", value: "\(licenseManager.devicesUsed) / \(licenseManager.maxDevices)")
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(isChinese ? "当前状态摘要" : "Current Status Summary")
-                        .font(.subheadline.weight(.semibold))
-                    Text(statusSummaryLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 10) {
-                    Button(isChinese ? "检查更新" : "Check for Updates") {
-                        Task { await updaterManager.checkForUpdates() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-
-                    Button(isChinese ? "管理授权" : "Manage License") {
-                        showsLicenseSheet = true
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                    Button(isChinese ? "管理设备" : "Manage Devices") {
-                        showsDevicesSheet = true
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-
-                if let info = licenseManager.infoMessage, !info.isEmpty {
-                    Text(info)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if let error = licenseManager.lastErrorMessage, !error.isEmpty {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                } else if !updaterManager.statusMessage.isEmpty {
-                    Text(updaterManager.statusMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private var supportRow: some View {
-        HStack(spacing: 8) {
-            linkButton(title: isChinese ? "官网" : "Website", key: "AetherWebsiteURL", fallback: "https://aether.7caifei.com")
-            linkButton(title: isChinese ? "更新日志" : "Changelog", key: "AetherChangelogURL", fallback: "https://aether.7caifei.com/changelog")
-            Button(isChinese ? "下载" : "Download") {
-                updaterManager.openLatestDownload()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
-            Spacer()
-
-            Picker(isChinese ? "渠道" : "Channel", selection: Binding(
-                get: { updaterManager.channel },
-                set: {
-                    updaterManager.setUpdateChannel($0)
-                    licenseManager.setChannelPreference($0)
-                }
-            )) {
-                Text("Stable").tag(AetherUpdateChannel.stable)
-                Text("Beta").tag(AetherUpdateChannel.beta)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 180)
-            .controlSize(.small)
-        }
-    }
-
-    private func metricTile(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.headline.monospacedDigit())
-                .lineLimit(1)
-                .minimumScaleFactor(0.86)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private func statusBadge(_ title: String, tint: Color) -> some View {
-        Text(title)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(tint.opacity(0.14))
-            .foregroundStyle(tint)
-            .clipShape(Capsule())
-    }
-
-    private func linkButton(title: String, key: String, fallback: String) -> some View {
+    private func footerLink(title: String, key: String, fallback: String) -> some View {
         Button(title) {
             let value = Bundle.main.object(forInfoDictionaryKey: key) as? String ?? fallback
             if let url = URL(string: value) {
                 NSWorkspace.shared.open(url)
             }
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(.plain)
+        .foregroundStyle(.blue)
+    }
+
+    private func statusBadge(_ title: String, tint: Color) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(tint.opacity(0.14))
+            .foregroundStyle(tint)
+            .clipShape(Capsule())
     }
 }
 
