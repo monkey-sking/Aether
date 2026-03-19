@@ -221,11 +221,11 @@ struct InputSettingsView: View {
             VoiceLexiconSection(
                 title: isChinese ? "模式与面板" : "Modes & Panels",
                 subtitle: isChinese
-                    ? "输入/控制模式切换、语言切换、快捷键面板与清空输入。"
-                    : "Input/control switching, language switching, shortcut panels, and clear input.",
+                    ? "输入/控制模式切换、语言切换与快捷键面板。"
+                    : "Input/control switching, language switching, and shortcut panels.",
                 systemImage: "switch.2",
                 tint: .accentColor,
-                presets: [.toggleInputControlMode, .toggleTracking, .toggleLanguage, .toggleShortcutPanel, .showShortcutPanel, .hideShortcutPanel, .clearInput]
+                presets: [.toggleInputControlMode, .toggleTracking, .toggleLanguage, .toggleShortcutPanel, .showShortcutPanel, .hideShortcutPanel]
             ),
             VoiceLexiconSection(
                 title: NSLocalizedString("lexicon.section.pointer_control.title", comment: ""),
@@ -233,6 +233,24 @@ struct InputSettingsView: View {
                 systemImage: "scope",
                 tint: .orange,
                 presets: [.startPointer, .stopPointer, .recenter]
+            ),
+            VoiceLexiconSection(
+                title: isChinese ? "文本编辑" : "Text Editing",
+                subtitle: isChinese
+                    ? "清空、删除、光标移动与选择扩展都可以在这里自定义。"
+                    : "Customize clear, delete, cursor movement, and selection expansion here.",
+                systemImage: "character.cursor.ibeam",
+                tint: .green,
+                presets: [.clearInput, .deleteBackward, .moveCursorLeft, .moveCursorRight, .selectLeft, .selectRight]
+            ),
+            VoiceLexiconSection(
+                title: isChinese ? "连接锁定" : "Connection Lock",
+                subtitle: isChinese
+                    ? "控制耳机连接锁定与手动锁定/解锁。"
+                    : "Control headset connection lock and manual lock or unlock actions.",
+                systemImage: "lock.circle",
+                tint: .indigo,
+                presets: [.toggleConnectionLock, .lockConnection, .unlockConnection]
             ),
             VoiceLexiconSection(
                 title: isChinese ? "媒体控制" : "Media Controls",

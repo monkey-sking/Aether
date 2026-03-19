@@ -1643,13 +1643,19 @@ final class VoiceCommandRouter {
         localeIdentifier: String,
         overrides: [VoiceCommandOverrideConfig]
     ) -> [String] {
+        let defaults = defaultAliases(for: preset, localeIdentifier: localeIdentifier)
         if let override = overrideEntry(for: preset, localeIdentifier: localeIdentifier, overrides: overrides) {
-            return compatibilityAliases(for: preset, localeIdentifier: localeIdentifier, base: override.aliases)
+            guard !override.aliases.isEmpty else { return [] }
+            return compatibilityAliases(
+                for: preset,
+                localeIdentifier: localeIdentifier,
+                base: uniqueAliases(defaults + override.aliases)
+            )
         }
         return compatibilityAliases(
             for: preset,
             localeIdentifier: localeIdentifier,
-            base: defaultAliases(for: preset, localeIdentifier: localeIdentifier)
+            base: defaults
         )
     }
 

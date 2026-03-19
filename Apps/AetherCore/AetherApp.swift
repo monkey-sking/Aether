@@ -1501,10 +1501,24 @@ class AppState: ObservableObject {
             VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical &&
                 $0.commandID == preset.rawValue
         }) {
-            return override.aliases.joined(separator: ", ")
+            if override.aliases.isEmpty {
+                return ""
+            }
+            return effectiveCommandAliases(for: preset, localeIdentifier: canonical).joined(separator: ", ")
         }
         let defaults = VoiceCommandRouter.defaultAliases(for: preset, localeIdentifier: canonical)
         return defaults.joined(separator: ", ")
+    }
+
+    func commandCustomAliasText(for preset: VoiceCommandPreset, localeIdentifier: String) -> String {
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        if let override = voiceCommandOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical &&
+                $0.commandID == preset.rawValue
+        }) {
+            return override.aliases.joined(separator: ", ")
+        }
+        return ""
     }
 
     func updateCommandOverrideText(_ raw: String, for preset: VoiceCommandPreset, localeIdentifier: String) {
