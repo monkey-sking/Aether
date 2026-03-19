@@ -680,7 +680,8 @@ struct AboutCenterView: View {
     @State private var emailInput: String = ""
     @State private var codeInput: String = ""
     @State private var referralInput: String = ""
-    @State private var devicesExpanded: Bool = false
+    @State private var showsLicenseSheet: Bool = false
+    @State private var showsDevicesSheet: Bool = false
     private let actionColumns = [
         GridItem(.flexible(minimum: 280), spacing: 16),
         GridItem(.flexible(minimum: 280), spacing: 16)
@@ -713,6 +714,18 @@ struct AboutCenterView: View {
                 updatesCard
                 supportCard
             }
+        }
+        .sheet(isPresented: $showsLicenseSheet) {
+            AboutLicenseSheet(
+                emailInput: $emailInput,
+                codeInput: $codeInput,
+                referralInput: $referralInput
+            )
+            .environmentObject(appState)
+        }
+        .sheet(isPresented: $showsDevicesSheet) {
+            AboutDevicesSheet()
+                .environmentObject(appState)
         }
         .onAppear {
             emailInput = licenseManager.email
@@ -759,53 +772,29 @@ struct AboutCenterView: View {
 
     private var licenseCard: some View {
         infoCard(title: isChinese ? "授权" : "License") {
-            HStack(alignment: .firstTextBaseline) {
-                Text(isChinese ? "当前状态" : "Current Status")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                statusBadge(licenseManager.statusSummary, tint: statusTint)
-            }
-            LabeledContent(isChinese ? "方案" : "Plan", value: licenseManager.planSummary)
-            LabeledContent(isChinese ? "试用截止" : "Trial ends", value: licenseManager.trialEndsAt ?? "-")
-            LabeledContent(isChinese ? "订阅截止" : "Subscription ends", value: licenseManager.subscriptionEndsAt ?? "-")
-            if let referralCode = licenseManager.referralCode, !referralCode.isEmpty {
-                LabeledContent(isChinese ? "我的邀请码" : "My referral code", value: referralCode)
-            }
-            Divider()
-            Text(isChinese ? "输入邮箱与激活码后可恢复授权；没有激活码时可直接开始试用。" : "Use your email and activation code to restore access, or start a trial if you do not have one yet.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            TextField(isChinese ? "邮箱" : "Email", text: $emailInput)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.regular)
-            TextField(isChinese ? "激活码" : "Activation code", text: $codeInput)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.regular)
-            TextField(isChinese ? "邀请码（可选）" : "Referral code (optional)", text: $referralInput)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.regular)
-            HStack {
-                Button(isChinese ? "激活" : "Activate") {
-                    Task { await licenseManager.activate(email: emailInput, code: codeInput) }
-                }
-                .buttonStyle(.borderedProminent)
-                Button(isChinese ? "开始试用" : "Start Trial") {
-                    Task {
-                        await licenseManager.startTrial(email: emailInput, referralCode: referralInput.isEmpty ? nil : referralInput)
-                        codeInput = licenseManager.licenseKey
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(isChinese ? "当前状态" : "Current Status")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        statusBadge(licenseManager.statusSummary, tint: statusTint)
+                    }
+                    Text(isChinese ? "授权相关操作集中在一个弹窗里处理，首屏只保留结果和入口。" : "License actions are handled in a single sheet. The main page keeps only status and entry points.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        miniMetric(title: isChinese ? "方案" : "Plan", value: licenseManager.planSummary)
+                        miniMetric(title: isChinese ? "设备" : "Devices", value: "\(licenseManager.devicesUsed) / \(licenseManager.maxDevices)")
                     }
                 }
-                .buttonStyle(.bordered)
-                Button(isChinese ? "重发邮件" : "Resend Email") {
-                    Task { await licenseManager.resendActivation(email: emailInput) }
+                Spacer()
+                Button(isChinese ? "管理授权" : "Manage License") {
+                    showsLicenseSheet = true
                 }
-                .buttonStyle(.bordered)
-                Button(isChinese ? "刷新状态" : "Refresh") {
-                    Task { await licenseManager.refreshEntitlement() }
-                }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
             }
-            .controlSize(.small)
             if let info = licenseManager.infoMessage, !info.isEmpty {
                 Text(info)
                     .font(.caption)
@@ -864,52 +853,22 @@ struct AboutCenterView: View {
             .controlSize(.small)
 
             Divider()
-
-            DisclosureGroup(isExpanded: $devicesExpanded) {
-                VStack(alignment: .leading, spacing: 12) {
-                    if licenseManager.devices.isEmpty {
-                        Text(isChinese ? "当前没有已同步的设备信息。" : "No synced devices yet.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(licenseManager.devices) { device in
-                            HStack(alignment: .top, spacing: 12) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(device.name).font(.headline)
-                                    Text(device.isCurrent ? (isChinese ? "当前设备" : "Current device") : (isChinese ? "其他设备" : "Other device"))
-                                        .foregroundStyle(.secondary)
-                                    Text("\(isChinese ? "激活于" : "Activated") \(device.activatedAt ?? "-")")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Text("\(isChinese ? "最近在线" : "Last seen") \(device.lastSeenAt ?? "-")")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button(isChinese ? "移除" : "Remove") {
-                                    Task { await licenseManager.removeDevice(deviceId: device.id) }
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
-                            if device.id != licenseManager.devices.last?.id {
-                                Divider()
-                            }
-                        }
-                    }
-                    Button(isChinese ? "刷新设备列表" : "Refresh devices") {
-                        Task { await licenseManager.fetchDevices() }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(isChinese ? "设备管理" : "Device Management")
+                        .font(.subheadline.weight(.semibold))
+                    Text(isChinese ? "设备列表不占首屏，需要时再进入单独窗口查看与移除。" : "Device lists stay out of the first screen and open in a dedicated sheet when needed.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    miniMetric(title: isChinese ? "已绑定" : "Linked", value: "\(licenseManager.devices.count)")
                 }
-                .padding(.top, 6)
-            } label: {
-                disclosureLabel(
-                    title: isChinese ? "设备管理" : "Device Management",
-                    trailing: "\(licenseManager.devices.count)"
-                )
+                Spacer()
+                Button(isChinese ? "管理设备" : "Manage Devices") {
+                    showsDevicesSheet = true
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
-            .controlSize(.small)
         }
     }
 
@@ -952,19 +911,18 @@ struct AboutCenterView: View {
             .clipShape(Capsule())
     }
 
-    private func disclosureLabel(title: String, trailing: String) -> some View {
-        HStack {
+    private func miniMetric(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.body.weight(.semibold))
-            Spacer()
-            Text(trailing)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
                 .font(.caption.weight(.semibold).monospacedDigit())
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.accentColor.opacity(0.12))
-                .foregroundStyle(Color.accentColor)
-                .clipShape(Capsule())
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func linkButton(title: String, key: String, fallback: String) -> some View {
@@ -975,5 +933,128 @@ struct AboutCenterView: View {
             }
         }
         .buttonStyle(.bordered)
+    }
+}
+
+private struct AboutLicenseSheet: View {
+    @EnvironmentObject private var appState: AppState
+    @ObservedObject private var licenseManager = AetherLicenseManager.shared
+    @Binding var emailInput: String
+    @Binding var codeInput: String
+    @Binding var referralInput: String
+
+    private var isChinese: Bool { appState.isChineseUI }
+
+    var body: some View {
+        SettingsPage(
+            title: isChinese ? "授权管理" : "License Management",
+            subtitle: isChinese ? "处理激活、试用、重发邮件和状态刷新。" : "Manage activation, trial, resend, and refresh actions."
+        ) {
+            GlassCard(padding: 18) {
+                VStack(alignment: .leading, spacing: 14) {
+                    TextField(isChinese ? "邮箱" : "Email", text: $emailInput)
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.regular)
+                    TextField(isChinese ? "激活码" : "Activation code", text: $codeInput)
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.regular)
+                    TextField(isChinese ? "邀请码（可选）" : "Referral code (optional)", text: $referralInput)
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.regular)
+
+                    HStack {
+                        Button(isChinese ? "激活" : "Activate") {
+                            Task { await licenseManager.activate(email: emailInput, code: codeInput) }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Button(isChinese ? "开始试用" : "Start Trial") {
+                            Task {
+                                await licenseManager.startTrial(email: emailInput, referralCode: referralInput.isEmpty ? nil : referralInput)
+                                codeInput = licenseManager.licenseKey
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        Button(isChinese ? "重发邮件" : "Resend Email") {
+                            Task { await licenseManager.resendActivation(email: emailInput) }
+                        }
+                        .buttonStyle(.bordered)
+                        Button(isChinese ? "刷新状态" : "Refresh") {
+                            Task { await licenseManager.refreshEntitlement() }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .controlSize(.small)
+
+                    if let info = licenseManager.infoMessage, !info.isEmpty {
+                        Text(info)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let error = licenseManager.lastErrorMessage, !error.isEmpty {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 620, minHeight: 340)
+    }
+}
+
+private struct AboutDevicesSheet: View {
+    @EnvironmentObject private var appState: AppState
+    @ObservedObject private var licenseManager = AetherLicenseManager.shared
+
+    private var isChinese: Bool { appState.isChineseUI }
+
+    var body: some View {
+        SettingsPage(
+            title: isChinese ? "设备管理" : "Device Management",
+            subtitle: isChinese ? "查看当前授权下的设备，并在需要时移除。" : "Review devices linked to the current license and remove them when needed."
+        ) {
+            GlassCard(padding: 18) {
+                VStack(alignment: .leading, spacing: 12) {
+                    if licenseManager.devices.isEmpty {
+                        Text(isChinese ? "当前没有已同步的设备信息。" : "No synced devices yet.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(licenseManager.devices) { device in
+                            HStack(alignment: .top, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(device.name)
+                                        .font(.headline)
+                                    Text(device.isCurrent ? (isChinese ? "当前设备" : "Current device") : (isChinese ? "其他设备" : "Other device"))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text("\(isChinese ? "激活于" : "Activated") \(device.activatedAt ?? "-")")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                    Text("\(isChinese ? "最近在线" : "Last seen") \(device.lastSeenAt ?? "-")")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button(isChinese ? "移除" : "Remove") {
+                                    Task { await licenseManager.removeDevice(deviceId: device.id) }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                            if device.id != licenseManager.devices.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+
+                    Button(isChinese ? "刷新设备列表" : "Refresh devices") {
+                        Task { await licenseManager.fetchDevices() }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .frame(minWidth: 620, minHeight: 380)
     }
 }
