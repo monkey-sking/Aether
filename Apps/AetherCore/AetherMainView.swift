@@ -30,9 +30,8 @@ struct AetherMainView: View {
             List(selection: $selection) {
                 Section {
                     NavigationLink(value: Panel.overview) {
-                        sidebarRow(.overview)
+                        Label(panelTitle(.overview), systemImage: panelSymbol(.overview))
                     }
-                    .listRowBackground(Color.clear)
                 } header: {
                     Text(LocalizedStringKey("main.section.workspace"))
                         .font(.caption)
@@ -42,13 +41,11 @@ struct AetherMainView: View {
 
                 Section {
                     NavigationLink(value: Panel.headGestures) {
-                        sidebarRow(.headGestures)
+                        Label(panelTitle(.headGestures), systemImage: panelSymbol(.headGestures))
                     }
-                    .listRowBackground(Color.clear)
                     NavigationLink(value: Panel.shortcuts) {
-                        sidebarRow(.shortcuts)
+                        Label(panelTitle(.shortcuts), systemImage: panelSymbol(.shortcuts))
                     }
-                    .listRowBackground(Color.clear)
                 } header: {
                     Text(LocalizedStringKey("main.section.controls"))
                         .font(.caption)
@@ -58,17 +55,14 @@ struct AetherMainView: View {
 
                 Section {
                     NavigationLink(value: Panel.voiceAppControls) {
-                        sidebarRow(.voiceAppControls)
+                        Label(panelTitle(.voiceAppControls), systemImage: panelSymbol(.voiceAppControls))
                     }
-                    .listRowBackground(Color.clear)
                     NavigationLink(value: Panel.voiceInsights) {
-                        sidebarRow(.voiceInsights)
+                        Label(panelTitle(.voiceInsights), systemImage: panelSymbol(.voiceInsights))
                     }
-                    .listRowBackground(Color.clear)
                     NavigationLink(value: Panel.voiceLexicon) {
-                        sidebarRow(.voiceLexicon)
+                        Label(panelTitle(.voiceLexicon), systemImage: panelSymbol(.voiceLexicon))
                     }
-                    .listRowBackground(Color.clear)
                 } header: {
                     Text(LocalizedStringKey("main.section.voice"))
                         .font(.caption)
@@ -78,9 +72,8 @@ struct AetherMainView: View {
 
                 Section {
                     NavigationLink(value: Panel.about) {
-                        sidebarRow(.about)
+                        Label(panelTitle(.about), systemImage: panelSymbol(.about))
                     }
-                    .listRowBackground(Color.clear)
                 } header: {
                     Text(LocalizedStringKey("main.section.app"))
                         .font(.caption)
@@ -128,16 +121,6 @@ struct AetherMainView: View {
         }
     }
 
-    @ViewBuilder
-    private func sidebarRow(_ panel: Panel) -> some View {
-        SidebarRow(
-            title: panelTitle(panel),
-            systemImage: panel == .headGestures ? nil : panelSymbol(panel),
-            isSelected: selection == panel,
-            iconOverride: panel == .headGestures ? AnyView(TransparencyModeIcon(size: AetherUI.sidebarIconSize, color: .primary)) : nil
-        )
-    }
-
     private func panelTitle(_ panel: Panel) -> String {
         switch panel {
         case .overview:
@@ -177,50 +160,6 @@ struct AetherMainView: View {
             return "person.crop.circle"
         case .shortcuts:
             return "keyboard"
-        }
-    }
-}
-
-private struct SidebarRow: View {
-    let title: String
-    let systemImage: String?
-    let isSelected: Bool
-    let iconOverride: AnyView?
-
-    @State private var isHovered = false
-
-    var body: some View {
-        HStack(spacing: 10) {
-            if let iconOverride {
-                iconOverride
-                    .frame(width: AetherUI.sidebarIconFrame, alignment: .center)
-            } else if let systemImage {
-                Image(systemName: systemImage)
-                    .font(.system(size: AetherUI.sidebarIconSize, weight: .semibold))
-                    .frame(width: AetherUI.sidebarIconFrame, alignment: .center)
-            }
-
-            Text(title)
-                .font(AetherUI.sidebarItemFont)
-                .lineLimit(1)
-        }
-        .foregroundStyle(isSelected ? .primary : (isHovered ? .primary : .secondary))
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(isSelected ? Color.accentColor.opacity(0.35) : Color.clear, lineWidth: 1)
-        )
-        .scaleEffect(isHovered && !isSelected ? 1.02 : 1)
-        .animation(.easeInOut(duration: 0.12), value: isHovered)
-        .animation(.easeInOut(duration: 0.12), value: isSelected)
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            isHovered = hovering
         }
     }
 }
