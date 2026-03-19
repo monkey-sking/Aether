@@ -77,9 +77,9 @@ cd /Volumes/SSD/Projects/Aether
 SKIP_NOTARIZE=1 ./Scripts/ReleaseForUsers.sh
 ```
 
-## 5. 开发全自动流程（编译+安装+重启）
+## 5. 开发快速构建（仅构建，不自动安装）
 
-如果你正在进行功能开发，需要频繁验证安装后的效果，可以使用此脚本。它会自动执行生产打包、关闭现有进程、覆盖 `/Applications/Aether.app` 并重新启动。
+如果你正在进行功能开发，需要频繁验证构建结果，可以使用此脚本。它会执行生产打包，并把产物留在 `.build/release/`，不再自动覆盖 `/Applications/Aether.app`，也不会自动重启。
 
 ```bash
 ./Scripts/BuildAndInstall.sh

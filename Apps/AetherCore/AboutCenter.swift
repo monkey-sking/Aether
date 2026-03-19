@@ -690,6 +690,15 @@ struct AboutCenterView: View {
         isChinese ? "首动意之所向，言出事之既成。" : "Move with intent. Command with a word."
     }
 
+    private func channelLabel(_ channel: AetherUpdateChannel) -> String {
+        switch channel {
+        case .stable:
+            return isChinese ? "稳定版" : "Stable"
+        case .beta:
+            return isChinese ? "测试版" : "Beta"
+        }
+    }
+
     var body: some View {
         SettingsPage(
             title: isChinese ? "关于" : "About",
@@ -773,6 +782,25 @@ struct AboutCenterView: View {
                     footerLink(title: isChinese ? "访问官网" : "Website", key: "AetherWebsiteURL", fallback: "https://aether.7caifei.com")
 
                     footerLink(title: isChinese ? "更新日志" : "Changelog", key: "AetherChangelogURL", fallback: "https://aether.7caifei.com/changelog")
+
+                    Menu {
+                        ForEach(AetherUpdateChannel.allCases) { channel in
+                            Button(channelLabel(channel)) {
+                                updaterManager.setUpdateChannel(channel)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(isChinese ? "更新通道" : "Update Channel")
+                            Text(channelLabel(updaterManager.channel))
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.down")
+                                .font(.caption2)
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
 
                     Button(isChinese ? "管理授权" : "Manage License") {
                         showsLicenseSheet = true

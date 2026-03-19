@@ -1,11 +1,9 @@
 #!/bin/bash
 
-# Build and Install Script for Aether
+# Build Script for Aether
 # This script:
 # 1. Runs the release build and packaging script.
-# 2. Terminates the currently running Aether process.
-# 3. Installs the new version to /Applications.
-# 4. Relaunches Aether.
+# 2. Leaves the built artifacts in .build/release for manual install/testing.
 
 set -euo pipefail
 
@@ -13,10 +11,9 @@ APP_NAME="Aether"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/.build/release"
 APP_SOURCE="${BUILD_DIR}/${APP_NAME}.app"
-INSTALL_TARGET="/Applications/${APP_NAME}.app"
 
-log() { echo "[install] $*"; }
-error() { echo "[install] ERROR: $*" >&2; exit 1; }
+log() { echo "[build] $*"; }
+error() { echo "[build] ERROR: $*" >&2; exit 1; }
 
 # 1. Run the build script
 log "Starting production build..."
@@ -29,21 +26,8 @@ if [[ ! -d "$APP_SOURCE" ]]; then
     error "Build failed or app not found at ${APP_SOURCE}"
 fi
 
-# 3. Terminate running Aether process
-log "Closing running Aether processes..."
-pkill -x "$APP_NAME" || log "No running $APP_NAME process found."
-
-# Wait a moment for process to fully exit
-sleep 1
-
-# 4. Install to /Applications
-log "Installing ${APP_NAME} to ${INSTALL_TARGET}..."
-# Use sudo if permission is needed, but try without first as user likely has /Applications access
-rm -rf "$INSTALL_TARGET"
-cp -R "$APP_SOURCE" "$INSTALL_TARGET"
-
-# 5. Relaunch Aether
-log "Relaunching ${APP_NAME}..."
-open "$INSTALL_TARGET"
-
-log "🎉 Build, Install, and Restart successful!"
+log "Build completed."
+log "App: ${APP_SOURCE}"
+log "DMG: ${BUILD_DIR}/${APP_NAME}_Installer.dmg"
+log "ZIP: ${BUILD_DIR}/${APP_NAME}.zip"
+log "Manual install remains explicit. Use Scripts/InstallToApplications.sh if needed."
