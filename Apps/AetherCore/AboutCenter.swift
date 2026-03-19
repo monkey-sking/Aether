@@ -186,20 +186,6 @@ final class AetherLicenseManager: ObservableObject {
         }
     }
 
-    func resendActivation(email: String?) async {
-        do {
-            let body: [String: Any] = [
-                "email": (email ?? self.email).trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                "licenseKey": licenseKey,
-            ]
-            let json = try await postJSON(path: "/activation/resend", body: body)
-            updateSharedState(from: json)
-            infoMessage = AppLocalization.isChinese ? "激活邮件已重发。" : "Activation email resent."
-        } catch {
-            lastErrorMessage = error.localizedDescription
-        }
-    }
-
     func startTrial(email: String, referralCode: String?) async {
         self.email = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         persistCredentials()
@@ -702,18 +688,21 @@ struct AboutCenterView: View {
         updaterManager.latestVersion ?? "-"
     }
 
+    private var statusSummaryLine: String {
+        let updateSummary = updaterManager.statusMessage.isEmpty ? latestVersionDisplay : updaterManager.statusMessage
+        if isChinese {
+            return "当前为\(licenseManager.statusSummary)，方案\(licenseManager.planSummary)，已绑定 \(licenseManager.devicesUsed)/\(licenseManager.maxDevices) 台设备。更新状态：\(updateSummary)。"
+        }
+        return "Status: \(licenseManager.statusSummary). Plan: \(licenseManager.planSummary). Devices: \(licenseManager.devicesUsed)/\(licenseManager.maxDevices). Update: \(updateSummary)."
+    }
+
     var body: some View {
         SettingsPage(
             title: isChinese ? "关于" : "About",
-            subtitle: isChinese ? "这里只保留状态、授权和更新，技术细节不占首屏。" : "This page keeps only status, licensing, and updates on the first screen."
+            subtitle: isChinese ? "版本、授权与更新在这里统一查看和处理。" : "Version, license, and update actions are handled here."
         ) {
             overviewCard
-
-            LazyVGrid(columns: actionColumns, alignment: .leading, spacing: 16) {
-                licenseCard
-                updatesCard
-                supportCard
-            }
+            supportRow
         }
         .sheet(isPresented: $showsLicenseSheet) {
             AboutLicenseSheet(
@@ -762,54 +751,68 @@ struct AboutCenterView: View {
 
                 LazyVGrid(columns: actionColumns, alignment: .leading, spacing: 10) {
                     metricTile(title: isChinese ? "版本" : "Version", value: appState.appVersionDisplay)
+                    metricTile(title: isChinese ? "最新版本" : "Latest Version", value: latestVersionDisplay)
                     metricTile(title: isChinese ? "方案" : "Plan", value: licenseManager.planSummary)
                     metricTile(title: isChinese ? "设备占用" : "Devices", value: "\(licenseManager.devicesUsed) / \(licenseManager.maxDevices)")
-                    metricTile(title: isChinese ? "最新版本" : "Latest Version", value: latestVersionDisplay)
                 }
-            }
-        }
-    }
 
-    private var licenseCard: some View {
-        infoCard(title: isChinese ? "授权" : "License") {
-            HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(isChinese ? "当前状态" : "Current Status")
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        statusBadge(licenseManager.statusSummary, tint: statusTint)
-                    }
-                    Text(isChinese ? "授权相关操作集中在一个弹窗里处理，首屏只保留结果和入口。" : "License actions are handled in a single sheet. The main page keeps only status and entry points.")
+                    Text(isChinese ? "当前状态摘要" : "Current Status Summary")
+                        .font(.subheadline.weight(.semibold))
+                    Text(statusSummaryLine)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
-                        miniMetric(title: isChinese ? "方案" : "Plan", value: licenseManager.planSummary)
-                        miniMetric(title: isChinese ? "设备" : "Devices", value: "\(licenseManager.devicesUsed) / \(licenseManager.maxDevices)")
+                }
+
+                HStack(spacing: 10) {
+                    Button(isChinese ? "检查更新" : "Check for Updates") {
+                        Task { await updaterManager.checkForUpdates() }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+
+                    Button(isChinese ? "管理授权" : "Manage License") {
+                        showsLicenseSheet = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Button(isChinese ? "管理设备" : "Manage Devices") {
+                        showsDevicesSheet = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-                Spacer()
-                Button(isChinese ? "管理授权" : "Manage License") {
-                    showsLicenseSheet = true
+
+                if let info = licenseManager.infoMessage, !info.isEmpty {
+                    Text(info)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if let error = licenseManager.lastErrorMessage, !error.isEmpty {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                } else if !updaterManager.statusMessage.isEmpty {
+                    Text(updaterManager.statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            }
-            if let info = licenseManager.infoMessage, !info.isEmpty {
-                Text(info)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if let error = licenseManager.lastErrorMessage, !error.isEmpty {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
             }
         }
     }
 
-    private var updatesCard: some View {
-        infoCard(title: isChinese ? "更新" : "Updates") {
+    private var supportRow: some View {
+        HStack(spacing: 8) {
+            linkButton(title: isChinese ? "官网" : "Website", key: "AetherWebsiteURL", fallback: "https://aether.7caifei.com")
+            linkButton(title: isChinese ? "更新日志" : "Changelog", key: "AetherChangelogURL", fallback: "https://aether.7caifei.com/changelog")
+            Button(isChinese ? "下载" : "Download") {
+                updaterManager.openLatestDownload()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Spacer()
+
             Picker(isChinese ? "渠道" : "Channel", selection: Binding(
                 get: { updaterManager.channel },
                 set: {
@@ -821,66 +824,8 @@ struct AboutCenterView: View {
                 Text("Beta").tag(AetherUpdateChannel.beta)
             }
             .pickerStyle(.segmented)
+            .frame(width: 180)
             .controlSize(.small)
-
-            LabeledContent(isChinese ? "最新版本" : "Latest version", value: latestVersionDisplay)
-            LabeledContent(
-                isChinese ? "更新状态" : "Update status",
-                value: updaterManager.statusMessage.isEmpty ? "-" : updaterManager.statusMessage
-            )
-
-            HStack {
-                Button(isChinese ? "检查更新" : "Check for Updates") {
-                    Task { await updaterManager.checkForUpdates() }
-                }
-                .buttonStyle(.borderedProminent)
-                Button(isChinese ? "打开下载" : "Open Download") {
-                    updaterManager.openLatestDownload()
-                }
-                .buttonStyle(.bordered)
-            }
-            .controlSize(.small)
-        }
-    }
-
-    private var supportCard: some View {
-        infoCard(title: isChinese ? "支持" : "Support") {
-            HStack(spacing: 8) {
-                linkButton(title: isChinese ? "官网" : "Website", key: "AetherWebsiteURL", fallback: "https://aether.7caifei.com")
-                linkButton(title: isChinese ? "下载页" : "Downloads", key: "AetherDownloadPageURL", fallback: "https://aether.7caifei.com/download")
-                linkButton(title: isChinese ? "更新日志" : "Changelog", key: "AetherChangelogURL", fallback: "https://aether.7caifei.com/changelog")
-            }
-            .controlSize(.small)
-
-            Divider()
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(isChinese ? "设备管理" : "Device Management")
-                        .font(.subheadline.weight(.semibold))
-                    Text(isChinese ? "设备列表不占首屏，需要时再进入单独窗口查看与移除。" : "Device lists stay out of the first screen and open in a dedicated sheet when needed.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    miniMetric(title: isChinese ? "已绑定" : "Linked", value: "\(licenseManager.devices.count)")
-                }
-                Spacer()
-                Button(isChinese ? "管理设备" : "Manage Devices") {
-                    showsDevicesSheet = true
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-        }
-    }
-
-    private func infoCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        GlassCard(padding: 18) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(title)
-                    .font(.title3.weight(.semibold))
-                content()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(maxHeight: .infinity, alignment: .top)
         }
     }
 
@@ -911,20 +856,6 @@ struct AboutCenterView: View {
             .clipShape(Capsule())
     }
 
-    private func miniMetric(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.caption.weight(.semibold).monospacedDigit())
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
     private func linkButton(title: String, key: String, fallback: String) -> some View {
         Button(title) {
             let value = Bundle.main.object(forInfoDictionaryKey: key) as? String ?? fallback
@@ -933,6 +864,7 @@ struct AboutCenterView: View {
             }
         }
         .buttonStyle(.bordered)
+        .controlSize(.small)
     }
 }
 
@@ -948,7 +880,7 @@ private struct AboutLicenseSheet: View {
     var body: some View {
         SettingsPage(
             title: isChinese ? "授权管理" : "License Management",
-            subtitle: isChinese ? "处理激活、试用、重发邮件和状态刷新。" : "Manage activation, trial, resend, and refresh actions."
+            subtitle: isChinese ? "处理激活、试用和状态刷新。" : "Manage activation, trial, and refresh actions."
         ) {
             GlassCard(padding: 18) {
                 VStack(alignment: .leading, spacing: 14) {
@@ -972,10 +904,6 @@ private struct AboutLicenseSheet: View {
                                 await licenseManager.startTrial(email: emailInput, referralCode: referralInput.isEmpty ? nil : referralInput)
                                 codeInput = licenseManager.licenseKey
                             }
-                        }
-                        .buttonStyle(.bordered)
-                        Button(isChinese ? "重发邮件" : "Resend Email") {
-                            Task { await licenseManager.resendActivation(email: emailInput) }
                         }
                         .buttonStyle(.bordered)
                         Button(isChinese ? "刷新状态" : "Refresh") {

@@ -14,7 +14,6 @@ struct ActivationGateView: View {
     private var isDeviceLimitReached: Bool { licenseManager.gateState == .deviceLimitReached }
     private var canActivate: Bool { licenseManager.gateState != .loading }
     private var canStartTrial: Bool { licenseManager.gateState != .loading && !isDeviceLimitReached }
-    private var canResend: Bool { licenseManager.gateState != .loading && !isDeviceLimitReached }
 
     private var titleText: String {
         switch licenseManager.gateState {
@@ -123,12 +122,6 @@ struct ActivationGateView: View {
                             }
                             .buttonStyle(.bordered)
                             .disabled(!canStartTrial)
-
-                            Button(isChinese ? "重发邮件" : "Resend Email") {
-                                Task { await licenseManager.resendActivation(email: emailInput) }
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!canResend)
 
                             Button(isChinese ? "刷新状态" : "Refresh") {
                                 Task { await licenseManager.refreshEntitlement() }
