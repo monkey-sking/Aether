@@ -882,51 +882,125 @@ private struct AboutLicenseSheet: View {
             title: isChinese ? "授权管理" : "License Management",
             subtitle: isChinese ? "处理激活、试用和状态刷新。" : "Manage activation, trial, and refresh actions."
         ) {
-            GlassCard(padding: 18) {
-                VStack(alignment: .leading, spacing: 14) {
-                    TextField(isChinese ? "邮箱" : "Email", text: $emailInput)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.regular)
-                    TextField(isChinese ? "激活码" : "Activation code", text: $codeInput)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.regular)
-                    TextField(isChinese ? "邀请码（可选）" : "Referral code (optional)", text: $referralInput)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.regular)
-
-                    HStack {
-                        Button(isChinese ? "激活" : "Activate") {
-                            Task { await licenseManager.activate(email: emailInput, code: codeInput) }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        Button(isChinese ? "开始试用" : "Start Trial") {
-                            Task {
-                                await licenseManager.startTrial(email: emailInput, referralCode: referralInput.isEmpty ? nil : referralInput)
-                                codeInput = licenseManager.licenseKey
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        Button(isChinese ? "刷新状态" : "Refresh") {
-                            Task { await licenseManager.refreshEntitlement() }
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    .controlSize(.small)
-
-                    if let info = licenseManager.infoMessage, !info.isEmpty {
-                        Text(info)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let error = licenseManager.lastErrorMessage, !error.isEmpty {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-                }
+            if licenseManager.isActivated {
+                activatedView
+            } else {
+                activationFormView
             }
         }
         .frame(minWidth: 620, minHeight: 340)
+    }
+
+    private var activatedView: some View {
+        GlassCard(padding: 22) {
+            VStack(spacing: 22) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 58))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.blue, .cyan],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                VStack(spacing: 6) {
+                    Text(isChinese ? "Aether 已激活" : "Aether Activated")
+                        .font(.title2.weight(.bold))
+                    Text(isChinese ? "感谢支持独立开发。" : "Thank you for supporting indie development.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack {
+                    Label {
+                        Text(licenseManager.planSummary)
+                    } icon: {
+                        Image(systemName: "crown")
+                    }
+
+                    Spacer()
+
+                    Label {
+                        Text("\(licenseManager.devicesUsed)/\(licenseManager.maxDevices) \(isChinese ? "台设备" : "devices")")
+                    } icon: {
+                        Image(systemName: "laptopcomputer")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    Button(isChinese ? "刷新状态" : "Refresh") {
+                        Task { await licenseManager.refreshEntitlement() }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                if let info = licenseManager.infoMessage, !info.isEmpty {
+                    Text(info)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let error = licenseManager.lastErrorMessage, !error.isEmpty {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var activationFormView: some View {
+        GlassCard(padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(isChinese ? "输入邮箱与激活码进行授权；没有激活码时可以开始试用。" : "Enter your email and activation code, or start a trial if you do not have one yet.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                TextField(isChinese ? "邮箱" : "Email", text: $emailInput)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.regular)
+                TextField(isChinese ? "激活码" : "Activation code", text: $codeInput)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.regular)
+                TextField(isChinese ? "邀请码（可选）" : "Referral code (optional)", text: $referralInput)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.regular)
+
+                HStack {
+                    Button(isChinese ? "激活" : "Activate") {
+                        Task { await licenseManager.activate(email: emailInput, code: codeInput) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button(isChinese ? "开始试用" : "Start Trial") {
+                        Task {
+                            await licenseManager.startTrial(email: emailInput, referralCode: referralInput.isEmpty ? nil : referralInput)
+                            codeInput = licenseManager.licenseKey
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    Button(isChinese ? "刷新状态" : "Refresh") {
+                        Task { await licenseManager.refreshEntitlement() }
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .controlSize(.small)
+
+                if let info = licenseManager.infoMessage, !info.isEmpty {
+                    Text(info)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let error = licenseManager.lastErrorMessage, !error.isEmpty {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
     }
 }
 
