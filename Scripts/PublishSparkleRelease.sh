@@ -10,6 +10,10 @@ DEFAULT_DMG_PATH="${PROJECT_ROOT}/.build/release/${APP_NAME}_Installer.dmg"
 DEFAULT_ZIP_PATH="${PROJECT_ROOT}/.build/release/${APP_NAME}.zip"
 DOWNLOAD_NAME="${APP_NAME}.dmg"
 SPARKLE_ACCOUNT="${SPARKLE_ACCOUNT:-aether}" # Ed25519 private key is stored in Keychain under this account.
+# Preserve latest + 2 older full packages by default (3 total).
+SPARKLE_MAX_VERSIONS="${SPARKLE_MAX_VERSIONS:-3}"
+# Default to no deltas; set >0 when you want delta updates.
+SPARKLE_MAX_DELTAS="${SPARKLE_MAX_DELTAS:-0}"
 WEBSITE_ROOT="${WEBSITE_ROOT:-${DEFAULT_WEBSITE_ROOT}}"
 APP_PATH="${APP_PATH:-${DEFAULT_APP_PATH}}"
 DMG_PATH="${DMG_PATH:-${DEFAULT_DMG_PATH}}"
@@ -189,8 +193,8 @@ log "Generating appcast + deltas in: ${UPDATE_DIR}"
   --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
   --full-release-notes-url "$FULL_RELEASE_NOTES_URL" \
   --link "$PRODUCT_LINK" \
-  --maximum-versions 6 \
-  --maximum-deltas 5 \
+  --maximum-versions "$SPARKLE_MAX_VERSIONS" \
+  --maximum-deltas "$SPARKLE_MAX_DELTAS" \
   "$UPDATE_DIR"
 
 log "Done."
