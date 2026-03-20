@@ -254,7 +254,7 @@ private struct StandardWindowConfigurator: NSViewRepresentable {
         window.identifier = NSUserInterfaceItemIdentifier("AetherMainWindow")
         applyTitle(for: window, title: title, subtitle: subtitle)
         window.styleMask.insert(.fullSizeContentView)
-        window.titleVisibility = .hidden
+        window.titleVisibility = .visible
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.toolbarStyle = .unified
@@ -299,6 +299,8 @@ private final class MainWindowToolbarDelegate: NSObject, NSToolbarDelegate {
 }
 
 private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryViewController {
+    private var lastExpandedWidth: CGFloat = SidebarMetrics.preferredWidth()
+
     override func viewDidLoad() {
         super.viewDidLoad()
         layoutAttribute = .left
@@ -347,16 +349,25 @@ private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryVie
 
     private func toggleSidebarVisibility(in splitViewController: NSSplitViewController) {
         guard let sidebarItem = splitViewController.splitViewItems.first else { return }
+        let splitView = splitViewController.splitView
 
         if sidebarItem.isCollapsed {
-            sidebarItem.animator().isCollapsed = false
-            let targetWidth = SidebarMetrics.preferredWidth()
+            let targetWidth = max(lastExpandedWidth, SidebarMetrics.preferredWidth())
+            sidebarItem.isCollapsed = false
             DispatchQueue.main.async {
-                splitViewController.splitView.setPosition(targetWidth, ofDividerAt: 0)
-                splitViewController.splitView.adjustSubviews()
+                splitView.setPosition(targetWidth, ofDividerAt: 0)
+                splitView.adjustSubviews()
             }
         } else {
-            sidebarItem.animator().isCollapsed = true
+            let currentWidth = splitView.arrangedSubviews.first?.frame.width ?? 0
+            if currentWidth > 1 {
+                lastExpandedWidth = currentWidth
+            }
+            splitView.setPosition(0, ofDividerAt: 0)
+            splitView.adjustSubviews()
+            DispatchQueue.main.async {
+                sidebarItem.isCollapsed = true
+            }
         }
     }
 
