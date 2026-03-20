@@ -315,7 +315,7 @@ final class FrontmostAppCommandCatalog: ObservableObject {
         ),
         AliasRule(
             keywords: ["reopen", "tab"],
-            aliases: ["reopen tab", "restore tab", "恢复标签", "重新打开标签"]
+            aliases: ["reopen tab", "restore tab", "恢复标签", "重新打开标签", "重新打开关闭的标签", "恢复已关闭的标签"]
         ),
         AliasRule(
             keywords: ["reload"],
@@ -375,7 +375,7 @@ final class FrontmostAppCommandCatalog: ObservableObject {
         ["close tab", "关闭标签", "关闭标签页", "关闭当前标签"],
         ["next tab", "下一个标签", "下一个标签页"],
         ["previous tab", "上一个标签", "上一个标签页"],
-        ["reopen closed tab", "恢复已关闭标签页", "重新打开标签", "恢复标签"],
+        ["reopen closed tab", "恢复已关闭标签页", "重新打开标签", "恢复标签", "重新打开关闭的标签", "恢复已关闭的标签"],
         ["refresh page", "刷新页面", "重新加载页面"],
         ["find in page", "在页面中查找", "页面查找"],
         ["focus address bar", "address bar", "聚焦地址栏", "切到地址栏"],
@@ -700,7 +700,7 @@ final class FrontmostAppCommandCatalog: ObservableObject {
                 subgroupTitle: tabsGroup,
                 title: isChinese ? "恢复已关闭标签页" : "Reopen Closed Tab",
                 shortcut: HotkeyBinding(keyCode: kVK_ANSI_T, modifiers: Self.commandShiftModifier),
-                aliases: ["reopen tab", "restore tab", "restore closed tab", "恢复标签", "重新打开标签"]
+                aliases: ["reopen tab", "restore tab", "restore closed tab", "恢复标签", "重新打开标签", "重新打开关闭的标签", "恢复已关闭的标签"]
             ),
             SupplementalCommandTemplate(
                 sectionTitle: browserSection,
@@ -1721,7 +1721,8 @@ final class VoiceCommandRouter {
             if preset == .clearInput {
                 continue
             }
-            for alias in normalizedAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides) {
+            for alias in normalizedAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides)
+                .sorted(by: { $0.count > $1.count }) {
                 if normalized.contains(alias) {
                     return CommandMatch(preset: preset, confidence: .medium, reason: "contains-\(preset.rawValue)")
                 }
@@ -1733,7 +1734,8 @@ final class VoiceCommandRouter {
             if preset == .clearInput {
                 continue
             }
-            for alias in pinyinAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides) {
+            for alias in pinyinAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides)
+                .sorted(by: { $0.count > $1.count }) {
                 if pinyin.contains(alias) {
                     return CommandMatch(preset: preset, confidence: .low, reason: "pinyin-\(preset.rawValue)")
                 }
@@ -1760,8 +1762,8 @@ final class VoiceCommandRouter {
             return nil
         }
 
-        for command in frontmostAppCommands {
-            for alias in normalizedAppAliases(for: command) {
+        for command in frontmostAppCommands.sorted(by: { longestNormalizedAliasLength(for: $0) > longestNormalizedAliasLength(for: $1) }) {
+            for alias in normalizedAppAliases(for: command).sorted(by: { $0.count > $1.count }) {
                 if normalized.contains(alias) {
                     return AppCommandMatch(command: command, confidence: .medium, reason: "app-contains-\(command.id)")
                 }
@@ -1769,8 +1771,8 @@ final class VoiceCommandRouter {
         }
 
         let pinyin = raw.pinyin
-        for command in frontmostAppCommands {
-            for alias in pinyinAppAliases(for: command) {
+        for command in frontmostAppCommands.sorted(by: { longestPinyinAliasLength(for: $0) > longestPinyinAliasLength(for: $1) }) {
+            for alias in pinyinAppAliases(for: command).sorted(by: { $0.count > $1.count }) {
                 if pinyin.contains(alias) {
                     return AppCommandMatch(command: command, confidence: .low, reason: "app-pinyin-\(command.id)")
                 }
@@ -1812,6 +1814,14 @@ final class VoiceCommandRouter {
             .map { $0.pinyin }
             .map(normalizeMatchString)
             .filter { !$0.isEmpty }
+    }
+
+    private func longestNormalizedAliasLength(for command: FrontmostAppCommand) -> Int {
+        normalizedAppAliases(for: command).map(\.count).max() ?? 0
+    }
+
+    private func longestPinyinAliasLength(for command: FrontmostAppCommand) -> Int {
+        pinyinAppAliases(for: command).map(\.count).max() ?? 0
     }
 
     private func normalizeMatchString(_ raw: String) -> String {

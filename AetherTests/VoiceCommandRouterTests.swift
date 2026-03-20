@@ -111,6 +111,30 @@ final class VoiceCommandRouterTests: XCTestCase {
         XCTAssertEqual(router.route(transcript: "选择下一个标签"), .frontmostAppCommand(nextTab))
     }
 
+    func testReopenClosedTabBeatsCloseTabForLongerAlias() {
+        let closeTab = FrontmostAppCommand(
+            processIdentifier: 42,
+            bundleIdentifier: "com.google.Chrome",
+            appName: "Chrome",
+            menuPath: ["File"],
+            title: "Close Tab",
+            shortcut: HotkeyBinding(keyCode: 13, modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue)),
+            aliases: ["关闭标签", "关闭当前标签", "关掉标签页"]
+        )
+        let reopenClosedTab = FrontmostAppCommand(
+            processIdentifier: 42,
+            bundleIdentifier: "com.google.Chrome",
+            appName: "Chrome",
+            menuPath: ["History"],
+            title: "Reopen Closed Tab",
+            shortcut: HotkeyBinding(keyCode: 17, modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.shift.rawValue)),
+            aliases: ["恢复标签", "重新打开标签", "重新打开关闭的标签", "恢复已关闭的标签"]
+        )
+        router.frontmostAppCommands = [closeTab, reopenClosedTab]
+
+        XCTAssertEqual(router.route(transcript: "重新打开关闭的标签"), .frontmostAppCommand(reopenClosedTab))
+    }
+
     func testPinyinFallback() {
         // "右键" / "邮件" / "有件" (You Jian)
         XCTAssertEqual(router.route(transcript: "邮件"), .clickRight)
