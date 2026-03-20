@@ -932,8 +932,25 @@ final class SpeechManager: ObservableObject {
         return NowPlayingService.shared.playbackRate > 0.05
     }
 
+    private func shouldPreferPassthroughSpeechProcessing() -> Bool {
+        let inputID = effectiveCaptureInputDeviceID()
+        guard inputID != 0 else { return false }
+
+        switch audioDeviceTransportType(inputID) {
+        case kAudioDeviceTransportTypeBuiltIn?:
+            return false
+        default:
+            return true
+        }
+    }
+
     private func desiredSpeechProcessingProfile(forTypingMode typingMode: Bool) -> SessionSpeechProcessingProfile {
-        typingMode ? .dictation : .speechCommand
+        if shouldPreferPassthroughSpeechProcessing() {
+            let inputName = currentResolvedInputDeviceName.isEmpty ? "unknown" : currentResolvedInputDeviceName
+            GlobalLogger.speech.info("[VoiceProcessingIO] prefer passthrough for external input=\(inputName)")
+            return .passthrough
+        }
+        return typingMode ? .dictation : .speechCommand
     }
 
     private func setPlaybackLeakState(_ newValue: PlaybackLeakState) {
@@ -2314,6 +2331,7 @@ final class SpeechManager: ObservableObject {
         if shouldCollapseHandsFreeHUDToStandby != (HUDManager.shared.state.mode == .standby) {
             refreshContinuousHUD()
         }
+        refreshArmedInputTargetIfNeeded(reason: "continuous-focus-check")
 
         // Health check
         if !recognitionSession.isRunning || !audioCapture.isRunning {
@@ -2675,6 +2693,22 @@ final class SpeechManager: ObservableObject {
 
         GlobalLogger.speech.info("[ASR Session] rearm visible HUD reason=\(reason) awake=\(isAwake) direct=\(isDirectCommandEnabled)")
         scheduleContinuousRecovery(delay: 0.05)
+    }
+
+    private func refreshArmedInputTargetIfNeeded(reason: String) {
+        guard shouldKeepWakeHUDArmed() else { return }
+        guard !isUtteranceActive, !isStopping else { return }
+        guard let snapshot = currentFocusedInputSnapshot() else { return }
+
+        let changed = sessionTargetPID != snapshot.pid
+            || sessionTargetBundleID != snapshot.bundleID
+            || sessionTargetElementFingerprint != snapshot.elementFingerprint
+        guard changed else { return }
+
+        GlobalLogger.speech.info(
+            "[TypingTarget] rearm focused target reason=\(reason) pid=\(snapshot.pid) bundle=\(snapshot.bundleID ?? "nil")"
+        )
+        rearmInputTarget(reason: reason)
     }
 
     private func resolvedTypingTargetSnapshot() -> FocusedInputSnapshot? {
