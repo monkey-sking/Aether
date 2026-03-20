@@ -576,7 +576,7 @@ class HeadMotionManager: ObservableObject {
         }
     }
 
-    @Published var headGestureToggleEnabled: Bool = UserDefaults.standard.object(forKey: HeadMotionManager.headGestureToggleEnabledKey) as? Bool ?? true {
+    @Published var headGestureToggleEnabled: Bool = UserDefaults.standard.object(forKey: HeadMotionManager.headGestureToggleEnabledKey) as? Bool ?? false {
         didSet {
             UserDefaults.standard.set(headGestureToggleEnabled, forKey: HeadMotionManager.headGestureToggleEnabledKey)
             if !headGestureToggleEnabled {

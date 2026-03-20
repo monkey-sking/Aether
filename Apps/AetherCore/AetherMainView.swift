@@ -1,6 +1,40 @@
 import AppKit
 import SwiftUI
 
+private enum SidebarMetrics {
+    static let itemFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
+    static let headerFont = NSFont.systemFont(ofSize: 12.5, weight: .bold)
+
+    static func preferredWidth() -> CGFloat {
+        let itemTitles = [
+            String(localized: "main.panel.overview"),
+            String(localized: "main.panel.head_gestures"),
+            String(localized: "main.panel.shortcuts"),
+            String(localized: "settings.section.app_controls.page_title"),
+            String(localized: "settings.section.lexicon.page_title"),
+            String(localized: "settings.section.insights.page_title"),
+            String(localized: "main.panel.about")
+        ]
+
+        let widestItem = itemTitles
+            .map { ($0 as NSString).size(withAttributes: [.font: itemFont]).width }
+            .max() ?? 0
+
+        let widestHeader = [
+            String(localized: "main.section.workspace"),
+            String(localized: "main.section.controls"),
+            String(localized: "main.section.voice"),
+            String(localized: "main.section.app")
+        ]
+        .map { ($0 as NSString).size(withAttributes: [.font: headerFont]).width }
+        .max() ?? 0
+
+        let itemWidth = widestItem + 72
+        let headerWidth = widestHeader + 32
+        return min(max(196, ceil(max(itemWidth, headerWidth))), 300)
+    }
+}
+
 private struct OverviewSetupItem: Identifiable {
     let id: String
     let icon: String
@@ -13,7 +47,6 @@ private struct OverviewSetupItem: Identifiable {
 
 struct AetherMainView: View {
     @State private var selection: Panel? = .overview
-    private let sidebarWidth: CGFloat = 208
 
     enum Panel: Hashable {
         case overview
@@ -25,21 +58,18 @@ struct AetherMainView: View {
         case headGestures
         case shortcuts
     }
+    private var sidebarWidth: CGFloat {
+        SidebarMetrics.preferredWidth()
+    }
 
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                Color.clear
-                    .frame(height: 34)
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-
                 Section {
                     sidebarItem(.overview)
                         .tag(Panel.overview)
                 } header: {
-                    sidebarHeader("main.section.workspace")
+                    sidebarHeader("main.section.workspace", topPadding: 8)
                 }
 
                 Section {
@@ -70,11 +100,8 @@ struct AetherMainView: View {
                 }
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 196, ideal: sidebarWidth, max: 256)
+            .navigationSplitViewColumnWidth(min: max(180, sidebarWidth - 12), ideal: sidebarWidth, max: min(320, sidebarWidth + 20))
             .toolbar(removing: .sidebarToggle)
-            .toolbarBackground(.hidden, for: .windowToolbar)
-            .scrollContentBackground(.hidden)
-            .background(Color.clear)
         } detail: {
             switch selection {
             case .overview:
@@ -97,20 +124,6 @@ struct AetherMainView: View {
                 Text(L10n.selectItem)
             }
         }
-        .navigationSplitViewStyle(.balanced)
-        .background(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(.regularMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.09), lineWidth: 0.8)
-                }
-                .padding(.leading, 10)
-                .padding(.top, 10)
-                .padding(.bottom, 10)
-                .frame(width: sidebarWidth + 30)
-                .ignoresSafeArea()
-        }
         .background(
             StandardWindowConfigurator(
                 title: "Aether",
@@ -124,12 +137,12 @@ struct AetherMainView: View {
         }
     }
 
-    private func sidebarHeader(_ key: String) -> some View {
+    private func sidebarHeader(_ key: String, topPadding: CGFloat = 16) -> some View {
         Text(LocalizedStringKey(key))
             .font(.system(size: 12.5, weight: .bold))
             .foregroundStyle(.secondary)
             .textCase(nil)
-            .padding(.top, 16)
+            .padding(.top, topPadding)
             .padding(.bottom, 8)
     }
 
@@ -195,34 +208,65 @@ private struct StandardWindowConfigurator: NSViewRepresentable {
     let subtitle: String
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        DispatchQueue.main.async {
-            applyConfiguration(for: view.window)
-        }
+        let view = WindowConfiguratorView()
+        view.update(title: title, subtitle: subtitle)
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            applyConfiguration(for: nsView.window)
+        guard let view = nsView as? WindowConfiguratorView else { return }
+        view.update(title: title, subtitle: subtitle)
+        view.configureIfNeeded()
+    }
+
+    private final class WindowConfiguratorView: NSView {
+        private var didConfigure = false
+        private var title: String = ""
+        private var subtitle: String = ""
+
+        func update(title: String, subtitle: String) {
+            self.title = title
+            self.subtitle = subtitle
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            configureIfNeeded()
+        }
+
+        func configureIfNeeded() {
+            guard let window else { return }
+            if !didConfigure {
+                StandardWindowConfigurator.applyConfiguration(for: window, title: title, subtitle: subtitle)
+                didConfigure = true
+            } else {
+                StandardWindowConfigurator.applyTitle(for: window, title: title, subtitle: subtitle)
+            }
         }
     }
 
-    private func applyConfiguration(for window: NSWindow?) {
-        guard let window else { return }
-        if window.identifier?.rawValue == "AetherMainWindow" {
-            return
-        }
-        window.identifier = NSUserInterfaceItemIdentifier("AetherMainWindow")
+    private static func applyTitle(for window: NSWindow, title: String, subtitle: String) {
         window.title = title
         window.subtitle = subtitle
-        window.isOpaque = false
-        window.backgroundColor = .clear
+    }
+
+    private static func applyConfiguration(for window: NSWindow, title: String, subtitle: String) {
+        window.identifier = NSUserInterfaceItemIdentifier("AetherMainWindow")
+        applyTitle(for: window, title: title, subtitle: subtitle)
         window.styleMask.insert(.fullSizeContentView)
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.toolbarStyle = .unifiedCompact
+        window.toolbarStyle = .unified
+        window.backgroundColor = .windowBackgroundColor
+        let toolbarIdentifier = NSToolbar.Identifier("AetherMainWindowToolbar")
+        if window.toolbar?.identifier != toolbarIdentifier {
+            let toolbar = NSToolbar(identifier: toolbarIdentifier)
+            toolbar.delegate = MainWindowToolbarDelegate.shared
+            toolbar.displayMode = .iconOnly
+            toolbar.allowsUserCustomization = false
+            window.toolbar = toolbar
+        }
         if #available(macOS 11.0, *) {
             window.titlebarSeparatorStyle = .none
         }
@@ -234,12 +278,32 @@ private struct StandardWindowConfigurator: NSViewRepresentable {
     }
 }
 
+private final class MainWindowToolbarDelegate: NSObject, NSToolbarDelegate {
+    static let shared = MainWindowToolbarDelegate()
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, .flexibleSpace]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, .sidebarTrackingSeparator]
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        nil
+    }
+}
+
 private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         layoutAttribute = .left
 
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 44, height: 36))
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 42, height: 40))
         view = containerView
 
         let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
@@ -249,43 +313,64 @@ private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryVie
             ?? NSImage()
         let configuredImage = image.withSymbolConfiguration(configuration) ?? image
 
-        let background = NSVisualEffectView(frame: .zero)
-        background.material = .sidebar
-        background.blendingMode = .withinWindow
-        background.state = .active
-        background.wantsLayer = true
-        background.layer?.cornerRadius = 10
-        background.layer?.masksToBounds = true
-        background.layer?.borderWidth = 0.5
-        background.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
-        background.translatesAutoresizingMaskIntoConstraints = false
-
         let button = NSButton(image: configuredImage, target: self, action: #selector(toggleSidebar))
         button.isBordered = false
+        button.bezelStyle = .texturedRounded
+        button.controlSize = .large
         button.imageScaling = .scaleProportionallyDown
         button.contentTintColor = .labelColor
         button.toolTip = "Toggle Sidebar"
         button.setAccessibilityLabel("Toggle Sidebar")
         button.translatesAutoresizingMaskIntoConstraints = false
 
-        containerView.addSubview(background)
         containerView.addSubview(button)
 
         NSLayoutConstraint.activate([
-            background.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
-            background.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            background.widthAnchor.constraint(equalToConstant: 30),
-            background.heightAnchor.constraint(equalToConstant: 26),
-
-            button.centerXAnchor.constraint(equalTo: background.centerXAnchor),
-            button.centerYAnchor.constraint(equalTo: background.centerYAnchor),
-            button.widthAnchor.constraint(equalToConstant: 18),
-            button.heightAnchor.constraint(equalToConstant: 18)
+            button.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            button.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 9),
+            button.widthAnchor.constraint(equalToConstant: 30),
+            button.heightAnchor.constraint(equalToConstant: 26)
         ])
     }
 
     @objc private func toggleSidebar(_ sender: Any?) {
-        NSApp.keyWindow?.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: sender)
+        guard let window = view.window ?? NSApp.keyWindow else { return }
+
+        if let splitViewController = findSplitViewController(in: window.contentViewController) {
+            toggleSidebarVisibility(in: splitViewController)
+            return
+        }
+
+        _ = window.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: sender)
+        _ = NSApp.sendAction(#selector(NSSplitViewController.toggleSidebar(_:)), to: nil, from: sender)
+    }
+
+    private func toggleSidebarVisibility(in splitViewController: NSSplitViewController) {
+        guard let sidebarItem = splitViewController.splitViewItems.first else { return }
+
+        if sidebarItem.isCollapsed {
+            sidebarItem.animator().isCollapsed = false
+            let targetWidth = SidebarMetrics.preferredWidth()
+            DispatchQueue.main.async {
+                splitViewController.splitView.setPosition(targetWidth, ofDividerAt: 0)
+                splitViewController.splitView.adjustSubviews()
+            }
+        } else {
+            sidebarItem.animator().isCollapsed = true
+        }
+    }
+
+    private func findSplitViewController(in controller: NSViewController?) -> NSSplitViewController? {
+        guard let controller else { return nil }
+        if let splitViewController = controller as? NSSplitViewController {
+            return splitViewController
+        }
+        for child in controller.children {
+            if let splitViewController = findSplitViewController(in: child) {
+                return splitViewController
+            }
+        }
+        return nil
     }
 }
 

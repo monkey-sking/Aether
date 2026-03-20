@@ -253,7 +253,7 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
         case .toggleInputControlMode:
             return HotkeyBinding(keyCode: kVK_ANSI_M, modifiers: Self.optCmd)
         case .toggleLanguage:
-            return HotkeyBinding(keyCode: kVK_Shift, modifiers: Self.shift)
+            return HotkeyBinding(keyCode: kVK_ANSI_L, modifiers: Self.optCmd)
         case .toggleShortcutPanel:
             return HotkeyBinding(keyCode: kVK_ANSI_K, modifiers: Self.optCmd)
         case .pushToTalk:
@@ -263,7 +263,6 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
 
     private static let opt: UInt64 = CGEventFlags.maskAlternate.rawValue
     private static let optCmd: UInt64 = CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskCommand.rawValue
-    private static let shift: UInt64 = CGEventFlags.maskShift.rawValue
 }
 
 // MARK: - Manager

@@ -25,6 +25,12 @@ enum SpeechLanguageMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum VoiceDefaults {
+    static let alwaysListeningWakeWindowSeconds = 8.0
+    static let minAlwaysListeningWakeWindowSeconds = 3.0
+    static let maxAlwaysListeningWakeWindowSeconds = 30.0
+}
+
 struct UtteranceExecutionGuard {
     private var seenOrder: [String] = []
     private var seenSet: Set<String> = []
@@ -186,11 +192,20 @@ final class SpeechManager: ObservableObject {
         didSet { UserDefaults.standard.set(isAlwaysListeningEnabled, forKey: "isAlwaysListeningEnabled"); syncRecognitionState() }
     }
     @Published var isDirectCommandEnabled: Bool = false
-    @Published var isWakeWordEnabled: Bool = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? true {
+    @Published var isWakeWordEnabled: Bool = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? false {
         didSet { UserDefaults.standard.set(isWakeWordEnabled, forKey: "isWakeWordEnabled"); syncRecognitionState() }
     }
-    @Published var isGazeWakeEnabled: Bool = UserDefaults.standard.object(forKey: "isGazeWakeEnabled") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(isGazeWakeEnabled, forKey: "isGazeWakeEnabled") }
+    @Published var isGazeWakeEnabled: Bool = {
+        UserDefaults.standard.set(false, forKey: "isGazeWakeEnabled")
+        return false
+    }() {
+        didSet {
+            if isGazeWakeEnabled {
+                isGazeWakeEnabled = false
+                return
+            }
+            UserDefaults.standard.set(false, forKey: "isGazeWakeEnabled")
+        }
     }
     @Published var isLLMEnhancementEnabled: Bool = false
     @Published var isAutoPunctuationEnabled: Bool = {
@@ -1174,13 +1189,13 @@ final class SpeechManager: ObservableObject {
     }
 
     private var isAwake: Bool {
-        if isGazeWakeEnabled && HeadMotionManager.shared.isTracking && HeadMotionManager.shared.isLookingAtScreen { return true }
         guard let last = lastWakeTime else { return false }
         return Date().timeIntervalSince(last) < alwaysListeningWakeWindowSeconds()
     }
     private func alwaysListeningWakeWindowSeconds() -> TimeInterval {
-        let v = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double ?? 4.0
-        return min(max(v, 2.0), 30.0)
+        let v = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double
+            ?? VoiceDefaults.alwaysListeningWakeWindowSeconds
+        return min(max(v, VoiceDefaults.minAlwaysListeningWakeWindowSeconds), VoiceDefaults.maxAlwaysListeningWakeWindowSeconds)
     }
     private func maxRecordingSegmentSeconds() -> TimeInterval {
         let v = UserDefaults.standard.object(forKey: "maxRecordingSegmentSeconds") as? Double ?? 32.0
@@ -1401,7 +1416,9 @@ final class SpeechManager: ObservableObject {
         commandHandler.onIntent = { [weak self] intent in self?.onIntent?(intent, nil, nil) }
 
         HeadMotionManager.shared.$isLookingAtScreen.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] isLooking in
-            if isLooking && HeadMotionManager.shared.isTracking { self?.playWakeSound(reason: "look-at-screen") }
+            if isLooking && HeadMotionManager.shared.isTracking && self?.isGazeWakeEnabled == true {
+                self?.playWakeSound(reason: "look-at-screen")
+            }
         }.store(in: &cancellables)
 
         Timer.publish(every: 0.15, on: .main, in: .common)

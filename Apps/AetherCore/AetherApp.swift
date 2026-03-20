@@ -107,8 +107,8 @@ final class VoiceService: ObservableObject {
     @Published var isAlwaysListeningEnabled: Bool = false
     @Published var isDirectCommandEnabled: Bool = false
     @Published var isPTTEnabled: Bool = true
-    @Published var isWakeWordEnabled: Bool = true
-    @Published var isGazeWakeEnabled: Bool = true
+    @Published var isWakeWordEnabled: Bool = false
+    @Published var isGazeWakeEnabled: Bool = false
     @Published var isAutoPunctuationEnabled: Bool = true
     @Published var availableInputDevices: [AudioInputDevice] = []
     @Published var selectedInputDeviceID: AudioDeviceID = 0 {
@@ -278,7 +278,7 @@ final class VoiceService: ObservableObject {
     }
 
     func setGazeWakeEnabled(_ enabled: Bool) {
-        manager.isGazeWakeEnabled = enabled
+        manager.isGazeWakeEnabled = false
     }
 
     func setAutoPunctuationEnabled(_ enabled: Bool) {
@@ -843,15 +843,23 @@ class AppState: ObservableObject {
     }
     
     private static func loadActivationMode() -> VoiceActivationMode {
-        if let raw = UserDefaults.standard.string(forKey: "voiceActivationMode"),
+        let defaults = UserDefaults.standard
+
+        if let raw = defaults.string(forKey: "voiceActivationMode"),
            let mode = VoiceActivationMode(rawValue: raw) {
             return mode
         }
-        
-        let always = UserDefaults.standard.bool(forKey: "isAlwaysListeningEnabled")
-        let wake = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? true
-        if always { return .handsFree }
-        if wake { return .wakeWord }
+
+        // Only migrate the legacy booleans when they were explicitly written.
+        let hasAlways = defaults.object(forKey: "isAlwaysListeningEnabled") != nil
+        let hasWake = defaults.object(forKey: "isWakeWordEnabled") != nil
+        if hasAlways || hasWake {
+            let always = defaults.bool(forKey: "isAlwaysListeningEnabled")
+            let wake = defaults.object(forKey: "isWakeWordEnabled") as? Bool ?? false
+            if always { return .handsFree }
+            if wake { return .wakeWord }
+        }
+
         return .pushToTalk
     }
 
@@ -1017,7 +1025,7 @@ class AppState: ObservableObject {
     }
     @Published var voicePTTBinding: HotkeyBinding = AppState.loadPTTBinding()
     
-    @Published var isWakeWordEnabled: Bool = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? true {
+    @Published var isWakeWordEnabled: Bool = UserDefaults.standard.object(forKey: "isWakeWordEnabled") as? Bool ?? false {
         didSet { 
             UserDefaults.standard.set(isWakeWordEnabled, forKey: "isWakeWordEnabled")
             guard !isApplyingActivationMode else { return }
@@ -1224,10 +1232,17 @@ class AppState: ObservableObject {
     
 
     
-    @Published var isGazeWakeEnabled: Bool = UserDefaults.standard.object(forKey: "isGazeWakeEnabled") as? Bool ?? true {
+    @Published var isGazeWakeEnabled: Bool = {
+        UserDefaults.standard.set(false, forKey: "isGazeWakeEnabled")
+        return false
+    }() {
         didSet {
-            UserDefaults.standard.set(isGazeWakeEnabled, forKey: "isGazeWakeEnabled")
-            voiceService.setGazeWakeEnabled(isGazeWakeEnabled)
+            if isGazeWakeEnabled {
+                isGazeWakeEnabled = false
+                return
+            }
+            UserDefaults.standard.set(false, forKey: "isGazeWakeEnabled")
+            voiceService.setGazeWakeEnabled(false)
         }
     }
     
@@ -1971,9 +1986,12 @@ class AppState: ObservableObject {
         }
     }
     
-    @Published var alwaysListeningWakeWindowSeconds: Double = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double ?? 8.0 {
+    @Published var alwaysListeningWakeWindowSeconds: Double = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double ?? VoiceDefaults.alwaysListeningWakeWindowSeconds {
         didSet {
-            let clamped = min(max(alwaysListeningWakeWindowSeconds, 3.0), 30.0)
+            let clamped = min(
+                max(alwaysListeningWakeWindowSeconds, VoiceDefaults.minAlwaysListeningWakeWindowSeconds),
+                VoiceDefaults.maxAlwaysListeningWakeWindowSeconds
+            )
             if clamped != alwaysListeningWakeWindowSeconds {
                 alwaysListeningWakeWindowSeconds = clamped
                 return
@@ -4248,7 +4266,6 @@ struct AetherApp: App {
                 .environmentObject(appState)
                 .environment(\.locale, appState.appLocale)
         }
-        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1120, height: 760)
         .commands {
             SidebarCommands() // Enable View -> Show/Hide Sidebar

@@ -242,36 +242,32 @@ struct ActivationGateView: View {
 
 struct AetherRootView: View {
     @EnvironmentObject private var appState: AppState
+    @ObservedObject private var licenseManager = AetherLicenseManager.shared
+    @State private var isActivationGatePresented: Bool = false
 
     var body: some View {
-        Group {
-            if appState.isProductUnlocked {
-                AetherMainView()
-            } else if shouldKeepMainVisibleWhileRefreshing {
-                ZStack {
-                    AetherMainView()
-                    Color.black.opacity(0.12)
-                        .ignoresSafeArea()
-                        .contentShape(Rectangle())
-                        .allowsHitTesting(true)
-                    VStack(spacing: 10) {
-                        ProgressView()
-                        Text(appState.isChineseUI ? "正在验证授权…" : "Checking access…")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(16)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .disabled(true)
-            } else {
+        AetherMainView()
+            .sheet(isPresented: $isActivationGatePresented) {
                 ActivationGateView()
+                    .environmentObject(appState)
+                    .interactiveDismissDisabled(true)
             }
-        }
+            .onAppear {
+                syncActivationGatePresentation()
+            }
+            .onChange(of: licenseManager.gateState) { _, _ in
+                syncActivationGatePresentation()
+            }
     }
 
-    private var shouldKeepMainVisibleWhileRefreshing: Bool {
-        appState.entitlementGateState == .loading &&
-        (appState.licenseManager.isActivated || appState.licenseManager.isUsingOfflineGraceAccess)
+    private func syncActivationGatePresentation() {
+        switch licenseManager.gateState {
+        case .active, .trialing:
+            isActivationGatePresented = false
+        case .inactive, .expired, .deviceLimitReached:
+            isActivationGatePresented = true
+        case .loading:
+            break
+        }
     }
 }

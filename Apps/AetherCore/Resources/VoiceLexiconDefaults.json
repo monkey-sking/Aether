@@ -20,6 +20,51 @@
     },
     {
       "aliases": [
+        "クリック",
+        "左クリック",
+        "click"
+      ],
+      "commandID": "clickLeft",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "클릭",
+        "왼쪽 클릭",
+        "click"
+      ],
+      "commandID": "clickLeft",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "cliquer",
+        "clic gauche",
+        "click"
+      ],
+      "commandID": "clickLeft",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "klicken",
+        "linksklick",
+        "click"
+      ],
+      "commandID": "clickLeft",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "clic",
+        "hacer clic",
+        "click"
+      ],
+      "commandID": "clickLeft",
+      "localeIdentifier": "es-ES"
+    },
+    {
+      "aliases": [
         "右键",
         "右击",
         "邮件"
@@ -35,6 +80,51 @@
       ],
       "commandID": "clickRight",
       "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "右クリック",
+        "コンテキスト",
+        "right click"
+      ],
+      "commandID": "clickRight",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "오른쪽 클릭",
+        "컨텍스트 클릭",
+        "right click"
+      ],
+      "commandID": "clickRight",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "clic droit",
+        "menu contextuel",
+        "right click"
+      ],
+      "commandID": "clickRight",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "rechtsklick",
+        "kontextmenue",
+        "right click"
+      ],
+      "commandID": "clickRight",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "clic derecho",
+        "menu contextual",
+        "right click"
+      ],
+      "commandID": "clickRight",
+      "localeIdentifier": "es-ES"
     },
     {
       "aliases": [
@@ -56,6 +146,51 @@
     },
     {
       "aliases": [
+        "ダブルクリック",
+        "2回クリック",
+        "double click"
+      ],
+      "commandID": "doubleClick",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "더블 클릭",
+        "두 번 클릭",
+        "double click"
+      ],
+      "commandID": "doubleClick",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "double clic",
+        "double-cliquer",
+        "double click"
+      ],
+      "commandID": "doubleClick",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "doppelklick",
+        "doppelt klicken",
+        "double click"
+      ],
+      "commandID": "doubleClick",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "doble clic",
+        "hacer doble clic",
+        "double click"
+      ],
+      "commandID": "doubleClick",
+      "localeIdentifier": "es-ES"
+    },
+    {
+      "aliases": [
         "切换输入控制模式",
         "切换输入模式",
         "切换控制模式"
@@ -71,6 +206,51 @@
       ],
       "commandID": "toggleInputControlMode",
       "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "入力モード切り替え",
+        "操作モード切り替え",
+        "入力操作モード切り替え"
+      ],
+      "commandID": "toggleInputControlMode",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "입력 모드 전환",
+        "제어 모드 전환",
+        "입력 제어 전환"
+      ],
+      "commandID": "toggleInputControlMode",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "basculer mode saisie",
+        "basculer mode controle",
+        "mode saisie controle"
+      ],
+      "commandID": "toggleInputControlMode",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "eingabemodus wechseln",
+        "steuerungsmodus wechseln",
+        "eingabe steuerung wechseln"
+      ],
+      "commandID": "toggleInputControlMode",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "cambiar modo entrada",
+        "cambiar modo control",
+        "modo entrada control"
+      ],
+      "commandID": "toggleInputControlMode",
+      "localeIdentifier": "es-ES"
     },
     {
       "aliases": [
@@ -92,6 +272,51 @@
     },
     {
       "aliases": [
+        "頭部操作切り替え",
+        "ポインター操作切り替え",
+        "トラッキング切り替え"
+      ],
+      "commandID": "toggleTracking",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "머리 추적 전환",
+        "포인터 제어 전환",
+        "추적 전환"
+      ],
+      "commandID": "toggleTracking",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "basculer suivi",
+        "basculer pointeur",
+        "suivi pointeur"
+      ],
+      "commandID": "toggleTracking",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "tracking wechseln",
+        "zeigersteuerung wechseln",
+        "pointer control"
+      ],
+      "commandID": "toggleTracking",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "cambiar seguimiento",
+        "cambiar puntero",
+        "control del puntero"
+      ],
+      "commandID": "toggleTracking",
+      "localeIdentifier": "es-ES"
+    },
+    {
+      "aliases": [
         "切换语言",
         "切换语音语言",
         "切换识别语言"
@@ -107,6 +332,51 @@
       ],
       "commandID": "toggleLanguage",
       "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "言語切り替え",
+        "音声言語切り替え",
+        "認識言語切り替え"
+      ],
+      "commandID": "toggleLanguage",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "언어 전환",
+        "음성 언어 전환",
+        "인식 언어 전환"
+      ],
+      "commandID": "toggleLanguage",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "changer langue",
+        "changer langue vocale",
+        "changer langue reconnaissance"
+      ],
+      "commandID": "toggleLanguage",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "sprache wechseln",
+        "sprache umschalten",
+        "spracherkennung wechseln"
+      ],
+      "commandID": "toggleLanguage",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "cambiar idioma",
+        "cambiar idioma de voz",
+        "cambiar idioma de reconocimiento"
+      ],
+      "commandID": "toggleLanguage",
+      "localeIdentifier": "es-ES"
     },
     {
       "aliases": [
@@ -128,6 +398,51 @@
     },
     {
       "aliases": [
+        "ショートカットパネル切り替え",
+        "パネル切り替え",
+        "コマンドパネル切り替え"
+      ],
+      "commandID": "toggleShortcutPanel",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "단축키 패널 전환",
+        "패널 전환",
+        "shortcuts panel"
+      ],
+      "commandID": "toggleShortcutPanel",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "basculer panneau raccourcis",
+        "panneau raccourcis",
+        "shortcuts panel"
+      ],
+      "commandID": "toggleShortcutPanel",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "shortcut panel wechseln",
+        "shortcut panel",
+        "shortcuts panel"
+      ],
+      "commandID": "toggleShortcutPanel",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "cambiar panel atajos",
+        "panel atajos",
+        "shortcuts panel"
+      ],
+      "commandID": "toggleShortcutPanel",
+      "localeIdentifier": "es-ES"
+    },
+    {
+      "aliases": [
         "播放",
         "暂停",
         "播放暂停"
@@ -143,6 +458,51 @@
       ],
       "commandID": "mediaPlayPause",
       "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "再生",
+        "一時停止",
+        "再生一時停止"
+      ],
+      "commandID": "mediaPlayPause",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "재생",
+        "일시정지",
+        "재생 일시정지"
+      ],
+      "commandID": "mediaPlayPause",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "lecture",
+        "pause",
+        "lecture pause"
+      ],
+      "commandID": "mediaPlayPause",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "wiedergabe",
+        "pause",
+        "play pause"
+      ],
+      "commandID": "mediaPlayPause",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "reproducir",
+        "pausar",
+        "reproducir pausar"
+      ],
+      "commandID": "mediaPlayPause",
+      "localeIdentifier": "es-ES"
     },
     {
       "aliases": [
@@ -164,6 +524,51 @@
     },
     {
       "aliases": [
+        "前の曲",
+        "前へ",
+        "previous track"
+      ],
+      "commandID": "mediaPrevious",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "이전 곡",
+        "이전",
+        "previous track"
+      ],
+      "commandID": "mediaPrevious",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "piste precedente",
+        "precedent",
+        "previous track"
+      ],
+      "commandID": "mediaPrevious",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "vorheriger titel",
+        "zurueck",
+        "previous track"
+      ],
+      "commandID": "mediaPrevious",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "pista anterior",
+        "anterior",
+        "previous track"
+      ],
+      "commandID": "mediaPrevious",
+      "localeIdentifier": "es-ES"
+    },
+    {
+      "aliases": [
         "下一首",
         "下一个",
         "next track"
@@ -179,6 +584,51 @@
       ],
       "commandID": "mediaNext",
       "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "次の曲",
+        "次へ",
+        "next track"
+      ],
+      "commandID": "mediaNext",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "다음 곡",
+        "다음",
+        "next track"
+      ],
+      "commandID": "mediaNext",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "piste suivante",
+        "suivant",
+        "next track"
+      ],
+      "commandID": "mediaNext",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "naechster titel",
+        "weiter",
+        "next track"
+      ],
+      "commandID": "mediaNext",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "pista siguiente",
+        "siguiente",
+        "next track"
+      ],
+      "commandID": "mediaNext",
+      "localeIdentifier": "es-ES"
     },
     {
       "aliases": [
@@ -200,6 +650,51 @@
     },
     {
       "aliases": [
+        "ショートカットパネル表示",
+        "ショートカットパネルを開く",
+        "アプリのショートカット表示"
+      ],
+      "commandID": "showShortcutPanel",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "단축키 패널 열기",
+        "단축키 패널 보기",
+        "앱 단축키 보기"
+      ],
+      "commandID": "showShortcutPanel",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "afficher panneau raccourcis",
+        "ouvrir panneau raccourcis",
+        "afficher raccourcis app"
+      ],
+      "commandID": "showShortcutPanel",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "shortcut panel zeigen",
+        "shortcut panel oeffnen",
+        "app shortcuts anzeigen"
+      ],
+      "commandID": "showShortcutPanel",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "mostrar panel atajos",
+        "abrir panel atajos",
+        "mostrar atajos app"
+      ],
+      "commandID": "showShortcutPanel",
+      "localeIdentifier": "es-ES"
+    },
+    {
+      "aliases": [
         "关闭快捷键面板",
         "隐藏快捷键面板",
         "收起快捷键面板"
@@ -215,6 +710,51 @@
       ],
       "commandID": "hideShortcutPanel",
       "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "ショートカットパネルを閉じる",
+        "ショートカットパネルを隠す",
+        "パネルを閉じる"
+      ],
+      "commandID": "hideShortcutPanel",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "단축키 패널 닫기",
+        "단축키 패널 숨기기",
+        "패널 닫기"
+      ],
+      "commandID": "hideShortcutPanel",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "masquer panneau raccourcis",
+        "fermer panneau raccourcis",
+        "dismiss shortcuts panel"
+      ],
+      "commandID": "hideShortcutPanel",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "shortcut panel ausblenden",
+        "shortcut panel schliessen",
+        "dismiss shortcuts panel"
+      ],
+      "commandID": "hideShortcutPanel",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "ocultar panel atajos",
+        "cerrar panel atajos",
+        "dismiss shortcuts panel"
+      ],
+      "commandID": "hideShortcutPanel",
+      "localeIdentifier": "es-ES"
     },
     {
       "aliases": [
@@ -236,6 +776,51 @@
     },
     {
       "aliases": [
+        "開始",
+        "再開",
+        "start"
+      ],
+      "commandID": "startPointer",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "시작",
+        "계속",
+        "start"
+      ],
+      "commandID": "startPointer",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "demarrer",
+        "reprendre",
+        "start"
+      ],
+      "commandID": "startPointer",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "starten",
+        "fortsetzen",
+        "start"
+      ],
+      "commandID": "startPointer",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "iniciar",
+        "continuar",
+        "start"
+      ],
+      "commandID": "startPointer",
+      "localeIdentifier": "es-ES"
+    },
+    {
+      "aliases": [
         "停止",
         "暂停控制",
         "stop"
@@ -251,6 +836,51 @@
       ],
       "commandID": "stopPointer",
       "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "停止",
+        "一時停止",
+        "stop"
+      ],
+      "commandID": "stopPointer",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "중지",
+        "멈춰",
+        "stop"
+      ],
+      "commandID": "stopPointer",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "arreter",
+        "pause controle",
+        "stop"
+      ],
+      "commandID": "stopPointer",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "stoppen",
+        "steuerung pausieren",
+        "stop"
+      ],
+      "commandID": "stopPointer",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "detener",
+        "pausar control",
+        "stop"
+      ],
+      "commandID": "stopPointer",
+      "localeIdentifier": "es-ES"
     },
     {
       "aliases": [
@@ -272,6 +902,51 @@
     },
     {
       "aliases": [
+        "リセンター",
+        "再センター",
+        "リセット"
+      ],
+      "commandID": "recenter",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "재중앙",
+        "중심 재설정",
+        "reset"
+      ],
+      "commandID": "recenter",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "recentrer",
+        "recalibrer",
+        "reset"
+      ],
+      "commandID": "recenter",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "neu zentrieren",
+        "zentrieren",
+        "reset"
+      ],
+      "commandID": "recenter",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "recentrar",
+        "recalibrar",
+        "reset"
+      ],
+      "commandID": "recenter",
+      "localeIdentifier": "es-ES"
+    },
+    {
+      "aliases": [
         "向上",
         "上滚",
         "向上滚动"
@@ -287,6 +962,51 @@
       ],
       "commandID": "scrollUp",
       "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "上へスクロール",
+        "上へ",
+        "scroll up"
+      ],
+      "commandID": "scrollUp",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "위로 스크롤",
+        "위로",
+        "scroll up"
+      ],
+      "commandID": "scrollUp",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "defiler haut",
+        "monter",
+        "scroll up"
+      ],
+      "commandID": "scrollUp",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "nach oben scrollen",
+        "hoch",
+        "scroll up"
+      ],
+      "commandID": "scrollUp",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "desplazar arriba",
+        "arriba",
+        "scroll up"
+      ],
+      "commandID": "scrollUp",
+      "localeIdentifier": "es-ES"
     },
     {
       "aliases": [
@@ -308,6 +1028,51 @@
     },
     {
       "aliases": [
+        "下へスクロール",
+        "下へ",
+        "scroll down"
+      ],
+      "commandID": "scrollDown",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "아래로 스크롤",
+        "아래로",
+        "scroll down"
+      ],
+      "commandID": "scrollDown",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "defiler bas",
+        "descendre",
+        "scroll down"
+      ],
+      "commandID": "scrollDown",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "nach unten scrollen",
+        "runter",
+        "scroll down"
+      ],
+      "commandID": "scrollDown",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "desplazar abajo",
+        "abajo",
+        "scroll down"
+      ],
+      "commandID": "scrollDown",
+      "localeIdentifier": "es-ES"
+    },
+    {
+      "aliases": [
         "到顶",
         "滚动到顶部",
         "top"
@@ -326,6 +1091,51 @@
     },
     {
       "aliases": [
+        "一番上",
+        "上端へ",
+        "scroll top"
+      ],
+      "commandID": "scrollTop",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "맨 위로",
+        "상단으로",
+        "scroll top"
+      ],
+      "commandID": "scrollTop",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "aller en haut",
+        "tout en haut",
+        "scroll top"
+      ],
+      "commandID": "scrollTop",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "nach ganz oben",
+        "ganz oben",
+        "scroll top"
+      ],
+      "commandID": "scrollTop",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "ir arriba",
+        "hasta arriba",
+        "scroll top"
+      ],
+      "commandID": "scrollTop",
+      "localeIdentifier": "es-ES"
+    },
+    {
+      "aliases": [
         "到底",
         "滚动到底部",
         "bottom"
@@ -341,6 +1151,51 @@
       ],
       "commandID": "scrollBottom",
       "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "一番下",
+        "下端へ",
+        "scroll bottom"
+      ],
+      "commandID": "scrollBottom",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "맨 아래로",
+        "하단으로",
+        "scroll bottom"
+      ],
+      "commandID": "scrollBottom",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "aller en bas",
+        "tout en bas",
+        "scroll bottom"
+      ],
+      "commandID": "scrollBottom",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "nach ganz unten",
+        "ganz unten",
+        "scroll bottom"
+      ],
+      "commandID": "scrollBottom",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "ir abajo",
+        "hasta abajo",
+        "scroll bottom"
+      ],
+      "commandID": "scrollBottom",
+      "localeIdentifier": "es-ES"
     },
     {
       "aliases": [
@@ -366,6 +1221,51 @@
     },
     {
       "aliases": [
+        "ドラッグ開始",
+        "ドラッグ",
+        "つかむ"
+      ],
+      "commandID": "dragStart",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "드래그 시작",
+        "드래그",
+        "잡아"
+      ],
+      "commandID": "dragStart",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "commencer glisser",
+        "glisser",
+        "saisir"
+      ],
+      "commandID": "dragStart",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "ziehen starten",
+        "ziehen",
+        "greifen"
+      ],
+      "commandID": "dragStart",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "iniciar arrastre",
+        "arrastrar",
+        "sujetar"
+      ],
+      "commandID": "dragStart",
+      "localeIdentifier": "es-ES"
+    },
+    {
+      "aliases": [
         "结束拖拽",
         "结束拖",
         "放下",
@@ -385,6 +1285,51 @@
       ],
       "commandID": "dragEnd",
       "localeIdentifier": "en-US"
+    },
+    {
+      "aliases": [
+        "ドラッグ終了",
+        "ドロップ",
+        "離す"
+      ],
+      "commandID": "dragEnd",
+      "localeIdentifier": "ja-JP"
+    },
+    {
+      "aliases": [
+        "드래그 끝",
+        "놓아",
+        "드롭"
+      ],
+      "commandID": "dragEnd",
+      "localeIdentifier": "ko-KR"
+    },
+    {
+      "aliases": [
+        "terminer glisser",
+        "deposer",
+        "relacher"
+      ],
+      "commandID": "dragEnd",
+      "localeIdentifier": "fr-FR"
+    },
+    {
+      "aliases": [
+        "ziehen beenden",
+        "loslassen",
+        "ablegen"
+      ],
+      "commandID": "dragEnd",
+      "localeIdentifier": "de-DE"
+    },
+    {
+      "aliases": [
+        "terminar arrastre",
+        "soltar",
+        "drop"
+      ],
+      "commandID": "dragEnd",
+      "localeIdentifier": "es-ES"
     }
   ],
   "exportedAt": "2026-03-13T00:00:00Z",
@@ -413,6 +1358,73 @@
       "wakeWords": [
         "hey aether",
         "hi aether"
+      ]
+    },
+    {
+      "commandPrefixes": [
+        "コマンド"
+      ],
+      "dictationPrefixes": [
+        "入力"
+      ],
+      "localeIdentifier": "ja-JP",
+      "wakeWords": [
+        "エーテル",
+        "ヘイ エーテル",
+        "hey aether"
+      ]
+    },
+    {
+      "commandPrefixes": [
+        "명령"
+      ],
+      "dictationPrefixes": [
+        "입력"
+      ],
+      "localeIdentifier": "ko-KR",
+      "wakeWords": [
+        "에이더",
+        "헤이 에이더",
+        "hey aether"
+      ]
+    },
+    {
+      "commandPrefixes": [
+        "commande"
+      ],
+      "dictationPrefixes": [
+        "dictee"
+      ],
+      "localeIdentifier": "fr-FR",
+      "wakeWords": [
+        "salut aether",
+        "hey aether"
+      ]
+    },
+    {
+      "commandPrefixes": [
+        "befehl"
+      ],
+      "dictationPrefixes": [
+        "eingabe"
+      ],
+      "localeIdentifier": "de-DE",
+      "wakeWords": [
+        "hallo aether",
+        "hey aether"
+      ]
+    },
+    {
+      "commandPrefixes": [
+        "comando"
+      ],
+      "dictationPrefixes": [
+        "dictado"
+      ],
+      "localeIdentifier": "es-ES",
+      "wakeWords": [
+        "hola aether",
+        "hey aether"
       ]
     }
   ],
