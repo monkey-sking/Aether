@@ -1,5 +1,10 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
+
+private extension Notification.Name {
+    static let aetherToggleMainSidebar = Notification.Name("AetherToggleMainSidebar")
+}
 
 private enum SidebarMetrics {
     static let itemFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
@@ -45,8 +50,111 @@ private struct OverviewSetupItem: Identifiable {
     let action: (() -> Void)?
 }
 
+@MainActor
+private final class LaunchAtLoginManager: ObservableObject {
+    @Published private(set) var isRequested: Bool = false
+    @Published private(set) var isEnabled: Bool = false
+    @Published private(set) var requiresApproval: Bool = false
+    @Published private(set) var isBusy: Bool = false
+
+    private let service = SMAppService.mainApp
+
+    init() {
+        refreshStatus()
+    }
+
+    func refreshStatus() {
+        applyStatus(service.status)
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        guard !isBusy else { return }
+        isBusy = true
+        defer {
+            isBusy = false
+            refreshStatus()
+        }
+
+        do {
+            if enabled {
+                try service.register()
+            } else {
+                try service.unregister()
+            }
+        } catch {
+            GlobalLogger.log(
+                "LaunchAtLogin toggle failed enabled=\(enabled) status=\(service.status.rawValue) error=\(error.localizedDescription)",
+                log: GlobalLogger.lifecycle,
+                type: .error
+            )
+            showFailureHUD(enabled: enabled)
+            return
+        }
+
+        let status = service.status
+        applyStatus(status)
+
+        if enabled {
+            switch status {
+            case .enabled:
+                HUDManager.shared.showTemporary(
+                    message: AppLocalization.isChinese ? "Aether 将在登录后自动启动" : "Aether will launch automatically after login.",
+                    icon: "checkmark.circle.fill"
+                )
+            case .requiresApproval:
+                HUDManager.shared.showTemporary(
+                    message: AppLocalization.isChinese ? "请在系统设置 > 登录项中允许 Aether 开机启动" : "Approve Aether in System Settings > Login Items to finish enabling launch at login.",
+                    icon: "arrow.up.forward.app"
+                )
+            default:
+                break
+            }
+        } else if status == .notRegistered {
+            HUDManager.shared.showTemporary(
+                message: AppLocalization.isChinese ? "已关闭 Aether 开机启动" : "Launch at login disabled for Aether.",
+                icon: "checkmark.circle.fill"
+            )
+        }
+    }
+
+    func openSystemSettings() {
+        SMAppService.openSystemSettingsLoginItems()
+    }
+
+    private func applyStatus(_ status: SMAppService.Status) {
+        switch status {
+        case .enabled:
+            isEnabled = true
+            requiresApproval = false
+            isRequested = true
+        case .requiresApproval:
+            isEnabled = false
+            requiresApproval = true
+            isRequested = true
+        case .notRegistered, .notFound:
+            isEnabled = false
+            requiresApproval = false
+            isRequested = false
+        @unknown default:
+            isEnabled = false
+            requiresApproval = false
+            isRequested = false
+        }
+    }
+
+    private func showFailureHUD(enabled: Bool) {
+        HUDManager.shared.showTemporary(
+            message: enabled
+                ? (AppLocalization.isChinese ? "开启开机启动失败" : "Failed to enable launch at login.")
+                : (AppLocalization.isChinese ? "关闭开机启动失败" : "Failed to disable launch at login."),
+            icon: "exclamationmark.triangle.fill"
+        )
+    }
+}
+
 struct AetherMainView: View {
     @State private var selection: Panel? = .overview
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     enum Panel: Hashable {
         case overview
@@ -63,7 +171,7 @@ struct AetherMainView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: $selection) {
                 Section {
                     sidebarItem(.overview)
@@ -133,6 +241,11 @@ struct AetherMainView: View {
         .onAppear {
             if selection == .voiceTerms {
                 selection = .overview
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .aetherToggleMainSidebar)) { _ in
+            withAnimation(.easeInOut(duration: 0.18)) {
+                columnVisibility = (columnVisibility == .detailOnly) ? .all : .detailOnly
             }
         }
     }
@@ -299,8 +412,6 @@ private final class MainWindowToolbarDelegate: NSObject, NSToolbarDelegate {
 }
 
 private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryViewController {
-    private var lastExpandedWidth: CGFloat = SidebarMetrics.preferredWidth()
-
     override func viewDidLoad() {
         super.viewDidLoad()
         layoutAttribute = .left
@@ -336,58 +447,14 @@ private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryVie
     }
 
     @objc private func toggleSidebar(_ sender: Any?) {
-        guard let window = view.window ?? NSApp.keyWindow else { return }
-
-        if let splitViewController = findSplitViewController(in: window.contentViewController) {
-            toggleSidebarVisibility(in: splitViewController)
-            return
-        }
-
-        _ = window.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: sender)
-        _ = NSApp.sendAction(#selector(NSSplitViewController.toggleSidebar(_:)), to: nil, from: sender)
-    }
-
-    private func toggleSidebarVisibility(in splitViewController: NSSplitViewController) {
-        guard let sidebarItem = splitViewController.splitViewItems.first else { return }
-        let splitView = splitViewController.splitView
-
-        if sidebarItem.isCollapsed {
-            let targetWidth = max(lastExpandedWidth, SidebarMetrics.preferredWidth())
-            sidebarItem.isCollapsed = false
-            DispatchQueue.main.async {
-                splitView.setPosition(targetWidth, ofDividerAt: 0)
-                splitView.adjustSubviews()
-            }
-        } else {
-            let currentWidth = splitView.arrangedSubviews.first?.frame.width ?? 0
-            if currentWidth > 1 {
-                lastExpandedWidth = currentWidth
-            }
-            splitView.setPosition(0, ofDividerAt: 0)
-            splitView.adjustSubviews()
-            DispatchQueue.main.async {
-                sidebarItem.isCollapsed = true
-            }
-        }
-    }
-
-    private func findSplitViewController(in controller: NSViewController?) -> NSSplitViewController? {
-        guard let controller else { return nil }
-        if let splitViewController = controller as? NSSplitViewController {
-            return splitViewController
-        }
-        for child in controller.children {
-            if let splitViewController = findSplitViewController(in: child) {
-                return splitViewController
-            }
-        }
-        return nil
+        NotificationCenter.default.post(name: .aetherToggleMainSidebar, object: nil)
     }
 }
 
 private struct OverviewDashboardView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var headManager = HeadMotionManager.shared
+    @StateObject private var launchAtLogin = LaunchAtLoginManager()
     @State private var readinessExpanded: Bool = false
     private var isChinese: Bool { AppLocalization.isChinese }
 
@@ -438,6 +505,29 @@ private struct OverviewDashboardView: View {
             let title = isChinese ? "\(minutes) 分钟" : "\(minutes) min"
             return DashboardFixedPopUpOption(id: String(minutes), title: title)
         }
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { launchAtLogin.isRequested },
+            set: { launchAtLogin.setEnabled($0) }
+        )
+    }
+
+    private var launchAtLoginDetailText: String {
+        if launchAtLogin.requiresApproval {
+            return isChinese
+                ? "需要到系统设置 > 登录项里批准后才会生效。"
+                : "Approval is still needed in System Settings > Login Items."
+        }
+        if launchAtLogin.isEnabled {
+            return isChinese
+                ? "登录 macOS 后会自动启动 Aether。"
+                : "Aether will open automatically after you log in to macOS."
+        }
+        return isChinese
+            ? "让 Aether 在登录后自动启动。"
+            : "Launch Aether automatically after you log in."
     }
 
     private var setupItems: [OverviewSetupItem] {
@@ -540,6 +630,39 @@ private struct OverviewDashboardView: View {
 
                     Divider()
 
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(isChinese ? "登录后自动启动 Aether" : "Launch Aether At Login")
+                                    .font(AetherUI.bodyFont)
+                                Text(launchAtLoginDetailText)
+                                    .font(AetherUI.captionFont)
+                                    .foregroundColor(launchAtLogin.requiresApproval ? .orange : .secondary)
+                                    .lineLimit(2)
+                                    .truncationMode(.tail)
+                            }
+                            .layoutPriority(1)
+                            Spacer()
+                            Toggle("", isOn: launchAtLoginBinding)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .disabled(launchAtLogin.isBusy)
+                        }
+
+                        if launchAtLogin.requiresApproval {
+                            HStack {
+                                Button(isChinese ? "前往登录项" : "Open Login Items") {
+                                    launchAtLogin.openSystemSettings()
+                                }
+                                .controlSize(.small)
+                                .buttonStyle(.bordered)
+                                Spacer()
+                            }
+                        }
+                    }
+
+                    Divider()
+
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(String(localized: "settings.app_language.title"))
@@ -597,9 +720,13 @@ private struct OverviewDashboardView: View {
         }
         .onAppear {
             readinessExpanded = !readinessCanCollapse
+            launchAtLogin.refreshStatus()
         }
         .onChange(of: readinessCanCollapse) { _, canCollapse in
             readinessExpanded = !canCollapse
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            launchAtLogin.refreshStatus()
         }
     }
 }
