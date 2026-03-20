@@ -107,7 +107,19 @@ sign_dmg() {
   local identity="$1"
   [[ -f "$DMG_PATH" ]] || err "DMG not found: ${DMG_PATH}"
   log "Signing DMG with identity: ${identity}"
-  codesign --force --timestamp --sign "$identity" "$DMG_PATH"
+  local sign_log
+  sign_log="$(mktemp)"
+  if ! codesign --force --timestamp --sign "$identity" "$DMG_PATH" 2>"$sign_log"; then
+    if grep -qi "timestamp service is not available" "$sign_log"; then
+      log "Timestamp service unavailable; retrying DMG codesign without timestamp..."
+      codesign --force --timestamp=none --sign "$identity" "$DMG_PATH"
+    else
+      cat "$sign_log" >&2
+      rm -f "$sign_log"
+      err "Failed to codesign DMG."
+    fi
+  fi
+  rm -f "$sign_log"
   codesign --verify --verbose=2 "$DMG_PATH"
 }
 
