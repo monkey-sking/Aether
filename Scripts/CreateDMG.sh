@@ -19,11 +19,18 @@ VOLUME_NAME="${APP_NAME}"
 BACKGROUND_IMAGE="${PROJECT_ROOT:-$(dirname "$0")/..}/Scripts/Resources/dmg_background.png"
 ICON_SIZE=128
 WINDOW_WIDTH=640
-WINDOW_HEIGHT=560
-ICON_X=150
-ICON_Y=225
-APPS_X=560
-APPS_Y=235
+WINDOW_HEIGHT=735
+# Allow fast layout iteration without editing the script.
+# Defaults are tuned for our current background artwork.
+DEFAULT_ICON_X=$((150-2))
+DEFAULT_ICON_Y=$((225 + 92+3))
+DEFAULT_APPS_X=$((560 - 77 + 8))
+DEFAULT_APPS_Y=$((235 + 77 + 8))
+
+ICON_X="${AETHER_DMG_ICON_X:-$DEFAULT_ICON_X}"
+ICON_Y="${AETHER_DMG_ICON_Y:-$DEFAULT_ICON_Y}"
+APPS_X="${AETHER_DMG_APPS_X:-$DEFAULT_APPS_X}"
+APPS_Y="${AETHER_DMG_APPS_Y:-$DEFAULT_APPS_Y}"
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/.build/release"
