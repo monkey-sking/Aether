@@ -18,7 +18,9 @@ fi
 mkdir -p "$BUILD_DIR"
 mkdir -p "$DERIVED_DATA_PATH"
 
-BUILD_NUMBER=$(date +%Y%m%d%H%M)
+# Use second-resolution build numbers so repeated builds within the same minute
+# still produce a unique Sparkle version.
+BUILD_NUMBER=$(date +%Y%m%d%H%M%S)
 UNIVERSAL_BUILD="${AETHER_UNIVERSAL:-0}"
 ENABLE_APP_INTENTS_METADATA_EXTRACTION="${AETHER_ENABLE_APP_INTENTS_METADATA_EXTRACTION:-0}"
 
