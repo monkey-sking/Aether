@@ -86,6 +86,7 @@
 "menu.enable_microphone" = "マイクを有効にする";
 "menu.enable_speech" = "音声認識を有効にする";
 "menu.open_settings" = "設定を開く";
+"menu.check_updates_ellipsis" = "アップデートを確認…";
 "menu.settings_ellipsis" = "設定…";
 "menu.more_controls" = "詳細コントロール";
 "menu.shortcut_panel_fmt" = "ショートカットパネル (%@)";

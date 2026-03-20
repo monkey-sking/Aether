@@ -86,6 +86,7 @@
 "menu.enable_microphone" = "Mikrofon aktivieren";
 "menu.enable_speech" = "Spracherkennung aktivieren";
 "menu.open_settings" = "Einstellungen öffnen";
+"menu.check_updates_ellipsis" = "Nach Updates suchen…";
 "menu.settings_ellipsis" = "Einstellungen…";
 "menu.more_controls" = "Weitere Steuerelemente";
 "menu.shortcut_panel_fmt" = "Kurzbefehl-Panel (%@)";

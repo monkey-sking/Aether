@@ -87,6 +87,7 @@ final class SpeechManager: ObservableObject {
         let targetPID: pid_t?; let targetBundleID: String?; let targetElementFingerprint: String?
         let verificationSnapshot: InputVerificationSnapshot?
         let routeReason: String
+        let commandHUDPreviewMessage: String?
     }
     private struct ProcessedJob: Sendable {
         let seq: Int; let intent: VoiceIntent; let localeIdentifier: String
@@ -96,6 +97,7 @@ final class SpeechManager: ObservableObject {
         let verificationSnapshot: InputVerificationSnapshot?
         let diagnostics: String?
         let routeReason: String
+        let commandHUDPreviewMessage: String?
     }
     private struct InputVerificationSnapshot: Sendable {
         let pid: pid_t
@@ -1347,6 +1349,13 @@ final class SpeechManager: ObservableObject {
         NotificationCenter.default.addObserver(self, selector: #selector(toggleLanguage), name: Notification.Name("AetherToggleLanguage"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAirPodsChange), name: .AirPodsStateChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleRecognitionControlModeChanged(_:)), name: HeadMotionManager.recognitionControlModeChangedNotification, object: nil)
+        NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.didActivateApplicationNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.handleFrontmostApplicationChanged()
+            }
+            .store(in: &cancellables)
         refreshLocale()
         hasCompletedInitialLocaleSetup = true
         DispatchQueue.main.async { [weak self] in self?.syncRecognitionState() }
@@ -2127,7 +2136,14 @@ final class SpeechManager: ObservableObject {
         }
         guard recognitionSession.isRunning else {
             resetHUDTransientState()
-            if !keepHUDVisible { if isAlwaysListeningEnabled { refreshContinuousHUD() } else { HUDManager.shared.hide() } }
+            if !keepHUDVisible {
+                if isAlwaysListeningEnabled {
+                    refreshContinuousHUD()
+                } else {
+                    HUDManager.shared.hide()
+                }
+            }
+            ensureRecognitionSessionForVisibleHUD(reason: "finalize-no-active-session")
             return
         }
         let genToFinalize = sessionGeneration
@@ -2164,6 +2180,7 @@ final class SpeechManager: ObservableObject {
             }
             else {
                 self.refreshContinuousHUD()
+                self.ensureRecognitionSessionForVisibleHUD(reason: keepHUDVisible ? "finalize-keep-hud-visible" : "finalize-always-listening")
             }
         }
         finalizationWorkItem = workItem
@@ -2548,6 +2565,22 @@ final class SpeechManager: ObservableObject {
             )
         }
 
+        let explicitInlineCommandPrefix = Self.hasLeadingExplicitCommandPrefix(
+            textToRoute,
+            localeIdentifier: activeLocale.identifier,
+            overrides: commandRouter.languageTermsOverrides
+        )
+        let commandHUDPreviewMessage =
+            Self.shouldPreviewForcedCommandHUD(
+                typingContext: typingContext,
+                intent: intent,
+                routingBias: routingBias,
+                consumedExplicitCommandPrefix: consumedExplicitCommandPrefix,
+                inlineExplicitCommandPrefix: explicitInlineCommandPrefix
+            )
+            ? Self.commandHUDPreviewMessage(for: intent, localeIdentifier: activeLocale.identifier)
+            : nil
+
         noteIntentMetrics(intent)
 
         if wakeWordDetected { lastWakeTime = Date() }
@@ -2564,7 +2597,8 @@ final class SpeechManager: ObservableObject {
             typingContext: typingContext,
             utteranceID: resolvedUID,
             originSessionGeneration: sessionGeneration,
-            routeReason: decision.reason
+            routeReason: decision.reason,
+            commandHUDPreviewMessage: commandHUDPreviewMessage
         )
     }
 
@@ -2573,13 +2607,14 @@ final class SpeechManager: ObservableObject {
         typingContext: Bool,
         utteranceID: Int,
         originSessionGeneration: Int,
-        routeReason: String
+        routeReason: String,
+        commandHUDPreviewMessage: String?
     ) {
         let localeID = activeLocale.identifier
-        let fallback: FocusedInputSnapshot? = typingContext && (sessionTargetPID == nil || sessionTargetPID == 0) ? currentFocusedInputSnapshot() : nil
-        let resolvedPID = typingContext ? (sessionTargetPID ?? fallback?.pid) : nil
-        let bid = typingContext ? (sessionTargetBundleID ?? fallback?.bundleID) : nil
-        let fp = typingContext ? (sessionTargetElementFingerprint ?? fallback?.elementFingerprint) : nil
+        let typingTarget = typingContext ? resolvedTypingTargetSnapshot() : nil
+        let resolvedPID = typingTarget?.pid
+        let bid = typingTarget?.bundleID
+        let fp = typingTarget?.elementFingerprint
         let pid = typingContext
             ? preferredTypingInjectionTargetPID(resolvedPID, bundleID: bid)
             : normalizedInjectionTargetPID(resolvedPID, bundleID: bid)
@@ -2588,7 +2623,7 @@ final class SpeechManager: ObservableObject {
                             originSessionGeneration: originSessionGeneration, utteranceID: utteranceID, sessionTypingMode: typingContext,
                             streamedTextSnapshot: dictationHandler.screenTypedText, screenTypedCount: dictationHandler.screenTypedText.count,
                             targetPID: pid, targetBundleID: bid, targetElementFingerprint: fp, verificationSnapshot: verificationSnapshot,
-                            routeReason: routeReason)
+                            routeReason: routeReason, commandHUDPreviewMessage: commandHUDPreviewMessage)
         let targetBundleLog = bid ?? "nil"
         GlobalLogger.speech.info(
             "[IntentPipeline] enqueue utterance=\(utteranceID) session=\(originSessionGeneration) typing=\(typingContext) intent=\(intentSummary(intent)) targetPID=\(pid ?? 0) targetBundle=\(targetBundleLog)"
@@ -2600,7 +2635,8 @@ final class SpeechManager: ObservableObject {
                                    originSessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID, sessionTypingMode: job.sessionTypingMode,
                                    streamedTextSnapshot: job.streamedTextSnapshot, screenTypedCount: job.screenTypedCount,
                                    targetPID: job.targetPID, targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
-                                   verificationSnapshot: job.verificationSnapshot, routeReason: job.routeReason)
+                                   verificationSnapshot: job.verificationSnapshot, routeReason: job.routeReason,
+                                   commandHUDPreviewMessage: job.commandHUDPreviewMessage)
             Task.detached(priority: .userInitiated) { [weak self] in
                 guard let self else { return }
                 let processed = await self.processIntentJob(seeded)
@@ -2608,6 +2644,54 @@ final class SpeechManager: ObservableObject {
                 for r in ready { await MainActor.run { [weak self] in self?.applyProcessedJob(r) } }
             }
         }
+    }
+
+    private func handleFrontmostApplicationChanged() {
+        guard isAlwaysListeningEnabled else { return }
+        guard isAwake || isDirectCommandEnabled || HUDManager.shared.state.mode != .hidden else { return }
+
+        // App switches frequently invalidate the previously locked AX target while the wake window is still open.
+        // Re-arm against the current focus so the next utterance does not keep routing to a stale element.
+        rearmInputTarget(reason: "frontmost-app-changed")
+        refreshContinuousHUD(isDictating: false)
+        ensureRecognitionSessionForVisibleHUD(reason: "frontmost-app-changed")
+    }
+
+    private func shouldKeepWakeHUDArmed() -> Bool {
+        guard isAlwaysListeningEnabled else { return false }
+        if isDirectCommandEnabled || !isWakeWordEnabled { return true }
+        return isAwake
+    }
+
+    private func ensureRecognitionSessionForVisibleHUD(reason: String) {
+        guard shouldKeepWakeHUDArmed() else { return }
+        guard !recognitionSession.isRunning, !isStopping else { return }
+        guard pendingEngineRestartWorkItem == nil else { return }
+
+        let now = Date()
+        guard now >= routeRebuildGraceUntil,
+              now >= continuousRecoveryGraceUntil,
+              now >= recognitionUnavailableUntil else { return }
+
+        GlobalLogger.speech.info("[ASR Session] rearm visible HUD reason=\(reason) awake=\(isAwake) direct=\(isDirectCommandEnabled)")
+        scheduleContinuousRecovery(delay: 0.05)
+    }
+
+    private func resolvedTypingTargetSnapshot() -> FocusedInputSnapshot? {
+        let current = currentFocusedInputSnapshot()
+
+        guard let current else {
+            if sessionTargetPID == nil || sessionTargetPID == 0 {
+                return nil
+            }
+            return FocusedInputSnapshot(
+                pid: sessionTargetPID ?? 0,
+                bundleID: sessionTargetBundleID,
+                elementFingerprint: sessionTargetElementFingerprint
+            )
+        }
+
+        return current
     }
 
     private func processIntentJob(_ job: IntentJob) async -> ProcessedJob {
@@ -2621,7 +2705,7 @@ final class SpeechManager: ObservableObject {
                                     screenTypedCount: job.screenTypedCount, targetPID: job.targetPID,
                                     targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
                                     verificationSnapshot: job.verificationSnapshot, diagnostics: "llm=ok",
-                                    routeReason: job.routeReason)
+                                    routeReason: job.routeReason, commandHUDPreviewMessage: job.commandHUDPreviewMessage)
             } catch { /* fallthrough */ }
         }
         return ProcessedJob(seq: job.seq, intent: job.intent, localeIdentifier: job.localeIdentifier,
@@ -2630,7 +2714,7 @@ final class SpeechManager: ObservableObject {
                             screenTypedCount: job.screenTypedCount, targetPID: job.targetPID,
                             targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
                             verificationSnapshot: job.verificationSnapshot, diagnostics: nil,
-                            routeReason: job.routeReason)
+                            routeReason: job.routeReason, commandHUDPreviewMessage: job.commandHUDPreviewMessage)
     }
 
     private func applyProcessedJob(_ job: ProcessedJob) {
@@ -2640,6 +2724,14 @@ final class SpeechManager: ObservableObject {
         GlobalLogger.speech.info(
             "[IntentPipeline] apply seq=\(job.seq) utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) intent=\(intentSummary(job.intent)) diagnostics=\(diagnosticsLog)"
         )
+        if let commandHUDPreviewMessage = job.commandHUDPreviewMessage,
+           !commandHUDPreviewMessage.isEmpty {
+            HUDManager.shared.showTemporary(
+                message: commandHUDPreviewMessage,
+                recognitionControlMode: .command,
+                icon: "command"
+            )
+        }
         revertStreamedDictationIfNeeded(for: job)
         if case .dictation(let text) = job.intent,
            !(isDictationExecutionEnabled?() ?? true) {
@@ -2784,6 +2876,7 @@ final class SpeechManager: ObservableObject {
                     self.onIntent?(.dictation(text), usageContext.appName, usageContext.bundleIdentifier)
                 }
             }
+            clearHandledCommandPreview()
         case .unknown(let transcript):
             GlobalLogger.router.info(
                 "[IntentPipeline] unknown utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) transcript='\(transcript)'"
@@ -3001,6 +3094,124 @@ final class SpeechManager: ObservableObject {
         }
     }
 
+    static func shouldPreviewForcedCommandHUD(
+        typingContext: Bool,
+        intent: VoiceIntent,
+        routingBias: VoiceCommandRouter.RoutingBias,
+        consumedExplicitCommandPrefix: Bool,
+        inlineExplicitCommandPrefix: Bool
+    ) -> Bool {
+        guard typingContext, isCommandIntentStatic(intent) else { return false }
+        return routingBias == .forceCommand || consumedExplicitCommandPrefix || inlineExplicitCommandPrefix
+    }
+
+    static func commandHUDPreviewMessage(
+        for intent: VoiceIntent,
+        localeIdentifier: String
+    ) -> String? {
+        let locale = Locale(identifier: localeIdentifier)
+
+        switch intent {
+        case .clickLeft:
+            return VoiceCommandPreset.clickLeft.title(locale: locale)
+        case .clickRight:
+            return VoiceCommandPreset.clickRight.title(locale: locale)
+        case .doubleClick:
+            return VoiceCommandPreset.doubleClick.title(locale: locale)
+        case .toggleInputControlMode:
+            return VoiceCommandPreset.toggleInputControlMode.title(locale: locale)
+        case .toggleTracking:
+            return VoiceCommandPreset.toggleTracking.title(locale: locale)
+        case .toggleLanguage:
+            return VoiceCommandPreset.toggleLanguage.title(locale: locale)
+        case .toggleShortcutPanel:
+            return VoiceCommandPreset.toggleShortcutPanel.title(locale: locale)
+        case .mediaPlayPause:
+            return VoiceCommandPreset.mediaPlayPause.title(locale: locale)
+        case .mediaPrevious:
+            return VoiceCommandPreset.mediaPrevious.title(locale: locale)
+        case .mediaNext:
+            return VoiceCommandPreset.mediaNext.title(locale: locale)
+        case .showShortcutPanel:
+            return VoiceCommandPreset.showShortcutPanel.title(locale: locale)
+        case .hideShortcutPanel:
+            return VoiceCommandPreset.hideShortcutPanel.title(locale: locale)
+        case .startPointer:
+            return VoiceCommandPreset.startPointer.title(locale: locale)
+        case .stopPointer:
+            return VoiceCommandPreset.stopPointer.title(locale: locale)
+        case .recenter:
+            return VoiceCommandPreset.recenter.title(locale: locale)
+        case .scroll(_, let dy):
+            return dy < 0
+                ? VoiceCommandPreset.scrollUp.title(locale: locale)
+                : VoiceCommandPreset.scrollDown.title(locale: locale)
+        case .scrollToWeb(let edge):
+            return edge == "top"
+                ? VoiceCommandPreset.scrollTop.title(locale: locale)
+                : VoiceCommandPreset.scrollBottom.title(locale: locale)
+        case .dragStart:
+            return VoiceCommandPreset.dragStart.title(locale: locale)
+        case .dragEnd:
+            return VoiceCommandPreset.dragEnd.title(locale: locale)
+        case .undo:
+            return VoiceCommandPreset.undo.title(locale: locale)
+        case .paste:
+            return VoiceCommandPreset.paste.title(locale: locale)
+        case .clearInput:
+            return VoiceCommandPreset.clearInput.title(locale: locale)
+        case .deleteBackward:
+            return VoiceCommandPreset.deleteBackward.title(locale: locale)
+        case .moveCursorHorizontally(let offset):
+            return offset < 0
+                ? VoiceCommandPreset.moveCursorLeft.title(locale: locale)
+                : VoiceCommandPreset.moveCursorRight.title(locale: locale)
+        case .selectHorizontally(let offset):
+            return offset < 0
+                ? VoiceCommandPreset.selectLeft.title(locale: locale)
+                : VoiceCommandPreset.selectRight.title(locale: locale)
+        case .frontmostAppCommand(let command):
+            let path = command.displayPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            return path.isEmpty ? command.title : path
+        case .dictation, .unknown:
+            return nil
+        }
+    }
+
+    static func hasLeadingExplicitCommandPrefix(
+        _ text: String,
+        localeIdentifier: String,
+        overrides: [VoiceLanguageTermsOverrideConfig]
+    ) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let prefixes = VoiceCommandRouter.effectiveCommandPrefixes(
+            for: localeIdentifier,
+            overrides: overrides
+        )
+        let lowered = trimmed.lowercased()
+
+        for prefix in Set(prefixes.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .filter({ !$0.isEmpty })
+            .sorted(by: { $0.count > $1.count }) {
+            if lowered.hasPrefix(prefix.lowercased()) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private static func isCommandIntentStatic(_ intent: VoiceIntent) -> Bool {
+        switch intent {
+        case .dictation, .unknown:
+            return false
+        default:
+            return true
+        }
+    }
+
     private func intentSummary(_ intent: VoiceIntent) -> String {
         switch intent {
         case .clickLeft: return "clickLeft"
@@ -3187,7 +3398,11 @@ final class SpeechManager: ObservableObject {
                 ? typingHUDEligible
                 : idleTypingEvidence
         )
-        let shouldHoldDictationHUD = isTypingRecoveryHoldActive && controlMode == .auto
+        let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
+        let shouldHoldDictationHUD =
+            isTypingRecoveryHoldActive
+            && controlMode == .auto
+            && (!isWakeGated || isAwake)
         let effectiveDictating = isDictating || shouldHoldDictationHUD
         let realHardware = availableInputDevices.filter { $0.id != 0 }
         let shouldShowIdleDictationHUD =
@@ -3233,7 +3448,6 @@ final class SpeechManager: ObservableObject {
             HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon()); return
         }
 
-        let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
         let mode: HUDMode; var message = ""
         let shouldShowProcessingDots = isStopping && shouldShowProcessingDotsDuringStop
         let shouldShowRecognizingWhileDictating =
@@ -3640,6 +3854,8 @@ final class SpeechManager: ObservableObject {
     private func resetUtteranceTrackingForNextPhrase() {
         activeUtteranceID = 0
         isUtteranceActive = false
+        isDictating = false
+        sessionTypingMode = false
         lastTranscript = ""
         lastChangeAt = nil
         lastStableText = ""

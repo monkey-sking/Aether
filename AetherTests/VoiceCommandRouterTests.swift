@@ -217,6 +217,60 @@ final class DictationSafetyTests: XCTestCase {
 
 @MainActor
 final class SpeechManagerTypingModeTests: XCTestCase {
+    func testForcedCommandHUDPreviewAppearsForInlinePrefixInTypingMode() {
+        XCTAssertTrue(
+            SpeechManager.shouldPreviewForcedCommandHUD(
+                typingContext: true,
+                intent: .scroll(0, 300),
+                routingBias: .dictationPreferred,
+                consumedExplicitCommandPrefix: false,
+                inlineExplicitCommandPrefix: true
+            )
+        )
+    }
+
+    func testForcedCommandHUDPreviewDoesNotAppearForPlainDictation() {
+        XCTAssertFalse(
+            SpeechManager.shouldPreviewForcedCommandHUD(
+                typingContext: true,
+                intent: .dictation("你好"),
+                routingBias: .dictationPreferred,
+                consumedExplicitCommandPrefix: false,
+                inlineExplicitCommandPrefix: true
+            )
+        )
+    }
+
+    func testCommandHUDPreviewMessageUsesLocalizedPresetTitle() {
+        XCTAssertEqual(
+            SpeechManager.commandHUDPreviewMessage(
+                for: .moveCursorHorizontally(-3),
+                localeIdentifier: "zh-CN"
+            ),
+            "向左移动"
+        )
+    }
+
+    func testCommandHUDPreviewMessageUsesFrontmostAppCommandPath() {
+        let command = FrontmostAppCommand(
+            processIdentifier: 42,
+            bundleIdentifier: "com.google.Chrome",
+            appName: "Chrome",
+            menuPath: ["File"],
+            title: "Close Tab",
+            shortcut: HotkeyBinding(keyCode: 13, modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue)),
+            aliases: ["关闭标签"]
+        )
+
+        XCTAssertEqual(
+            SpeechManager.commandHUDPreviewMessage(
+                for: .frontmostAppCommand(command),
+                localeIdentifier: "en-US"
+            ),
+            "File > Close Tab"
+        )
+    }
+
     private func assertRoutingBias(
         _ actual: VoiceCommandRouter.RoutingBias,
         equals expected: VoiceCommandRouter.RoutingBias,

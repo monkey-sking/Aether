@@ -81,6 +81,7 @@
 "menu.enable_microphone" = "开启麦克风权限";
 "menu.enable_speech" = "开启语音识别权限";
 "menu.open_settings" = "打开设置";
+"menu.check_updates_ellipsis" = "检查更新…";
 "menu.settings_ellipsis" = "设置…";
 "menu.more_controls" = "更多控制";
 "menu.shortcut_panel_fmt" = "快捷键面板 (%@)";

@@ -282,6 +282,7 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "menu.pointer" = "Pointer";
 "menu.quit" = "Quit";
 "menu.recenter_pointer" = "Recenter Pointer";
+"menu.check_updates_ellipsis" = "Check for Updates…";
 "menu.settings_ellipsis" = "Settings…";
 "menu.shortcut_panel" = "Shortcuts Panel";
 "menu.shortcut_panel_fmt" = "Shortcuts Panel (%@)";

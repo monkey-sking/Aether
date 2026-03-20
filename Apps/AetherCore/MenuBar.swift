@@ -3,6 +3,7 @@ import SwiftUI
 struct AetherMenuBar: Scene {
     @EnvironmentObject private var appState: AppState
     @Environment(\.openWindow) private var openWindow
+    @ObservedObject private var updaterManager = AetherUpdaterManager.shared
 
     private var isChinese: Bool {
         AppLocalization.isChinese
@@ -107,6 +108,10 @@ struct AetherMenuBar: Scene {
 
             Button(String(localized: "menu.shortcut_panel")) {
                 appState.toggleShortcutPanel()
+            }
+
+            Button(String(localized: "menu.check_updates_ellipsis")) {
+                Task { await updaterManager.checkForUpdates() }
             }
 
             Button(String(localized: "menu.settings_ellipsis")) {

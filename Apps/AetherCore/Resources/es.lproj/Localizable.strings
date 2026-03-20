@@ -86,6 +86,7 @@
 "menu.enable_microphone" = "Habilitar micrófono";
 "menu.enable_speech" = "Habilitar reconocimiento de voz";
 "menu.open_settings" = "Abrir Ajustes";
+"menu.check_updates_ellipsis" = "Buscar actualizaciones…";
 "menu.settings_ellipsis" = "Ajustes…";
 "menu.more_controls" = "Más controles";
 "menu.shortcut_panel_fmt" = "Panel de atajos (%@)";

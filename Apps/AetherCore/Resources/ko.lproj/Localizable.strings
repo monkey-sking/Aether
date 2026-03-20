@@ -227,6 +227,7 @@
 "menu.hide_shortcut_panel" = "단축키 패널 숨기기";
 "menu.more_controls" = "추가 컨트롤";
 "menu.open_settings" = "설정 열기";
+"menu.check_updates_ellipsis" = "업데이트 확인…";
 "menu.pointer" = "포인터";
 "menu.quit" = "종료";
 "menu.recenter_pointer" = "포인터 재중심";
