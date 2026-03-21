@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Combine
 import Sparkle
@@ -35,6 +36,33 @@ private final class AetherSparkleFeedDelegate: NSObject, SPUUpdaterDelegate {
     func feedURLString(for updater: SPUUpdater) -> String? {
         AetherUpdateFeedResolver.currentFeedURLString()
     }
+
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        AetherSparkleFocusHelper.bringAppToFront()
+    }
+
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        AetherSparkleFocusHelper.bringAppToFront()
+    }
+}
+
+@MainActor
+private final class AetherSparkleUserDriverDelegate: NSObject, SPUStandardUserDriverDelegate {
+    static let shared = AetherSparkleUserDriverDelegate()
+
+    func standardUserDriverWillShowModalAlert() {
+        AetherSparkleFocusHelper.bringAppToFront()
+    }
+}
+
+@MainActor
+private enum AetherSparkleFocusHelper {
+    static func bringAppToFront() {
+        // Sparkle presents modal alerts that can appear behind other apps if we're not active.
+        // Activate and bring all windows forward so the update alert is always visible.
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSApp.activate(ignoringOtherApps: true)
+    }
 }
 
 @MainActor
@@ -47,7 +75,7 @@ final class AetherSparkleController: ObservableObject {
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: AetherSparkleFeedDelegate.shared,
-            userDriverDelegate: nil
+            userDriverDelegate: AetherSparkleUserDriverDelegate.shared
         )
         _ = updaterController.updater.clearFeedURLFromUserDefaults()
     }
@@ -58,6 +86,7 @@ final class AetherSparkleController: ObservableObject {
     }
 
     func checkForUpdates() {
+        AetherSparkleFocusHelper.bringAppToFront()
         updaterController.checkForUpdates(nil)
     }
 }
