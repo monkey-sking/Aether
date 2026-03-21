@@ -987,9 +987,14 @@ final class HUDManager {
             frontBundle: frontBundle,
             evaluation: axEvaluation
         )
+        let shouldHoldSuppressionForFarNonInputClick = shouldHoldSuppressionAgainstStrongAXEvidence(
+            now: now,
+            frontBundle: frontBundle,
+            evaluation: axEvaluation
+        )
 
         if Date() < typingSuppressedUntil, !explicitTypingClickReentry {
-            if strongAXTypingEvidence && !suppressionSensitiveApp {
+            if strongAXTypingEvidence && !suppressionSensitiveApp && !shouldHoldSuppressionForFarNonInputClick {
                 typingSuppressedUntil = .distantPast
                 appendTypingSuppressionDiagnostic(
                     suppressed: false,
@@ -1027,7 +1032,7 @@ final class HUDManager {
                     reason: "frontmost-bundle-changed",
                     bundleID: frontBundle
                 )
-            } else if strongAXTypingEvidence && !suppressionSensitiveApp {
+            } else if strongAXTypingEvidence && !suppressionSensitiveApp && !shouldHoldSuppressionForFarNonInputClick {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
                 appendTypingSuppressionDiagnostic(
@@ -1223,6 +1228,44 @@ final class HUDManager {
         return lastMouseDownHitPreferredInputRect
     }
 
+    private func shouldHoldSuppressionAgainstStrongAXEvidence(
+        now: Date,
+        frontBundle: String?,
+        evaluation: AXFocusedTypingEvaluation
+    ) -> Bool {
+        guard requiresExplicitTypingReentry else { return false }
+        guard !lastMouseDownHitPreferredInputRect else { return false }
+        guard let point = lastMouseDownPoint else { return false }
+        guard now.timeIntervalSince(lastMouseDownAt) < 1.6 else { return false }
+        guard let rect = preferredExplicitTypingInputRect() else { return false }
+
+        let expandedRect = rect.insetBy(dx: -24, dy: -24)
+        guard !expandedRect.contains(point) else { return false }
+
+        let dx: CGFloat
+        if point.x < expandedRect.minX {
+            dx = expandedRect.minX - point.x
+        } else if point.x > expandedRect.maxX {
+            dx = point.x - expandedRect.maxX
+        } else {
+            dx = 0
+        }
+
+        let dy: CGFloat
+        if point.y < expandedRect.minY {
+            dy = expandedRect.minY - point.y
+        } else if point.y > expandedRect.maxY {
+            dy = point.y - expandedRect.maxY
+        } else {
+            dy = 0
+        }
+
+        let distance = hypot(dx, dy)
+        let browserLike = isBrowserLikeBundle(frontBundle)
+        let searchLikeRole = evaluation.role == "AXSearchField" || evaluation.role == kAXTextFieldRole as String
+        return distance >= 96 && (browserLike || searchLikeRole)
+    }
+
     private func preferredExplicitTypingInputRect() -> CGRect? {
         let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         var candidates: [CGRect] = []
@@ -1241,6 +1284,19 @@ final class HUDManager {
             return candidates.min(by: { ($0.width * $0.height) < ($1.width * $1.height) })
         }
         return candidates.first
+    }
+
+    private func isBrowserLikeBundle(_ bundleID: String?) -> Bool {
+        let bundleID = (bundleID ?? "").lowercased()
+        guard !bundleID.isEmpty else { return false }
+        return bundleID.contains("safari")
+            || bundleID.contains("chrome")
+            || bundleID.contains("chromium")
+            || bundleID.contains("brave")
+            || bundleID.contains("arc")
+            || bundleID.contains("firefox")
+            || bundleID.contains("edge")
+            || bundleID.contains("kagi")
     }
 
     private func isAXFocusedElementInsertionContextAvailable() -> Bool {
