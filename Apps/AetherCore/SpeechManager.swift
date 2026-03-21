@@ -1272,6 +1272,31 @@ final class SpeechManager: ObservableObject {
         return icon
     }
 
+    private func hudContextIcon() -> String {
+        specialInputModeHUDIcon() ?? ""
+    }
+
+    private func specialInputModeHUDIcon() -> String? {
+        guard let bundleID = activeSpecialInputModeBundleID() else { return nil }
+        return "app-bundle:\(bundleID)"
+    }
+
+    private func activeSpecialInputModeBundleID() -> String? {
+        let sessionBundle = sessionTargetBundleID
+        let frontmostBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let candidateBundle = sessionBundle ?? frontmostBundle
+        guard isRecentClickFallbackTypingAppBundle(candidateBundle) else { return nil }
+
+        if sessionTargetSource == .recentClickFallback {
+            return candidateBundle
+        }
+        if let currentSnapshot = currentFocusedInputSnapshot(),
+           currentSnapshot.source == .recentClickFallback {
+            return currentSnapshot.bundleID ?? candidateBundle
+        }
+        return nil
+    }
+
     private func syncHeadsetChangeAnnouncementBaseline() {
         lastAnnouncedHUDInputIcon = currentInputDeviceIcon
         lastAnnouncedHeadsetLikeInput = isHeadsetLikeInputDevice
@@ -3554,10 +3579,10 @@ final class SpeechManager: ObservableObject {
             featureAvailability.commandEnabled
             && !featureAvailability.dictationEnabled
         if !isStopping && Date() < hudOverrideUntil {
-            HUDManager.shared.update(mode: hudOverrideMode, message: hudOverrideMessage, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudOverrideIcon); return
+            HUDManager.shared.update(mode: hudOverrideMode, message: hudOverrideMessage, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudOverrideIcon, contextIcon: hudContextIcon()); return
         }
         if (isAlwaysListeningEnabled || isWakeWordEnabled), let hint = missingVoicePermissionHint() {
-            HUDManager.shared.update(mode: .command, message: hint.message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hint.icon); return
+            HUDManager.shared.update(mode: .command, message: hint.message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hint.icon, contextIcon: hudContextIcon()); return
         }
         if isWakeGatedStandby {
             clearHUDOverride()
@@ -3572,11 +3597,11 @@ final class SpeechManager: ObservableObject {
         if !isContinuousActive && !isSessionActive {
             clearHUDOverride()
             if realHardware.isEmpty {
-                HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon())
+                HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon(), contextIcon: hudContextIcon())
                 return
             }
             if shouldShowIdleDictationHUD || shouldShowIdleCommandHUD {
-                HUDManager.shared.update(mode: .command, message: "", language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon())
+                HUDManager.shared.update(mode: .command, message: "", language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon(), contextIcon: hudContextIcon())
                 return
             }
             // Keep the HUD visible briefly if a temporary toast or language indicator is active.
@@ -3595,7 +3620,7 @@ final class SpeechManager: ObservableObject {
         }
 
         if realHardware.isEmpty {
-            HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon()); return
+            HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon(), contextIcon: hudContextIcon()); return
         }
 
         let mode: HUDMode; var message = ""
@@ -3631,7 +3656,7 @@ final class SpeechManager: ObservableObject {
                 break
             }
         }
-        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon())
+        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon(), contextIcon: hudContextIcon())
     }
 
     private func shouldUseProcessingDotsForCurrentMode() -> Bool {
@@ -3646,7 +3671,7 @@ final class SpeechManager: ObservableObject {
     }
 
     private func showPTTUnavailableHUD() {
-        HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: hudRecognitionControlMode, inputDeviceIcon: hudInputIcon())
+        HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: hudRecognitionControlMode, inputDeviceIcon: hudInputIcon(), contextIcon: hudContextIcon())
     }
 
     // MARK: - Mic Progress Ring

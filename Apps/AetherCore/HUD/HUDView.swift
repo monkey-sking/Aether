@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct HUDView: View {
     @ObservedObject var state: HUDState
@@ -183,11 +184,37 @@ struct HUDView: View {
         return isValidSymbol("mic.slash") ? "mic.slash" : "mic"
     }
 
+    private func requestedAppBundleID(for requested: String) -> String? {
+        let prefix = "app-bundle:"
+        guard requested.hasPrefix(prefix) else { return nil }
+        let bundleID = String(requested.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return bundleID.isEmpty ? nil : bundleID
+    }
+
+    private func appIcon(for bundleID: String) -> NSImage? {
+        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
+        let icon = NSWorkspace.shared.icon(forFile: appURL.path)
+        icon.size = NSSize(width: 18, height: 18)
+        return icon
+    }
+
     private func isValidSymbol(_ name: String) -> Bool {
         NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
     }
 
     private var contextIcon: some View {
+        if let bundleID = requestedAppBundleID(for: state.contextIcon),
+           let icon = appIcon(for: bundleID) {
+            return AnyView(
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 16, height: 16)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .shadow(radius: 1)
+            )
+        }
+
         let symbol: String
         switch state.recognitionControlMode {
         case .command:
@@ -198,10 +225,12 @@ struct HUDView: View {
             symbol = state.isTypingContext ? "keyboard" : "command"
         }
 
-        return Image(systemName: symbol)
-            .font(.system(size: 12))
-            .foregroundColor(.white.opacity(0.8))
-            .shadow(radius: 1)
+        return AnyView(
+            Image(systemName: symbol)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.8))
+                .shadow(radius: 1)
+        )
     }
 
     private var displayLanguage: String {

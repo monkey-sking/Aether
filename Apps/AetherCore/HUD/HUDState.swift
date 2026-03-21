@@ -30,6 +30,7 @@ final class HUDState: ObservableObject {
     @Published var isTypingContext: Bool = false
     @Published var recognitionControlMode: HUDRecognitionControlMode = .auto
     @Published var inputDeviceIcon: String = "mic.fill"
+    @Published var contextIcon: String = ""
     @Published var isLanguageIndicatorVisible: Bool = false
     // 0...1 progress for current recording segment (visual ring around mic icon).
     @Published var micProgress: CGFloat = 0.0
@@ -47,7 +48,8 @@ final class HUDState: ObservableObject {
         language: String,
         isTypingContext: Bool,
         recognitionControlMode: HUDRecognitionControlMode,
-        inputDeviceIcon: String
+        inputDeviceIcon: String,
+        contextIcon: String
     ) {
         self.mode = mode
         self.message = message
@@ -55,6 +57,7 @@ final class HUDState: ObservableObject {
         self.isTypingContext = isTypingContext
         self.recognitionControlMode = recognitionControlMode
         self.inputDeviceIcon = inputDeviceIcon
+        self.contextIcon = contextIcon
     }
 
     func updateGestureTrail(points: [GestureTrailPoint], status: String, visible: Bool) {

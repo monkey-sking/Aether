@@ -300,6 +300,7 @@ final class HUDManager {
         let language: String
         let recognitionControlMode: HUDRecognitionControlMode
         let inputDeviceIcon: String
+        let contextIcon: String
     }
 
     enum HUDUpdateLifetime {
@@ -404,6 +405,7 @@ final class HUDManager {
         language: String,
         recognitionControlMode: HUDRecognitionControlMode = .auto,
         inputDeviceIcon: String = "mic.fill",
+        contextIcon: String = "",
         lifetime: HUDUpdateLifetime = .persistent
     ) {
         
@@ -416,6 +418,7 @@ final class HUDManager {
                     language: language,
                     recognitionControlMode: recognitionControlMode,
                     inputDeviceIcon: inputDeviceIcon,
+                    contextIcon: contextIcon,
                     lifetime: lifetime
                 )
             }
@@ -435,7 +438,8 @@ final class HUDManager {
                     message: message,
                     language: language,
                     recognitionControlMode: recognitionControlMode,
-                    inputDeviceIcon: inputDeviceIcon
+                    inputDeviceIcon: inputDeviceIcon,
+                    contextIcon: contextIcon
                 )
             }
             return
@@ -457,7 +461,8 @@ final class HUDManager {
             state.language == language &&
             state.isTypingContext == effectiveTypingContext &&
             state.recognitionControlMode == recognitionControlMode &&
-            state.inputDeviceIcon == inputDeviceIcon
+            state.inputDeviceIcon == inputDeviceIcon &&
+            state.contextIcon == contextIcon
 
         switch lifetime {
         case .persistent:
@@ -471,7 +476,8 @@ final class HUDManager {
                     message: message,
                     language: language,
                     recognitionControlMode: recognitionControlMode,
-                    inputDeviceIcon: inputDeviceIcon
+                    inputDeviceIcon: inputDeviceIcon,
+                    contextIcon: contextIcon
                 )
             }
         case .temporary(let token):
@@ -484,7 +490,8 @@ final class HUDManager {
             language: language,
             isTypingContext: effectiveTypingContext,
             recognitionControlMode: recognitionControlMode,
-            inputDeviceIcon: inputDeviceIcon
+            inputDeviceIcon: inputDeviceIcon,
+            contextIcon: contextIcon
         )
         if mode == .hidden {
             // Ensure transient indicators don't linger when the HUD is dismissed.
@@ -576,6 +583,7 @@ final class HUDManager {
             language: language ?? state.language,
             recognitionControlMode: controlMode,
             inputDeviceIcon: icon ?? state.inputDeviceIcon,
+            contextIcon: state.contextIcon,
             lifetime: .temporary(token)
         )
         let resolvedDuration = duration ?? suggestedTemporaryDuration(for: message)
@@ -609,6 +617,7 @@ final class HUDManager {
                 language: language,
                 recognitionControlMode: recognitionControlMode,
                 inputDeviceIcon: icon,
+                contextIcon: state.contextIcon,
                 lifetime: .persistent
             )
         } else if let snapshot = dragStatusFallbackSnapshot {
@@ -619,6 +628,7 @@ final class HUDManager {
                 language: snapshot.language,
                 recognitionControlMode: snapshot.recognitionControlMode,
                 inputDeviceIcon: snapshot.inputDeviceIcon,
+                contextIcon: snapshot.contextIcon,
                 lifetime: .persistent
             )
         } else {
@@ -628,7 +638,7 @@ final class HUDManager {
     }
     
     func hide() {
-        update(mode: .hidden, language: state.language, inputDeviceIcon: state.inputDeviceIcon)
+        update(mode: .hidden, language: state.language, inputDeviceIcon: state.inputDeviceIcon, contextIcon: state.contextIcon)
     }
 
     func showTemporaryLanguageIndicator(duration: TimeInterval = 1.1) {
@@ -650,6 +660,7 @@ final class HUDManager {
                 language: state.language,
                 recognitionControlMode: state.recognitionControlMode,
                 inputDeviceIcon: state.inputDeviceIcon,
+                contextIcon: state.contextIcon,
                 lifetime: .temporary(token)
             )
             scheduleHide(delay: max(0.4, duration), token: token)
@@ -2728,7 +2739,8 @@ final class HUDManager {
                 message: fallback.message,
                 language: fallback.language,
                 recognitionControlMode: fallback.recognitionControlMode,
-                inputDeviceIcon: fallback.inputDeviceIcon
+                inputDeviceIcon: fallback.inputDeviceIcon,
+                contextIcon: fallback.contextIcon
             )
             return
         }
@@ -2738,7 +2750,8 @@ final class HUDManager {
             message: "",
             language: state.language,
             recognitionControlMode: state.recognitionControlMode,
-            inputDeviceIcon: state.inputDeviceIcon
+            inputDeviceIcon: state.inputDeviceIcon,
+            contextIcon: state.contextIcon
         )
     }
 }
