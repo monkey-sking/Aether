@@ -1287,7 +1287,18 @@ final class SpeechManager: ObservableObject {
     }
 
     private func activeSpecialInputModeBundleID() -> String? {
-        activeSpecialInputModeSnapshot()?.bundleID
+        if isWeChatSpecialModeActive() {
+            return NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        }
+        return activeSpecialInputModeSnapshot()?.bundleID
+    }
+
+    private func isWeChatSpecialModeActive() -> Bool {
+        guard recognitionControlMode == .auto,
+              let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+            return false
+        }
+        return isRecentClickFallbackTypingAppBundle(frontmostApp.bundleIdentifier)
     }
 
     private func armSpecialInputMode(from snapshot: FocusedInputSnapshot, hold: TimeInterval = 4.0) {
@@ -4009,6 +4020,9 @@ final class SpeechManager: ObservableObject {
 
         let frontmostApp = NSWorkspace.shared.frontmostApplication
         let liveTypingEvidence = liveTypingHUDEvidence()
+        if isWeChatSpecialModeActive() {
+            return true
+        }
         if hasRecentClickTypingFallbackEvidence() {
             return true
         }
@@ -4045,6 +4059,9 @@ final class SpeechManager: ObservableObject {
 
     private func liveTypingHUDEvidence() -> Bool {
         let frontmostApp = NSWorkspace.shared.frontmostApplication
+        if isWeChatSpecialModeActive() {
+            return true
+        }
         if isSystemSearchLikeApplication(frontmostApp), HUDManager.shared.lastKnownTypingState() {
             return true
         }
@@ -4062,6 +4079,9 @@ final class SpeechManager: ObservableObject {
     }
 
     private func focusedTypingHUDEvidence() -> Bool {
+        if isWeChatSpecialModeActive() {
+            return true
+        }
         if hasRecentClickTypingFallbackEvidence() {
             return true
         }
@@ -4750,7 +4770,21 @@ final class SpeechManager: ObservableObject {
             armSpecialInputMode(from: snapshot)
             return snapshot
         }
-        return activeSpecialInputModeSnapshot()
+        if let snapshot = activeSpecialInputModeSnapshot() {
+            return snapshot
+        }
+        if isWeChatSpecialModeActive(),
+           let frontmostApp = NSWorkspace.shared.frontmostApplication {
+            return FocusedInputSnapshot(
+                pid: frontmostApp.processIdentifier,
+                bundleID: frontmostApp.bundleIdentifier,
+                elementFingerprint: nil,
+                source: .recentClickFallback,
+                windowTitle: nil,
+                anchorPoint: nil
+            )
+        }
+        return nil
     }
     private func currentFocusedInputVerificationSnapshot() -> InputVerificationSnapshot? {
         guard let resolved = resolveCurrentFocusedInput() else { return nil }
