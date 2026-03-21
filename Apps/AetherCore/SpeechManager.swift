@@ -2393,6 +2393,32 @@ final class SpeechManager: ObservableObject {
 
     func undoLastInjection() { injector.undoPasteIfRecent() }
     func updateAccessibilityTrusted(_ trusted: Bool) { accessibilityTrustedSnapshot = trusted }
+    @MainActor
+    func exportFocusedInputDiagnostics() throws -> URL {
+        let report = buildFocusedInputDiagnosticsReport()
+        let logsDir = focusedInputDiagnosticsDirectoryURL()
+        try FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let fileURL = logsDir.appendingPathComponent(
+            "focused-input-diagnostics-\(formatter.string(from: Date())).txt",
+            isDirectory: false
+        )
+        try report.write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
+
+    private func focusedInputDiagnosticsDirectoryURL() -> URL {
+        let base = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library", isDirectory: true)
+        return base
+            .appendingPathComponent("Logs", isDirectory: true)
+            .appendingPathComponent("Aether", isDirectory: true)
+    }
+
     private func playWakeSound(reason: String) {
         GlobalLogger.speech.info("[AudioCue] play Tink reason=\(reason)")
         NSSound(named: "Tink")?.play()
@@ -4205,6 +4231,168 @@ final class SpeechManager: ObservableObject {
     private func axFocusedRole(_ el: AXUIElement) -> String {
         axStringAttribute(el, kAXRoleAttribute as CFString) ?? ""
     }
+
+    private func buildFocusedInputDiagnosticsReport() -> String {
+        let now = Date()
+        let frontmostApp = NSWorkspace.shared.frontmostApplication
+        let frontBundleID = frontmostApp?.bundleIdentifier
+        let frontPID = frontmostApp?.processIdentifier ?? 0
+        let axTrusted = accessibilityTrustedSnapshot || AXIsProcessTrusted()
+        let hudEvaluation = HUDManager.shared.currentAXTypingEvaluation()
+        let hudTypingState = HUDManager.shared.lastKnownTypingState()
+        let snapshot = currentFocusedInputSnapshot()
+
+        var lines: [String] = []
+        lines.append("Aether Focused Input Diagnostics")
+        lines.append("generatedAt=\(ISO8601DateFormatter().string(from: now))")
+        lines.append("axTrusted=\(axTrusted)")
+        lines.append("frontmostApp.name=\(frontmostApp?.localizedName ?? "nil")")
+        lines.append("frontmostApp.bundleID=\(frontBundleID ?? "nil")")
+        lines.append("frontmostApp.pid=\(frontPID)")
+        lines.append("speech.sessionTargetPID=\(sessionTargetPID.map(String.init) ?? "nil")")
+        lines.append("speech.sessionTargetBundleID=\(sessionTargetBundleID ?? "nil")")
+        lines.append("speech.sessionTargetFingerprint=\(sessionTargetElementFingerprint ?? "nil")")
+        lines.append("speech.currentFocusedInputSnapshot.pid=\(snapshot.map { String($0.pid) } ?? "nil")")
+        lines.append("speech.currentFocusedInputSnapshot.bundleID=\(snapshot?.bundleID ?? "nil")")
+        lines.append("speech.currentFocusedInputSnapshot.fingerprint=\(snapshot?.elementFingerprint ?? "nil")")
+        lines.append("hud.lastKnownTypingState=\(hudTypingState)")
+        lines.append("hud.ax.role=\(hudEvaluation.role)")
+        lines.append("hud.ax.editableLikely=\(hudEvaluation.editableLikely)")
+        lines.append("hud.ax.insertionContextAvailable=\(hudEvaluation.insertionContextAvailable)")
+        lines.append("hud.ax.looselyEditableForWeb=\(hudEvaluation.looselyEditableForWeb)")
+        lines.append("hud.ax.hasEditableAttribute=\(hudEvaluation.hasEditableAttribute)")
+        lines.append("hud.ax.hasSettableValue=\(hudEvaluation.hasSettableValue)")
+        lines.append("hud.ax.hasEditableAncestor=\(hudEvaluation.hasEditableAncestor)")
+
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedRef: CFTypeRef?
+        let focusedResult = AXUIElementCopyAttributeValue(
+            systemWide,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedRef
+        )
+        guard focusedResult == .success,
+              let focusedRef,
+              CFGetTypeID(focusedRef) == AXUIElementGetTypeID() else {
+            lines.append("focusedElement.error=\(focusedResult.rawValue)")
+            return lines.joined(separator: "\n")
+        }
+
+        let focused = focusedRef as! AXUIElement
+        appendAXElementDiagnostics(
+            &lines,
+            element: focused,
+            label: "focused",
+            bundleID: frontBundleID
+        )
+
+        var currentParentRef: CFTypeRef?
+        var parentResult = AXUIElementCopyAttributeValue(
+            focused,
+            kAXParentAttribute as CFString,
+            &currentParentRef
+        )
+        var depth = 1
+        while parentResult == .success,
+              let parentRef = currentParentRef,
+              CFGetTypeID(parentRef) == AXUIElementGetTypeID(),
+              depth <= 6 {
+            let parentElement = parentRef as! AXUIElement
+            appendAXElementDiagnostics(
+                &lines,
+                element: parentElement,
+                label: "ancestor[\(depth)]",
+                bundleID: frontBundleID
+            )
+            parentResult = AXUIElementCopyAttributeValue(
+                parentElement,
+                kAXParentAttribute as CFString,
+                &currentParentRef
+            )
+            depth += 1
+        }
+
+        if let candidate = findDictationCandidate(in: focused, bundleID: frontBundleID) {
+            appendAXElementDiagnostics(
+                &lines,
+                element: candidate,
+                label: "candidate",
+                bundleID: frontBundleID
+            )
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func appendAXElementDiagnostics(
+        _ lines: inout [String],
+        element: AXUIElement,
+        label: String,
+        bundleID: String?
+    ) {
+        let role = axStringAttribute(element, kAXRoleAttribute as CFString) ?? ""
+        let subrole = axStringAttribute(element, kAXSubroleAttribute as CFString) ?? ""
+        let title = compactDiagnosticText(axStringAttribute(element, kAXTitleAttribute as CFString))
+        let identifier = compactDiagnosticText(axStringAttribute(element, "AXIdentifier" as CFString))
+        let placeholder = compactDiagnosticText(axStringAttribute(element, "AXPlaceholderValue" as CFString))
+        let valuePreview = compactDiagnosticText(axValueText(element), limit: 120)
+        let selectedRange = axSelectedRange(element).map { "{location=\($0.location), length=\($0.length)}" } ?? "nil"
+        let markerRangePresent = axAttributeExists(element, "AXSelectedTextMarkerRange" as CFString)
+        let editable = axBoolAttribute(element, "AXEditable" as CFString).map(String.init(describing:)) ?? "nil"
+        let settableValue = valueAttributeIsSettable(element)
+        let insertionContext = hasInsertionContext(element)
+        let hasEditableAncestor = editableAncestor(for: element) != nil
+        let usableForDictation = isFocusedElementUsableForDictation(element, bundleID: bundleID)
+        let fingerprint = makeElementFingerprint(element)
+        let position = axCGPointAttribute(element, kAXPositionAttribute as CFString)
+            .map { "{x=\(Int($0.x.rounded())), y=\(Int($0.y.rounded()))}" } ?? "nil"
+        let size = axCGSizeAttribute(element, kAXSizeAttribute as CFString)
+            .map { "{w=\(Int($0.width.rounded())), h=\(Int($0.height.rounded()))}" } ?? "nil"
+
+        lines.append("[\(label)] fingerprint=\(fingerprint)")
+        lines.append("[\(label)] role=\(role) subrole=\(subrole) title=\(title) identifier=\(identifier) placeholder=\(placeholder)")
+        lines.append("[\(label)] editable=\(editable) settableValue=\(settableValue) insertionContext=\(insertionContext) markerRangePresent=\(markerRangePresent) selectedRange=\(selectedRange)")
+        lines.append("[\(label)] hasEditableAncestor=\(hasEditableAncestor) usableForDictation=\(usableForDictation) position=\(position) size=\(size)")
+        lines.append("[\(label)] valuePreview=\(valuePreview)")
+
+        let children = axChildElements(element)
+        if !children.isEmpty {
+            let childSummary = children.prefix(8).enumerated().map { index, child in
+                let childRole = axStringAttribute(child, kAXRoleAttribute as CFString) ?? ""
+                let childSubrole = axStringAttribute(child, kAXSubroleAttribute as CFString) ?? ""
+                let childTitle = compactDiagnosticText(axStringAttribute(child, kAXTitleAttribute as CFString), limit: 40)
+                return "#\(index){role=\(childRole),subrole=\(childSubrole),title=\(childTitle)}"
+            }.joined(separator: " ")
+            lines.append("[\(label)] children=\(childSummary)")
+        }
+    }
+
+    private func axChildElements(_ element: AXUIElement) -> [AXUIElement] {
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXChildrenAttribute as CFString,
+            &childrenRef
+        ) == .success,
+        let children = childrenRef as? [AXUIElement] else {
+            return []
+        }
+        return children
+    }
+
+    private func axAttributeExists(_ element: AXUIElement, _ attr: CFString) -> Bool {
+        var value: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, attr, &value) == .success
+    }
+
+    private func compactDiagnosticText(_ raw: String?, limit: Int = 80) -> String {
+        let text = (raw ?? "nil")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\t", with: " ")
+        guard text.count > limit else { return text }
+        return String(text.prefix(limit)) + "..."
+    }
+
     private func findDictationCandidate(in element: AXUIElement, bundleID: String?, depth: Int = 5) -> AXUIElement? {
         guard depth > 0 else { return nil }
         if isFocusedElementUsableForDictation(element, bundleID: bundleID) { return element }

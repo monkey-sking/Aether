@@ -1011,8 +1011,10 @@ struct InputSettingsView: View {
 }
 
 private struct HeadGestureShortcutMappingCard: View {
+    @EnvironmentObject private var appState: AppState
     @ObservedObject private var motionManager = HeadMotionManager.shared
     @State private var expandedGestureIDs: Set<UUID> = []
+    @State private var revealInputDiagnostics = false
     private var isChinese: Bool { AppLocalization.isChinese }
     private var fixedGestures: [HeadMotionManager.RecordedHeadGesture] { motionManager.fixedHotZoneGestures }
     private var motionGestures: [HeadMotionManager.RecordedHeadGesture] { motionManager.builtInMotionGestures }
@@ -1040,6 +1042,16 @@ private struct HeadGestureShortcutMappingCard: View {
         Binding(
             get: { motionManager.recordedHeadGestures.first(where: { $0.id == gestureID })?.enabled ?? true },
             set: { motionManager.toggleRecordedHeadGestureEnabled(id: gestureID, enabled: $0) }
+        )
+    }
+
+    private func toggleHiddenInputDiagnostics() {
+        revealInputDiagnostics.toggle()
+        HUDManager.shared.showTemporary(
+            message: revealInputDiagnostics
+                ? (isChinese ? "已显示输入框诊断工具" : "Input diagnostics revealed")
+                : (isChinese ? "已隐藏输入框诊断工具" : "Input diagnostics hidden"),
+            icon: "ladybug"
         )
     }
 
@@ -1102,7 +1114,8 @@ private struct HeadGestureShortcutMappingCard: View {
                     }
                 }
 
-                DisclosureGroup(isChinese ? "高级与调试" : "Advanced & Diagnostics") {
+                DisclosureGroup(
+                    content: {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text(isChinese ? "热区触发历史" : "Hot Zone History")
@@ -1146,6 +1159,29 @@ private struct HeadGestureShortcutMappingCard: View {
                             .buttonStyle(.borderless)
                             .font(.caption.weight(.semibold))
                             .foregroundColor(.secondary)
+
+                            if revealInputDiagnostics {
+                                Button(isChinese ? "导出输入框诊断" : "Export Input Diagnostics") {
+                                    do {
+                                        let url = try appState.voiceService.exportFocusedInputDiagnostics()
+                                        HUDManager.shared.showTemporary(
+                                            message: isChinese
+                                                ? "已导出输入框诊断：\(url.lastPathComponent)"
+                                                : "Input diagnostics exported: \(url.lastPathComponent)",
+                                            icon: "waveform.path.ecg"
+                                        )
+                                    } catch {
+                                        HUDManager.shared.showTemporary(
+                                            message: error.localizedDescription,
+                                            icon: "xmark.circle.fill"
+                                        )
+                                    }
+                                }
+                                .controlSize(.small)
+                                .buttonStyle(.borderless)
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.secondary)
+                            }
 
                             if !motionManager.headGestureHistory.isEmpty {
                                 Button(isChinese ? "复制全部" : "Copy All") {
@@ -1192,7 +1228,20 @@ private struct HeadGestureShortcutMappingCard: View {
                             }
                         }
                     }
-                }
+                },
+                    label: {
+                        HStack(spacing: 6) {
+                            Text(isChinese ? "高级与调试" : "Advanced & Diagnostics")
+                            if revealInputDiagnostics {
+                                Image(systemName: "ladybug")
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 5, perform: toggleHiddenInputDiagnostics)
+                    }
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

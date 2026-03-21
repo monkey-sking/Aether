@@ -313,6 +313,11 @@ final class VoiceService: ObservableObject {
     func undoLastInjection() {
         manager.undoLastInjection()
     }
+
+    @MainActor
+    func exportFocusedInputDiagnostics() throws -> URL {
+        try manager.exportFocusedInputDiagnostics()
+    }
 }
 
 @MainActor
