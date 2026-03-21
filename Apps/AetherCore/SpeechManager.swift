@@ -2033,7 +2033,9 @@ final class SpeechManager: ObservableObject {
         let hasStrongTypingFallback = hasStrongTypingFallbackEvidence(
             lockedFocusedSnapshot: lockedFocusedSnapshot,
             lockedTargetMatches: lockedTargetMatches,
-            computedTypingContext: computedTypingMode
+            computedTypingContext: computedTypingMode,
+            hudRecognitionControlMode: hudState.recognitionControlMode,
+            hudTypingContext: hudState.isTypingContext
         )
         let nextTypingMode = hasStrongTypingFallback
             ? computedTypingMode
@@ -2601,7 +2603,9 @@ final class SpeechManager: ObservableObject {
         let hasStrongTypingFallback = hasStrongTypingFallbackEvidence(
             lockedFocusedSnapshot: lockedFocusedSnapshot,
             lockedTargetMatches: lockedTargetMatches,
-            computedTypingContext: computedTypingContext
+            computedTypingContext: computedTypingContext,
+            hudRecognitionControlMode: hudState.recognitionControlMode,
+            hudTypingContext: hudState.isTypingContext
         )
         var typingContext = Self.reconcileTypingContextWithVisibleHUD(
             recognitionControlMode: controlMode,
@@ -4332,7 +4336,9 @@ final class SpeechManager: ObservableObject {
     private func hasStrongTypingFallbackEvidence(
         lockedFocusedSnapshot: FocusedInputSnapshot?,
         lockedTargetMatches: Bool,
-        computedTypingContext: Bool
+        computedTypingContext: Bool,
+        hudRecognitionControlMode: HUDRecognitionControlMode,
+        hudTypingContext: Bool
     ) -> Bool {
         if hasRecentClickTypingFallbackEvidence() {
             return true
@@ -4340,6 +4346,11 @@ final class SpeechManager: ObservableObject {
         guard recognitionControlMode == .auto, computedTypingContext else {
             return false
         }
+        // Never override an explicitly visible "control semantics" HUD state. When the HUD is in command
+        // mode (or auto-but-not-typing), we should not preserve typing purely because we have a locked
+        // target; that would cause commands like "关闭标签" to be routed as dictation.
+        if hudRecognitionControlMode == .command { return false }
+        if hudRecognitionControlMode == .auto, !hudTypingContext { return false }
         guard lockedTargetMatches else {
             return false
         }

@@ -198,11 +198,29 @@ struct HUDView: View {
         return icon
     }
 
+    private func isWeChatBundleID(_ bundleID: String) -> Bool {
+        let lowercased = bundleID.lowercased()
+        return lowercased.contains("xinwechat") || lowercased.contains("wechat")
+    }
+
     private func isValidSymbol(_ name: String) -> Bool {
         NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
     }
 
     private var contextIcon: some View {
+        if let bundleID = requestedAppBundleID(for: state.contextIcon),
+           isWeChatBundleID(bundleID) {
+            return AnyView(
+                Image("WeChatModeIcon")
+                    .renderingMode(.template) // use HUD tint, not WeChat green
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 18, height: 18)
+                    .foregroundColor(.white.opacity(0.84))
+                    .shadow(radius: 1)
+            )
+        }
+
         if let bundleID = requestedAppBundleID(for: state.contextIcon),
            let icon = appIcon(for: bundleID) {
             return AnyView(
