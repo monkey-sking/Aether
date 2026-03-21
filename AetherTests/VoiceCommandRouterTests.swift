@@ -215,6 +215,51 @@ final class DictationSafetyTests: XCTestCase {
     }
 }
 
+final class DeveloperSpeechProfileTests: XCTestCase {
+    func testDeveloperSpeechProfileMatchesKnownDeveloperApps() {
+        XCTAssertTrue(DeveloperSpeechProfile.matches(bundleIdentifier: "com.apple.terminal"))
+        XCTAssertTrue(DeveloperSpeechProfile.matches(bundleIdentifier: "com.apple.dt.xcode"))
+        XCTAssertTrue(DeveloperSpeechProfile.matches(bundleIdentifier: "com.cursor.Editor"))
+        XCTAssertFalse(DeveloperSpeechProfile.matches(bundleIdentifier: "com.apple.mail"))
+    }
+
+    func testDeveloperSpeechProfileProvidesScopedContextualTerms() {
+        let terminalTerms = DeveloperSpeechProfile.contextualTerms(for: ["com.apple.terminal"])
+        XCTAssertTrue(terminalTerms.contains("新包"))
+        XCTAssertTrue(terminalTerms.contains("brew"))
+
+        let mailTerms = DeveloperSpeechProfile.contextualTerms(for: ["com.apple.mail"])
+        XCTAssertTrue(mailTerms.isEmpty)
+    }
+
+    func testDeveloperSpeechProfileCorrectsHighConfidenceDeveloperPhrases() {
+        XCTAssertEqual(
+            DeveloperSpeechProfile.correctedText(
+                "帮我打个心包",
+                scope: .dictation,
+                bundleIdentifiers: ["com.apple.terminal"]
+            ),
+            "帮我打个新包"
+        )
+        XCTAssertEqual(
+            DeveloperSpeechProfile.correctedText(
+                "打开后果 issue",
+                scope: .command,
+                bundleIdentifiers: ["com.apple.dt.xcode"]
+            ),
+            "打开GitHub issue"
+        )
+        XCTAssertEqual(
+            DeveloperSpeechProfile.correctedText(
+                "帮我打个心包",
+                scope: .dictation,
+                bundleIdentifiers: ["com.apple.mail"]
+            ),
+            "帮我打个心包"
+        )
+    }
+}
+
 @MainActor
 final class SpeechManagerTypingModeTests: XCTestCase {
     func testForcedCommandHUDPreviewAppearsForInlinePrefixInTypingMode() {

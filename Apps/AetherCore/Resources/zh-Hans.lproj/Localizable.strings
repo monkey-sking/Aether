@@ -474,6 +474,10 @@
 "settings.section.basics.subtitle" = "麦克风、识别语言和触发方式。";
 
 "settings.section.term_corrections.title" = "术语纠错";
+"settings.term_correction.developer_boost.title" = "开发者术语增强";
+"settings.term_correction.developer_boost.toggle_label" = "启用";
+"settings.term_correction.developer_boost.subtitle" = "当前台是 Terminal、Xcode、VS Code、Codex 等开发应用时自动加入开发词库提示。";
+"settings.term_correction.developer_boost.detail" = "下方的高级术语组与 App 规则仍然可以继续编辑。";
 "settings.section.term_corrections.page_title" = "术语纠错";
 "settings.section.term_corrections.subtitle" = "听写润色、识别纠错和按 App 的术语替换规则。";
 

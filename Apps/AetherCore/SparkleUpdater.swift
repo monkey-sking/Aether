@@ -46,12 +46,14 @@ private final class AetherSparkleFeedDelegate: NSObject, SPUUpdaterDelegate {
     }
 }
 
-@MainActor
 private final class AetherSparkleUserDriverDelegate: NSObject, SPUStandardUserDriverDelegate {
     static let shared = AetherSparkleUserDriverDelegate()
 
-    func standardUserDriverWillShowModalAlert() {
-        AetherSparkleFocusHelper.bringAppToFront()
+    nonisolated func standardUserDriverWillShowModalAlert() {
+        Task { @MainActor in
+            HUDManager.shared.hideImmediately()
+            AetherSparkleFocusHelper.bringAppToFront()
+        }
     }
 }
 
@@ -60,7 +62,7 @@ private enum AetherSparkleFocusHelper {
     static func bringAppToFront() {
         // Sparkle presents modal alerts that can appear behind other apps if we're not active.
         // Activate and bring all windows forward so the update alert is always visible.
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
         NSApp.activate(ignoringOtherApps: true)
     }
 }
@@ -86,6 +88,7 @@ final class AetherSparkleController: ObservableObject {
     }
 
     func checkForUpdates() {
+        HUDManager.shared.hideImmediately()
         AetherSparkleFocusHelper.bringAppToFront()
         updaterController.checkForUpdates(nil)
     }

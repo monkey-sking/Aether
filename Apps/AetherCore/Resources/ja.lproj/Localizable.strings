@@ -434,6 +434,10 @@
 "settings.section.lexicon.title" = "レキシコン";
 "settings.section.lexicon.page_title" = "音声レキシコン";
 "settings.section.lexicon.subtitle" = "ウェイクワードとコマンドエイリアスの管理。";
+"settings.term_correction.developer_boost.title" = "開発者用語の強化";
+"settings.term_correction.developer_boost.toggle_label" = "有効にする";
+"settings.term_correction.developer_boost.subtitle" = "Terminal、Xcode、VS Code、Codex などが前面にあるとき、開発用語のヒントを自動で追加します。";
+"settings.term_correction.developer_boost.detail" = "下部の高度な用語グループとアプリ別ルールも引き続き利用できます。";
 
 "settings.section.app_controls.title" = "現在のアプリ";
 "settings.section.app_controls.page_title" = "現在のアプリのコントロール";

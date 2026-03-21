@@ -335,6 +335,10 @@ final class VoiceService: ObservableObject {
         manager.isLLMEnhancementEnabled = enabled
     }
 
+    func setDeveloperSpeechProfileEnabled(_ enabled: Bool) {
+        manager.isDeveloperSpeechProfileEnabled = enabled
+    }
+
     func setVoiceCommandOverrides(_ overrides: [VoiceCommandOverrideConfig]) {
         manager.setVoiceCommandOverrides(overrides)
     }
@@ -635,7 +639,51 @@ class AppState: ObservableObject {
         let failureCount: Int
         let unrecognizedCount: Int
         let mismatchCount: Int
+        let noSpeechCount: Int
         let controlCount: Int
+
+        enum CodingKeys: String, CodingKey {
+            case total
+            case dictationCount
+            case dictationCharacterCount
+            case failureCount
+            case unrecognizedCount
+            case mismatchCount
+            case noSpeechCount
+            case controlCount
+        }
+
+        init(
+            total: Int,
+            dictationCount: Int,
+            dictationCharacterCount: Int,
+            failureCount: Int,
+            unrecognizedCount: Int,
+            mismatchCount: Int,
+            noSpeechCount: Int = 0,
+            controlCount: Int
+        ) {
+            self.total = total
+            self.dictationCount = dictationCount
+            self.dictationCharacterCount = dictationCharacterCount
+            self.failureCount = failureCount
+            self.unrecognizedCount = unrecognizedCount
+            self.mismatchCount = mismatchCount
+            self.noSpeechCount = noSpeechCount
+            self.controlCount = controlCount
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            total = try container.decode(Int.self, forKey: .total)
+            dictationCount = try container.decode(Int.self, forKey: .dictationCount)
+            dictationCharacterCount = try container.decode(Int.self, forKey: .dictationCharacterCount)
+            failureCount = try container.decode(Int.self, forKey: .failureCount)
+            unrecognizedCount = try container.decode(Int.self, forKey: .unrecognizedCount)
+            mismatchCount = try container.decode(Int.self, forKey: .mismatchCount)
+            noSpeechCount = try container.decodeIfPresent(Int.self, forKey: .noSpeechCount) ?? 0
+            controlCount = try container.decode(Int.self, forKey: .controlCount)
+        }
 
         static let zero = VoiceUsageSummary(
             total: 0,
@@ -644,6 +692,7 @@ class AppState: ObservableObject {
             failureCount: 0,
             unrecognizedCount: 0,
             mismatchCount: 0,
+            noSpeechCount: 0,
             controlCount: 0
         )
     }
@@ -658,7 +707,59 @@ class AppState: ObservableObject {
         let failureCount: Int
         let unrecognizedCount: Int
         let mismatchCount: Int
+        let noSpeechCount: Int
         let controlCount: Int
+
+        enum CodingKeys: String, CodingKey {
+            case appName
+            case bundleIdentifier
+            case total
+            case dictationCount
+            case dictationCharacterCount
+            case failureCount
+            case unrecognizedCount
+            case mismatchCount
+            case noSpeechCount
+            case controlCount
+        }
+
+        init(
+            appName: String,
+            bundleIdentifier: String,
+            total: Int,
+            dictationCount: Int,
+            dictationCharacterCount: Int,
+            failureCount: Int,
+            unrecognizedCount: Int,
+            mismatchCount: Int,
+            noSpeechCount: Int = 0,
+            controlCount: Int
+        ) {
+            self.appName = appName
+            self.bundleIdentifier = bundleIdentifier
+            self.total = total
+            self.dictationCount = dictationCount
+            self.dictationCharacterCount = dictationCharacterCount
+            self.failureCount = failureCount
+            self.unrecognizedCount = unrecognizedCount
+            self.mismatchCount = mismatchCount
+            self.noSpeechCount = noSpeechCount
+            self.controlCount = controlCount
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            appName = try container.decode(String.self, forKey: .appName)
+            bundleIdentifier = try container.decode(String.self, forKey: .bundleIdentifier)
+            total = try container.decode(Int.self, forKey: .total)
+            dictationCount = try container.decode(Int.self, forKey: .dictationCount)
+            dictationCharacterCount = try container.decode(Int.self, forKey: .dictationCharacterCount)
+            failureCount = try container.decode(Int.self, forKey: .failureCount)
+            unrecognizedCount = try container.decode(Int.self, forKey: .unrecognizedCount)
+            mismatchCount = try container.decode(Int.self, forKey: .mismatchCount)
+            noSpeechCount = try container.decodeIfPresent(Int.self, forKey: .noSpeechCount) ?? 0
+            controlCount = try container.decode(Int.self, forKey: .controlCount)
+        }
     }
 
     struct CustomAppShortcutRulesBackup: Codable {
@@ -668,6 +769,7 @@ class AppState: ObservableObject {
     }
 
     private static let speechTermGroupsStorageKey = "speechTermGroupsV2"
+    private static let developerSpeechProfileEnabledStorageKey = "developerSpeechProfileEnabledV1"
     private static let voiceCommandOverridesStorageKey = "voiceCommandOverridesV1"
     private static let voiceLanguageTermsOverridesStorageKey = "voiceLanguageTermsOverridesV1"
     private static let voiceUsageHistoryEnabledStorageKey = "voiceUsageHistoryEnabledV1"
@@ -861,7 +963,20 @@ class AppState: ObservableObject {
     private static func loadVoiceUsageSummary(seedEvents: [VoiceUsageEvent]) -> VoiceUsageSummary {
         if let data = UserDefaults.standard.data(forKey: voiceUsageSummaryStorageKey),
            let summary = try? JSONDecoder().decode(VoiceUsageSummary.self, from: data) {
-            return summary
+            guard summaryDataNeedsNoSpeechMigration(data) else { return summary }
+            let migratedNoSpeechCount = seedEvents.reduce(0) { partialResult, entry in
+                partialResult + (isVoiceUsageNoSpeech(entry) ? 1 : 0)
+            }
+            return VoiceUsageSummary(
+                total: summary.total,
+                dictationCount: summary.dictationCount,
+                dictationCharacterCount: summary.dictationCharacterCount,
+                failureCount: max(summary.failureCount - migratedNoSpeechCount, 0),
+                unrecognizedCount: summary.unrecognizedCount,
+                mismatchCount: summary.mismatchCount,
+                noSpeechCount: migratedNoSpeechCount,
+                controlCount: summary.controlCount
+            )
         }
         return rebuildVoiceUsageSummary(from: seedEvents)
     }
@@ -875,9 +990,41 @@ class AppState: ObservableObject {
     private static func loadVoiceUsageAppSummaries(seedEvents: [VoiceUsageEvent]) -> [VoiceUsageAppSummary] {
         if let data = UserDefaults.standard.data(forKey: voiceUsageAppSummariesStorageKey),
            let summaries = try? JSONDecoder().decode([VoiceUsageAppSummary].self, from: data) {
-            return summaries
+            guard appSummaryDataNeedsNoSpeechMigration(data) else { return summaries }
+            let migratedNoSpeechByBundle = Dictionary(grouping: seedEvents.filter(isVoiceUsageNoSpeech), by: \.bundleIdentifier)
+                .mapValues(\.count)
+            return summaries.map { summary in
+                let migratedNoSpeechCount = migratedNoSpeechByBundle[summary.bundleIdentifier] ?? 0
+                return VoiceUsageAppSummary(
+                    appName: summary.appName,
+                    bundleIdentifier: summary.bundleIdentifier,
+                    total: summary.total,
+                    dictationCount: summary.dictationCount,
+                    dictationCharacterCount: summary.dictationCharacterCount,
+                    failureCount: max(summary.failureCount - migratedNoSpeechCount, 0),
+                    unrecognizedCount: summary.unrecognizedCount,
+                    mismatchCount: summary.mismatchCount,
+                    noSpeechCount: migratedNoSpeechCount,
+                    controlCount: summary.controlCount
+                )
+            }
         }
         return rebuildVoiceUsageAppSummaries(from: seedEvents)
+    }
+
+    private static func summaryDataNeedsNoSpeechMigration(_ data: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return object["noSpeechCount"] == nil
+    }
+
+    private static func appSummaryDataNeedsNoSpeechMigration(_ data: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let first = object.first else {
+            return false
+        }
+        return first["noSpeechCount"] == nil
     }
 
     private static func saveVoiceUsageAppSummaries(_ summaries: [VoiceUsageAppSummary]) {
@@ -1364,17 +1511,21 @@ class AppState: ObservableObject {
     }
 
     @Published var speechTermCorrectionEnabled: Bool = {
-        UserDefaults.standard.set(false, forKey: "speechTermCorrectionEnabled")
-        return false
+        UserDefaults.standard.object(forKey: "speechTermCorrectionEnabled") as? Bool ?? false
     }() {
         didSet {
-            guard !speechTermCorrectionEnabled else {
-                if oldValue != false {
-                    speechTermCorrectionEnabled = false
-                }
-                return
-            }
-            UserDefaults.standard.set(false, forKey: "speechTermCorrectionEnabled")
+            UserDefaults.standard.set(speechTermCorrectionEnabled, forKey: "speechTermCorrectionEnabled")
+        }
+    }
+    @Published var isDeveloperSpeechProfileEnabled: Bool = UserDefaults.standard.object(
+        forKey: developerSpeechProfileEnabledStorageKey
+    ) as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(
+                isDeveloperSpeechProfileEnabled,
+                forKey: Self.developerSpeechProfileEnabledStorageKey
+            )
+            voiceService.setDeveloperSpeechProfileEnabled(isDeveloperSpeechProfileEnabled)
         }
     }
     @Published var speechTermGroups: [SpeechTermGroupConfig] = AppState.loadSpeechTermGroups() {
@@ -1491,7 +1642,6 @@ class AppState: ObservableObject {
         guard entry.kind == .dictation else { return false }
         let failureActions = Set([
             Self.localizedVoiceUsageAction("voice_usage.failure.recognition_failed", fallback: "Recognition Failed"),
-            Self.localizedVoiceUsageAction("voice_usage.failure.no_speech", fallback: "No Speech Detected"),
             Self.localizedVoiceUsageAction("voice_usage.failure.interrupted", fallback: "Recognition Interrupted"),
             Self.localizedVoiceUsageAction("voice_usage.failure.unavailable", fallback: "Recognition Unavailable"),
             Self.localizedVoiceUsageAction("voice_usage.failure.injection_failed", fallback: "Input Failed"),
@@ -1499,6 +1649,16 @@ class AppState: ObservableObject {
             Self.localizedVoiceUsageAction("voice_usage.failure.dictation_disabled", fallback: "Voice Input Off")
         ])
         return failureActions.contains(entry.action)
+    }
+
+    private static func isVoiceUsageNoSpeech(_ entry: VoiceUsageEvent) -> Bool {
+        guard entry.kind == .dictation else { return false }
+        let noSpeechActions = Set([
+            Self.localizedVoiceUsageAction("voice_usage.failure.no_speech", fallback: "No Speech Detected"),
+            "No Speech Detected",
+            "未识别到人声"
+        ])
+        return noSpeechActions.contains(entry.action)
     }
 
     private static func isVoiceUsageUnrecognized(_ entry: VoiceUsageEvent) -> Bool {
@@ -1539,6 +1699,7 @@ class AppState: ObservableObject {
                 failureCount: 0,
                 unrecognizedCount: 0,
                 mismatchCount: 0,
+                noSpeechCount: 0,
                 controlCount: 0
             )
             summariesByBundle[entry.bundleIdentifier] = updatedVoiceUsageAppSummary(current, byAdding: entry)
@@ -1553,11 +1714,14 @@ class AppState: ObservableObject {
         var failureCount = summary.failureCount
         var unrecognizedCount = summary.unrecognizedCount
         var mismatchCount = summary.mismatchCount
+        var noSpeechCount = summary.noSpeechCount
         var controlCount = summary.controlCount
 
         if isVoiceUsageSuccessfulDictation(entry) {
             dictationCount += 1
             dictationCharacterCount += voiceUsageCharacterCount(for: entry)
+        } else if isVoiceUsageNoSpeech(entry) {
+            noSpeechCount += 1
         } else if isVoiceUsageFailure(entry) {
             failureCount += 1
         } else if isVoiceUsageUnrecognized(entry) {
@@ -1575,6 +1739,7 @@ class AppState: ObservableObject {
             failureCount: failureCount,
             unrecognizedCount: unrecognizedCount,
             mismatchCount: mismatchCount,
+            noSpeechCount: noSpeechCount,
             controlCount: controlCount
         )
     }
@@ -1586,11 +1751,14 @@ class AppState: ObservableObject {
         var failureCount = summary.failureCount
         var unrecognizedCount = summary.unrecognizedCount
         var mismatchCount = summary.mismatchCount
+        var noSpeechCount = summary.noSpeechCount
         var controlCount = summary.controlCount
 
         if isVoiceUsageSuccessfulDictation(entry) {
             dictationCount += 1
             dictationCharacterCount += voiceUsageCharacterCount(for: entry)
+        } else if isVoiceUsageNoSpeech(entry) {
+            noSpeechCount += 1
         } else if isVoiceUsageFailure(entry) {
             failureCount += 1
         } else if isVoiceUsageUnrecognized(entry) {
@@ -1610,6 +1778,7 @@ class AppState: ObservableObject {
             failureCount: failureCount,
             unrecognizedCount: unrecognizedCount,
             mismatchCount: mismatchCount,
+            noSpeechCount: noSpeechCount,
             controlCount: controlCount
         )
     }
@@ -2293,6 +2462,7 @@ class AppState: ObservableObject {
         }
         
         voiceService.setLLMEnhancementEnabled(self.isLLMEnhancementEnabled)
+        voiceService.setDeveloperSpeechProfileEnabled(self.isDeveloperSpeechProfileEnabled)
         voiceService.setVoiceCommandOverrides(self.voiceCommandOverrides)
         voiceService.setVoiceLanguageTermsOverrides(self.voiceLanguageTermsOverrides)
         voiceService.setCustomAppShortcutRules(self.customAppShortcutRules)

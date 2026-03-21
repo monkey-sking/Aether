@@ -48,6 +48,112 @@ struct UtteranceExecutionGuard {
     mutating func reset() { seenOrder.removeAll(); seenSet.removeAll() }
 }
 
+enum RecognizedTextCorrectionScope {
+    case dictation
+    case command
+}
+
+struct RecognizedTextReplacementRule: Equatable {
+    let from: String
+    let to: String
+    let scope: RecognizedTextCorrectionScope?
+}
+
+enum DeveloperSpeechProfile {
+    private static let terminalBundleIdentifiers: Set<String> = [
+        "com.apple.terminal",
+        "com.googlecode.iterm2",
+        "com.github.wez.wezterm",
+        "dev.warp.warp-stable"
+    ]
+    private static let editorBundleIdentifiers: Set<String> = [
+        "com.apple.dt.xcode",
+        "com.microsoft.vscode",
+        "com.microsoft.vscodeinsiders",
+        "com.todesktop.230313mzl4w4u92",
+        "com.zed.zed",
+        "com.openai.codex",
+        "com.openai.chatgpt"
+    ]
+    private static let developerBundlePrefixes = [
+        "com.jetbrains.",
+        "com.cursor."
+    ]
+    private static let sharedContextualTerms = [
+        "新包", "打包", "发版", "安装包", "构建", "归档",
+        "release", "beta", "build", "archive", "workspace",
+        "GitHub", "repo", "branch", "commit", "merge", "rebase",
+        "stash", "checkout", "pull request", "PR"
+    ]
+    private static let terminalContextualTerms = [
+        "shell", "zsh", "bash", "brew", "git", "npm", "pnpm", "yarn", "cargo"
+    ]
+    private static let xcodeContextualTerms = [
+        "scheme", "simulator", "derived data", "signing", "notary", "TestFlight"
+    ]
+    private static let editorContextualTerms = [
+        "diff", "refactor", "workspace", "extension", "pull request", "PR", "Codex"
+    ]
+    private static let builtInReplacements: [RecognizedTextReplacementRule] = [
+        RecognizedTextReplacementRule(from: "打个心包", to: "打个新包", scope: .dictation),
+        RecognizedTextReplacementRule(from: "打个钱包", to: "打个新包", scope: .dictation),
+        RecognizedTextReplacementRule(from: "发个心包", to: "发个新包", scope: .dictation),
+        RecognizedTextReplacementRule(from: "发个钱包", to: "发个新包", scope: .dictation),
+        RecognizedTextReplacementRule(from: "构件", to: "构建", scope: .dictation),
+        RecognizedTextReplacementRule(from: "归当", to: "归档", scope: .dictation),
+        RecognizedTextReplacementRule(from: "安转包", to: "安装包", scope: .dictation),
+        RecognizedTextReplacementRule(from: "git hub", to: "GitHub", scope: nil),
+        RecognizedTextReplacementRule(from: "后果", to: "GitHub", scope: .command)
+    ]
+
+    static func matches(bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier else { return false }
+        let normalized = bundleIdentifier.lowercased()
+        if terminalBundleIdentifiers.contains(normalized) || editorBundleIdentifiers.contains(normalized) {
+            return true
+        }
+        return developerBundlePrefixes.contains(where: { normalized.hasPrefix($0) })
+    }
+
+    static func contextualTerms(for bundleIdentifiers: [String]) -> [String] {
+        guard bundleIdentifiers.contains(where: { matches(bundleIdentifier: $0) }) else { return [] }
+
+        var terms = sharedContextualTerms
+        for bundleIdentifier in bundleIdentifiers.map({ $0.lowercased() }) {
+            if terminalBundleIdentifiers.contains(bundleIdentifier) {
+                terms.append(contentsOf: terminalContextualTerms)
+            }
+            if bundleIdentifier == "com.apple.dt.xcode" {
+                terms.append(contentsOf: xcodeContextualTerms)
+            }
+            if editorBundleIdentifiers.contains(bundleIdentifier)
+                || developerBundlePrefixes.contains(where: { bundleIdentifier.lowercased().hasPrefix($0) }) {
+                terms.append(contentsOf: editorContextualTerms)
+            }
+        }
+
+        return VoiceLexiconSupport.uniqueTerms(terms)
+    }
+
+    static func correctedText(
+        _ raw: String,
+        scope: RecognizedTextCorrectionScope,
+        bundleIdentifiers: [String]
+    ) -> String {
+        guard bundleIdentifiers.contains(where: { matches(bundleIdentifier: $0) }) else { return raw }
+
+        var corrected = raw
+        for rule in builtInReplacements.sorted(by: { $0.from.count > $1.from.count }) {
+            if let ruleScope = rule.scope, ruleScope != scope {
+                continue
+            }
+            guard corrected.contains(rule.from) else { continue }
+            corrected = corrected.replacingOccurrences(of: rule.from, with: rule.to)
+        }
+        return corrected
+    }
+}
+
 @MainActor
 final class SpeechManager: ObservableObject {
     enum PlaybackLeakState: String {
@@ -219,6 +325,16 @@ final class SpeechManager: ObservableObject {
         }
     }
     @Published var isLLMEnhancementEnabled: Bool = false
+    @Published var isDeveloperSpeechProfileEnabled: Bool = UserDefaults.standard.object(
+        forKey: "developerSpeechProfileEnabledV1"
+    ) as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(
+                isDeveloperSpeechProfileEnabled,
+                forKey: "developerSpeechProfileEnabledV1"
+            )
+        }
+    }
     @Published var isAutoPunctuationEnabled: Bool = {
         UserDefaults.standard.set(true, forKey: "isAutoPunctuationEnabled")
         return true
@@ -3638,11 +3754,18 @@ final class SpeechManager: ObservableObject {
             tokenizeContextualString(bundleID).forEach(add)
         }
 
-        for group in activeGroupsForCurrentContext() {
-            tokenizeContextualString(group.name).forEach(add)
-            for rule in replacementRules(for: group) {
-                tokenizeContextualString(rule.from).forEach(add)
-                tokenizeContextualString(rule.to).forEach(add)
+        let bundleIDs = currentContextBundleIDs()
+        if shouldEnableDeveloperSpeechProfile(bundleIDs: bundleIDs) {
+            DeveloperSpeechProfile.contextualTerms(for: bundleIDs).forEach(add)
+        }
+
+        if shouldEnableSpeechTermCorrection() {
+            for group in activeGroupsForCurrentContext() {
+                tokenizeContextualString(group.name).forEach(add)
+                for rule in replacementRules(for: group) {
+                    tokenizeContextualString(rule.from).forEach(add)
+                    tokenizeContextualString(rule.to).forEach(add)
+                }
             }
         }
 
@@ -4186,6 +4309,9 @@ final class SpeechManager: ObservableObject {
         if isWeChatSpecialModeActive() {
             return true
         }
+        if shouldSuppressFocusedTypingForExplicitNonInputClick() {
+            return false
+        }
         if hasRecentClickTypingFallbackEvidence() {
             return true
         }
@@ -4576,6 +4702,7 @@ final class SpeechManager: ObservableObject {
         } ?? "nil"
         lines.append("speech.currentFocusedInputSnapshot.anchorPoint=\(anchorPointSummary)")
         lines.append("hud.lastKnownTypingState=\(hudTypingState)")
+        lines.append("hud.typingExplicitlySuppressed=\(HUDManager.shared.isTypingExplicitlySuppressedForCurrentApp())")
         lines.append("hud.ax.role=\(hudEvaluation.role)")
         lines.append("hud.ax.editableLikely=\(hudEvaluation.editableLikely)")
         lines.append("hud.ax.insertionContextAvailable=\(hudEvaluation.insertionContextAvailable)")
@@ -4910,6 +5037,9 @@ final class SpeechManager: ObservableObject {
     }
 
     private func currentFocusedInputSnapshot() -> FocusedInputSnapshot? {
+        if shouldSuppressFocusedTypingForExplicitNonInputClick() {
+            return nil
+        }
         if let snapshot = resolveCurrentFocusedInput()?.snapshot {
             return snapshot
         }
@@ -5137,6 +5267,14 @@ final class SpeechManager: ObservableObject {
         return (nil, nil)
     }
 
+    private func shouldSuppressFocusedTypingForExplicitNonInputClick() -> Bool {
+        guard !isWeChatSpecialModeActive() else { return false }
+        guard isWeirdTypingAppBundle(NSWorkspace.shared.frontmostApplication?.bundleIdentifier) else {
+            return false
+        }
+        return HUDManager.shared.isTypingExplicitlySuppressedForCurrentApp()
+    }
+
     private func isFocusedElementUsableForDictation(_ element: AXUIElement, bundleID: String? = nil) -> Bool {
         var roleRef: CFTypeRef?
         let role = (AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success)
@@ -5168,16 +5306,11 @@ final class SpeechManager: ObservableObject {
 
     // MARK: - Speech Term Corrections (preserved)
     private struct SpeechTermGroup: Codable { var id: String; var name: String; var isEnabled: Bool; var applyToAllApps: Bool; var appList: String; var rulesText: String }
-    private enum SpeechCorrectionScope {
-        case dictation
-        case command
+    private typealias SpeechCorrectionScope = RecognizedTextCorrectionScope
+    private typealias SpeechReplacementRule = RecognizedTextReplacementRule
+    private func shouldEnableSpeechTermCorrection() -> Bool {
+        UserDefaults.standard.object(forKey: "speechTermCorrectionEnabled") as? Bool ?? false
     }
-    private struct SpeechReplacementRule {
-        let from: String
-        let to: String
-        let scope: SpeechCorrectionScope?
-    }
-    private func shouldEnableSpeechTermCorrection() -> Bool { false }
     private func groupAppWhitelist(_ raw: String) -> [String] { raw.components(separatedBy: CharacterSet(charactersIn: ",\n")).map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty } }
     private func loadSpeechTermGroups() -> [SpeechTermGroup] {
         if let data = UserDefaults.standard.data(forKey: "speechTermGroupsV2"), let g = try? JSONDecoder().decode([SpeechTermGroup].self, from: data) { return g }; return []
@@ -5189,6 +5322,11 @@ final class SpeechManager: ObservableObject {
         let gs = loadSpeechTermGroups(); guard !gs.isEmpty else { return [] }; let bs = currentContextBundleIDs()
         return gs.filter { g in guard g.isEnabled else { return false }; if g.applyToAllApps { return true }; guard !bs.isEmpty else { return false }
             let wl = groupAppWhitelist(g.appList); guard !wl.isEmpty else { return false }; return bs.contains { b in wl.contains(where: { b.contains($0) }) } }
+    }
+    private func shouldEnableDeveloperSpeechProfile(bundleIDs: [String]? = nil) -> Bool {
+        guard isDeveloperSpeechProfileEnabled else { return false }
+        let ids = bundleIDs ?? currentContextBundleIDs()
+        return ids.contains(where: { DeveloperSpeechProfile.matches(bundleIdentifier: $0) })
     }
     private func isGitHubCommandLikePhrase(_ text: String) -> Bool {
         let s = text.lowercased()
@@ -5532,15 +5670,13 @@ final class SpeechManager: ObservableObject {
         return String(chars)
     }
     private func applyContextualSpeechCorrections(_ raw: String, scope: SpeechCorrectionScope) -> String {
-        guard shouldEnableSpeechTermCorrection(), raw.count <= 120 else { return raw }
-        let gs = activeGroupsForCurrentContext()
-        if gs.isEmpty {
-            guard scope == .command, raw.contains("后果") else { return raw }
-            let wl = groupAppWhitelist(UserDefaults.standard.string(forKey: "speechFixDevTermsWhitelist") ?? "")
-            if wl.isEmpty { return raw }; let bs = currentContextBundleIDs()
-            guard bs.contains(where: { b in wl.contains(where: { b.contains($0) }) }) else { return raw }
-            return raw.replacingOccurrences(of: "后果", with: "GitHub")
-        }
+        guard raw.count <= 120 else { return raw }
+
+        let bundleIDs = currentContextBundleIDs()
+        let developerProfileEnabled = shouldEnableDeveloperSpeechProfile(bundleIDs: bundleIDs)
+        let groups = shouldEnableSpeechTermCorrection() ? activeGroupsForCurrentContext() : []
+        guard developerProfileEnabled || !groups.isEmpty else { return raw }
+
         var c = raw
         if scope == .command {
             let trimmed = c.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5548,9 +5684,19 @@ final class SpeechManager: ObservableObject {
                 c = "右键"
             }
         }
-        for g in gs { for r in replacementRules(for: g) { guard c.contains(r.from) else { continue }
-            if let ruleScope = r.scope, ruleScope != scope { continue }
-            c = c.replacingOccurrences(of: r.from, with: r.to) } }
+
+        for g in groups {
+            for r in replacementRules(for: g) {
+                guard c.contains(r.from) else { continue }
+                if let ruleScope = r.scope, ruleScope != scope { continue }
+                c = c.replacingOccurrences(of: r.from, with: r.to)
+            }
+        }
+
+        if developerProfileEnabled {
+            c = DeveloperSpeechProfile.correctedText(c, scope: scope, bundleIdentifiers: bundleIDs)
+        }
+
         return c
     }
 }

@@ -91,6 +91,13 @@ struct InputSettingsView: View {
         }
     }
 
+    private var developerTerminologyBoostBinding: Binding<Bool> {
+        Binding(
+            get: { appState.isDeveloperSpeechProfileEnabled },
+            set: { appState.isDeveloperSpeechProfileEnabled = $0 }
+        )
+    }
+
     private var microphoneSelection: Binding<String> {
         Binding(
             get: { String(appState.selectedInputDeviceID) },
@@ -534,48 +541,122 @@ struct InputSettingsView: View {
                 
                 if section == .termCorrections {
                     GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label(L10n.settingsAutoPunctuation, systemImage: "textformat.abc.dottedunderline")
-                            .font(.headline)
-
-                        Text(isChinese ? "自动标点已固定开启。" : "Auto punctuation stays on.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        HStack(spacing: 12) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.green.opacity(0.16))
-                                    .frame(width: 40, height: 40)
-
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(.green)
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .top, spacing: 10) {
+                                Text(String(localized: "settings.term_correction.developer_boost.title"))
+                                    .font(.headline)
+                                Spacer()
+                                Toggle(
+                                    String(localized: "settings.term_correction.developer_boost.toggle_label"),
+                                    isOn: developerTerminologyBoostBinding
+                                )
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
                             }
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(L10n.settingsAutoPunctuation)
-                                    .font(.subheadline.weight(.medium))
-                                Text(isChinese ? "当前版本始终保持开启。" : "Always on in the current build.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Spacer()
-
-                            Text(L10n.statusActive)
-                                .font(.caption.weight(.semibold))
-                                .foregroundColor(.green)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(Color.green.opacity(0.12))
-                                .clipShape(Capsule())
+                            Text(String(localized: "settings.term_correction.developer_boost.subtitle"))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(String(localized: "settings.term_correction.developer_boost.detail"))
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
                         }
                         .padding(12)
                         .background(Color(nsColor: .controlBackgroundColor))
                         .cornerRadius(12)
                     }
-                }
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label(L10n.settingsAutoPunctuation, systemImage: "textformat.abc.dottedunderline")
+                                .font(.headline)
+
+                            Text(isChinese ? "自动标点已固定开启。" : "Auto punctuation stays on.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.green.opacity(0.16))
+                                        .frame(width: 40, height: 40)
+
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundColor(.green)
+                                }
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(L10n.settingsAutoPunctuation)
+                                        .font(.subheadline.weight(.medium))
+                                    Text(isChinese ? "当前版本始终保持开启。" : "Always on in the current build.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                Text(L10n.statusActive)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundColor(.green)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.green.opacity(0.12))
+                                    .clipShape(Capsule())
+                            }
+                            .padding(12)
+                            .background(Color(nsColor: .controlBackgroundColor))
+                            .cornerRadius(12)
+                        }
+                    }
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .top, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(String(localized: "settings.term_correction.title"))
+                                        .font(.headline)
+                                    Text(String(localized: "settings.term_correction.description"))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+
+                                Spacer()
+
+                                Toggle("", isOn: $appState.speechTermCorrectionEnabled)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .controlSize(.small)
+                            }
+
+                            if appState.speechTermCorrectionEnabled {
+                                Text(String(localized: "settings.term_correction.rule_format"))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                VStack(spacing: 8) {
+                                    ForEach(appState.speechTermGroups.indices, id: \.self) { index in
+                                        SpeechTermGroupCard(
+                                            group: $appState.speechTermGroups[index],
+                                            enabledAll: $appState.speechTermCorrectionEnabled,
+                                            onEdit: {
+                                                editingGroupID = appState.speechTermGroups[index].id
+                                            },
+                                            onDelete: {
+                                                appState.removeSpeechTermGroup(id: appState.speechTermGroups[index].id)
+                                            }
+                                        )
+                                    }
+                                }
+
+                                Button(String(localized: "settings.term_correction.add_group")) {
+                                    appState.addSpeechTermGroup()
+                                    editingGroupID = appState.speechTermGroups.last?.id
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+                    }
                 }
 
                 if section == .lexicon {
@@ -2211,6 +2292,11 @@ private struct VoiceUsageInsightsCard: View {
                 let lhsIssues = issueCount(for: lhs)
                 let rhsIssues = issueCount(for: rhs)
                 if lhsIssues == rhsIssues {
+                    let lhsAnomalies = lhs.noSpeechCount
+                    let rhsAnomalies = rhs.noSpeechCount
+                    if lhsAnomalies != rhsAnomalies {
+                        return lhsAnomalies > rhsAnomalies
+                    }
                     if lhs.total == rhs.total {
                         return lhs.appName.localizedCaseInsensitiveCompare(rhs.appName) == .orderedAscending
                     }
@@ -2238,21 +2324,18 @@ private struct VoiceUsageInsightsCard: View {
     private var failureActionSet: Set<String> {
         Set([
             String(localized: "voice_usage.failure.recognition_failed"),
-            String(localized: "voice_usage.failure.no_speech"),
             String(localized: "voice_usage.failure.interrupted"),
             String(localized: "voice_usage.failure.unavailable"),
             String(localized: "voice_usage.failure.injection_failed"),
             String(localized: "voice_usage.failure.injection_unverified"),
             String(localized: "voice_usage.failure.dictation_disabled"),
             "Recognition Failed",
-            "No Speech Detected",
             "Recognition Interrupted",
             "Recognition Unavailable",
             "Input Failed",
             "Input Unverified",
             "Voice Input Off",
             "识别失败",
-            "未识别到人声",
             "识别已中断",
             "识别服务不可用",
             "输入失败",
@@ -2305,6 +2388,9 @@ private struct VoiceUsageInsightsCard: View {
 
     private func isIssueEvent(_ event: AppState.VoiceUsageEvent) -> Bool {
         guard event.kind == .dictation else { return false }
+        if isNoSpeechEvent(event) {
+            return true
+        }
         if failureActionSet.contains(event.action) {
             return true
         }
@@ -2317,6 +2403,15 @@ private struct VoiceUsageInsightsCard: View {
         default:
             return false
         }
+    }
+
+    private func isNoSpeechEvent(_ event: AppState.VoiceUsageEvent) -> Bool {
+        let noSpeechActions = Set([
+            String(localized: "voice_usage.failure.no_speech"),
+            "No Speech Detected",
+            "未识别到人声"
+        ])
+        return noSpeechActions.contains(event.action)
     }
 
     private func recentFilterTitle(_ filter: RecentActivityFilter) -> String {
@@ -2443,16 +2538,18 @@ private struct VoiceUsageInsightsCard: View {
                             detail: retainedHistoryDetail(limit: appState.voiceUsageHistoryLimit)
                         )
                         VoiceUsageSummaryBadge(
+                            title: isChinese ? "异常" : "Anomalies",
+                            value: formattedCount(summary.noSpeechCount, englishUnit: "anomalies"),
+                            detail: isChinese ? "未识别到人声等环境问题" : "No-speech and environment-triggered issues",
+                            valueColor: summary.noSpeechCount > 0 ? .yellow : .secondary
+                        )
+                        VoiceUsageSummaryBadge(
                             title: isChinese ? "输入" : "Dictation",
                             value: formattedCount(summary.dictationCount, englishUnit: "dictations")
                         )
                         VoiceUsageSummaryBadge(
                             title: isChinese ? "控制命令" : "Control",
                             value: formattedCount(summary.controlCount, englishUnit: "commands")
-                        )
-                        VoiceUsageSummaryBadge(
-                            title: isChinese ? "输入字数" : "Input Characters",
-                            value: formattedCharacters(summary.dictationCharacterCount)
                         )
                     }
 
@@ -2493,11 +2590,12 @@ private struct VoiceUsageInsightsCard: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
 
-                                VStack(spacing: 8) {
+                                VStack(alignment: .leading, spacing: 8) {
                                     ForEach(displayedAppSummaries) { item in
                                         VoiceUsageAppSummaryRow(summary: item)
                                     }
                                 }
+                                .frame(maxWidth: 760, alignment: .leading)
 
                                 if !showAllApps && remainingAppCount > 0 {
                                     Text(
@@ -2565,11 +2663,12 @@ private struct VoiceUsageInsightsCard: View {
                                     Text(recentActivityStatusText(visibleCount: recentEvents.count, matchingCount: filteredRecentEvents.count))
                                         .font(.caption)
                                         .foregroundColor(.secondary)
-                                    VStack(spacing: 8) {
+                                    VStack(alignment: .leading, spacing: 8) {
                                         ForEach(recentEvents) { event in
                                             VoiceUsageEventRow(event: event)
                                         }
                                     }
+                                    .frame(maxWidth: 760, alignment: .leading)
                                 }
                             }
                             .padding(.top, 6)
@@ -2646,12 +2745,16 @@ private struct VoiceUsageAppSummaryRow: View {
         AppLocalization.isChinese
     }
 
-    private var bundleTail: String {
-        compactBundleIdentifier(summary.bundleIdentifier)
+    private var bundleText: String {
+        summary.bundleIdentifier
     }
 
     private var issueCount: Int {
         summary.failureCount + summary.unrecognizedCount + summary.mismatchCount
+    }
+
+    private var anomalyCount: Int {
+        summary.noSpeechCount
     }
 
     private var characterText: String {
@@ -2663,17 +2766,6 @@ private struct VoiceUsageAppSummaryRow: View {
 
     private var totalText: String {
         isChinese ? "总\(summary.total)条" : "\(summary.total) entries"
-    }
-
-    private func compactBundleIdentifier(_ bundleIdentifier: String) -> String {
-        let parts = bundleIdentifier.split(separator: ".")
-        if parts.count >= 2 {
-            return "…" + parts.suffix(2).joined(separator: ".")
-        }
-        if bundleIdentifier.count > 28 {
-            return String(bundleIdentifier.prefix(28)) + "…"
-        }
-        return bundleIdentifier
     }
 
     @ViewBuilder
@@ -2691,42 +2783,52 @@ private struct VoiceUsageAppSummaryRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(summary.appName)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(bundleTail)
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+        HStack(alignment: .top, spacing: 10) {
+            SpeechAppIcon(bundleID: summary.bundleIdentifier)
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(summary.appName)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Text(bundleText)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .layoutPriority(1)
+                    Spacer()
+                    Text(totalText)
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor.opacity(0.12))
+                        .foregroundColor(.accentColor)
+                        .clipShape(Capsule())
                 }
-                .layoutPriority(1)
-                Spacer()
-                Text(totalText)
-                    .font(.caption.weight(.semibold).monospacedDigit())
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.accentColor.opacity(0.12))
-                    .foregroundColor(.accentColor)
-                    .clipShape(Capsule())
-            }
-            HStack(spacing: 6) {
-                metricChip(isChinese ? "输入" : "Dictation", value: summary.dictationCount)
-                metricChip(isChinese ? "控制" : "Control", value: summary.controlCount)
-                metricChip(isChinese ? "失败" : "Failed", value: summary.failureCount, emphasized: summary.failureCount > 0)
-                metricChip(isChinese ? "未匹配" : "Unmatched", value: summary.unrecognizedCount, emphasized: summary.unrecognizedCount > 0)
-                metricChip(isChinese ? "误输" : "Mismatch", value: summary.mismatchCount, emphasized: summary.mismatchCount > 0)
-            }
-            Text(characterText)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            if issueCount > 0 {
-                Text(isChinese ? "问题事件共 \(issueCount) 条" : "\(issueCount) issue events")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundColor(.orange)
+                HStack(spacing: 6) {
+                    metricChip(isChinese ? "输入" : "Dictation", value: summary.dictationCount)
+                    metricChip(isChinese ? "控制" : "Control", value: summary.controlCount)
+                    metricChip(isChinese ? "失败" : "Failed", value: summary.failureCount, emphasized: summary.failureCount > 0)
+                    metricChip(isChinese ? "未匹配" : "Unmatched", value: summary.unrecognizedCount, emphasized: summary.unrecognizedCount > 0)
+                    metricChip(isChinese ? "误输" : "Mismatch", value: summary.mismatchCount, emphasized: summary.mismatchCount > 0)
+                    metricChip(isChinese ? "异常" : "Anomaly", value: summary.noSpeechCount, emphasized: summary.noSpeechCount > 0)
+                }
+                Text(characterText)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                if issueCount > 0 {
+                    Text(isChinese ? "问题事件共 \(issueCount) 条" : "\(issueCount) issue events")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(.orange)
+                } else if anomalyCount > 0 {
+                    Text(isChinese ? "异常事件共 \(anomalyCount) 条" : "\(anomalyCount) anomaly events")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(.yellow)
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -2782,14 +2884,7 @@ private struct VoiceUsageEventRow: View {
     }
 
     private var bundleText: String {
-        let parts = event.bundleIdentifier.split(separator: ".")
-        if parts.count >= 2 {
-            return "…" + parts.suffix(2).joined(separator: ".")
-        }
-        if event.bundleIdentifier.count > 28 {
-            return String(event.bundleIdentifier.prefix(28)) + "…"
-        }
-        return event.bundleIdentifier
+        event.bundleIdentifier
     }
 
     private func copyEvent() {
@@ -2808,15 +2903,42 @@ private struct VoiceUsageEventRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: eventIcon)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Text(displayAction)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                Spacer()
+        HStack(alignment: .top, spacing: 10) {
+            SpeechAppIcon(bundleID: event.bundleIdentifier)
+                .frame(width: 30, height: 30)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: eventIcon)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(displayAction)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let content = event.content, !content.isEmpty {
+                    Text(content)
+                        .font(.caption)
+                        .foregroundColor(.primary)
+                        .lineLimit(3)
+                } else if let spokenText = event.spokenText, !spokenText.isEmpty {
+                    Text(isChinese ? "原词：\(spokenText)" : "Heard: \(spokenText)")
+                        .font(.caption)
+                        .foregroundColor(.primary)
+                        .lineLimit(3)
+                } else if event.kind == .dictation {
+                    Text(isChinese ? "（空文本）" : "(empty text)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .trailing, spacing: 4) {
                 HStack(alignment: .center, spacing: 6) {
                     Text(timeText)
                         .font(.caption2.monospacedDigit())
@@ -2834,45 +2956,23 @@ private struct VoiceUsageEventRow: View {
                     .allowsHitTesting(isHovering)
                     .accessibilityHidden(!isHovering)
                 }
-            }
 
-            HStack(spacing: 8) {
                 Text(event.appName)
-                    .font(.caption)
+                    .font(.caption.weight(.medium))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
-                Text("·")
-                    .font(.caption2)
-                    .foregroundColor(.secondary.opacity(0.7))
+
                 Text(bundleText)
                     .font(.caption2)
                     .foregroundColor(.secondary.opacity(0.85))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 0)
-            }
-            .layoutPriority(1)
-
-            if let content = event.content, !content.isEmpty {
-                Text(content)
-                    .font(.caption)
-                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.trailing)
                     .lineLimit(2)
-                    .padding(.top, 1)
-            } else if let spokenText = event.spokenText, !spokenText.isEmpty {
-                Text(isChinese ? "原词：\(spokenText)" : "Heard: \(spokenText)")
-                    .font(.caption)
-                    .foregroundColor(.primary)
-                    .lineLimit(2)
-                    .padding(.top, 1)
-            } else if event.kind == .dictation {
-                Text(isChinese ? "（空文本）" : "(empty text)")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(width: 220, alignment: .trailing)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.58 : 0.46))
         .cornerRadius(10)
         .overlay {

@@ -432,6 +432,10 @@
 "settings.section.lexicon.title" = "Léxico";
 "settings.section.lexicon.page_title" = "Léxico de voz";
 "settings.section.lexicon.subtitle" = "Palabras de activación y alias de comandos.";
+"settings.term_correction.developer_boost.title" = "Refuerzo de terminología para desarrolladores";
+"settings.term_correction.developer_boost.toggle_label" = "Activar";
+"settings.term_correction.developer_boost.subtitle" = "Aplica automáticamente sugerencias de vocabulario para desarrolladores cuando Terminal, Xcode, VS Code, Codex, etc. están en primer plano.";
+"settings.term_correction.developer_boost.detail" = "Los grupos avanzados de terminología y las reglas específicas por aplicación siguen disponibles abajo.";
 
 "settings.section.app_controls.title" = "App actual";
 "settings.section.app_controls.page_title" = "Controles de la aplicación actual";

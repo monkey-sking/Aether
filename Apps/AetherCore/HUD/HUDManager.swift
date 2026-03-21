@@ -641,6 +641,15 @@ final class HUDManager {
         update(mode: .hidden, language: state.language, inputDeviceIcon: state.inputDeviceIcon, contextIcon: state.contextIcon)
     }
 
+    func hideImmediately() {
+        hide()
+        hudWindow?.orderOut(nil)
+        caretDebugWindow?.orderOut(nil)
+        lastSmoothedWindowOrigin = nil
+        mouseAvoidLockOrigin = nil
+        mouseAvoidLockUntil = .distantPast
+    }
+
     func showTemporaryLanguageIndicator(duration: TimeInterval = 1.1) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { self.showTemporaryLanguageIndicator(duration: duration) }
@@ -771,15 +780,7 @@ final class HUDManager {
         lastMouseDownAt = Date()
         lastMouseDownBundleID = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
 
-        let activeInputRect: CGRect? = {
-            if let r = detector.currentUpdate.inputRect, !isProbablyWholeWindowRect(r), (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
-                return r
-            }
-            if let r = axFocusedElementRectThrottled(), !isProbablyWholeWindowRect(r), (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
-                return r
-            }
-            return nil
-        }()
+        let activeInputRect = preferredExplicitTypingInputRect()
 
         if let activeInputRect, activeInputRect.insetBy(dx: -8, dy: -8).contains(point) {
             typingSuppressedUntil = .distantPast
@@ -872,6 +873,7 @@ final class HUDManager {
         }
 
         if requiresExplicitTypingReentry {
+            let suppressionSensitiveApp = isExplicitTypingSuppressionApp(bundleID: frontBundle)
             if explicitTypingClickReentry {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
@@ -880,7 +882,7 @@ final class HUDManager {
                lockedBundle != frontBundle {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
-            } else if strongAXTypingEvidence {
+            } else if strongAXTypingEvidence && !suppressionSensitiveApp {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
             } else {
@@ -1034,26 +1036,62 @@ final class HUDManager {
         return false
     }
 
+    private func isExplicitTypingSuppressionApp(bundleID: String?) -> Bool {
+        let b = (bundleID ?? "").lowercased()
+        return b.contains("codex") || b.contains("antigravity")
+    }
+
     func hasRecentExplicitTypingClickReentry() -> Bool {
         hasRecentExplicitTypingClickReentry(at: Date())
+    }
+
+    func isTypingExplicitlySuppressedForCurrentApp() -> Bool {
+        if !Thread.isMainThread {
+            return DispatchQueue.main.sync {
+                isTypingExplicitlySuppressedForCurrentApp()
+            }
+        }
+
+        guard requiresExplicitTypingReentry else { return false }
+        let now = Date()
+        guard !hasRecentExplicitTypingClickReentry(at: now) else { return false }
+        let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if let lockedBundle = explicitTypingReentryBundleID,
+           let frontBundle,
+           lockedBundle != frontBundle {
+            return false
+        }
+        return isExplicitTypingSuppressionApp(bundleID: frontBundle)
     }
 
     private func hasRecentExplicitTypingClickReentry(at now: Date) -> Bool {
         guard let point = lastMouseDownPoint else { return false }
         guard now.timeIntervalSince(lastMouseDownAt) < 1.2 else { return false }
-        if let r = detector.currentUpdate.inputRect,
-           !isProbablyWholeWindowRect(r),
-           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
-           r.insetBy(dx: -8, dy: -8).contains(point) {
-            return true
-        }
-        if let r = axFocusedElementRectThrottled(),
-           !isProbablyWholeWindowRect(r),
-           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+        if let r = preferredExplicitTypingInputRect(),
            r.insetBy(dx: -8, dy: -8).contains(point) {
             return true
         }
         return false
+    }
+
+    private func preferredExplicitTypingInputRect() -> CGRect? {
+        let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        var candidates: [CGRect] = []
+        if let r = detector.currentUpdate.inputRect,
+           !isProbablyWholeWindowRect(r),
+           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+            candidates.append(r)
+        }
+        if let r = axFocusedElementRectThrottled(),
+           !isProbablyWholeWindowRect(r),
+           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+            candidates.append(r)
+        }
+        guard !candidates.isEmpty else { return nil }
+        if isExplicitTypingSuppressionApp(bundleID: frontBundle) {
+            return candidates.min(by: { ($0.width * $0.height) < ($1.width * $1.height) })
+        }
+        return candidates.first
     }
 
     private func isAXFocusedElementInsertionContextAvailable() -> Bool {
@@ -2580,7 +2618,17 @@ final class HUDManager {
     }
 
     private func shouldSuppressHUDForAetherForegroundWindow() -> Bool {
-        false
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier else {
+            return false
+        }
+
+        let visibleAppWindows = NSApp.windows.contains { window in
+            guard window.isVisible else { return false }
+            if window == hudWindow || window == caretDebugWindow { return false }
+            return true
+        }
+
+        return visibleAppWindows
     }
 
     private func isFrontmostFocusedWindowLikelyFullscreen(app: NSRunningApplication, on screen: NSScreen) -> Bool {

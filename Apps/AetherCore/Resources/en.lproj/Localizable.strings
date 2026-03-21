@@ -409,6 +409,10 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "settings.section.term_corrections.page_title" = "Term Corrections";
 "settings.section.term_corrections.subtitle" = "Dictation refinement, recognition corrections, and app-specific terminology rules.";
 "settings.section.term_corrections.title" = "Term Corrections";
+"settings.term_correction.developer_boost.title" = "Developer terminology boost";
+"settings.term_correction.developer_boost.toggle_label" = "Enable";
+"settings.term_correction.developer_boost.subtitle" = "Applies developer vocabulary hints automatically when Terminal, Xcode, VS Code, Codex, etc. are frontmost.";
+"settings.term_correction.developer_boost.detail" = "Advanced terminology groups and app-specific rules remain accessible below.";
 "settings.smarter_dictation" = "AI Logic Enhancement";
 "settings.speech_language" = "Speech Language";
 "settings.tab.advanced" = "Advanced";

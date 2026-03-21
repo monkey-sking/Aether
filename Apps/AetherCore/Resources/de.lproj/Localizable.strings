@@ -432,6 +432,10 @@
 "settings.section.lexicon.title" = "Lexikon";
 "settings.section.lexicon.page_title" = "Sprachlexikon";
 "settings.section.lexicon.subtitle" = "Aktivierungswörter und Befehls-Aliase.";
+"settings.term_correction.developer_boost.title" = "Entwicklerterminologie verstärken";
+"settings.term_correction.developer_boost.toggle_label" = "Aktivieren";
+"settings.term_correction.developer_boost.subtitle" = "Fügt automatisch Hinweise auf Entwicklerbegriffe hinzu, wenn Terminal, Xcode, VS Code, Codex usw. im Vordergrund sind.";
+"settings.term_correction.developer_boost.detail" = "Erweiterte Terminologiegruppen und app-spezifische Regeln bleiben unten verfügbar.";
 
 "settings.section.app_controls.title" = "Aktuelle App";
 "settings.section.app_controls.page_title" = "Aktuelle App-Steuerung";
