@@ -388,6 +388,7 @@ final class SpeechManager: ObservableObject {
     private var sessionTargetBundleID: String?
     private var sessionTargetElementFingerprint: String?
     private var sessionTargetSource: FocusedInputSource?
+    private var specialInputModeProfile: SpecialInputModeProfile?
     private var specialInputModePID: pid_t?
     private var specialInputModeBundleID: String?
     private var specialInputModeWindowTitle: String?
@@ -507,6 +508,10 @@ final class SpeechManager: ObservableObject {
 
     // MARK: - Computed Properties (preserved)
     private typealias RecognitionControlMode = HeadMotionManager.RecognitionControlMode
+
+    private enum SpecialInputModeProfile: String {
+        case weChatChat = "wechat-chat"
+    }
 
     static func resolvedUtteranceTypingMode(
         recognitionControlMode: HeadMotionManager.RecognitionControlMode,
@@ -1143,7 +1148,7 @@ final class SpeechManager: ObservableObject {
             return .command
         }
 
-        switch recognitionControlMode {
+        switch effectiveRecognitionControlMode(for: availability) {
         case .dictation:
             return .dictation
         case .command:
@@ -1285,28 +1290,35 @@ final class SpeechManager: ObservableObject {
     }
 
     private func specialInputModeHUDIcon() -> String? {
-        guard let bundleID = activeSpecialInputModeBundleID() else { return nil }
+        guard activeSpecialInputModeProfile() != nil,
+              let bundleID = activeSpecialInputModeBundleID() else { return nil }
         return "app-bundle:\(bundleID)"
     }
 
     private func activeSpecialInputModeBundleID() -> String? {
-        if isWeChatSpecialModeActive() {
-            return NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        }
         return activeSpecialInputModeSnapshot()?.bundleID
     }
 
+    private func activeSpecialInputModeProfile() -> SpecialInputModeProfile? {
+        guard activeSpecialInputModeSnapshot() != nil else { return nil }
+        return specialInputModeProfile
+    }
+
     private func isWeChatSpecialModeActive() -> Bool {
-        guard recognitionControlMode == .auto,
-              let frontmostApp = NSWorkspace.shared.frontmostApplication else {
-            return false
+        activeSpecialInputModeProfile() == .weChatChat
+    }
+
+    private func specialInputModeProfile(for snapshot: FocusedInputSnapshot) -> SpecialInputModeProfile? {
+        guard snapshot.source == .recentClickFallback else { return nil }
+        if isRecentClickFallbackTypingAppBundle(snapshot.bundleID) {
+            return .weChatChat
         }
-        return isRecentClickFallbackTypingAppBundle(frontmostApp.bundleIdentifier)
+        return nil
     }
 
     private func armSpecialInputMode(from snapshot: FocusedInputSnapshot, hold: TimeInterval = 4.0) {
-        guard snapshot.source == .recentClickFallback,
-              isRecentClickFallbackTypingAppBundle(snapshot.bundleID) else { return }
+        guard let profile = specialInputModeProfile(for: snapshot) else { return }
+        specialInputModeProfile = profile
         specialInputModePID = snapshot.pid
         specialInputModeBundleID = snapshot.bundleID
         specialInputModeWindowTitle = snapshot.windowTitle
@@ -1317,6 +1329,7 @@ final class SpeechManager: ObservableObject {
     private func clearSpecialInputMode(reason: String) {
         guard specialInputModeUntil != .distantPast || specialInputModeBundleID != nil else { return }
         GlobalLogger.speech.info("[TypingMode] cleared special input mode reason=\(reason) bundle=\(specialInputModeBundleID ?? "nil")")
+        specialInputModeProfile = nil
         specialInputModePID = nil
         specialInputModeBundleID = nil
         specialInputModeWindowTitle = nil
@@ -2006,7 +2019,11 @@ final class SpeechManager: ObservableObject {
             isUtteranceActive: isUtteranceActive
         )
         let hudState = HUDManager.shared.state
-        let hasStrongTypingFallback = hasRecentClickTypingFallbackEvidence()
+        let hasStrongTypingFallback = hasStrongTypingFallbackEvidence(
+            lockedFocusedSnapshot: lockedFocusedSnapshot,
+            lockedTargetMatches: lockedTargetMatches,
+            computedTypingContext: computedTypingMode
+        )
         let nextTypingMode = hasStrongTypingFallback
             ? computedTypingMode
             : Self.reconcileTypingContextWithVisibleHUD(
@@ -2555,6 +2572,8 @@ final class SpeechManager: ObservableObject {
             )
         }
 
+        let lockedFocusedSnapshot = currentFocusedInputSnapshot()
+        let lockedTargetMatches = hasLockedFocusedInputTarget(lockedFocusedSnapshot)
         let liveTyping = throttledTypingMode()
         let hasStreamedDictation = !dictationHandler.screenTypedText.isEmpty
         let featureAvailability = currentVoiceFeatureAvailability()
@@ -2568,7 +2587,11 @@ final class SpeechManager: ObservableObject {
             isUtteranceActive: isUtteranceActive
         )
         let hudState = HUDManager.shared.state
-        let hasStrongTypingFallback = hasRecentClickTypingFallbackEvidence()
+        let hasStrongTypingFallback = hasStrongTypingFallbackEvidence(
+            lockedFocusedSnapshot: lockedFocusedSnapshot,
+            lockedTargetMatches: lockedTargetMatches,
+            computedTypingContext: computedTypingContext
+        )
         var typingContext = Self.reconcileTypingContextWithVisibleHUD(
             recognitionControlMode: controlMode,
             computedTypingContext: computedTypingContext,
@@ -4275,6 +4298,26 @@ final class SpeechManager: ObservableObject {
         return hasEvidence
     }
 
+    private func hasStrongTypingFallbackEvidence(
+        lockedFocusedSnapshot: FocusedInputSnapshot?,
+        lockedTargetMatches: Bool,
+        computedTypingContext: Bool
+    ) -> Bool {
+        if hasRecentClickTypingFallbackEvidence() {
+            return true
+        }
+        guard recognitionControlMode == .auto, computedTypingContext else {
+            return false
+        }
+        guard lockedTargetMatches else {
+            return false
+        }
+        GlobalLogger.speech.info(
+            "[TypingMode] preserving typing context from locked input target pid=\(lockedFocusedSnapshot?.pid ?? 0) bundle=\(lockedFocusedSnapshot?.bundleID ?? "nil")"
+        )
+        return true
+    }
+
     private func beginTypingRecoveryHold(reason: String) {
         guard recognitionControlMode == .auto else { return }
         guard isAlwaysListeningEnabled || isPTTHeld || recognitionSession.isRunning || isStopping else { return }
@@ -4779,17 +4822,6 @@ final class SpeechManager: ObservableObject {
         }
         if let snapshot = activeSpecialInputModeSnapshot() {
             return snapshot
-        }
-        if isWeChatSpecialModeActive(),
-           let frontmostApp = NSWorkspace.shared.frontmostApplication {
-            return FocusedInputSnapshot(
-                pid: frontmostApp.processIdentifier,
-                bundleID: frontmostApp.bundleIdentifier,
-                elementFingerprint: nil,
-                source: .recentClickFallback,
-                windowTitle: nil,
-                anchorPoint: nil
-            )
         }
         return nil
     }
