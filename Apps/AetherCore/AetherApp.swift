@@ -2282,6 +2282,27 @@ class AppState: ObservableObject {
             }
             .store(in: &cancellables)
 
+        NotificationCenter.default.publisher(for: .exportFocusedInputDiagnostics)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                do {
+                    let url = try self.voiceService.exportFocusedInputDiagnostics()
+                    HUDManager.shared.showTemporary(
+                        message: AppLocalization.isChinese
+                            ? "已导出输入框诊断：\(url.lastPathComponent)"
+                            : "Input diagnostics exported: \(url.lastPathComponent)",
+                        icon: "waveform.path.ecg"
+                    )
+                } catch {
+                    HUDManager.shared.showTemporary(
+                        message: error.localizedDescription,
+                        icon: "xmark.circle.fill"
+                    )
+                }
+            }
+            .store(in: &cancellables)
+
         // Refresh permissions when the app comes back to foreground (e.g. after changing System Settings).
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .receive(on: DispatchQueue.main)
@@ -4288,5 +4309,6 @@ struct AetherApp: App {
 // MARK: - Notification Names
 extension Notification.Name {
     static let toggleShortcutPanel = Notification.Name("AetherToggleShortcutPanel")
+    static let exportFocusedInputDiagnostics = Notification.Name("AetherExportFocusedInputDiagnostics")
     static let aetherHeadsetRouteChanged = Notification.Name("AetherHeadsetRouteChanged")
 }

@@ -2531,6 +2531,14 @@ final class SpeechManager: ObservableObject {
         textToRoute = normalizeRecognizedText(textToRoute, scope: correctionScope).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !textToRoute.isEmpty else { return }
 
+        if isHiddenFocusedInputDiagnosticsCommand(textToRoute) {
+            GlobalLogger.router.info("[Route] hidden focused-input diagnostics command matched transcript='\(textToRoute)'")
+            NotificationCenter.default.post(name: .exportFocusedInputDiagnostics, object: nil)
+            clearHUDOverride()
+            refreshContinuousHUD(isDictating: false)
+            return
+        }
+
         if typingContext,
            featureAvailability.commandEnabled,
            isExplicitCommandPrefixOnly(textToRoute) {
@@ -4391,6 +4399,14 @@ final class SpeechManager: ObservableObject {
             .replacingOccurrences(of: "\t", with: " ")
         guard text.count > limit else { return text }
         return String(text.prefix(limit)) + "..."
+    }
+
+    private func isHiddenFocusedInputDiagnosticsCommand(_ text: String) -> Bool {
+        let normalized = text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "[\\p{P}\\p{S}]+", with: "", options: .regularExpression)
+        return normalized == "芝麻开门" || normalized == "opensesame"
     }
 
     private func findDictationCandidate(in element: AXUIElement, bundleID: String?, depth: Int = 5) -> AXUIElement? {
