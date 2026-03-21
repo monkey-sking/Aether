@@ -188,7 +188,8 @@ final class SpeechManager: ObservableObject {
                             message: hud.state.message,
                             language: self.activeLocale.identifier,
                             recognitionControlMode: self.hudRecognitionControlMode,
-                            inputDeviceIcon: self.hudInputIcon()
+                            inputDeviceIcon: self.hudInputIcon(),
+                            contextIcon: self.hudContextIcon()
                         )
                         hud.showTemporaryLanguageIndicator()
                     }
@@ -1694,7 +1695,8 @@ final class SpeechManager: ObservableObject {
             message: hud.state.message,
             language: activeLocale.identifier,
             recognitionControlMode: hudRecognitionControlMode,
-            inputDeviceIcon: hudInputIcon()
+            inputDeviceIcon: hudInputIcon(),
+            contextIcon: hudContextIcon()
         )
         if recognitionSession.isRunning {
             stopAndFinalize()
@@ -4027,7 +4029,8 @@ final class SpeechManager: ObservableObject {
                     message: hud.state.message,
                     language: hud.state.language,
                     recognitionControlMode: self.hudRecognitionControlMode,
-                    inputDeviceIcon: self.hudInputIcon()
+                    inputDeviceIcon: self.hudInputIcon(),
+                    contextIcon: self.hudContextIcon()
                 )
                 let active = self.audioCapture.isRunning || self.recognitionSession.isRunning || self.isAlwaysListeningEnabled
                 if active && self.shouldRestartForAudioRouteChange(from: before, to: after) {
