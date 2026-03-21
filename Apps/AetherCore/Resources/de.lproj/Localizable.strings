@@ -172,6 +172,10 @@
 "insights.capture_toggle_title" = "Neue Sprachaktivitaet aufzeichnen";
 "insights.capture_toggle_hint" = "Steuert nur neue Erfassung. Bestehende Zusammenfassungen und Verlaeufe bleiben sichtbar, bis sie geloescht werden.";
 "insights.summary_history_scope" = "Die Zusammenfassung ist seit der letzten Loeschung kumulativ. Letzte Aktivitaeten zeigen gespeicherte Verlaufseintraege.";
+"insights.reset_statistics" = "Statistiken zuruecksetzen";
+"insights.reset_statistics_confirm_title" = "Kumulative Sprachstatistiken zuruecksetzen?";
+"insights.reset_statistics_confirm_action" = "Statistiken zuruecksetzen";
+"insights.reset_statistics_confirm_message" = "Dadurch werden die kumulative Uebersicht und die Summen pro App geloescht, gespeicherte Verlaufseintraege bleiben jedoch erhalten.";
 "insights.clear_data" = "Daten loeschen";
 "insights.clear_data_confirm_title" = "Alle Sprachaktivitaetsdaten loeschen?";
 "insights.clear_data_confirm_action" = "Daten loeschen";

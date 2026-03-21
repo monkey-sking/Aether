@@ -303,6 +303,30 @@ final class HUDManager {
         let contextIcon: String
     }
 
+    struct MouseDownDiagnosticRecord {
+        let timestamp: Date
+        let point: CGPoint
+        let bundleID: String?
+        let preferredInputRect: CGRect?
+        let hitPreferredInputRect: Bool
+    }
+
+    struct TypingSuppressionDiagnosticRecord {
+        let timestamp: Date
+        let suppressed: Bool
+        let reason: String
+        let bundleID: String?
+        let suppressedUntil: Date
+        let requiresExplicitTypingReentry: Bool
+    }
+
+    struct TypingSuppressionStateSnapshot {
+        let requiresExplicitTypingReentry: Bool
+        let explicitTypingReentryBundleID: String?
+        let typingSuppressedUntil: Date
+        let preferredExplicitTypingInputRect: CGRect?
+    }
+
     enum HUDUpdateLifetime {
         case persistent
         case temporary(UUID)
@@ -346,9 +370,12 @@ final class HUDManager {
     private var lastMouseDownPoint: CGPoint?
     private var lastMouseDownAt: Date = .distantPast
     private var lastMouseDownBundleID: String?
+    private var lastMouseDownHitPreferredInputRect: Bool = false
+    private var recentMouseDownDiagnostics: [MouseDownDiagnosticRecord] = []
     private var typingSuppressedUntil: Date = .distantPast
     private var requiresExplicitTypingReentry: Bool = false
     private var explicitTypingReentryBundleID: String?
+    private var typingSuppressionDiagnostics: [TypingSuppressionDiagnosticRecord] = []
     private var hudWindow: NSPanel?
     private var caretDebugWindow: NSPanel?
     private var hideTask: DispatchWorkItem?
@@ -762,8 +789,16 @@ final class HUDManager {
         lastAXFocusDebugCheckAt = .distantPast
         lastGoodTypingRect = nil
         lastGoodTypingRectAt = .distantPast
+        let didClearSuppression = requiresExplicitTypingReentry || typingSuppressedUntil > Date()
         requiresExplicitTypingReentry = false
         explicitTypingReentryBundleID = nil
+        if didClearSuppression {
+            appendTypingSuppressionDiagnostic(
+                suppressed: false,
+                reason: "ax-trust-change",
+                bundleID: detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            )
+        }
 
         guard trusted, state.mode != .hidden else { return }
         _ = source
@@ -776,24 +811,45 @@ final class HUDManager {
             return
         }
 
+        let now = Date()
+        let bundleID = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         lastMouseDownPoint = point
-        lastMouseDownAt = Date()
-        lastMouseDownBundleID = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        lastMouseDownAt = now
+        lastMouseDownBundleID = bundleID
 
         let activeInputRect = preferredExplicitTypingInputRect()
+        let hitPreferredInputRect = activeInputRect?.insetBy(dx: -8, dy: -8).contains(point) ?? false
+        lastMouseDownHitPreferredInputRect = hitPreferredInputRect
+        appendMouseDownDiagnostic(
+            timestamp: now,
+            point: point,
+            bundleID: bundleID,
+            preferredInputRect: activeInputRect,
+            hitPreferredInputRect: hitPreferredInputRect
+        )
 
-        if let activeInputRect, activeInputRect.insetBy(dx: -8, dy: -8).contains(point) {
+        if hitPreferredInputRect {
             typingSuppressedUntil = .distantPast
             requiresExplicitTypingReentry = false
             explicitTypingReentryBundleID = nil
+            appendTypingSuppressionDiagnostic(
+                suppressed: false,
+                reason: "mouse-in-input",
+                bundleID: bundleID
+            )
             lastInputInteractionPoint = point
-            lastInputInteractionAt = Date()
+            lastInputInteractionAt = now
             return
         }
 
-        typingSuppressedUntil = Date().addingTimeInterval(0.8)
+        typingSuppressedUntil = now.addingTimeInterval(0.8)
         requiresExplicitTypingReentry = true
-        explicitTypingReentryBundleID = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        explicitTypingReentryBundleID = bundleID
+        appendTypingSuppressionDiagnostic(
+            suppressed: true,
+            reason: "mouse-noninput",
+            bundleID: bundleID
+        )
         lastAXTypingEvaluationAt = .distantPast
         cachedAXTypingEvaluation = .unavailable
         lastAXCaretRectCheckAt = .distantPast
@@ -827,11 +883,85 @@ final class HUDManager {
         return RecentMouseDownAnchor(point: point, timestamp: lastMouseDownAt, bundleID: lastMouseDownBundleID)
     }
 
+    func recentMouseDownDiagnosticHistory() -> [MouseDownDiagnosticRecord] {
+        if !Thread.isMainThread {
+            return DispatchQueue.main.sync {
+                recentMouseDownDiagnosticHistory()
+            }
+        }
+        return recentMouseDownDiagnostics
+    }
+
+    func typingSuppressionDiagnosticHistory() -> [TypingSuppressionDiagnosticRecord] {
+        if !Thread.isMainThread {
+            return DispatchQueue.main.sync {
+                typingSuppressionDiagnosticHistory()
+            }
+        }
+        return typingSuppressionDiagnostics
+    }
+
+    func currentTypingSuppressionStateSnapshot() -> TypingSuppressionStateSnapshot {
+        if !Thread.isMainThread {
+            return DispatchQueue.main.sync {
+                currentTypingSuppressionStateSnapshot()
+            }
+        }
+        return TypingSuppressionStateSnapshot(
+            requiresExplicitTypingReentry: requiresExplicitTypingReentry,
+            explicitTypingReentryBundleID: explicitTypingReentryBundleID,
+            typingSuppressedUntil: typingSuppressedUntil,
+            preferredExplicitTypingInputRect: preferredExplicitTypingInputRect()
+        )
+    }
+
+    private func appendMouseDownDiagnostic(
+        timestamp: Date,
+        point: CGPoint,
+        bundleID: String?,
+        preferredInputRect: CGRect?,
+        hitPreferredInputRect: Bool
+    ) {
+        recentMouseDownDiagnostics.append(
+            MouseDownDiagnosticRecord(
+                timestamp: timestamp,
+                point: point,
+                bundleID: bundleID,
+                preferredInputRect: preferredInputRect,
+                hitPreferredInputRect: hitPreferredInputRect
+            )
+        )
+        if recentMouseDownDiagnostics.count > 8 {
+            recentMouseDownDiagnostics.removeFirst(recentMouseDownDiagnostics.count - 8)
+        }
+    }
+
+    private func appendTypingSuppressionDiagnostic(
+        suppressed: Bool,
+        reason: String,
+        bundleID: String?
+    ) {
+        typingSuppressionDiagnostics.append(
+            TypingSuppressionDiagnosticRecord(
+                timestamp: Date(),
+                suppressed: suppressed,
+                reason: reason,
+                bundleID: bundleID,
+                suppressedUntil: typingSuppressedUntil,
+                requiresExplicitTypingReentry: requiresExplicitTypingReentry
+            )
+        )
+        if typingSuppressionDiagnostics.count > 16 {
+            typingSuppressionDiagnostics.removeFirst(typingSuppressionDiagnostics.count - 16)
+        }
+    }
+
     // Replacement for HotkeyFeedbackHUD.typingContextSnapshot()
     func lastKnownTypingState() -> Bool {
         let now = Date()
         let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        let explicitTypingClickReentry = hasRecentExplicitTypingClickReentry(at: now)
+        let suppressionSensitiveApp = isExplicitTypingSuppressionApp(bundleID: frontBundle)
+        let explicitTypingClickReentry = suppressionSensitiveApp ? false : hasRecentExplicitTypingClickReentry(at: now)
 
         if isSiriLikeBundle(frontBundle) {
             if detector.currentUpdate.caretRect != nil || detector.recentCaretRect() != nil {
@@ -851,7 +981,6 @@ final class HUDManager {
             }
         }
 
-        let suppressionSensitiveApp = isExplicitTypingSuppressionApp(bundleID: frontBundle)
         let axEvaluation = axTypingEvaluationThrottled(now: now)
         let strongAXTypingEvidence = hasStrongAXTypingEvidence(
             now: now,
@@ -862,6 +991,11 @@ final class HUDManager {
         if Date() < typingSuppressedUntil, !explicitTypingClickReentry {
             if strongAXTypingEvidence && !suppressionSensitiveApp {
                 typingSuppressedUntil = .distantPast
+                appendTypingSuppressionDiagnostic(
+                    suppressed: false,
+                    reason: "strong-ax-evidence",
+                    bundleID: frontBundle
+                )
             } else {
                 return false
             }
@@ -878,14 +1012,29 @@ final class HUDManager {
             if explicitTypingClickReentry {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
+                appendTypingSuppressionDiagnostic(
+                    suppressed: false,
+                    reason: "explicit-click-reentry",
+                    bundleID: frontBundle
+                )
             } else if let lockedBundle = explicitTypingReentryBundleID,
                let frontBundle,
                lockedBundle != frontBundle {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
+                appendTypingSuppressionDiagnostic(
+                    suppressed: false,
+                    reason: "frontmost-bundle-changed",
+                    bundleID: frontBundle
+                )
             } else if strongAXTypingEvidence && !suppressionSensitiveApp {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
+                appendTypingSuppressionDiagnostic(
+                    suppressed: false,
+                    reason: "strong-ax-evidence",
+                    bundleID: frontBundle
+                )
             } else {
                 return false
             }
@@ -1055,8 +1204,11 @@ final class HUDManager {
 
         guard requiresExplicitTypingReentry else { return false }
         let now = Date()
-        guard !hasRecentExplicitTypingClickReentry(at: now) else { return false }
         let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let suppressionSensitiveApp = isExplicitTypingSuppressionApp(bundleID: frontBundle)
+        if !suppressionSensitiveApp, hasRecentExplicitTypingClickReentry(at: now) {
+            return false
+        }
         if let lockedBundle = explicitTypingReentryBundleID,
            let frontBundle,
            lockedBundle != frontBundle {
@@ -1066,13 +1218,9 @@ final class HUDManager {
     }
 
     private func hasRecentExplicitTypingClickReentry(at now: Date) -> Bool {
-        guard let point = lastMouseDownPoint else { return false }
+        guard lastMouseDownPoint != nil else { return false }
         guard now.timeIntervalSince(lastMouseDownAt) < 1.2 else { return false }
-        if let r = preferredExplicitTypingInputRect(),
-           r.insetBy(dx: -8, dy: -8).contains(point) {
-            return true
-        }
-        return false
+        return lastMouseDownHitPreferredInputRect
     }
 
     private func preferredExplicitTypingInputRect() -> CGRect? {

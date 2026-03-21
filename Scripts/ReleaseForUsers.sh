@@ -37,7 +37,10 @@ compute_public_version_label() {
 
   if [[ "$PUBLISH_SPARKLE" == "1" && "$SPARKLE_CHANNEL" == "beta" && -d "${WEBSITE_ROOT}/.git" ]]; then
     local published_count
-    published_count="$(git -C "$WEBSITE_ROOT" log --oneline --grep='^chore(beta): publish ' | wc -l | tr -d ' ')"
+    published_count="$(
+      git -C "$WEBSITE_ROOT" log --format='%s' \
+        | awk '/^(chore\(beta\): publish |chore: publish beta )/ { count++ } END { print count + 0 }'
+    )"
     echo "b$((published_count + 1))"
     return
   fi

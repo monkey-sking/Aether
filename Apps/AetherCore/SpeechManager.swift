@@ -4677,11 +4677,18 @@ final class SpeechManager: ObservableObject {
         let axTrusted = accessibilityTrustedSnapshot || AXIsProcessTrusted()
         let hudEvaluation = HUDManager.shared.currentAXTypingEvaluation()
         let hudTypingState = HUDManager.shared.lastKnownTypingState()
+        let hudSuppressionState = HUDManager.shared.currentTypingSuppressionStateSnapshot()
         let snapshot = currentFocusedInputSnapshot()
+        let isoFormatter = ISO8601DateFormatter()
+
+        func formatRect(_ rect: CGRect?) -> String {
+            guard let rect else { return "nil" }
+            return "{x=\(Int(rect.origin.x.rounded())), y=\(Int(rect.origin.y.rounded())), w=\(Int(rect.width.rounded())), h=\(Int(rect.height.rounded()))}"
+        }
 
         var lines: [String] = []
         lines.append("Aether Focused Input Diagnostics")
-        lines.append("generatedAt=\(ISO8601DateFormatter().string(from: now))")
+        lines.append("generatedAt=\(isoFormatter.string(from: now))")
         lines.append("axTrusted=\(axTrusted)")
         lines.append("frontmostApp.name=\(frontmostApp?.localizedName ?? "nil")")
         lines.append("frontmostApp.bundleID=\(frontBundleID ?? "nil")")
@@ -4703,6 +4710,10 @@ final class SpeechManager: ObservableObject {
         lines.append("speech.currentFocusedInputSnapshot.anchorPoint=\(anchorPointSummary)")
         lines.append("hud.lastKnownTypingState=\(hudTypingState)")
         lines.append("hud.typingExplicitlySuppressed=\(HUDManager.shared.isTypingExplicitlySuppressedForCurrentApp())")
+        lines.append("hud.requiresExplicitTypingReentry=\(hudSuppressionState.requiresExplicitTypingReentry)")
+        lines.append("hud.explicitTypingReentryBundleID=\(hudSuppressionState.explicitTypingReentryBundleID ?? "nil")")
+        lines.append("hud.typingSuppressedUntil=\(isoFormatter.string(from: hudSuppressionState.typingSuppressedUntil))")
+        lines.append("hud.preferredExplicitTypingInputRect=\(formatRect(hudSuppressionState.preferredExplicitTypingInputRect))")
         lines.append("hud.ax.role=\(hudEvaluation.role)")
         lines.append("hud.ax.editableLikely=\(hudEvaluation.editableLikely)")
         lines.append("hud.ax.insertionContextAvailable=\(hudEvaluation.insertionContextAvailable)")
@@ -4710,6 +4721,28 @@ final class SpeechManager: ObservableObject {
         lines.append("hud.ax.hasEditableAttribute=\(hudEvaluation.hasEditableAttribute)")
         lines.append("hud.ax.hasSettableValue=\(hudEvaluation.hasSettableValue)")
         lines.append("hud.ax.hasEditableAncestor=\(hudEvaluation.hasEditableAncestor)")
+
+        let mouseHistory = HUDManager.shared.recentMouseDownDiagnosticHistory()
+        if mouseHistory.isEmpty {
+            lines.append("hud.recentMouseDownHistory=empty")
+        } else {
+            for (index, record) in mouseHistory.enumerated() {
+                lines.append(
+                    "[mouseDown:\(index)] ts=\(isoFormatter.string(from: record.timestamp)) bundleID=\(record.bundleID ?? "nil") point={x=\(Int(record.point.x.rounded())), y=\(Int(record.point.y.rounded()))} preferredRect=\(formatRect(record.preferredInputRect)) hitPreferredRect=\(record.hitPreferredInputRect)"
+                )
+            }
+        }
+
+        let suppressionHistory = HUDManager.shared.typingSuppressionDiagnosticHistory()
+        if suppressionHistory.isEmpty {
+            lines.append("hud.typingSuppressionHistory=empty")
+        } else {
+            for (index, record) in suppressionHistory.enumerated() {
+                lines.append(
+                    "[typingSuppression:\(index)] ts=\(isoFormatter.string(from: record.timestamp)) suppressed=\(record.suppressed) reason=\(record.reason) bundleID=\(record.bundleID ?? "nil") suppressedUntil=\(isoFormatter.string(from: record.suppressedUntil)) requiresExplicitTypingReentry=\(record.requiresExplicitTypingReentry)"
+                )
+            }
+        }
 
         let systemWide = AXUIElementCreateSystemWide()
         var focusedRef: CFTypeRef?

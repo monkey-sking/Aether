@@ -2236,6 +2236,7 @@ private struct VoiceUsageInsightsCard: View {
     @State private var isPerAppSummaryExpanded: Bool = false
     @State private var isRecentActivityExpanded: Bool = true
     @State private var showingClearDataConfirm: Bool = false
+    @State private var showingResetStatisticsConfirm: Bool = false
     @State private var showAllApps: Bool = false
     @State private var perAppSortOption: PerAppSortOption = .issuePriority
     @State private var recentActivityFilter: RecentActivityFilter = .all
@@ -2319,6 +2320,14 @@ private struct VoiceUsageInsightsCard: View {
 
     private var hasUsageData: Bool {
         appState.voiceUsageSummary.total > 0 || !appState.voiceUsageHistory.isEmpty
+    }
+
+    private var hasStatisticsData: Bool {
+        appState.voiceUsageSummary.total > 0 || !appState.voiceUsageAppSummaries.isEmpty
+    }
+
+    private var hasHistoryData: Bool {
+        !appState.voiceUsageHistory.isEmpty
     }
 
     private var failureActionSet: Set<String> {
@@ -2506,12 +2515,18 @@ private struct VoiceUsageInsightsCard: View {
                     Text(isChinese ? "累计概览" : "Cumulative Summary")
                         .font(.subheadline.weight(.semibold))
                     Spacer()
+                    Button(String(localized: "insights.reset_statistics")) {
+                        showingResetStatisticsConfirm = true
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.borderless)
+                    .disabled(!hasStatisticsData)
                     Button(String(localized: "insights.clear_data"), role: .destructive) {
                         showingClearDataConfirm = true
                     }
                     .controlSize(.small)
                     .buttonStyle(.borderless)
-                    .disabled(!hasUsageData)
+                    .disabled(!hasHistoryData)
                 }
 
                 if !hasUsageData {
@@ -2530,7 +2545,7 @@ private struct VoiceUsageInsightsCard: View {
                         VoiceUsageSummaryBadge(
                             title: isChinese ? "总计" : "Total Activity",
                             value: formattedEntries(summary.total),
-                            detail: isChinese ? "自上次清空以来累计" : "Cumulative since the last clear"
+                            detail: isChinese ? "自上次重置以来累计" : "Cumulative since the last reset"
                         )
                         VoiceUsageSummaryBadge(
                             title: isChinese ? "近期保留" : "Retained History",
@@ -2545,7 +2560,10 @@ private struct VoiceUsageInsightsCard: View {
                         )
                         VoiceUsageSummaryBadge(
                             title: isChinese ? "输入" : "Dictation",
-                            value: formattedCount(summary.dictationCount, englishUnit: "dictations")
+                            value: formattedCount(summary.dictationCount, englishUnit: "dictations"),
+                            detail: isChinese
+                                ? "累计输入 \(formattedCharacters(summary.dictationCharacterCount))"
+                                : "\(formattedCharacters(summary.dictationCharacterCount)) entered"
                         )
                         VoiceUsageSummaryBadge(
                             title: isChinese ? "控制命令" : "Control",
@@ -2694,12 +2712,24 @@ private struct VoiceUsageInsightsCard: View {
             }
         }
         .confirmationDialog(
+            String(localized: "insights.reset_statistics_confirm_title"),
+            isPresented: $showingResetStatisticsConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "insights.reset_statistics_confirm_action"), role: .destructive) {
+                appState.resetVoiceUsageStatistics()
+            }
+            Button(String(localized: "lexicon.clear_confirm_cancel"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "insights.reset_statistics_confirm_message"))
+        }
+        .confirmationDialog(
             String(localized: "insights.clear_data_confirm_title"),
             isPresented: $showingClearDataConfirm,
             titleVisibility: .visible
         ) {
             Button(String(localized: "insights.clear_data_confirm_action"), role: .destructive) {
-                appState.clearVoiceUsageData()
+                appState.clearVoiceUsageHistory()
             }
             Button(String(localized: "lexicon.clear_confirm_cancel"), role: .cancel) {}
         } message: {

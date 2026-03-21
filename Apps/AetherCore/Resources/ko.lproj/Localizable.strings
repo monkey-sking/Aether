@@ -169,6 +169,10 @@
 "insights.capture_toggle_title" = "새 음성 사용 기록";
 "insights.capture_toggle_hint" = "새로 수집되는 항목만 제어합니다. 기존 요약과 기록은 삭제 전까지 계속 표시됩니다.";
 "insights.summary_history_scope" = "요약은 마지막 초기화 이후 누적값입니다. 최근 활동에는 보관 중인 기록 항목이 표시됩니다.";
+"insights.reset_statistics" = "통계 재설정";
+"insights.reset_statistics_confirm_title" = "누적 음성 사용 통계를 재설정할까요?";
+"insights.reset_statistics_confirm_action" = "통계 재설정";
+"insights.reset_statistics_confirm_message" = "누적 요약과 앱별 합계를 지우지만, 보관 중인 기록 항목은 유지합니다.";
 "insights.clear_data" = "데이터 지우기";
 "insights.clear_data_confirm_title" = "모든 음성 사용 데이터를 지울까요?";
 "insights.clear_data_confirm_action" = "데이터 지우기";

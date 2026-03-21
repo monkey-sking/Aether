@@ -172,6 +172,10 @@
 "insights.capture_toggle_title" = "Registrar nueva actividad de voz";
 "insights.capture_toggle_hint" = "Solo controla la nueva captura. El resumen y el historial existentes siguen visibles hasta que se borren.";
 "insights.summary_history_scope" = "El resumen es acumulativo desde el ultimo borrado. La actividad reciente muestra las entradas retenidas del historial.";
+"insights.reset_statistics" = "Restablecer estadisticas";
+"insights.reset_statistics_confirm_title" = "¿Restablecer las estadisticas acumuladas de uso de voz?";
+"insights.reset_statistics_confirm_action" = "Restablecer estadisticas";
+"insights.reset_statistics_confirm_message" = "Esto borra el resumen acumulado y los totales por app, pero conserva las entradas retenidas del historial.";
 "insights.clear_data" = "Borrar datos";
 "insights.clear_data_confirm_title" = "¿Borrar todos los datos de uso de voz?";
 "insights.clear_data_confirm_action" = "Borrar datos";
