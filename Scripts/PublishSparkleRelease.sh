@@ -198,6 +198,50 @@ log "Generating appcast + deltas in: ${UPDATE_DIR}"
   --maximum-deltas "$SPARKLE_MAX_DELTAS" \
   "$UPDATE_DIR"
 
+# Sparkle's generator may keep historical delta files under "old_updates" while still
+# leaving stale <sparkle:deltas> entries pointing at the public root. This causes 404s.
+# Keep the feed self-consistent: only reference delta files that exist next to appcast.xml.
+python3 - "$LEGACY_FEED_PATH" "$UPDATE_DIR" <<'PY'
+import os
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+sparkle_ns = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+ET.register_namespace("sparkle", sparkle_ns)
+
+feed_path = Path(sys.argv[1])
+update_dir = Path(sys.argv[2])
+
+tree = ET.parse(feed_path)
+root = tree.getroot()
+
+channel = root.find("channel")
+if channel is None:
+    sys.exit(0)
+
+changed = False
+
+for item in channel.findall("item"):
+    deltas = item.find(f"{{{sparkle_ns}}}deltas")
+    if deltas is None:
+        continue
+    for enc in list(deltas.findall("enclosure")):
+        url = enc.get("url") or ""
+        name = os.path.basename(url)
+        if not name:
+            continue
+        if not (update_dir / name).exists():
+            deltas.remove(enc)
+            changed = True
+    if not list(deltas.findall("enclosure")):
+        item.remove(deltas)
+        changed = True
+
+if changed:
+    tree.write(feed_path, encoding="utf-8", xml_declaration=True)
+PY
+
 log "Done."
 log "ZIP: ${ZIP_DEST_PATH}"
 log "Appcast: ${UPDATE_DIR}/appcast.xml"

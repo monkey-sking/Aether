@@ -1155,14 +1155,7 @@ final class SpeechManager: ObservableObject {
         if !availability.dictationEnabled && availability.commandEnabled {
             return .command
         }
-        switch effectiveRecognitionControlMode(for: availability) {
-        case .dictation:
-            return .dictation
-        case .command:
-            return .command
-        case .auto:
-            return typingEligible ? .dictation : .auto
-        }
+        return effectiveRecognitionControlMode(for: availability).hudMode
     }
 
     private var hudRecognitionControlMode: HUDRecognitionControlMode {
@@ -4178,7 +4171,7 @@ final class SpeechManager: ObservableObject {
 
     private func hasRecentClickTypingFallbackEvidence() -> Bool {
         guard let frontmostApp = NSWorkspace.shared.frontmostApplication,
-              isWeirdTypingAppBundle(frontmostApp.bundleIdentifier) else {
+              isRecentClickFallbackTypingAppBundle(frontmostApp.bundleIdentifier) else {
             return false
         }
         let hasEvidence = recentClickTypingFallbackSnapshot() != nil
@@ -4660,6 +4653,7 @@ final class SpeechManager: ObservableObject {
         guard trusted else { return nil }
         guard let frontmostApp = NSWorkspace.shared.frontmostApplication,
               let bundleID = frontmostApp.bundleIdentifier,
+              isRecentClickFallbackTypingAppBundle(bundleID),
               !bundleIsSystemSearchLike(bundleID) else {
             return nil
         }
@@ -4967,6 +4961,10 @@ final class SpeechManager: ObservableObject {
             || bundle.contains("wechat")
             || bundle.contains("codex")
             || bundle.contains("antigravity")
+    }
+    private func isRecentClickFallbackTypingAppBundle(_ bundleID: String?) -> Bool {
+        let bundle = (bundleID ?? "").lowercased()
+        return bundle.contains("xinwechat") || bundle.contains("wechat")
     }
     private func valueAttributeIsSettable(_ element: AXUIElement) -> Bool {
         var settable = DarwinBoolean(false)
