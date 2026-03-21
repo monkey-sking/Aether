@@ -851,6 +851,7 @@ final class HUDManager {
             }
         }
 
+        let suppressionSensitiveApp = isExplicitTypingSuppressionApp(bundleID: frontBundle)
         let axEvaluation = axTypingEvaluationThrottled(now: now)
         let strongAXTypingEvidence = hasStrongAXTypingEvidence(
             now: now,
@@ -859,7 +860,7 @@ final class HUDManager {
         )
 
         if Date() < typingSuppressedUntil, !explicitTypingClickReentry {
-            if strongAXTypingEvidence {
+            if strongAXTypingEvidence && !suppressionSensitiveApp {
                 typingSuppressedUntil = .distantPast
             } else {
                 return false
@@ -867,13 +868,13 @@ final class HUDManager {
         }
 
         if !explicitTypingClickReentry,
+           !requiresExplicitTypingReentry,
            lastGoodTypingRect != nil,
            now.timeIntervalSince(lastGoodTypingRectAt) < 1.2 {
             return true
         }
 
         if requiresExplicitTypingReentry {
-            let suppressionSensitiveApp = isExplicitTypingSuppressionApp(bundleID: frontBundle)
             if explicitTypingClickReentry {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil

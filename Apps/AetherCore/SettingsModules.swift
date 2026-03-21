@@ -2749,6 +2749,10 @@ private struct VoiceUsageAppSummaryRow: View {
         summary.bundleIdentifier
     }
 
+    private var showsBundleHelp: Bool {
+        !bundleText.isEmpty && bundleText != summary.appName
+    }
+
     private var issueCount: Int {
         summary.failureCount + summary.unrecognizedCount + summary.mismatchCount
     }
@@ -2762,6 +2766,32 @@ private struct VoiceUsageAppSummaryRow: View {
             return "输入字数 \(summary.dictationCharacterCount) 字"
         }
         return "Input characters: \(summary.dictationCharacterCount)"
+    }
+
+    private var secondaryText: String {
+        if issueCount > 0 {
+            if isChinese {
+                return "输入字数 \(summary.dictationCharacterCount) 字 · 问题 \(issueCount) 条"
+            }
+            return "\(summary.dictationCharacterCount) chars · \(issueCount) issues"
+        }
+        if anomalyCount > 0 {
+            if isChinese {
+                return "输入字数 \(summary.dictationCharacterCount) 字 · 异常 \(anomalyCount) 条"
+            }
+            return "\(summary.dictationCharacterCount) chars · \(anomalyCount) anomalies"
+        }
+        return characterText
+    }
+
+    private var secondaryTextColor: Color {
+        if issueCount > 0 {
+            return .orange
+        }
+        if anomalyCount > 0 {
+            return .yellow
+        }
+        return .secondary
     }
 
     private var totalText: String {
@@ -2793,12 +2823,8 @@ private struct VoiceUsageAppSummaryRow: View {
                         Text(summary.appName)
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
-                        Text(bundleText)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    .help(showsBundleHelp ? bundleText : "")
                     .layoutPriority(1)
                     Spacer()
                     Text(totalText)
@@ -2816,18 +2842,11 @@ private struct VoiceUsageAppSummaryRow: View {
                     metricChip(isChinese ? "未匹配" : "Unmatched", value: summary.unrecognizedCount, emphasized: summary.unrecognizedCount > 0)
                     metricChip(isChinese ? "误输" : "Mismatch", value: summary.mismatchCount, emphasized: summary.mismatchCount > 0)
                     metricChip(isChinese ? "异常" : "Anomaly", value: summary.noSpeechCount, emphasized: summary.noSpeechCount > 0)
-                }
-                Text(characterText)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                if issueCount > 0 {
-                    Text(isChinese ? "问题事件共 \(issueCount) 条" : "\(issueCount) issue events")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundColor(.orange)
-                } else if anomalyCount > 0 {
-                    Text(isChinese ? "异常事件共 \(anomalyCount) 条" : "\(anomalyCount) anomaly events")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundColor(.yellow)
+                    Spacer(minLength: 10)
+                    Text(secondaryText)
+                        .font(.caption2)
+                        .foregroundColor(secondaryTextColor)
+                        .lineLimit(1)
                 }
             }
         }
@@ -2887,6 +2906,10 @@ private struct VoiceUsageEventRow: View {
         event.bundleIdentifier
     }
 
+    private var showsBundleHelp: Bool {
+        !bundleText.isEmpty && bundleText != event.appName
+    }
+
     private func copyEvent() {
         do {
             try appState.copyVoiceUsageEvent(event)
@@ -2904,8 +2927,17 @@ private struct VoiceUsageEventRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            SpeechAppIcon(bundleID: event.bundleIdentifier)
-                .frame(width: 30, height: 30)
+            VStack(alignment: .center, spacing: 6) {
+                SpeechAppIcon(bundleID: event.bundleIdentifier)
+                    .frame(width: 30, height: 30)
+                Text(event.appName)
+                    .font(.caption2.weight(.medium))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(width: 72, alignment: .top)
+            .help(showsBundleHelp ? bundleText : "")
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -2956,20 +2988,8 @@ private struct VoiceUsageEventRow: View {
                     .allowsHitTesting(isHovering)
                     .accessibilityHidden(!isHovering)
                 }
-
-                Text(event.appName)
-                    .font(.caption.weight(.medium))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-
-                Text(bundleText)
-                    .font(.caption2)
-                    .foregroundColor(.secondary.opacity(0.85))
-                    .multilineTextAlignment(.trailing)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(width: 220, alignment: .trailing)
+            .frame(width: 72, alignment: .trailing)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
