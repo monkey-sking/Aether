@@ -2608,12 +2608,19 @@ final class SpeechManager: ObservableObject {
             computedTypingContext: computedTypingContext,
             availability: featureAvailability
         )
-        let hudBlocksDictation = featureAvailability.commandEnabled && controlMode == .auto &&
+        let hudBlocksDictation = featureAvailability.commandEnabled &&
+            controlMode == .auto &&
+            !typingContext &&
             (hudState.recognitionControlMode == .command || !hudState.isTypingContext)
         if typingContext != sessionTypingMode {
             sessionTypingMode = typingContext
         }
         isDictating = typingContext && featureAvailability.dictationEnabled
+        if controlMode == .auto,
+           typingContext,
+           hudState.recognitionControlMode == .command || !hudState.isTypingContext {
+            GlobalLogger.speech.info("[TypingMode] ignoring stale HUD command block after typing reconciliation")
+        }
         if controlMode == .auto,
            computedTypingContext,
            !typingContext,
