@@ -3527,6 +3527,12 @@ final class SpeechManager: ObservableObject {
         let shouldShowProcessingDots = isStopping && shouldShowProcessingDotsDuringStop
         let shouldShowRecognizingWhileDictating =
             effectiveDictating && dictationHandler.isAwaitingPartialReconciliation
+        let shouldShowIdleAutoDictationHUD =
+            controlMode == .auto
+            && typingHUDEligible
+            && !isStopping
+            && lastTranscript.isEmpty
+            && !effectiveDictating
         if isWakeGated && !isAwake && !isStopping && !effectiveDictating {
             clearHUDOverride()
             clearUnarmedWakePreview()
@@ -3535,7 +3541,7 @@ final class SpeechManager: ObservableObject {
         }
         else if shouldCollapseHandsFreeHUDToStandby { mode = .standby }
         else if shouldShowProcessingDots || shouldShowRecognizingWhileDictating { mode = .processing }
-        else if effectiveDictating { mode = .dictation }
+        else if effectiveDictating || shouldShowIdleAutoDictationHUD { mode = .dictation }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
         else { mode = .listening }
         if message.isEmpty {
