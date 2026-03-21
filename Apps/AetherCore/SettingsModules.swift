@@ -2563,10 +2563,12 @@ private struct VoiceUsageInsightsCard: View {
                                         .foregroundColor(.secondary)
                                 } else {
                                     Text(recentActivityStatusText(visibleCount: recentEvents.count, matchingCount: filteredRecentEvents.count))
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    ForEach(recentEvents) { event in
-                                        VoiceUsageEventRow(event: event)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    VStack(spacing: 8) {
+                                        ForEach(recentEvents) { event in
+                                            VoiceUsageEventRow(event: event)
+                                        }
                                     }
                                 }
                             }
@@ -2737,6 +2739,7 @@ private struct VoiceUsageAppSummaryRow: View {
 private struct VoiceUsageEventRow: View {
     @EnvironmentObject var appState: AppState
     let event: AppState.VoiceUsageEvent
+    @State private var isHovering: Bool = false
 
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -2789,9 +2792,24 @@ private struct VoiceUsageEventRow: View {
         return event.bundleIdentifier
     }
 
+    private func copyEvent() {
+        do {
+            try appState.copyVoiceUsageEvent(event)
+            HUDManager.shared.showTemporary(
+                message: String(localized: "insights.copy_event_done"),
+                icon: "doc.on.doc"
+            )
+        } catch {
+            HUDManager.shared.showTemporary(
+                message: String(localized: "insights.copy_event_failed"),
+                icon: "xmark.circle.fill"
+            )
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
                 Image(systemName: eventIcon)
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -2799,9 +2817,23 @@ private struct VoiceUsageEventRow: View {
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
                 Spacer()
-                Text(timeText)
-                    .font(.caption2.monospacedDigit())
-                    .foregroundColor(.secondary)
+                HStack(alignment: .center, spacing: 6) {
+                    Text(timeText)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundColor(.secondary)
+                    Button {
+                        copyEvent()
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.caption2)
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(String(localized: "insights.copy_event"))
+                    .opacity(isHovering ? 1 : 0)
+                    .allowsHitTesting(isHovering)
+                    .accessibilityHidden(!isHovering)
+                }
             }
 
             HStack(spacing: 8) {
@@ -2809,11 +2841,9 @@ private struct VoiceUsageEventRow: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .layoutPriority(1)
-
-            HStack(spacing: 8) {
+                Text("·")
+                    .font(.caption2)
+                    .foregroundColor(.secondary.opacity(0.7))
                 Text(bundleText)
                     .font(.caption2)
                     .foregroundColor(.secondary.opacity(0.85))
@@ -2842,50 +2872,20 @@ private struct VoiceUsageEventRow: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+        .padding(.vertical, 9)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.58 : 0.46))
         .cornerRadius(10)
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+        }
         .contextMenu {
             Button(LocalizedStringKey("insights.copy_event")) {
-                do {
-                    try appState.copyVoiceUsageEvent(event)
-                    HUDManager.shared.showTemporary(
-                        message: String(localized: "insights.copy_event_done"),
-                        icon: "doc.on.doc"
-                    )
-                } catch {
-                    HUDManager.shared.showTemporary(
-                        message: String(localized: "insights.copy_event_failed"),
-                        icon: "xmark.circle.fill"
-                    )
-                }
+                copyEvent()
             }
         }
-        .overlay(alignment: .topTrailing) {
-            Button {
-                do {
-                    try appState.copyVoiceUsageEvent(event)
-                    HUDManager.shared.showTemporary(
-                        message: String(localized: "insights.copy_event_done"),
-                        icon: "doc.on.doc"
-                    )
-                } catch {
-                    HUDManager.shared.showTemporary(
-                        message: String(localized: "insights.copy_event_failed"),
-                        icon: "xmark.circle.fill"
-                    )
-                }
-            } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.caption2)
-                    .padding(6)
-            }
-            .controlSize(.mini)
-            .buttonStyle(.bordered)
-            .help(String(localized: "insights.copy_event"))
-            .padding(.top, 2)
-            .padding(.trailing, 2)
-            .accessibilityLabel(Text(String(localized: "insights.copy_event")))
+        .onHover { hovering in
+            isHovering = hovering
         }
     }
 }
