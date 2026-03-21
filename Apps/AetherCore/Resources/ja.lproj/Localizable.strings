@@ -167,6 +167,24 @@
 "dashboard.hint.wakeword" = "「エーテル」と呼んで起動します";
 "dashboard.hint.enable" = "ボイスコントロールを有効にして開始";
 
+
+/* Voice Usage Insights */
+"insights.capture_toggle_title" = "新しい音声利用を記録";
+"insights.capture_toggle_hint" = "新しい収集だけを制御します。既存の集計と履歴は消去するまで表示されたままです。";
+"insights.summary_history_scope" = "集計は最後に消去してからの累積です。最近のアクティビティには保持中の履歴が表示されます。";
+"insights.clear_data" = "データを消去";
+"insights.clear_data_confirm_title" = "すべての音声利用データを消去しますか？";
+"insights.clear_data_confirm_action" = "データを消去";
+"insights.clear_data_confirm_message" = "保持中の履歴と累積カウンターを完全に削除します。";
+"insights.recent.filter.all" = "すべて";
+"insights.recent.filter.issues" = "問題";
+"insights.recent.filter.dictation" = "音声入力";
+"insights.recent.filter.control" = "操作";
+"insights.recent.no_match" = "現在のフィルタに一致する履歴はありません。";
+"insights.per_app.sort.issues" = "問題優先";
+"insights.per_app.sort.total" = "総アクティビティ";
+"insights.per_app.show_all" = "すべて表示";
+"insights.per_app.show_top" = "上位5件を表示";
 /* Command Center & Navigation */
 "command.center.title" = "コマンドセンター";
 "command.center.voice_stream" = "音声ストリーム";

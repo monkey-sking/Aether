@@ -167,6 +167,24 @@
 "dashboard.hint.wakeword" = "Sagen Sie „Aether“, um aufzuwachen";
 "dashboard.hint.enable" = "Sprachsteuerung zum Starten aktivieren";
 
+
+/* Voice Usage Insights */
+"insights.capture_toggle_title" = "Neue Sprachaktivitaet aufzeichnen";
+"insights.capture_toggle_hint" = "Steuert nur neue Erfassung. Bestehende Zusammenfassungen und Verlaeufe bleiben sichtbar, bis sie geloescht werden.";
+"insights.summary_history_scope" = "Die Zusammenfassung ist seit der letzten Loeschung kumulativ. Letzte Aktivitaeten zeigen gespeicherte Verlaufseintraege.";
+"insights.clear_data" = "Daten loeschen";
+"insights.clear_data_confirm_title" = "Alle Sprachaktivitaetsdaten loeschen?";
+"insights.clear_data_confirm_action" = "Daten loeschen";
+"insights.clear_data_confirm_message" = "Dadurch werden gespeicherter Verlauf und kumulative Zaehler dauerhaft entfernt.";
+"insights.recent.filter.all" = "Alle";
+"insights.recent.filter.issues" = "Probleme";
+"insights.recent.filter.dictation" = "Diktat";
+"insights.recent.filter.control" = "Steuerung";
+"insights.recent.no_match" = "Keine Eintraege passen zum aktuellen Filter.";
+"insights.per_app.sort.issues" = "Probleme zuerst";
+"insights.per_app.sort.total" = "Gesamtaktivitaet";
+"insights.per_app.show_all" = "Alle anzeigen";
+"insights.per_app.show_top" = "Top 5 anzeigen";
 /* Command Center & Navigation */
 "command.center.title" = "Kommandozentrale";
 "command.center.voice_stream" = "Sprach-Stream";

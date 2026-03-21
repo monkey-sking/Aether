@@ -135,8 +135,8 @@
 
 /* Speech Status */
 "speech.listening" = "待命中...";
-"speech.recognizing" = "整理中";
-"speech.waiting_command" = "等待操作指令…";
+"speech.recognizing" = "识别中";
+"speech.waiting_command" = "等待命令…";
 "speech.waiting_wakeword" = "等待唤醒词…";
 "speech.idle" = "空闲";
 "speech.unavailable" = "语音不可用";
@@ -147,16 +147,16 @@
 "speech.done" = "完成";
 
 /* HUD 提示与错误 */
-"speech.no_matching_command" = "未匹配到控制命令";
+"speech.no_matching_command" = "没听懂命令";
 "speech.voice_input_disabled" = "语音输入已关闭";
 "speech.voice_control_disabled" = "语音控制已关闭";
-"speech.no_editable_field" = "未检测到输入框";
+"speech.no_editable_field" = "没找到输入框";
 "speech.undo_done" = "已撤销";
 "speech.pasted_cmdv" = "已粘贴 (Cmd+V)";
-"speech.bilingual_switch_unsupported" = "仅双语模式支持切换";
+"speech.bilingual_switch_unsupported" = "先切到双语模式";
 "speech.no_mic_detected" = "未检测到麦克风";
-"speech.need_mic_permission" = "请先授予麦克风权限";
-"speech.need_recognition_permission" = "请先授予语音识别权限";
+"speech.need_mic_permission" = "先允许麦克风";
+"speech.need_recognition_permission" = "先允许语音识别";
 "speech.lang_indicator" = "中";
 
 /* Dashboard & Settings (New) */
@@ -378,6 +378,22 @@
 "insights.export_ai_prompt_done" = "已复制 AI 分析提示";
 "insights.export_ai_prompt_failed" = "复制失败";
 "insights.usage_description" = "默认关闭。开启后仅在本机记录语音识别内容与所在 App，用于生成可导入的词库/命令建议。";
+"insights.capture_toggle_title" = "记录新的语音活动";
+"insights.capture_toggle_hint" = "只控制后续采集；已有累计统计和历史在清空前仍可查看。";
+"insights.summary_history_scope" = "累计概览从上次清空开始统计；最近记录展示本机保留的历史条目。";
+"insights.clear_data" = "清空数据";
+"insights.clear_data_confirm_title" = "要清空全部语音统计数据吗？";
+"insights.clear_data_confirm_action" = "清空数据";
+"insights.clear_data_confirm_message" = "这会永久删除已保留的历史记录，以及累计统计和按 App 汇总。";
+"insights.recent.filter.all" = "全部";
+"insights.recent.filter.issues" = "问题";
+"insights.recent.filter.dictation" = "输入";
+"insights.recent.filter.control" = "控制";
+"insights.recent.no_match" = "当前筛选下没有匹配记录。";
+"insights.per_app.sort.issues" = "问题优先";
+"insights.per_app.sort.total" = "总量优先";
+"insights.per_app.show_all" = "查看全部";
+"insights.per_app.show_top" = "仅看前 5 个";
 "ai.prompt.template" = "你是 Aether 配置顾问。目标：基于下面的语音使用历史，生成可直接导入 Aether 的语音词库配置，用于提升识别准确率与命令覆盖。
 
 只输出 JSON（不要 Markdown、不要解释）。JSON 必须严格符合 AetherVoiceLexicon 格式：
@@ -413,16 +429,16 @@
 "headset.hud.unsupported" = "当前耳机不支持头控";
 "headset.now_playing.title" = "Aether 耳机按钮映射";
 "headset.now_playing.artist_fmt" = "单按: %@  ·  双按: %@  ·  三按: %@";
-"headset.hud.no_input_fallback" = "没找到输入框，已切控制";
+"headset.hud.no_input_fallback" = "没找到输入框，已切到控制";
 "headset.hud.switched_control" = "已切换到控制模式";
 "headset.hud.switched_input" = "已切换到输入模式";
 "headset.event.action_fmt" = "耳机%@ · %@";
-"headset.hud.no_action_assigned_fmt" = "%@未设置动作";
-"headset.hud.push_to_talk_unsupported" = "耳机按钮不支持按住说话";
+"headset.hud.no_action_assigned_fmt" = "%@未绑定动作";
+"headset.hud.push_to_talk_unsupported" = "按住说话请用快捷键";
 "headset.hud.stop_tracking" = "停止头控";
 "headset.hud.start_tracking" = "开启头控";
-"headset.hud.exit_input_mode" = "已退出输入模式";
-"headset.hud.tracking_unavailable" = "头控暂不可用，请重戴耳机";
+"headset.hud.exit_input_mode" = "已切回控制";
+"headset.hud.tracking_unavailable" = "头控不可用，请重戴耳机";
 "headset.remote.disabled" = "耳机遥控未启用";
 "headset.remote.stream_connected" = "媒体遥控已注册，耳机姿态数据流已连接";
 "headset.remote.waiting" = "媒体遥控已注册，等待系统把单按 / 双按 / 三按事件转发给 Aether";
@@ -588,19 +604,19 @@
 "head_gesture.status.no_event" = "尚未检测到头部动作";
 "head_gesture.status.last_event" = "最近一次头部动作";
 "head_gesture.event.action_fmt" = "头部动作%@ · %@";
-"head_gesture.hud.no_action_assigned_fmt" = "%@未设置动作";
+"head_gesture.hud.no_action_assigned_fmt" = "%@未绑定动作";
 "head_gesture.action.none" = "无动作";
 "head_gesture.action.none.detail" = "触发后不执行动作。";
 "settings.app_language.title" = "应用语言";
 "settings.app_language.subtitle" = "选择界面与 AI 提示词的语言。";
-"settings.app_language.restart_hint" = "切换语言后需重启生效。";
+"settings.app_language.restart_hint" = "重启后生效";
 "intent.clear_input" = "清空输入";
 "editing.delete_prefixes_default" = "删除,删掉,退格";
-"custom_app_rules.copy_done" = "已复制自定义 App 规则";
-"custom_app_rules.copy_failed" = "复制自定义 App 规则失败";
-"custom_app_rules.paste_done" = "已从剪贴板合并自定义 App 规则";
-"custom_app_rules.paste_empty" = "剪贴板里没有可导入的自定义 App 规则";
-"custom_app_rules.paste_failed" = "粘贴自定义 App 规则失败";
+"custom_app_rules.copy_done" = "已复制 App 规则";
+"custom_app_rules.copy_failed" = "复制 App 规则失败";
+"custom_app_rules.paste_done" = "已导入 App 规则";
+"custom_app_rules.paste_empty" = "剪贴板里没有 App 规则";
+"custom_app_rules.paste_failed" = "导入 App 规则失败";
 "lexicon.basic_terms.title" = "基础词条";
 "lexicon.basic_terms.subtitle" = "按语言设置唤醒词和临时前缀；恢复可带回默认词条。";
 "lexicon.common_commands.title" = "常用命令";
@@ -620,8 +636,8 @@
 "voice_usage.failure.injection_unverified" = "输入未确认";
 "settings.voice.playback_leak_suppression" = "外放时增强语音抑制";
 "settings.voice.playback_leak_suppression_hint" = "检测到电脑外放且使用内建扬声器时，自动启用更强的语音处理与压低其他音频。";
-"speech.playback_leak.detected" = "检测到外放干扰，建议使用耳机";
-"speech.playback_leak.suppression_active" = "外放干扰抑制已启用";
+"speech.playback_leak.detected" = "外放干扰较强";
+"speech.playback_leak.suppression_active" = "正在抑制外放干扰";
 "menu.status.playback_leak_suspected" = "检测到外放干扰";
 "menu.status.playback_leak_suppression" = "外放干扰抑制中";
 

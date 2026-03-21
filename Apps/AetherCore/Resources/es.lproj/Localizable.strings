@@ -167,6 +167,24 @@
 "dashboard.hint.wakeword" = "Diga 'Aether' para despertar";
 "dashboard.hint.enable" = "Active el control por voz para comenzar";
 
+
+/* Voice Usage Insights */
+"insights.capture_toggle_title" = "Registrar nueva actividad de voz";
+"insights.capture_toggle_hint" = "Solo controla la nueva captura. El resumen y el historial existentes siguen visibles hasta que se borren.";
+"insights.summary_history_scope" = "El resumen es acumulativo desde el ultimo borrado. La actividad reciente muestra las entradas retenidas del historial.";
+"insights.clear_data" = "Borrar datos";
+"insights.clear_data_confirm_title" = "¿Borrar todos los datos de uso de voz?";
+"insights.clear_data_confirm_action" = "Borrar datos";
+"insights.clear_data_confirm_message" = "Esto elimina de forma permanente el historial retenido y los contadores acumulados.";
+"insights.recent.filter.all" = "Todo";
+"insights.recent.filter.issues" = "Problemas";
+"insights.recent.filter.dictation" = "Dictado";
+"insights.recent.filter.control" = "Control";
+"insights.recent.no_match" = "Ninguna entrada coincide con el filtro actual.";
+"insights.per_app.sort.issues" = "Prioridad de problemas";
+"insights.per_app.sort.total" = "Actividad total";
+"insights.per_app.show_all" = "Mostrar todo";
+"insights.per_app.show_top" = "Mostrar top 5";
 /* Command Center & Navigation */
 "command.center.title" = "Centro de mando";
 "command.center.voice_stream" = "Transmisión de voz";

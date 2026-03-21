@@ -271,6 +271,26 @@ final class SpeechManagerTypingModeTests: XCTestCase {
         )
     }
 
+    func testCommandHUDPreviewMessageUsesTitleForLongMenuPath() {
+        let command = FrontmostAppCommand(
+            processIdentifier: 42,
+            bundleIdentifier: "com.apple.Safari",
+            appName: "Safari",
+            menuPath: ["File", "Share", "Export"],
+            title: "Save as PDF",
+            shortcut: HotkeyBinding(keyCode: 1, modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue)),
+            aliases: ["保存为 PDF"]
+        )
+
+        XCTAssertEqual(
+            SpeechManager.commandHUDPreviewMessage(
+                for: .frontmostAppCommand(command),
+                localeIdentifier: "en-US"
+            ),
+            "Save as PDF"
+        )
+    }
+
     private func assertRoutingBias(
         _ actual: VoiceCommandRouter.RoutingBias,
         equals expected: VoiceCommandRouter.RoutingBias,

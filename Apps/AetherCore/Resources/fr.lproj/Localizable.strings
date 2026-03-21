@@ -167,6 +167,24 @@
 "dashboard.hint.wakeword" = "Dites « Aether » pour réactiver";
 "dashboard.hint.enable" = "Activez le contrôle vocal pour commencer";
 
+
+/* Voice Usage Insights */
+"insights.capture_toggle_title" = "Enregistrer les nouvelles activites vocales";
+"insights.capture_toggle_hint" = "Controle uniquement les nouvelles captures. Le resume et l'historique existants restent visibles jusqu'a leur suppression.";
+"insights.summary_history_scope" = "Le resume est cumulatif depuis le dernier effacement. L'activite recente affiche les entrees d'historique conservees.";
+"insights.clear_data" = "Effacer les donnees";
+"insights.clear_data_confirm_title" = "Effacer toutes les donnees d'utilisation vocale ?";
+"insights.clear_data_confirm_action" = "Effacer les donnees";
+"insights.clear_data_confirm_message" = "Cela supprime definitivement l'historique conserve et les compteurs cumulatifs.";
+"insights.recent.filter.all" = "Tout";
+"insights.recent.filter.issues" = "Problemes";
+"insights.recent.filter.dictation" = "Dictee";
+"insights.recent.filter.control" = "Controle";
+"insights.recent.no_match" = "Aucune entree ne correspond au filtre actuel.";
+"insights.per_app.sort.issues" = "Priorite des problemes";
+"insights.per_app.sort.total" = "Activite totale";
+"insights.per_app.show_all" = "Tout afficher";
+"insights.per_app.show_top" = "Afficher le top 5";
 /* Command Center & Navigation */
 "command.center.title" = "Centre de commande";
 "command.center.voice_stream" = "Flux vocal";

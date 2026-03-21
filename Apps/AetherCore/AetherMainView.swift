@@ -98,12 +98,12 @@ private final class LaunchAtLoginManager: ObservableObject {
             switch status {
             case .enabled:
                 HUDManager.shared.showTemporary(
-                    message: AppLocalization.isChinese ? "Aether 将在登录后自动启动" : "Aether will launch automatically after login.",
+                    message: AppLocalization.isChinese ? "Aether 将随登录启动" : "Aether will launch at login",
                     icon: "checkmark.circle.fill"
                 )
             case .requiresApproval:
                 HUDManager.shared.showTemporary(
-                    message: AppLocalization.isChinese ? "请在系统设置 > 登录项中允许 Aether 开机启动" : "Approve Aether in System Settings > Login Items to finish enabling launch at login.",
+                    message: AppLocalization.isChinese ? "请在登录项里允许 Aether" : "Allow Aether in Login Items",
                     icon: "arrow.up.forward.app"
                 )
             default:
@@ -111,7 +111,7 @@ private final class LaunchAtLoginManager: ObservableObject {
             }
         } else if status == .notRegistered {
             HUDManager.shared.showTemporary(
-                message: AppLocalization.isChinese ? "已关闭 Aether 开机启动" : "Launch at login disabled for Aether.",
+                message: AppLocalization.isChinese ? "已关闭登录启动" : "Launch at login turned off",
                 icon: "checkmark.circle.fill"
             )
         }
@@ -145,8 +145,8 @@ private final class LaunchAtLoginManager: ObservableObject {
     private func showFailureHUD(enabled: Bool) {
         HUDManager.shared.showTemporary(
             message: enabled
-                ? (AppLocalization.isChinese ? "开启开机启动失败" : "Failed to enable launch at login.")
-                : (AppLocalization.isChinese ? "关闭开机启动失败" : "Failed to disable launch at login."),
+                ? (AppLocalization.isChinese ? "开机启动开启失败" : "Couldn't turn on launch at login")
+                : (AppLocalization.isChinese ? "开机启动关闭失败" : "Couldn't turn off launch at login"),
             icon: "exclamationmark.triangle.fill"
         )
     }

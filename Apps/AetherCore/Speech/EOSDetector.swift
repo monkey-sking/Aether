@@ -22,6 +22,7 @@ final class EOSDetector {
     // MARK: - Callbacks
     var onEndOfSpeech: (() -> Void)?
     var onSegmentTimeout: (() -> Void)?
+    var endOfSpeechDeferralMsProvider: (() -> Double?)?
 
     // MARK: - State
     private(set) var isActive: Bool = false
@@ -30,6 +31,8 @@ final class EOSDetector {
     private var lastSpeechAt: Date = .distantPast
     private var utteranceStartedAt: Date = .distantPast
     private var hasUtterance: Bool = false
+    private var deferredEndOfSpeechUntil: Date?
+    private var hasUsedEndOfSpeechDeferral: Bool = false
     private let log = GlobalLogger.speech
 
     // MARK: - Public API
@@ -50,11 +53,16 @@ final class EOSDetector {
         hasUtterance = false
         utteranceStartedAt = .distantPast
         lastSpeechAt = .distantPast
+        deferredEndOfSpeechUntil = nil
+        hasUsedEndOfSpeechDeferral = false
     }
 
     /// Called from audio VAD callback on each buffer.
     func noteVoiceActivity(_ active: Bool) {
-        if active { lastSpeechAt = Date() }
+        if active {
+            lastSpeechAt = Date()
+            deferredEndOfSpeechUntil = nil
+        }
     }
 
     /// Called whenever the partial transcript changes.
@@ -64,6 +72,7 @@ final class EOSDetector {
         // This makes endpointing less sensitive to short VAD dropouts while the user
         // is still speaking a continuous sentence.
         lastSpeechAt = Date()
+        deferredEndOfSpeechUntil = nil
     }
 
     /// Call when the first non-empty partial arrives (utterance has started).
@@ -71,6 +80,8 @@ final class EOSDetector {
         if !hasUtterance {
             hasUtterance = true
             utteranceStartedAt = Date()
+            deferredEndOfSpeechUntil = nil
+            hasUsedEndOfSpeechDeferral = false
         }
     }
 
@@ -79,6 +90,8 @@ final class EOSDetector {
         hasUtterance = false
         utteranceStartedAt = .distantPast
         lastSpeechAt = .distantPast
+        deferredEndOfSpeechUntil = nil
+        hasUsedEndOfSpeechDeferral = false
     }
 
     // MARK: - Private
@@ -111,6 +124,18 @@ final class EOSDetector {
 
         guard utteranceAgeMs >= minUtteranceMs else { return }
         guard silenceAgeMs >= trailingSilenceMs else { return }
+
+        if let deferredUntil = deferredEndOfSpeechUntil {
+            guard now >= deferredUntil else { return }
+            deferredEndOfSpeechUntil = nil
+        } else if !hasUsedEndOfSpeechDeferral,
+                  let extraMs = endOfSpeechDeferralMsProvider?(),
+                  extraMs > 0 {
+            hasUsedEndOfSpeechDeferral = true
+            deferredEndOfSpeechUntil = now.addingTimeInterval(extraMs / 1000.0)
+            os_log("EOSDetector: deferred EOS by %.0fms", log: log, type: .info, extraMs)
+            return
+        }
 
         os_log("EOSDetector: trailing silence (%.0fms silence, %.0fms utterance)",
                log: log, type: .info, silenceAgeMs, utteranceAgeMs)

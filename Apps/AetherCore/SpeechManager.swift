@@ -1098,7 +1098,7 @@ final class SpeechManager: ObservableObject {
                 "[AudioRoute] startup health probe fallback selectedInputID=\(self.selectedInputDeviceID) effectiveInputID=\(effectiveInputID) effectiveInputName=\(self.currentResolvedInputDeviceName) boundInputID=\(boundInputID) boundInputName=\(boundInputName) latestRMS=\(self.latestVoiceRMS) fallbackID=\(fallbackID) fallbackName=\(fallbackName)"
             )
             HUDManager.shared.showTemporary(
-                message: AppLocalization.isChinese ? "耳机麦不可用，已改用 Mac 麦克风" : "Headset mic unavailable, switched to Mac microphone",
+                message: AppLocalization.isChinese ? "耳机麦不可用，已切到 Mac 麦克风" : "Switched to Mac microphone",
                 icon: "mic.badge.xmark",
                 duration: 1.2
             )
@@ -1413,12 +1413,14 @@ final class SpeechManager: ObservableObject {
 
         let trimmedName = deviceName.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackName = AppLocalization.isChinese ? "当前音频设备" : "Current audio device"
-        let displayName = trimmedName.isEmpty ? fallbackName : trimmedName
+        let displayName = trimmedName.isEmpty
+            ? fallbackName
+            : Self.compactHUDSnippet(trimmedName, maxEnglishCharacters: 22, maxNonEnglishCharacters: 10)
         let message: String
         if !previousHeadsetLike && isHeadsetLike {
             message = AppLocalization.isChinese
-                ? "耳机已连接：\(displayName)"
-                : "Headset connected: \(displayName)"
+                ? "已连接\(displayName)"
+                : "Connected: \(displayName)"
         } else if previousHeadsetLike && !isHeadsetLike {
             message = AppLocalization.isChinese
                 ? "耳机已断开"
@@ -1435,12 +1437,12 @@ final class SpeechManager: ObservableObject {
                 AppLocalization.isChinese ? "耳机" : "Headset"
             }
             message = AppLocalization.isChinese
-                ? "耳机已切换到\(sideLabel)"
-                : "Headset switched to \(sideLabel)"
+                ? "已切到\(sideLabel)"
+                : "Switched to \(sideLabel)"
         } else {
             message = AppLocalization.isChinese
-                ? "耳机已切换：\(displayName)"
-                : "Headset changed: \(displayName)"
+                ? "已切到\(displayName)"
+                : "Switched: \(displayName)"
         }
         hud.showTemporary(
             message: message,
@@ -1549,6 +1551,9 @@ final class SpeechManager: ObservableObject {
                 self.refreshPlaybackLeakStateForCurrentSession()
             }
             self.eosDetector.noteVoiceActivity(active)
+        }
+        eosDetector.endOfSpeechDeferralMsProvider = { [weak self] in
+            self?.chineseDictationEOSDeferralMs()
         }
         eosDetector.onEndOfSpeech = { [weak self] in self?.handleEOS() }
         eosDetector.onSegmentTimeout = { [weak self] in self?.handleSegmentTimeout() }
@@ -1680,9 +1685,7 @@ final class SpeechManager: ObservableObject {
         if speechLanguageMode != .bilingual {
             let hud = HUDManager.shared
             hud.showTemporary(
-                message: activeLocale.identifier.starts(with: "zh")
-                    ? "仅双语模式支持切换"
-                    : "Bilingual mode only",
+                message: String(localized: "speech.bilingual_switch_unsupported"),
                 language: activeLocale.identifier,
                 recognitionControlMode: hudRecognitionControlMode,
                 icon: "globe",
@@ -2889,8 +2892,8 @@ final class SpeechManager: ObservableObject {
             lastFocusToastAt = Date()
             HUDManager.shared.showTemporary(
                 message: activeLocale.identifier.hasPrefix("zh")
-                    ? "微信输入模式，说“命令 …”执行命令"
-                    : "WeChat input mode. Say “Command …” for commands",
+                    ? "微信输入中，命令前加“命令”"
+                    : "WeChat input mode. Prefix commands with “Command”",
                 recognitionControlMode: .auto,
                 duration: 1.8
             )
@@ -3076,7 +3079,11 @@ final class SpeechManager: ObservableObject {
             onIntent?(.selectHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
             clearHandledCommandPreview()
         case .dictation(let text):
-            let finalText = trimRepeatedDictationOverlap(text, for: job)
+            let dedupedText = trimRepeatedDictationOverlap(text, for: job)
+            let finalText = applyChineseFinalPunctuationFallback(
+                dedupedText,
+                localeIdentifier: job.localeIdentifier
+            )
             guard !finalText.isEmpty else {
                 GlobalLogger.speech.info(
                     "[TextPipeline] skip fully-overlapped dictation utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(job.targetBundleID ?? "nil")"
@@ -3247,16 +3254,9 @@ final class SpeechManager: ObservableObject {
     }
 
     private func showUnknownCommandHUD(_ transcript: String) {
-        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let message: String
-        let baseMsg = NSLocalizedString("speech.no_matching_command", comment: "")
-        if trimmed.isEmpty {
-            message = baseMsg
-        } else {
-            message = "\(baseMsg)：\(trimmed)"
-        }
+        _ = transcript
         HUDManager.shared.showTemporary(
-            message: message,
+            message: NSLocalizedString("speech.no_matching_command", comment: ""),
             recognitionControlMode: .command,
             icon: "xmark.circle.fill",
         )
@@ -3394,72 +3394,101 @@ final class SpeechManager: ObservableObject {
         localeIdentifier: String
     ) -> String? {
         let locale = Locale(identifier: localeIdentifier)
+        let label: String?
 
         switch intent {
         case .clickLeft:
-            return VoiceCommandPreset.clickLeft.title(locale: locale)
+            label = VoiceCommandPreset.clickLeft.title(locale: locale)
         case .clickRight:
-            return VoiceCommandPreset.clickRight.title(locale: locale)
+            label = VoiceCommandPreset.clickRight.title(locale: locale)
         case .doubleClick:
-            return VoiceCommandPreset.doubleClick.title(locale: locale)
+            label = VoiceCommandPreset.doubleClick.title(locale: locale)
         case .toggleInputControlMode:
-            return VoiceCommandPreset.toggleInputControlMode.title(locale: locale)
+            label = VoiceCommandPreset.toggleInputControlMode.title(locale: locale)
         case .toggleTracking:
-            return VoiceCommandPreset.toggleTracking.title(locale: locale)
+            label = VoiceCommandPreset.toggleTracking.title(locale: locale)
         case .toggleLanguage:
-            return VoiceCommandPreset.toggleLanguage.title(locale: locale)
+            label = VoiceCommandPreset.toggleLanguage.title(locale: locale)
         case .toggleShortcutPanel:
-            return VoiceCommandPreset.toggleShortcutPanel.title(locale: locale)
+            label = VoiceCommandPreset.toggleShortcutPanel.title(locale: locale)
         case .mediaPlayPause:
-            return VoiceCommandPreset.mediaPlayPause.title(locale: locale)
+            label = VoiceCommandPreset.mediaPlayPause.title(locale: locale)
         case .mediaPrevious:
-            return VoiceCommandPreset.mediaPrevious.title(locale: locale)
+            label = VoiceCommandPreset.mediaPrevious.title(locale: locale)
         case .mediaNext:
-            return VoiceCommandPreset.mediaNext.title(locale: locale)
+            label = VoiceCommandPreset.mediaNext.title(locale: locale)
         case .showShortcutPanel:
-            return VoiceCommandPreset.showShortcutPanel.title(locale: locale)
+            label = VoiceCommandPreset.showShortcutPanel.title(locale: locale)
         case .hideShortcutPanel:
-            return VoiceCommandPreset.hideShortcutPanel.title(locale: locale)
+            label = VoiceCommandPreset.hideShortcutPanel.title(locale: locale)
         case .startPointer:
-            return VoiceCommandPreset.startPointer.title(locale: locale)
+            label = VoiceCommandPreset.startPointer.title(locale: locale)
         case .stopPointer:
-            return VoiceCommandPreset.stopPointer.title(locale: locale)
+            label = VoiceCommandPreset.stopPointer.title(locale: locale)
         case .recenter:
-            return VoiceCommandPreset.recenter.title(locale: locale)
+            label = VoiceCommandPreset.recenter.title(locale: locale)
         case .scroll(_, let dy):
-            return dy < 0
+            label = dy < 0
                 ? VoiceCommandPreset.scrollUp.title(locale: locale)
                 : VoiceCommandPreset.scrollDown.title(locale: locale)
         case .scrollToWeb(let edge):
-            return edge == "top"
+            label = edge == "top"
                 ? VoiceCommandPreset.scrollTop.title(locale: locale)
                 : VoiceCommandPreset.scrollBottom.title(locale: locale)
         case .dragStart:
-            return VoiceCommandPreset.dragStart.title(locale: locale)
+            label = VoiceCommandPreset.dragStart.title(locale: locale)
         case .dragEnd:
-            return VoiceCommandPreset.dragEnd.title(locale: locale)
+            label = VoiceCommandPreset.dragEnd.title(locale: locale)
         case .undo:
-            return VoiceCommandPreset.undo.title(locale: locale)
+            label = VoiceCommandPreset.undo.title(locale: locale)
         case .paste:
-            return VoiceCommandPreset.paste.title(locale: locale)
+            label = VoiceCommandPreset.paste.title(locale: locale)
         case .clearInput:
-            return VoiceCommandPreset.clearInput.title(locale: locale)
+            label = VoiceCommandPreset.clearInput.title(locale: locale)
         case .deleteBackward:
-            return VoiceCommandPreset.deleteBackward.title(locale: locale)
+            label = VoiceCommandPreset.deleteBackward.title(locale: locale)
         case .moveCursorHorizontally(let offset):
-            return offset < 0
+            label = offset < 0
                 ? VoiceCommandPreset.moveCursorLeft.title(locale: locale)
                 : VoiceCommandPreset.moveCursorRight.title(locale: locale)
         case .selectHorizontally(let offset):
-            return offset < 0
+            label = offset < 0
                 ? VoiceCommandPreset.selectLeft.title(locale: locale)
                 : VoiceCommandPreset.selectRight.title(locale: locale)
         case .frontmostAppCommand(let command):
             let path = command.displayPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            return path.isEmpty ? command.title : path
+            let title = command.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else { return title }
+            if command.menuPath.count <= 1 {
+                return compactHUDSnippet(path, maxEnglishCharacters: 30, maxNonEnglishCharacters: 14)
+            }
+            return title.isEmpty
+                ? compactHUDSnippet(path, maxEnglishCharacters: 24, maxNonEnglishCharacters: 12)
+                : compactHUDSnippet(title, maxEnglishCharacters: 24, maxNonEnglishCharacters: 12)
         case .dictation, .unknown:
             return nil
         }
+
+        guard let label else { return nil }
+        return compactHUDSnippet(label, maxEnglishCharacters: 24, maxNonEnglishCharacters: 10)
+    }
+
+    private static func compactHUDSnippet(
+        _ text: String,
+        maxEnglishCharacters: Int = 26,
+        maxNonEnglishCharacters: Int = 12
+    ) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+
+        let isEnglishLike = trimmed.unicodeScalars.contains {
+            $0.isASCII && CharacterSet.letters.contains($0)
+        }
+        let limit = max(4, isEnglishLike ? maxEnglishCharacters : maxNonEnglishCharacters)
+        guard trimmed.count > limit else { return trimmed }
+
+        let endIndex = trimmed.index(trimmed.startIndex, offsetBy: max(1, limit - 1))
+        return "\(trimmed[..<endIndex])…"
     }
 
     static func hasLeadingExplicitCommandPrefix(
@@ -5185,6 +5214,151 @@ final class SpeechManager: ObservableObject {
     private func normalizeRecognizedText(_ raw: String, scope: SpeechCorrectionScope = .dictation) -> String {
         let corrected = applyContextualSpeechCorrections(raw, scope: scope)
         return deduplicateRepeatedTailPhrase(corrected)
+    }
+    private func chineseDictationEOSDeferralMs() -> Double? {
+        let availability = currentVoiceFeatureAvailability()
+        guard currentSessionSpeechStyle(
+            for: availability,
+            sessionTypingModeOverride: sessionTypingMode
+        ) == .dictation else {
+            return nil
+        }
+
+        let transcript = normalizeRecognizedText(lastTranscript, scope: .dictation)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !transcript.isEmpty else { return nil }
+
+        let delay = chineseContinuationDeferralMs(
+            for: transcript,
+            localeIdentifier: activeLocale.identifier
+        )
+        if let delay {
+            GlobalLogger.speech.info(
+                "[EOSGuard] deferred chinese dictation EOS delayMs=\(String(format: "%.0f", delay)) transcript='\(transcript)'"
+            )
+        }
+        return delay
+    }
+    private func applyChineseFinalPunctuationFallback(
+        _ text: String,
+        localeIdentifier: String
+    ) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        guard shouldApplyChinesePunctuationFallback(to: trimmed, localeIdentifier: localeIdentifier) else {
+            return trimmed
+        }
+
+        let punctuated: String
+        if isLikelyChineseQuestion(trimmed) {
+            punctuated = trimmed + "？"
+        } else if isLikelyChineseExclamation(trimmed) {
+            punctuated = trimmed + "！"
+        } else {
+            punctuated = trimmed + "。"
+        }
+
+        GlobalLogger.speech.info(
+            "[TextPipeline] final-punctuation-fallback before='\(trimmed)' after='\(punctuated)' locale=\(localeIdentifier)"
+        )
+        return punctuated
+    }
+    private func shouldApplyChinesePunctuationFallback(
+        to text: String,
+        localeIdentifier: String
+    ) -> Bool {
+        guard isChineseTextContext(text, localeIdentifier: localeIdentifier) else { return false }
+        guard !hasSentenceTerminalPunctuation(text) else { return false }
+        guard chineseScalarCount(in: text) >= 3 else { return false }
+        guard !isLikelyIncompleteChineseSentence(text, localeIdentifier: localeIdentifier) else { return false }
+        guard !isLikelyListOrPrefixEnding(text) else { return false }
+        guard !endsWithAny(text, suffixes: ["，", "、", "；", "：", ",", ";", ":", "（", "(", "“", "\"", "「", "『"]) else {
+            return false
+        }
+        guard !isLikelyCodeLikeText(text) else { return false }
+        return true
+    }
+    private func chineseContinuationDeferralMs(
+        for text: String,
+        localeIdentifier: String
+    ) -> Double? {
+        guard isChineseTextContext(text, localeIdentifier: localeIdentifier) else { return nil }
+        guard !hasSentenceTerminalPunctuation(text) else { return nil }
+
+        if endsWithAny(text, suffixes: ["怎么", "为什么", "是否", "要不要", "能不能", "会不会", "有没有", "是不是"]) {
+            return 700
+        }
+        if endsWithAny(text, suffixes: ["然后", "如果", "因为", "所以", "就是", "那个"]) {
+            return 600
+        }
+        if endsWithAny(text, suffixes: ["的", "得", "地", "是", "把", "会", "还"]) {
+            return 600
+        }
+        return nil
+    }
+    private func isLikelyIncompleteChineseSentence(
+        _ text: String,
+        localeIdentifier: String
+    ) -> Bool {
+        guard isChineseTextContext(text, localeIdentifier: localeIdentifier) else { return false }
+        if endsWithAny(text, suffixes: [
+            "的", "得", "地", "是", "把", "会", "还",
+            "然后", "如果", "因为", "所以", "就是", "那个",
+            "和", "跟", "与", "并且", "或者", "但是"
+        ]) {
+            return true
+        }
+        return false
+    }
+    private func isLikelyChineseQuestion(_ text: String) -> Bool {
+        endsWithAny(text, suffixes: [
+            "吗", "么", "嘛", "呢",
+            "是不是", "能不能", "可不可以", "对不对",
+            "好不好", "行不行", "要不要"
+        ])
+    }
+    private func isLikelyChineseExclamation(_ text: String) -> Bool {
+        endsWithAny(text, suffixes: ["啊", "呀", "啦", "哇"]) && chineseScalarCount(in: text) >= 4
+    }
+    private func isLikelyListOrPrefixEnding(_ text: String) -> Bool {
+        endsWithAny(text, suffixes: ["第一", "第二", "比如", "例如", "包括"])
+    }
+    private func isChineseTextContext(_ text: String, localeIdentifier: String) -> Bool {
+        if localeIdentifier.lowercased().hasPrefix("zh") { return true }
+        let chineseCount = chineseScalarCount(in: text)
+        let asciiCount = asciiAlphaNumericScalarCount(in: text)
+        return chineseCount >= 3 && chineseCount >= asciiCount
+    }
+    private func hasSentenceTerminalPunctuation(_ text: String) -> Bool {
+        guard let last = text.trimmingCharacters(in: .whitespacesAndNewlines).last else { return false }
+        return "。！？.!?…".contains(last)
+    }
+    private func endsWithAny(_ text: String, suffixes: [String]) -> Bool {
+        suffixes.contains { text.hasSuffix($0) }
+    }
+    private func chineseScalarCount(in text: String) -> Int {
+        text.unicodeScalars.reduce(into: 0) { partialResult, scalar in
+            let value = Int(scalar.value)
+            if (0x3400...0x4DBF).contains(value) || (0x4E00...0x9FFF).contains(value) || (0xF900...0xFAFF).contains(value) {
+                partialResult += 1
+            }
+        }
+    }
+    private func asciiAlphaNumericScalarCount(in text: String) -> Int {
+        text.unicodeScalars.reduce(into: 0) { partialResult, scalar in
+            if scalar.isASCII && CharacterSet.alphanumerics.contains(scalar) {
+                partialResult += 1
+            }
+        }
+    }
+    private func isLikelyCodeLikeText(_ text: String) -> Bool {
+        let markers = ["://", "/", "\\", "com.", ".swift", ".js", ".ts", "--", "⌘"]
+        if markers.contains(where: { text.contains($0) }) {
+            return true
+        }
+        let chineseCount = chineseScalarCount(in: text)
+        let asciiCount = asciiAlphaNumericScalarCount(in: text)
+        return asciiCount > max(chineseCount * 2, 8)
     }
     private func isWeirdTypingAppBundle(_ bundleID: String?) -> Bool {
         let bundle = (bundleID ?? "").lowercased()

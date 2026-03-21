@@ -1274,13 +1274,13 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
         case .doubleClick:
             return isChinese ? "双击" : "Double Click"
         case .toggleInputControlMode:
-            return isChinese ? "切换输入/控制模式" : "Toggle Input/Control Mode"
+            return isChinese ? "切换输入/控制" : "Toggle Input/Control"
         case .toggleTracking:
-            return isChinese ? "切换头控" : "Toggle Pointer Control"
+            return isChinese ? "切换头控" : "Toggle Pointer"
         case .toggleLanguage:
             return isChinese ? "切换语言" : "Toggle Language"
         case .toggleShortcutPanel:
-            return isChinese ? "切换快捷键面板" : "Toggle Shortcuts Panel"
+            return isChinese ? "切换快捷键" : "Toggle Shortcuts"
         case .mediaPlayPause:
             return isChinese ? "播放 / 暂停" : "Play / Pause"
         case .mediaPrevious:
@@ -1288,9 +1288,9 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
         case .mediaNext:
             return isChinese ? "下一首" : "Next Track"
         case .showShortcutPanel:
-            return isChinese ? "显示快捷键面板" : "Show Shortcuts Panel"
+            return isChinese ? "显示快捷键" : "Show Shortcuts"
         case .hideShortcutPanel:
-            return isChinese ? "关闭快捷键面板" : "Hide Shortcuts Panel"
+            return isChinese ? "关闭快捷键" : "Hide Shortcuts"
         case .startPointer:
             return isChinese ? "开启头控" : "Start Pointer"
         case .stopPointer:

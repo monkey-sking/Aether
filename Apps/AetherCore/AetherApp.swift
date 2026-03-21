@@ -628,7 +628,7 @@ class AppState: ObservableObject {
         }
     }
 
-    struct VoiceUsageSummary {
+    struct VoiceUsageSummary: Codable {
         let total: Int
         let dictationCount: Int
         let dictationCharacterCount: Int
@@ -636,9 +636,19 @@ class AppState: ObservableObject {
         let unrecognizedCount: Int
         let mismatchCount: Int
         let controlCount: Int
+
+        static let zero = VoiceUsageSummary(
+            total: 0,
+            dictationCount: 0,
+            dictationCharacterCount: 0,
+            failureCount: 0,
+            unrecognizedCount: 0,
+            mismatchCount: 0,
+            controlCount: 0
+        )
     }
 
-    struct VoiceUsageAppSummary: Identifiable {
+    struct VoiceUsageAppSummary: Identifiable, Codable {
         var id: String { bundleIdentifier }
         let appName: String
         let bundleIdentifier: String
@@ -663,6 +673,8 @@ class AppState: ObservableObject {
     private static let voiceUsageHistoryEnabledStorageKey = "voiceUsageHistoryEnabledV1"
     private static let voiceUsageHistoryStorageKey = "voiceUsageHistoryV1"
     private static let voiceUsageHistoryLimitStorageKey = "voiceUsageHistoryLimitV1"
+    private static let voiceUsageSummaryStorageKey = "voiceUsageSummaryV1"
+    private static let voiceUsageAppSummariesStorageKey = "voiceUsageAppSummariesV1"
     private static let customAppShortcutRulesStorageKey = "customAppShortcutRulesV1"
     private static let defaultVoiceUsageHistoryLimit = 1000
     private static let minVoiceUsageHistoryLimit = 100
@@ -673,7 +685,7 @@ class AppState: ObservableObject {
             guard oldValue != appLanguageMode else { return }
             AppLocalization.setPreferredLanguage(appLanguageMode)
             HUDManager.shared.showTemporary(
-                message: AppLocalization.localizedString("settings.app_language.restart_hint"),
+                message: AppLocalization.isChinese ? "重启后生效" : "Restart to apply",
                 icon: "arrow.clockwise"
             )
         }
@@ -843,6 +855,34 @@ class AppState: ObservableObject {
     private static func saveVoiceUsageHistory(_ events: [VoiceUsageEvent]) {
         if let data = try? JSONEncoder().encode(events) {
             UserDefaults.standard.set(data, forKey: voiceUsageHistoryStorageKey)
+        }
+    }
+
+    private static func loadVoiceUsageSummary(seedEvents: [VoiceUsageEvent]) -> VoiceUsageSummary {
+        if let data = UserDefaults.standard.data(forKey: voiceUsageSummaryStorageKey),
+           let summary = try? JSONDecoder().decode(VoiceUsageSummary.self, from: data) {
+            return summary
+        }
+        return rebuildVoiceUsageSummary(from: seedEvents)
+    }
+
+    private static func saveVoiceUsageSummary(_ summary: VoiceUsageSummary) {
+        if let data = try? JSONEncoder().encode(summary) {
+            UserDefaults.standard.set(data, forKey: voiceUsageSummaryStorageKey)
+        }
+    }
+
+    private static func loadVoiceUsageAppSummaries(seedEvents: [VoiceUsageEvent]) -> [VoiceUsageAppSummary] {
+        if let data = UserDefaults.standard.data(forKey: voiceUsageAppSummariesStorageKey),
+           let summaries = try? JSONDecoder().decode([VoiceUsageAppSummary].self, from: data) {
+            return summaries
+        }
+        return rebuildVoiceUsageAppSummaries(from: seedEvents)
+    }
+
+    private static func saveVoiceUsageAppSummaries(_ summaries: [VoiceUsageAppSummary]) {
+        if let data = try? JSONEncoder().encode(summaries) {
+            UserDefaults.standard.set(data, forKey: voiceUsageAppSummariesStorageKey)
         }
     }
 
@@ -1373,6 +1413,22 @@ class AppState: ObservableObject {
             Self.saveVoiceUsageHistory(trimmed)
         }
     }
+    @Published private var storedVoiceUsageSummary: VoiceUsageSummary = {
+        let seedEvents = AppState.loadVoiceUsageHistory(limit: AppState.loadVoiceUsageHistoryLimit())
+        return AppState.loadVoiceUsageSummary(seedEvents: seedEvents)
+    }() {
+        didSet {
+            Self.saveVoiceUsageSummary(storedVoiceUsageSummary)
+        }
+    }
+    @Published private var storedVoiceUsageAppSummaries: [VoiceUsageAppSummary] = {
+        let seedEvents = AppState.loadVoiceUsageHistory(limit: AppState.loadVoiceUsageHistoryLimit())
+        return AppState.loadVoiceUsageAppSummaries(seedEvents: seedEvents)
+    }() {
+        didSet {
+            Self.saveVoiceUsageAppSummaries(storedVoiceUsageAppSummaries)
+        }
+    }
     @Published var voiceCommandOverrides: [VoiceCommandOverrideConfig] = AppState.loadVoiceCommandOverrides() {
         didSet {
             AppState.saveVoiceCommandOverrides(voiceCommandOverrides)
@@ -1394,69 +1450,18 @@ class AppState: ObservableObject {
     }
 
     var voiceUsageSummary: VoiceUsageSummary {
-        var dictation = 0
-        var dictationCharacters = 0
-        var failure = 0
-        var unrecognized = 0
-        var mismatch = 0
-        var control = 0
-        for entry in voiceUsageHistory {
-            if isVoiceUsageSuccessfulDictation(entry) {
-                dictation += 1
-                dictationCharacters += voiceUsageCharacterCount(for: entry)
-            } else if isVoiceUsageFailure(entry) {
-                failure += 1
-            } else if isVoiceUsageUnrecognized(entry) {
-                unrecognized += 1
-            } else if isVoiceUsageHUDControlMismatch(entry) {
-                mismatch += 1
-            } else if entry.kind == .control {
-                control += 1
-            }
-        }
-        return VoiceUsageSummary(
-            total: voiceUsageHistory.count,
-            dictationCount: dictation,
-            dictationCharacterCount: dictationCharacters,
-            failureCount: failure,
-            unrecognizedCount: unrecognized,
-            mismatchCount: mismatch,
-            controlCount: control
-        )
+        storedVoiceUsageSummary
     }
 
     var voiceUsageAppSummaries: [VoiceUsageAppSummary] {
-        let grouped = Dictionary(grouping: voiceUsageHistory) { $0.bundleIdentifier }
-        let summaries = grouped.map { bundleID, entries -> VoiceUsageAppSummary in
-            let dictationCount = entries.filter(isVoiceUsageSuccessfulDictation).count
-            let dictationCharacterCount = entries
-                .filter(isVoiceUsageSuccessfulDictation)
-                .reduce(0) { partialResult, entry in
-                    partialResult + voiceUsageCharacterCount(for: entry)
-                }
-            let failureCount = entries.filter(isVoiceUsageFailure).count
-            let unrecognizedCount = entries.filter(isVoiceUsageUnrecognized).count
-            let mismatchCount = entries.filter(isVoiceUsageHUDControlMismatch).count
-            let controlCount = entries.filter { $0.kind == .control }.count
-            let appName = entries.first?.appName ?? bundleID
-            return VoiceUsageAppSummary(
-                appName: appName,
-                bundleIdentifier: bundleID,
-                total: entries.count,
-                dictationCount: dictationCount,
-                dictationCharacterCount: dictationCharacterCount,
-                failureCount: failureCount,
-                unrecognizedCount: unrecognizedCount,
-                mismatchCount: mismatchCount,
-                controlCount: controlCount
-            )
-        }
-        return summaries.sorted {
-            if $0.total == $1.total {
-                return $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
-            }
-            return $0.total > $1.total
-        }
+        storedVoiceUsageAppSummaries
+    }
+
+    /// Clears event history and all derived voice-usage aggregates in one operation.
+    func clearVoiceUsageData() {
+        voiceUsageHistory = []
+        storedVoiceUsageSummary = .zero
+        storedVoiceUsageAppSummaries = []
     }
 
     func clearVoiceUsageHistory() {
@@ -1464,53 +1469,158 @@ class AppState: ObservableObject {
     }
 
     func resetVoiceUsageStatistics() {
-        voiceUsageHistory = []
+        storedVoiceUsageSummary = .zero
+        storedVoiceUsageAppSummaries = []
     }
 
-    private func isVoiceUsageSuccessfulDictation(_ entry: VoiceUsageEvent) -> Bool {
+    private static func isVoiceUsageSuccessfulDictation(_ entry: VoiceUsageEvent) -> Bool {
         guard entry.kind == .dictation else { return false }
         return entry.action == "输入" || entry.action == "Dictation"
     }
 
-    private func voiceUsageCharacterCount(for entry: VoiceUsageEvent) -> Int {
+    private static func voiceUsageCharacterCount(for entry: VoiceUsageEvent) -> Int {
         entry.content?.count ?? 0
     }
 
-    private func localizedVoiceUsageAction(_ key: String, fallback: String) -> String {
+    private static func localizedVoiceUsageAction(_ key: String, fallback: String) -> String {
         let value = NSLocalizedString(key, comment: "")
         return value == key ? fallback : value
     }
 
-    private func isVoiceUsageFailure(_ entry: VoiceUsageEvent) -> Bool {
+    private static func isVoiceUsageFailure(_ entry: VoiceUsageEvent) -> Bool {
         guard entry.kind == .dictation else { return false }
         let failureActions = Set([
-            localizedVoiceUsageAction("voice_usage.failure.recognition_failed", fallback: "Recognition Failed"),
-            localizedVoiceUsageAction("voice_usage.failure.no_speech", fallback: "No Speech Detected"),
-            localizedVoiceUsageAction("voice_usage.failure.interrupted", fallback: "Recognition Interrupted"),
-            localizedVoiceUsageAction("voice_usage.failure.unavailable", fallback: "Recognition Unavailable"),
-            localizedVoiceUsageAction("voice_usage.failure.injection_failed", fallback: "Input Failed"),
-            localizedVoiceUsageAction("voice_usage.failure.injection_unverified", fallback: "Input Unverified"),
-            localizedVoiceUsageAction("voice_usage.failure.dictation_disabled", fallback: "Voice Input Off")
+            Self.localizedVoiceUsageAction("voice_usage.failure.recognition_failed", fallback: "Recognition Failed"),
+            Self.localizedVoiceUsageAction("voice_usage.failure.no_speech", fallback: "No Speech Detected"),
+            Self.localizedVoiceUsageAction("voice_usage.failure.interrupted", fallback: "Recognition Interrupted"),
+            Self.localizedVoiceUsageAction("voice_usage.failure.unavailable", fallback: "Recognition Unavailable"),
+            Self.localizedVoiceUsageAction("voice_usage.failure.injection_failed", fallback: "Input Failed"),
+            Self.localizedVoiceUsageAction("voice_usage.failure.injection_unverified", fallback: "Input Unverified"),
+            Self.localizedVoiceUsageAction("voice_usage.failure.dictation_disabled", fallback: "Voice Input Off")
         ])
         return failureActions.contains(entry.action)
     }
 
-    private func isVoiceUsageUnrecognized(_ entry: VoiceUsageEvent) -> Bool {
+    private static func isVoiceUsageUnrecognized(_ entry: VoiceUsageEvent) -> Bool {
         guard entry.kind == .dictation else { return false }
         // Backward-compatible: older builds recorded different labels for the same bucket.
-        return entry.action == "未识别" ||
+        return entry.action == "未匹配" ||
+            entry.action == "Unmatched" ||
+            entry.action == "未识别" ||
             entry.action == "Unrecognized" ||
             entry.action == "未输入（无输入框）" ||
             entry.action == "No Input Target"
     }
 
-    private func isVoiceUsageHUDControlMismatch(_ entry: VoiceUsageEvent) -> Bool {
+    private static func isVoiceUsageHUDControlMismatch(_ entry: VoiceUsageEvent) -> Bool {
         guard entry.kind == .dictation else { return false }
         // Backward-compatible: older builds used different labels.
         return entry.action == "控制模式下输入" ||
             entry.action == "Dictation While HUD Control" ||
             entry.action == "控制模式误输入" ||
             entry.action == "Dictation While Control Mode"
+    }
+
+    private static func rebuildVoiceUsageSummary(from events: [VoiceUsageEvent]) -> VoiceUsageSummary {
+        events.reduce(.zero) { partialResult, entry in
+            updatedVoiceUsageSummary(partialResult, byAdding: entry)
+        }
+    }
+
+    private static func rebuildVoiceUsageAppSummaries(from events: [VoiceUsageEvent]) -> [VoiceUsageAppSummary] {
+        var summariesByBundle: [String: VoiceUsageAppSummary] = [:]
+        for entry in events {
+            let current = summariesByBundle[entry.bundleIdentifier] ?? VoiceUsageAppSummary(
+                appName: entry.appName,
+                bundleIdentifier: entry.bundleIdentifier,
+                total: 0,
+                dictationCount: 0,
+                dictationCharacterCount: 0,
+                failureCount: 0,
+                unrecognizedCount: 0,
+                mismatchCount: 0,
+                controlCount: 0
+            )
+            summariesByBundle[entry.bundleIdentifier] = updatedVoiceUsageAppSummary(current, byAdding: entry)
+        }
+        return sortVoiceUsageAppSummaries(Array(summariesByBundle.values))
+    }
+
+    private static func updatedVoiceUsageSummary(_ summary: VoiceUsageSummary, byAdding entry: VoiceUsageEvent) -> VoiceUsageSummary {
+        let total = summary.total + 1
+        var dictationCount = summary.dictationCount
+        var dictationCharacterCount = summary.dictationCharacterCount
+        var failureCount = summary.failureCount
+        var unrecognizedCount = summary.unrecognizedCount
+        var mismatchCount = summary.mismatchCount
+        var controlCount = summary.controlCount
+
+        if isVoiceUsageSuccessfulDictation(entry) {
+            dictationCount += 1
+            dictationCharacterCount += voiceUsageCharacterCount(for: entry)
+        } else if isVoiceUsageFailure(entry) {
+            failureCount += 1
+        } else if isVoiceUsageUnrecognized(entry) {
+            unrecognizedCount += 1
+        } else if isVoiceUsageHUDControlMismatch(entry) {
+            mismatchCount += 1
+        } else if entry.kind == .control {
+            controlCount += 1
+        }
+
+        return VoiceUsageSummary(
+            total: total,
+            dictationCount: dictationCount,
+            dictationCharacterCount: dictationCharacterCount,
+            failureCount: failureCount,
+            unrecognizedCount: unrecognizedCount,
+            mismatchCount: mismatchCount,
+            controlCount: controlCount
+        )
+    }
+
+    private static func updatedVoiceUsageAppSummary(_ summary: VoiceUsageAppSummary, byAdding entry: VoiceUsageEvent) -> VoiceUsageAppSummary {
+        let total = summary.total + 1
+        var dictationCount = summary.dictationCount
+        var dictationCharacterCount = summary.dictationCharacterCount
+        var failureCount = summary.failureCount
+        var unrecognizedCount = summary.unrecognizedCount
+        var mismatchCount = summary.mismatchCount
+        var controlCount = summary.controlCount
+
+        if isVoiceUsageSuccessfulDictation(entry) {
+            dictationCount += 1
+            dictationCharacterCount += voiceUsageCharacterCount(for: entry)
+        } else if isVoiceUsageFailure(entry) {
+            failureCount += 1
+        } else if isVoiceUsageUnrecognized(entry) {
+            unrecognizedCount += 1
+        } else if isVoiceUsageHUDControlMismatch(entry) {
+            mismatchCount += 1
+        } else if entry.kind == .control {
+            controlCount += 1
+        }
+
+        return VoiceUsageAppSummary(
+            appName: entry.appName.isEmpty ? summary.appName : entry.appName,
+            bundleIdentifier: summary.bundleIdentifier,
+            total: total,
+            dictationCount: dictationCount,
+            dictationCharacterCount: dictationCharacterCount,
+            failureCount: failureCount,
+            unrecognizedCount: unrecognizedCount,
+            mismatchCount: mismatchCount,
+            controlCount: controlCount
+        )
+    }
+
+    private static func sortVoiceUsageAppSummaries(_ summaries: [VoiceUsageAppSummary]) -> [VoiceUsageAppSummary] {
+        summaries.sorted {
+            if $0.total == $1.total {
+                return $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
+            }
+            return $0.total > $1.total
+        }
     }
 
     func mergedFrontmostAppCommandSnapshot(_ snapshot: FrontmostAppCommandSnapshot?) -> FrontmostAppCommandSnapshot? {
@@ -2347,16 +2457,18 @@ class AppState: ObservableObject {
             .sink { [weak self] _ in
                 guard let self else { return }
                 do {
-                    let url = try self.voiceService.exportFocusedInputDiagnostics()
+                    _ = try self.voiceService.exportFocusedInputDiagnostics()
                     HUDManager.shared.showTemporary(
                         message: AppLocalization.isChinese
-                            ? "已导出输入框诊断：\(url.lastPathComponent)"
-                            : "Input diagnostics exported: \(url.lastPathComponent)",
+                            ? "已导出输入框诊断"
+                            : "Input diagnostics exported",
                         icon: "waveform.path.ecg"
                     )
                 } catch {
                     HUDManager.shared.showTemporary(
-                        message: error.localizedDescription,
+                        message: AppLocalization.isChinese
+                            ? "导出输入框诊断失败"
+                            : "Couldn't export input diagnostics",
                         icon: "xmark.circle.fill"
                     )
                 }
@@ -2785,7 +2897,7 @@ class AppState: ObservableObject {
     private func recordVoiceUnrecognized(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
         recordVoiceUsageEvent(
             kind: .dictation,
-            action: AppLocalization.isChinese ? "未识别" : "Unrecognized",
+            action: AppLocalization.isChinese ? "未匹配" : "Unmatched",
             content: text,
             appName: appName,
             bundleIdentifier: bundleIdentifier
@@ -2800,19 +2912,19 @@ class AppState: ObservableObject {
     ) {
         let action: String
         if reason == "dictation-disabled" {
-            action = localizedVoiceUsageAction("voice_usage.failure.dictation_disabled", fallback: "Voice Input Off")
+            action = Self.localizedVoiceUsageAction("voice_usage.failure.dictation_disabled", fallback: "Voice Input Off")
         } else if reason == "no-speech-detected" {
-            action = localizedVoiceUsageAction("voice_usage.failure.no_speech", fallback: "No Speech Detected")
+            action = Self.localizedVoiceUsageAction("voice_usage.failure.no_speech", fallback: "No Speech Detected")
         } else if reason == "recognition-interrupted" {
-            action = localizedVoiceUsageAction("voice_usage.failure.interrupted", fallback: "Recognition Interrupted")
+            action = Self.localizedVoiceUsageAction("voice_usage.failure.interrupted", fallback: "Recognition Interrupted")
         } else if reason == "recognition-unavailable" {
-            action = localizedVoiceUsageAction("voice_usage.failure.unavailable", fallback: "Recognition Unavailable")
+            action = Self.localizedVoiceUsageAction("voice_usage.failure.unavailable", fallback: "Recognition Unavailable")
         } else if reason == "invalid-input-target" || reason == "post-injection-mismatch" {
-            action = localizedVoiceUsageAction("voice_usage.failure.injection_failed", fallback: "Input Failed")
+            action = Self.localizedVoiceUsageAction("voice_usage.failure.injection_failed", fallback: "Input Failed")
         } else if reason == "post-injection-unverified" {
-            action = localizedVoiceUsageAction("voice_usage.failure.injection_unverified", fallback: "Input Unverified")
+            action = Self.localizedVoiceUsageAction("voice_usage.failure.injection_unverified", fallback: "Input Unverified")
         } else {
-            action = localizedVoiceUsageAction("voice_usage.failure.recognition_failed", fallback: "Recognition Failed")
+            action = Self.localizedVoiceUsageAction("voice_usage.failure.recognition_failed", fallback: "Recognition Failed")
         }
         recordVoiceUsageEvent(
             kind: .dictation,
@@ -2842,6 +2954,24 @@ class AppState: ObservableObject {
             spokenText: normalizedVoiceUsageContent(spokenText)
         )
         voiceUsageHistory.insert(entry, at: 0)
+        storedVoiceUsageSummary = Self.updatedVoiceUsageSummary(storedVoiceUsageSummary, byAdding: entry)
+
+        let currentAppSummary = storedVoiceUsageAppSummaries.first(where: { $0.bundleIdentifier == entry.bundleIdentifier })
+            ?? VoiceUsageAppSummary(
+                appName: entry.appName,
+                bundleIdentifier: entry.bundleIdentifier,
+                total: 0,
+                dictationCount: 0,
+                dictationCharacterCount: 0,
+                failureCount: 0,
+                unrecognizedCount: 0,
+                mismatchCount: 0,
+                controlCount: 0
+            )
+        let updatedAppSummary = Self.updatedVoiceUsageAppSummary(currentAppSummary, byAdding: entry)
+        storedVoiceUsageAppSummaries = Self.sortVoiceUsageAppSummaries(
+            storedVoiceUsageAppSummaries.filter { $0.bundleIdentifier != entry.bundleIdentifier } + [updatedAppSummary]
+        )
     }
 
     private func resolvedVoiceUsageAppContext(
@@ -3987,7 +4117,7 @@ private struct CurrentAppShortcutPanelView: View {
                 break
             case .pushToTalk:
                 HUDManager.shared.showTemporary(
-                    message: isChinese ? "按住说话请继续使用快捷键" : "Use the hold-to-talk hotkey",
+                    message: isChinese ? "按住说话请用快捷键" : "Use the hold-to-talk hotkey",
                     recognitionControlMode: .auto,
                 )
             }

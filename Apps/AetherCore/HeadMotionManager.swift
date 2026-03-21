@@ -1421,7 +1421,7 @@ class HeadMotionManager: ObservableObject {
     func startRecordingRecordedHeadGesture(id: UUID, appendSample: Bool = false) {
         guard hasActiveHeadsetConnection, motionManager.isDeviceMotionAvailable else {
             HUDManager.shared.showTemporary(
-                message: AppLocalization.isChinese ? "录制前请先连接支持头动的耳机" : "Connect a motion-capable headset before recording",
+                message: AppLocalization.isChinese ? "请先连接头控耳机" : "Connect a motion headset first",
                 icon: "airpods"
             )
             return
@@ -2884,9 +2884,10 @@ class HeadMotionManager: ObservableObject {
         }
 
         lastHeadGestureTriggerAt = Date()
+        let hudActionLabel = shortenedHUDActionLabel(best.gesture.action.label)
         let preflightMessage = AppLocalization.isChinese
-            ? "将触发：\(best.gesture.action.label)"
-            : "About to trigger: \(best.gesture.action.label)"
+            ? "执行：\(hudActionLabel)"
+            : "Run: \(hudActionLabel)"
         if shouldAnnounceHeadGestureRecognitionFeedback {
             HUDManager.shared.showTemporary(message: preflightMessage, icon: "bolt.fill", duration: 0.55)
         }
@@ -2963,8 +2964,8 @@ class HeadMotionManager: ObservableObject {
         headGestureRecordingCountdown = 0
         isHeadGestureRecording = true
         headGestureRecordingStatusText = isAppendingHeadGestureSample
-            ? (AppLocalization.isChinese ? "做动作，停下后追加样本" : "Perform gesture, then pause to add")
-            : (AppLocalization.isChinese ? "做动作，停下后自动保存" : "Perform gesture, then pause to save")
+            ? (AppLocalization.isChinese ? "做动作，停下后追加" : "Move, then pause to add")
+            : (AppLocalization.isChinese ? "做动作，停下后保存" : "Move, then pause to save")
         activeGestureRecordingSession = ActiveGestureRecordingSession(
             gestureID: id,
             startedAt: Date(),
@@ -3011,7 +3012,7 @@ class HeadMotionManager: ObservableObject {
             headGestureRecordingStatusText = ""
             playHeadGestureNoMatchSound()
             HUDManager.shared.showTemporary(
-                message: AppLocalization.isChinese ? "步骤不够，至少两步" : "Too few steps, need at least two",
+                message: AppLocalization.isChinese ? "步骤太少" : "Need at least two moves",
                 icon: "scribble"
             )
             appendHeadGestureHistory(
@@ -3926,6 +3927,25 @@ class HeadMotionManager: ObservableObject {
         AppLocalization.isChinese
             ? "\(remaining) 秒后开始"
             : "Starts in \(remaining)s"
+    }
+
+    private func shortenedHUDActionLabel(_ label: String) -> String {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+
+        if AppLocalization.isChinese {
+            guard trimmed.count > 8 else { return trimmed }
+            return String(trimmed.prefix(8)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+        }
+
+        let words = trimmed.split(whereSeparator: \.isWhitespace)
+        if words.count > 3 {
+            return words.prefix(3).joined(separator: " ") + "…"
+        }
+        if trimmed.count > 20 {
+            return String(trimmed.prefix(20)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+        }
+        return trimmed
     }
 
     private func playNamedHeadGestureSound(_ names: [String], fallback: String) {

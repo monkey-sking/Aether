@@ -1049,8 +1049,8 @@ private struct HeadGestureShortcutMappingCard: View {
         revealInputDiagnostics.toggle()
         HUDManager.shared.showTemporary(
             message: revealInputDiagnostics
-                ? (isChinese ? "已显示输入框诊断工具" : "Input diagnostics revealed")
-                : (isChinese ? "已隐藏输入框诊断工具" : "Input diagnostics hidden"),
+                ? (isChinese ? "已显示输入框诊断" : "Input diagnostics on")
+                : (isChinese ? "已隐藏输入框诊断" : "Input diagnostics off"),
             icon: "ladybug"
         )
     }
@@ -1130,7 +1130,7 @@ private struct HeadGestureShortcutMappingCard: View {
                                     )
                                 } catch {
                                     HUDManager.shared.showTemporary(
-                                        message: error.localizedDescription,
+                                        message: isChinese ? "复制调试数据失败" : "Couldn't copy debug data",
                                         icon: "xmark.circle.fill"
                                     )
                                 }
@@ -1144,13 +1144,13 @@ private struct HeadGestureShortcutMappingCard: View {
                                 do {
                                     if let _ = try motionManager.exportHeadGestureDebugData() {
                                         HUDManager.shared.showTemporary(
-                                            message: isChinese ? "已导出头部动作调试数据" : "Head gesture debug data exported",
+                                            message: isChinese ? "已导出调试数据" : "Debug data exported",
                                             icon: "square.and.arrow.up"
                                         )
                                     }
                                 } catch {
                                     HUDManager.shared.showTemporary(
-                                        message: error.localizedDescription,
+                                        message: isChinese ? "导出调试数据失败" : "Couldn't export debug data",
                                         icon: "xmark.circle.fill"
                                     )
                                 }
@@ -1163,16 +1163,18 @@ private struct HeadGestureShortcutMappingCard: View {
                             if revealInputDiagnostics {
                                 Button(isChinese ? "导出输入框诊断" : "Export Input Diagnostics") {
                                     do {
-                                        let url = try appState.voiceService.exportFocusedInputDiagnostics()
+                                        _ = try appState.voiceService.exportFocusedInputDiagnostics()
                                         HUDManager.shared.showTemporary(
                                             message: isChinese
-                                                ? "已导出输入框诊断：\(url.lastPathComponent)"
-                                                : "Input diagnostics exported: \(url.lastPathComponent)",
+                                                ? "已导出输入框诊断"
+                                                : "Input diagnostics exported",
                                             icon: "waveform.path.ecg"
                                         )
                                     } catch {
                                         HUDManager.shared.showTemporary(
-                                            message: error.localizedDescription,
+                                            message: isChinese
+                                                ? "导出输入框诊断失败"
+                                                : "Couldn't export input diagnostics",
                                             icon: "xmark.circle.fill"
                                         )
                                     }
@@ -1188,12 +1190,12 @@ private struct HeadGestureShortcutMappingCard: View {
                                     do {
                                         try motionManager.copyHeadGestureHistory()
                                         HUDManager.shared.showTemporary(
-                                            message: isChinese ? "已复制头部动作历史" : "Head gesture history copied",
+                                            message: isChinese ? "已复制动作历史" : "Gesture history copied",
                                             icon: "doc.on.doc"
                                         )
                                     } catch {
                                         HUDManager.shared.showTemporary(
-                                            message: error.localizedDescription,
+                                            message: isChinese ? "复制头动历史失败" : "Couldn't copy gesture history",
                                             icon: "xmark.circle.fill"
                                         )
                                     }
@@ -1345,12 +1347,12 @@ private struct HeadGestureShortcutMappingCard: View {
                     do {
                         try motionManager.copyHeadGestureHistoryEntry(entry)
                         HUDManager.shared.showTemporary(
-                            message: isChinese ? "已复制这条头部动作历史" : "Head gesture event copied",
+                            message: isChinese ? "已复制这条记录" : "Entry copied",
                             icon: "doc.on.doc"
                         )
                     } catch {
                         HUDManager.shared.showTemporary(
-                            message: error.localizedDescription,
+                            message: isChinese ? "复制记录失败" : "Couldn't copy entry",
                             icon: "xmark.circle.fill"
                         )
                     }
@@ -2152,6 +2154,26 @@ private struct VoiceUsageInsightsCard: View {
     @EnvironmentObject var appState: AppState
     @State private var isPerAppSummaryExpanded: Bool = false
     @State private var isRecentActivityExpanded: Bool = true
+    @State private var showingClearDataConfirm: Bool = false
+    @State private var showAllApps: Bool = false
+    @State private var perAppSortOption: PerAppSortOption = .issuePriority
+    @State private var recentActivityFilter: RecentActivityFilter = .all
+
+    private enum PerAppSortOption: String, CaseIterable, Identifiable {
+        case issuePriority
+        case total
+
+        var id: String { rawValue }
+    }
+
+    private enum RecentActivityFilter: String, CaseIterable, Identifiable {
+        case all
+        case issues
+        case dictation
+        case control
+
+        var id: String { rawValue }
+    }
 
     private var isChinese: Bool {
         AppLocalization.isChinese
@@ -2163,39 +2185,182 @@ private struct VoiceUsageInsightsCard: View {
         GridItem(.flexible(minimum: 160), spacing: 10, alignment: .leading)
     ]
 
-    private var recentEvents: [AppState.VoiceUsageEvent] {
-        Array(appState.voiceUsageHistory.prefix(30))
+    private var filteredRecentEvents: [AppState.VoiceUsageEvent] {
+        appState.voiceUsageHistory.filter { event in
+            switch recentActivityFilter {
+            case .all:
+                return true
+            case .issues:
+                return isIssueEvent(event)
+            case .dictation:
+                return event.kind == .dictation
+            case .control:
+                return event.kind == .control
+            }
+        }
     }
 
-    private var topApps: [AppState.VoiceUsageAppSummary] {
-        Array(appState.voiceUsageAppSummaries.prefix(5))
+    private var recentEvents: [AppState.VoiceUsageEvent] {
+        Array(filteredRecentEvents.prefix(30))
+    }
+
+    private var sortedAppSummaries: [AppState.VoiceUsageAppSummary] {
+        switch perAppSortOption {
+        case .issuePriority:
+            return appState.voiceUsageAppSummaries.sorted { lhs, rhs in
+                let lhsIssues = issueCount(for: lhs)
+                let rhsIssues = issueCount(for: rhs)
+                if lhsIssues == rhsIssues {
+                    if lhs.total == rhs.total {
+                        return lhs.appName.localizedCaseInsensitiveCompare(rhs.appName) == .orderedAscending
+                    }
+                    return lhs.total > rhs.total
+                }
+                return lhsIssues > rhsIssues
+            }
+        case .total:
+            return appState.voiceUsageAppSummaries
+        }
+    }
+
+    private var displayedAppSummaries: [AppState.VoiceUsageAppSummary] {
+        showAllApps ? sortedAppSummaries : Array(sortedAppSummaries.prefix(5))
     }
 
     private var remainingAppCount: Int {
-        max(appState.voiceUsageAppSummaries.count - topApps.count, 0)
+        max(sortedAppSummaries.count - displayedAppSummaries.count, 0)
+    }
+
+    private var hasUsageData: Bool {
+        appState.voiceUsageSummary.total > 0 || !appState.voiceUsageHistory.isEmpty
+    }
+
+    private var failureActionSet: Set<String> {
+        Set([
+            String(localized: "voice_usage.failure.recognition_failed"),
+            String(localized: "voice_usage.failure.no_speech"),
+            String(localized: "voice_usage.failure.interrupted"),
+            String(localized: "voice_usage.failure.unavailable"),
+            String(localized: "voice_usage.failure.injection_failed"),
+            String(localized: "voice_usage.failure.injection_unverified"),
+            String(localized: "voice_usage.failure.dictation_disabled"),
+            "Recognition Failed",
+            "No Speech Detected",
+            "Recognition Interrupted",
+            "Recognition Unavailable",
+            "Input Failed",
+            "Input Unverified",
+            "Voice Input Off",
+            "识别失败",
+            "未识别到人声",
+            "识别已中断",
+            "识别服务不可用",
+            "输入失败",
+            "输入未确认",
+            "语音输入已关闭"
+        ])
+    }
+
+    private func formattedEntries(_ value: Int) -> String {
+        isChinese ? "\(value) 条" : "\(value) entries"
+    }
+
+    private func formattedCount(_ value: Int, englishUnit: String) -> String {
+        isChinese ? "\(value) 次" : "\(value) \(englishUnit)"
+    }
+
+    private func formattedCharacters(_ value: Int) -> String {
+        isChinese ? "\(value) 字" : "\(value) chars"
+    }
+
+    private func formattedPercent(_ value: Double) -> String {
+        let percentage = max(0, min(100, value * 100))
+        return String(format: "%.0f%%", percentage)
+    }
+
+    private func issueCount(for summary: AppState.VoiceUsageAppSummary) -> Int {
+        summary.failureCount + summary.unrecognizedCount + summary.mismatchCount
+    }
+
+    private func issueBreakdownText(_ summary: AppState.VoiceUsageSummary) -> String {
+        if isChinese {
+            return "失败 \(summary.failureCount) · 未匹配 \(summary.unrecognizedCount) · 误输 \(summary.mismatchCount)"
+        }
+        return "Failed \(summary.failureCount) · Unmatched \(summary.unrecognizedCount) · Mismatch \(summary.mismatchCount)"
+    }
+
+    private func retainedHistoryDetail(limit: Int) -> String {
+        if isChinese {
+            return "本机保留最近 \(limit) 条"
+        }
+        return "Retains the latest \(limit) entries locally"
+    }
+
+    private func recentActivityStatusText(visibleCount: Int, matchingCount: Int) -> String {
+        if isChinese {
+            return "当前显示最近 \(visibleCount) 条，筛选命中 \(matchingCount) 条，已保留 \(appState.voiceUsageHistory.count) 条。"
+        }
+        return "Showing the latest \(visibleCount) matching entries (\(matchingCount) match, \(appState.voiceUsageHistory.count) retained)."
+    }
+
+    private func isIssueEvent(_ event: AppState.VoiceUsageEvent) -> Bool {
+        guard event.kind == .dictation else { return false }
+        if failureActionSet.contains(event.action) {
+            return true
+        }
+        switch event.action {
+        case "未匹配", "Unmatched", "未识别", "Unrecognized",
+            "未输入（无输入框）", "No Input Target",
+            "控制模式下输入", "Dictation While HUD Control",
+            "控制模式误输入", "Dictation While Control Mode":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func recentFilterTitle(_ filter: RecentActivityFilter) -> String {
+        switch filter {
+        case .all:
+            return String(localized: "insights.recent.filter.all")
+        case .issues:
+            return String(localized: "insights.recent.filter.issues")
+        case .dictation:
+            return String(localized: "insights.recent.filter.dictation")
+        case .control:
+            return String(localized: "insights.recent.filter.control")
+        }
+    }
+
+    private func perAppSortTitle(_ option: PerAppSortOption) -> String {
+        switch option {
+        case .issuePriority:
+            return String(localized: "insights.per_app.sort.issues")
+        case .total:
+            return String(localized: "insights.per_app.sort.total")
+        }
     }
 
     var body: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label(
-                            isChinese ? "使用统计与历史" : "Usage Stats & History",
-                            systemImage: "chart.bar.xaxis"
-                        )
-                        .font(.headline)
-                        Text(LocalizedStringKey("insights.usage_description"))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                Label(
+                    isChinese ? "使用统计与历史" : "Usage Stats & History",
+                    systemImage: "chart.bar.xaxis"
+                )
+                .font(.headline)
+
+                Toggle(isOn: $appState.isVoiceUsageHistoryEnabled) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(LocalizedStringKey("insights.capture_toggle_title"))
+                            .font(.subheadline.weight(.semibold))
+                        Text(LocalizedStringKey("insights.capture_toggle_hint"))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
-                    Spacer()
-                    Toggle("", isOn: $appState.isVoiceUsageHistoryEnabled)
-                        .labelsHidden()
-                        .controlSize(.small)
-                        .accessibilityLabel(Text(isChinese ? "启用语音统计" : "Enable usage history"))
                 }
+                .controlSize(.small)
+                .toggleStyle(.switch)
 
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
@@ -2215,12 +2380,16 @@ private struct VoiceUsageInsightsCard: View {
                         in: 100...5000,
                         step: 100
                     ) {
-                        Text("\(appState.voiceUsageHistoryLimit)")
+                        Text(formattedEntries(appState.voiceUsageHistoryLimit))
                             .font(.subheadline.monospacedDigit())
-                            .frame(minWidth: 48, alignment: .trailing)
+                            .frame(minWidth: 72, alignment: .trailing)
                     }
-                    .frame(width: 150)
+                    .frame(width: 180)
                 }
+
+                Text(LocalizedStringKey("insights.summary_history_scope"))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
 
                 if !appState.isVoiceUsageHistoryEnabled {
                     Text(
@@ -2232,147 +2401,208 @@ private struct VoiceUsageInsightsCard: View {
                     )
                     .font(.caption)
                     .foregroundColor(.secondary)
-                } else {
-                    let summary = appState.voiceUsageSummary
-                    HStack(spacing: 10) {
-                        Text(isChinese ? "全局概览" : "Overall Summary")
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Button(isChinese ? "重置统计" : "Reset Stats") {
-                            appState.resetVoiceUsageStatistics()
-                        }
-                        .controlSize(.small)
-                        .buttonStyle(.borderless)
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.secondary)
+                }
+
+                let summary = appState.voiceUsageSummary
+                let issueEventCount = summary.failureCount + summary.unrecognizedCount + summary.mismatchCount
+                let issueRate = summary.total > 0 ? Double(issueEventCount) / Double(summary.total) : 0
+
+                HStack(spacing: 10) {
+                    Text(isChinese ? "累计概览" : "Cumulative Summary")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button(String(localized: "insights.clear_data"), role: .destructive) {
+                        showingClearDataConfirm = true
                     }
+                    .controlSize(.small)
+                    .buttonStyle(.borderless)
+                    .disabled(!hasUsageData)
+                }
+
+                if !hasUsageData {
+                    Text(isChinese ? "暂无记录。先试一次输入或语音控制。" : "No usage yet. Try dictation or a voice control action first.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
                     LazyVGrid(columns: summaryColumns, alignment: .leading, spacing: 10) {
                         VoiceUsageSummaryBadge(
-                            title: isChinese ? "总计" : "Total",
-                            value: "\(summary.total)"
+                            title: isChinese ? "问题率" : "Issue Rate",
+                            value: formattedPercent(issueRate),
+                            detail: issueBreakdownText(summary),
+                            valueColor: issueEventCount > 0 ? .orange : .green,
+                            fillColor: (issueEventCount > 0 ? Color.orange : Color.green).opacity(0.12)
+                        )
+                        VoiceUsageSummaryBadge(
+                            title: isChinese ? "总计" : "Total Activity",
+                            value: formattedEntries(summary.total),
+                            detail: isChinese ? "自上次清空以来累计" : "Cumulative since the last clear"
+                        )
+                        VoiceUsageSummaryBadge(
+                            title: isChinese ? "近期保留" : "Retained History",
+                            value: formattedEntries(appState.voiceUsageHistory.count),
+                            detail: retainedHistoryDetail(limit: appState.voiceUsageHistoryLimit)
                         )
                         VoiceUsageSummaryBadge(
                             title: isChinese ? "输入" : "Dictation",
-                            value: "\(summary.dictationCount)"
-                        )
-                        VoiceUsageSummaryBadge(
-                            title: isChinese ? "输入字数" : "Input Characters",
-                            value: "\(summary.dictationCharacterCount)"
-                        )
-                        VoiceUsageSummaryBadge(
-                            title: isChinese ? "失败" : "Failed",
-                            value: "\(summary.failureCount)"
-                        )
-                        VoiceUsageSummaryBadge(
-                            title: isChinese ? "未识别" : "Unrecognized",
-                            value: "\(summary.unrecognizedCount)"
+                            value: formattedCount(summary.dictationCount, englishUnit: "dictations")
                         )
                         VoiceUsageSummaryBadge(
                             title: isChinese ? "控制命令" : "Control",
-                            value: "\(summary.controlCount)"
+                            value: formattedCount(summary.controlCount, englishUnit: "commands")
+                        )
+                        VoiceUsageSummaryBadge(
+                            title: isChinese ? "输入字数" : "Input Characters",
+                            value: formattedCharacters(summary.dictationCharacterCount)
                         )
                     }
 
-                    if summary.total == 0 {
-                        Text(isChinese ? "暂无记录。先试一次输入或语音控制。" : "No usage yet. Try dictation or a voice control action first.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else {
-                        Divider()
+                    Divider()
 
-                        DisclosureGroup(
-                            isExpanded: $isPerAppSummaryExpanded,
-                            content: {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(isChinese ? "以下为各 App 的统计，格式：输入次数 / 输入字数 / 失败 / 未识别 / 控制，右侧为总计。" : "Below are per-app totals. Format: Dictation Count / Input Characters / Failed / Unrecognized / Control, with total on the right.")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                    VStack(spacing: 8) {
-                                        ForEach(topApps) { item in
-                                            VoiceUsageAppSummaryRow(summary: item)
+                    DisclosureGroup(
+                        isExpanded: $isPerAppSummaryExpanded,
+                        content: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Picker("", selection: $perAppSortOption) {
+                                        ForEach(PerAppSortOption.allCases) { option in
+                                            Text(perAppSortTitle(option)).tag(option)
                                         }
                                     }
-                                    if remainingAppCount > 0 {
-                                        Text(
-                                            isChinese
-                                                ? "其余 \(remainingAppCount) 个 App 已折叠。"
-                                                : "\(remainingAppCount) more apps are hidden."
-                                        )
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                                    .pickerStyle(.menu)
+                                    .labelsHidden()
+                                    .controlSize(.small)
+
+                                    Spacer()
+
+                                    if sortedAppSummaries.count > 5 {
+                                        Button(showAllApps ? String(localized: "insights.per_app.show_top") : String(localized: "insights.per_app.show_all")) {
+                                            withAnimation(.easeInOut(duration: 0.15)) {
+                                                showAllApps.toggle()
+                                            }
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .controlSize(.small)
                                     }
                                 }
-                                .padding(.top, 6)
-                            },
-                            label: {
-                                Text(isChinese ? "按 App 统计" : "Per-App Summary")
-                                    .font(.subheadline.weight(.semibold))
-                            }
-                        )
-                        .controlSize(.small)
 
-                        Divider()
+                                Text(
+                                    isChinese
+                                        ? "当前显示 \(displayedAppSummaries.count) / \(sortedAppSummaries.count) 个 App。"
+                                        : "Showing \(displayedAppSummaries.count) of \(sortedAppSummaries.count) apps."
+                                )
+                                .font(.caption)
+                                .foregroundColor(.secondary)
 
-                        DisclosureGroup(
-                            isExpanded: $isRecentActivityExpanded,
-                            content: {
                                 VStack(spacing: 8) {
+                                    ForEach(displayedAppSummaries) { item in
+                                        VoiceUsageAppSummaryRow(summary: item)
+                                    }
+                                }
+
+                                if !showAllApps && remainingAppCount > 0 {
+                                    Text(
+                                        isChinese
+                                            ? "其余 \(remainingAppCount) 个 App 已折叠。"
+                                            : "\(remainingAppCount) more apps are hidden."
+                                    )
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.top, 6)
+                        },
+                        label: {
+                            Text(isChinese ? "按 App 统计" : "Per-App Summary")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                    )
+                    .controlSize(.small)
+
+                    Divider()
+
+                    DisclosureGroup(
+                        isExpanded: $isRecentActivityExpanded,
+                        content: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Button(LocalizedStringKey("insights.copy_diagnostic_history")) {
+                                        do {
+                                            try appState.copyVoiceUsageHistoryForDiagnostics()
+                                            HUDManager.shared.showTemporary(
+                                                message: String(localized: "insights.copy_diagnostic_history_done"),
+                                                icon: "doc.on.doc"
+                                            )
+                                        } catch {
+                                            HUDManager.shared.showTemporary(
+                                                message: String(localized: "insights.copy_diagnostic_history_failed"),
+                                                icon: "xmark.circle.fill"
+                                            )
+                                        }
+                                    }
+                                    Button(LocalizedStringKey("insights.export_ai_prompt")) {
+                                        do {
+                                            try appState.exportAetherAIConfigPrompt()
+                                            HUDManager.shared.showTemporary(
+                                                message: String(localized: "insights.export_ai_prompt_done"),
+                                                icon: "doc.on.doc"
+                                            )
+                                        } catch {
+                                            HUDManager.shared.showTemporary(
+                                                message: String(localized: "insights.export_ai_prompt_failed"),
+                                                icon: "xmark.circle.fill"
+                                            )
+                                        }
+                                    }
+                                }
+                                .controlSize(.small)
+                                .buttonStyle(.bordered)
+
+                                if recentEvents.isEmpty {
+                                    Text(LocalizedStringKey("insights.recent.no_match"))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Text(recentActivityStatusText(visibleCount: recentEvents.count, matchingCount: filteredRecentEvents.count))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                                     ForEach(recentEvents) { event in
                                         VoiceUsageEventRow(event: event)
                                     }
                                 }
-                                .padding(.top, 6)
-                            },
-                            label: {
-                                HStack(spacing: 10) {
-                                    Text(isChinese ? "最近记录" : "Recent Activity")
-                                        .font(.subheadline.weight(.semibold))
-                                    Spacer()
-                                    Menu {
-                                        Button(LocalizedStringKey("insights.copy_diagnostic_history")) {
-                                            do {
-                                                try appState.copyVoiceUsageHistoryForDiagnostics()
-                                                HUDManager.shared.showTemporary(
-                                                    message: String(localized: "insights.copy_diagnostic_history_done"),
-                                                    icon: "doc.on.doc"
-                                                )
-                                            } catch {
-                                                HUDManager.shared.showTemporary(
-                                                    message: String(localized: "insights.copy_diagnostic_history_failed"),
-                                                    icon: "xmark.circle.fill"
-                                                )
-                                            }
-                                        }
-                                        Button(LocalizedStringKey("insights.export_ai_prompt")) {
-                                            do {
-                                                try appState.exportAetherAIConfigPrompt()
-                                                HUDManager.shared.showTemporary(
-                                                    message: String(localized: "insights.export_ai_prompt_done"),
-                                                    icon: "doc.on.doc"
-                                                )
-                                            } catch {
-                                                HUDManager.shared.showTemporary(
-                                                    message: String(localized: "insights.export_ai_prompt_failed"),
-                                                    icon: "xmark.circle.fill"
-                                                )
-                                            }
-                                        }
-                                        Divider()
-                                        Button(isChinese ? "清空记录" : "Clear History") {
-                                            appState.clearVoiceUsageHistory()
-                                        }
-                                    } label: {
-                                        Label(isChinese ? "更多操作" : "More Actions", systemImage: "ellipsis.circle")
-                                    }
-                                    .menuStyle(.borderlessButton)
-                                    .controlSize(.small)
-                                }
                             }
-                        )
-                        .controlSize(.small)
-                    }
+                            .padding(.top, 6)
+                        },
+                        label: {
+                            HStack(spacing: 10) {
+                                Text(isChinese ? "最近记录" : "Recent Activity")
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer()
+                                Picker("", selection: $recentActivityFilter) {
+                                    ForEach(RecentActivityFilter.allCases) { filter in
+                                        Text(recentFilterTitle(filter)).tag(filter)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .labelsHidden()
+                                .controlSize(.small)
+                            }
+                        }
+                    )
+                    .controlSize(.small)
                 }
             }
+        }
+        .confirmationDialog(
+            String(localized: "insights.clear_data_confirm_title"),
+            isPresented: $showingClearDataConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "insights.clear_data_confirm_action"), role: .destructive) {
+                appState.clearVoiceUsageData()
+            }
+            Button(String(localized: "lexicon.clear_confirm_cancel"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "insights.clear_data_confirm_message"))
         }
     }
 }
@@ -2380,20 +2610,29 @@ private struct VoiceUsageInsightsCard: View {
 private struct VoiceUsageSummaryBadge: View {
     let title: String
     let value: String
+    var detail: String? = nil
+    var valueColor: Color = .primary
+    var fillColor: Color = Color(nsColor: .controlBackgroundColor).opacity(0.6)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.caption)
                 .foregroundColor(.secondary)
             Text(value)
                 .font(.headline)
-                .foregroundColor(.primary)
+                .foregroundColor(valueColor)
+            if let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+        .background(fillColor)
         .cornerRadius(10)
     }
 }
@@ -2401,8 +2640,27 @@ private struct VoiceUsageSummaryBadge: View {
 private struct VoiceUsageAppSummaryRow: View {
     let summary: AppState.VoiceUsageAppSummary
 
+    private var isChinese: Bool {
+        AppLocalization.isChinese
+    }
+
     private var bundleTail: String {
         compactBundleIdentifier(summary.bundleIdentifier)
+    }
+
+    private var issueCount: Int {
+        summary.failureCount + summary.unrecognizedCount + summary.mismatchCount
+    }
+
+    private var characterText: String {
+        if isChinese {
+            return "输入字数 \(summary.dictationCharacterCount) 字"
+        }
+        return "Input characters: \(summary.dictationCharacterCount)"
+    }
+
+    private var totalText: String {
+        isChinese ? "总\(summary.total)条" : "\(summary.total) entries"
     }
 
     private func compactBundleIdentifier(_ bundleIdentifier: String) -> String {
@@ -2416,31 +2674,58 @@ private struct VoiceUsageAppSummaryRow: View {
         return bundleIdentifier
     }
 
+    @ViewBuilder
+    private func metricChip(_ title: String, value: Int, emphasized: Bool = false) -> some View {
+        Text("\(title) \(value)")
+            .font(.caption.monospacedDigit())
+            .foregroundColor(emphasized ? .orange : .secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                (emphasized ? Color.orange : Color(nsColor: .controlBackgroundColor))
+                    .opacity(emphasized ? 0.14 : 0.7)
+            )
+            .clipShape(Capsule())
+    }
+
     var body: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(summary.appName)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Text(bundleTail)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(summary.appName)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(bundleTail)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .layoutPriority(1)
+                Spacer()
+                Text(totalText)
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.12))
+                    .foregroundColor(.accentColor)
+                    .clipShape(Capsule())
             }
-            .layoutPriority(1)
-            Spacer()
-            Text("\(summary.dictationCount)/\(summary.dictationCharacterCount)/\(summary.failureCount)/\(summary.unrecognizedCount)/\(summary.controlCount)")
-                .font(.caption.monospacedDigit())
+            HStack(spacing: 6) {
+                metricChip(isChinese ? "输入" : "Dictation", value: summary.dictationCount)
+                metricChip(isChinese ? "控制" : "Control", value: summary.controlCount)
+                metricChip(isChinese ? "失败" : "Failed", value: summary.failureCount, emphasized: summary.failureCount > 0)
+                metricChip(isChinese ? "未匹配" : "Unmatched", value: summary.unrecognizedCount, emphasized: summary.unrecognizedCount > 0)
+                metricChip(isChinese ? "误输" : "Mismatch", value: summary.mismatchCount, emphasized: summary.mismatchCount > 0)
+            }
+            Text(characterText)
+                .font(.caption2)
                 .foregroundColor(.secondary)
-                .fixedSize(horizontal: true, vertical: false)
-            Text("\(summary.total)")
-                .font(.caption.weight(.semibold).monospacedDigit())
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.accentColor.opacity(0.12))
-                .foregroundColor(.accentColor)
-                .clipShape(Capsule())
+            if issueCount > 0 {
+                Text(isChinese ? "问题事件共 \(issueCount) 条" : "\(issueCount) issue events")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(.orange)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -2452,7 +2737,6 @@ private struct VoiceUsageAppSummaryRow: View {
 private struct VoiceUsageEventRow: View {
     @EnvironmentObject var appState: AppState
     let event: AppState.VoiceUsageEvent
-    @State private var isHovering: Bool = false
 
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -2463,7 +2747,8 @@ private struct VoiceUsageEventRow: View {
 
     private static let dateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "MM-dd HH:mm"
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
         return formatter
     }()
 
@@ -2473,6 +2758,17 @@ private struct VoiceUsageEventRow: View {
 
     private var eventIcon: String {
         event.kind == .dictation ? "text.bubble" : "command"
+    }
+
+    private var displayAction: String {
+        switch event.action {
+        case "未识别":
+            return "未匹配"
+        case "Unrecognized":
+            return "Unmatched"
+        default:
+            return event.action
+        }
     }
 
     private var timeText: String {
@@ -2499,7 +2795,7 @@ private struct VoiceUsageEventRow: View {
                 Image(systemName: eventIcon)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text(event.action)
+                Text(displayAction)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
                 Spacer()
@@ -2549,6 +2845,22 @@ private struct VoiceUsageEventRow: View {
         .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
         .cornerRadius(10)
+        .contextMenu {
+            Button(LocalizedStringKey("insights.copy_event")) {
+                do {
+                    try appState.copyVoiceUsageEvent(event)
+                    HUDManager.shared.showTemporary(
+                        message: String(localized: "insights.copy_event_done"),
+                        icon: "doc.on.doc"
+                    )
+                } catch {
+                    HUDManager.shared.showTemporary(
+                        message: String(localized: "insights.copy_event_failed"),
+                        icon: "xmark.circle.fill"
+                    )
+                }
+            }
+        }
         .overlay(alignment: .topTrailing) {
             Button {
                 do {
@@ -2568,16 +2880,12 @@ private struct VoiceUsageEventRow: View {
                     .font(.caption2)
                     .padding(6)
             }
-            .buttonStyle(.borderless)
             .controlSize(.mini)
+            .buttonStyle(.bordered)
             .help(String(localized: "insights.copy_event"))
-            .opacity(isHovering ? 1 : 0)
-            .allowsHitTesting(isHovering)
             .padding(.top, 2)
             .padding(.trailing, 2)
-        }
-        .onHover { hovering in
-            isHovering = hovering
+            .accessibilityLabel(Text(String(localized: "insights.copy_event")))
         }
     }
 }
