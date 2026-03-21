@@ -206,12 +206,24 @@ struct HUDView: View {
         if let bundleID = requestedAppBundleID(for: state.contextIcon),
            let icon = appIcon(for: bundleID) {
             return AnyView(
-                Image(nsImage: icon)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 16, height: 16)
-                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                    .shadow(radius: 1)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(0.10))
+                        .frame(width: 20, height: 20)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        .frame(width: 20, height: 20)
+                    Image(nsImage: icon)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 14, height: 14)
+                        .saturation(0)
+                        .brightness(0.06)
+                        .contrast(1.05)
+                        .opacity(0.9)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                }
+                .shadow(radius: 1)
             )
         }
 

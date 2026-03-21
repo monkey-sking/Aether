@@ -388,6 +388,11 @@ final class SpeechManager: ObservableObject {
     private var sessionTargetBundleID: String?
     private var sessionTargetElementFingerprint: String?
     private var sessionTargetSource: FocusedInputSource?
+    private var specialInputModePID: pid_t?
+    private var specialInputModeBundleID: String?
+    private var specialInputModeWindowTitle: String?
+    private var specialInputModeAnchorPoint: CGPoint?
+    private var specialInputModeUntil: Date = .distantPast
     private var didLogSessionTargetMismatch: Bool = false
     private var typingRecoveryHoldUntil: Date = .distantPast
     private var typingRecoveryHoldReason: String?
@@ -1282,19 +1287,48 @@ final class SpeechManager: ObservableObject {
     }
 
     private func activeSpecialInputModeBundleID() -> String? {
-        let sessionBundle = sessionTargetBundleID
-        let frontmostBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        let candidateBundle = sessionBundle ?? frontmostBundle
-        guard isRecentClickFallbackTypingAppBundle(candidateBundle) else { return nil }
+        activeSpecialInputModeSnapshot()?.bundleID
+    }
 
-        if sessionTargetSource == .recentClickFallback {
-            return candidateBundle
+    private func armSpecialInputMode(from snapshot: FocusedInputSnapshot, hold: TimeInterval = 4.0) {
+        guard snapshot.source == .recentClickFallback,
+              isRecentClickFallbackTypingAppBundle(snapshot.bundleID) else { return }
+        specialInputModePID = snapshot.pid
+        specialInputModeBundleID = snapshot.bundleID
+        specialInputModeWindowTitle = snapshot.windowTitle
+        specialInputModeAnchorPoint = snapshot.anchorPoint
+        specialInputModeUntil = Date().addingTimeInterval(hold)
+    }
+
+    private func clearSpecialInputMode(reason: String) {
+        guard specialInputModeUntil != .distantPast || specialInputModeBundleID != nil else { return }
+        GlobalLogger.speech.info("[TypingMode] cleared special input mode reason=\(reason) bundle=\(specialInputModeBundleID ?? "nil")")
+        specialInputModePID = nil
+        specialInputModeBundleID = nil
+        specialInputModeWindowTitle = nil
+        specialInputModeAnchorPoint = nil
+        specialInputModeUntil = .distantPast
+    }
+
+    private func activeSpecialInputModeSnapshot() -> FocusedInputSnapshot? {
+        guard let bundleID = specialInputModeBundleID,
+              Date() < specialInputModeUntil else {
+            clearSpecialInputMode(reason: "expired")
+            return nil
         }
-        if let currentSnapshot = currentFocusedInputSnapshot(),
-           currentSnapshot.source == .recentClickFallback {
-            return currentSnapshot.bundleID ?? candidateBundle
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication,
+              frontmostApp.bundleIdentifier == bundleID else {
+            clearSpecialInputMode(reason: "frontmost-changed")
+            return nil
         }
-        return nil
+        return FocusedInputSnapshot(
+            pid: frontmostApp.processIdentifier,
+            bundleID: bundleID,
+            elementFingerprint: nil,
+            source: .recentClickFallback,
+            windowTitle: specialInputModeWindowTitle,
+            anchorPoint: specialInputModeAnchorPoint
+        )
     }
 
     private func syncHeadsetChangeAnnouncementBaseline() {
@@ -4199,7 +4233,13 @@ final class SpeechManager: ObservableObject {
               isRecentClickFallbackTypingAppBundle(frontmostApp.bundleIdentifier) else {
             return false
         }
-        let hasEvidence = recentClickTypingFallbackSnapshot() != nil
+        let hasEvidence: Bool
+        if let snapshot = recentClickTypingFallbackSnapshot() {
+            armSpecialInputMode(from: snapshot)
+            hasEvidence = true
+        } else {
+            hasEvidence = activeSpecialInputModeSnapshot() != nil
+        }
         if hasEvidence {
             GlobalLogger.speech.info(
                 "[TypingMode] recent-click fallback evidence bundle=\(frontmostApp.bundleIdentifier ?? "nil")"
@@ -4706,7 +4746,11 @@ final class SpeechManager: ObservableObject {
         if let snapshot = resolveCurrentFocusedInput()?.snapshot {
             return snapshot
         }
-        return recentClickTypingFallbackSnapshot()
+        if let snapshot = recentClickTypingFallbackSnapshot() {
+            armSpecialInputMode(from: snapshot)
+            return snapshot
+        }
+        return activeSpecialInputModeSnapshot()
     }
     private func currentFocusedInputVerificationSnapshot() -> InputVerificationSnapshot? {
         guard let resolved = resolveCurrentFocusedInput() else { return nil }
