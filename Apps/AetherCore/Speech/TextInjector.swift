@@ -7,17 +7,45 @@ protocol TextInjecting: AnyObject {
 }
 
 final class TextInjector: TextInjecting {
+    private struct PasteboardSnapshot {
+        let items: [[NSPasteboard.PasteboardType: Data]]
+
+        init?(pasteboard: NSPasteboard) {
+            guard let pasteboardItems = pasteboard.pasteboardItems else { return nil }
+            let captured = pasteboardItems.compactMap { item -> [NSPasteboard.PasteboardType: Data]? in
+                let pairs = item.types.compactMap { type -> (NSPasteboard.PasteboardType, Data)? in
+                    guard let data = item.data(forType: type) else { return nil }
+                    return (type, data)
+                }
+                guard !pairs.isEmpty else { return nil }
+                return Dictionary(uniqueKeysWithValues: pairs)
+            }
+            guard !captured.isEmpty else { return nil }
+            self.items = captured
+        }
+
+        func restore(to pasteboard: NSPasteboard) {
+            pasteboard.clearContents()
+            for capturedItem in items {
+                let item = NSPasteboardItem()
+                for (type, data) in capturedItem {
+                    item.setData(data, forType: type)
+                }
+                pasteboard.writeObjects([item])
+            }
+        }
+    }
+
     private(set) var lastInjectedAt: Date?
 
     func paste(_ text: String) {
         let pasteboard = NSPasteboard.general
-        let previousItems = pasteboard.pasteboardItems
+        let snapshot = PasteboardSnapshot(pasteboard: pasteboard)
         AutomationOutputs.shared.pasteText(text)
         lastInjectedAt = Date()
-        guard let previousItems else { return }
+        guard let snapshot else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            pasteboard.clearContents()
-            pasteboard.writeObjects(previousItems)
+            snapshot.restore(to: pasteboard)
         }
     }
 

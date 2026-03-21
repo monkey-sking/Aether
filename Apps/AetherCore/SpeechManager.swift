@@ -4527,6 +4527,7 @@ final class SpeechManager: ObservableObject {
     }
     private struct FrontmostWindowCandidate {
         let title: String?
+        let contentBounds: CGRect
     }
     private struct FocusProbeResult {
         let error: AXError
@@ -4608,18 +4609,49 @@ final class SpeechManager: ObservableObject {
             let boundsValue = boundsDict as! CFDictionary
             guard let bounds = CGRect(dictionaryRepresentation: boundsValue), !bounds.isEmpty else { continue }
 
-            let candidate = FrontmostWindowCandidate(
-                title: info[kCGWindowName as String] as? String
-            )
             var contentBounds = bounds.insetBy(dx: 10, dy: 10)
             if contentBounds.height > 36 {
                 contentBounds.size.height -= 32
             }
-            if contentBounds.contains(point) {
+            guard contentBounds.contains(point) else { continue }
+            let candidate = FrontmostWindowCandidate(
+                title: info[kCGWindowName as String] as? String,
+                contentBounds: contentBounds
+            )
+            if isAllowedRecentClickFallbackPoint(point, for: app, window: candidate) {
                 return candidate
             }
         }
         return nil
+    }
+
+    private func isAllowedRecentClickFallbackPoint(
+        _ point: CGPoint,
+        for app: NSRunningApplication,
+        window: FrontmostWindowCandidate
+    ) -> Bool {
+        guard let bundleID = app.bundleIdentifier else { return true }
+        guard bundleID.lowercased().contains("wechat") || bundleID.lowercased().contains("xinwechat") else {
+            return true
+        }
+
+        if let title = window.title?.lowercased() {
+            let blockedMarkers = [
+                "settings", "preferences", "moments", "channels", "contacts", "search",
+                "设置", "偏好设置", "朋友圈", "视频号", "通讯录", "搜索", "小程序", "收藏"
+            ]
+            if blockedMarkers.contains(where: title.contains) {
+                return false
+            }
+        }
+
+        let bounds = window.contentBounds
+        guard bounds.width >= 520, bounds.height >= 420 else { return false }
+
+        let rightPaneStartX = bounds.minX + min(max(bounds.width * 0.34, 300), bounds.width * 0.52)
+        let bottomBandStartY = bounds.minY + bounds.height * 0.62
+
+        return point.x >= rightPaneStartX && point.y >= bottomBandStartY
     }
 
     private func recentClickTypingFallbackSnapshot() -> FocusedInputSnapshot? {
@@ -4631,11 +4663,8 @@ final class SpeechManager: ObservableObject {
               !bundleIsSystemSearchLike(bundleID) else {
             return nil
         }
-        guard let anchor = HUDManager.shared.recentMouseDownAnchor(maxAge: 6.0) else { return nil }
+        guard let anchor = HUDManager.shared.recentMouseDownAnchor(maxAge: 3.0) else { return nil }
         guard anchor.bundleID == nil || anchor.bundleID == bundleID else { return nil }
-
-        let appProbe = focusedElementProbe(for: AXUIElementCreateApplication(frontmostApp.processIdentifier))
-        guard appProbe.error == .noValue || appProbe.error == .notImplemented else { return nil }
         guard let window = frontmostWindowContainingPoint(for: frontmostApp, point: anchor.point) else { return nil }
 
         return FocusedInputSnapshot(
