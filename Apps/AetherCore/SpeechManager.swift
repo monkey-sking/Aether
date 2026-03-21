@@ -1126,6 +1126,9 @@ final class SpeechManager: ObservableObject {
         if !availability.dictationEnabled && availability.commandEnabled {
             return .command
         }
+        if isSpecialInputModeActive(), availability.dictationEnabled {
+            return .dictation
+        }
         return recognitionControlMode
     }
 
@@ -1340,6 +1343,10 @@ final class SpeechManager: ObservableObject {
             windowTitle: specialInputModeWindowTitle,
             anchorPoint: specialInputModeAnchorPoint
         )
+    }
+
+    private func isSpecialInputModeActive() -> Bool {
+        activeSpecialInputModeSnapshot() != nil
     }
 
     private func syncHeadsetChangeAnnouncementBaseline() {
