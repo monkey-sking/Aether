@@ -12,8 +12,9 @@ DOWNLOAD_NAME="${APP_NAME}.dmg"
 SPARKLE_ACCOUNT="${SPARKLE_ACCOUNT:-aether}" # Ed25519 private key is stored in Keychain under this account.
 # Preserve latest + 2 older full packages by default (3 total).
 SPARKLE_MAX_VERSIONS="${SPARKLE_MAX_VERSIONS:-3}"
-# Default to no deltas; set >0 when you want delta updates.
-SPARKLE_MAX_DELTAS="${SPARKLE_MAX_DELTAS:-0}"
+# Generate deltas for the latest update from recent versions (smaller downloads).
+# Set to 0 to disable deltas.
+SPARKLE_MAX_DELTAS="${SPARKLE_MAX_DELTAS:-2}"
 WEBSITE_ROOT="${WEBSITE_ROOT:-${DEFAULT_WEBSITE_ROOT}}"
 APP_PATH="${APP_PATH:-${DEFAULT_APP_PATH}}"
 DMG_PATH="${DMG_PATH:-${DEFAULT_DMG_PATH}}"
