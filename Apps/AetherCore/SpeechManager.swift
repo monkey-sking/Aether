@@ -1132,9 +1132,6 @@ final class SpeechManager: ObservableObject {
         if !availability.dictationEnabled && availability.commandEnabled {
             return .command
         }
-        if isSpecialInputModeActive(), availability.dictationEnabled {
-            return .dictation
-        }
         return recognitionControlMode
     }
 
@@ -1291,6 +1288,10 @@ final class SpeechManager: ObservableObject {
     }
 
     private func specialInputModeHUDIcon() -> String? {
+        if isWeChatAppWideInputModeEnabled(),
+           let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
+            return "app-bundle:\(bundleID)"
+        }
         guard activeSpecialInputModeProfile() != nil,
               let bundleID = activeSpecialInputModeBundleID() else { return nil }
         return "app-bundle:\(bundleID)"
@@ -1305,8 +1306,16 @@ final class SpeechManager: ObservableObject {
         return specialInputModeProfile
     }
 
+    private func isWeChatAppWideInputModeEnabled() -> Bool {
+        guard recognitionControlMode == .auto,
+              let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+            return false
+        }
+        return isRecentClickFallbackTypingAppBundle(frontmostApp.bundleIdentifier)
+    }
+
     private func isWeChatSpecialModeActive() -> Bool {
-        activeSpecialInputModeProfile() == .weChatChat
+        isWeChatAppWideInputModeEnabled() || activeSpecialInputModeProfile() == .weChatChat
     }
 
     private func specialInputModeProfile(for snapshot: FocusedInputSnapshot) -> SpecialInputModeProfile? {
@@ -2860,6 +2869,18 @@ final class SpeechManager: ObservableObject {
         rearmInputTarget(reason: "frontmost-app-changed")
         refreshContinuousHUD(isDictating: false)
         ensureRecognitionSessionForVisibleHUD(reason: "frontmost-app-changed")
+
+        if isWeChatAppWideInputModeEnabled(),
+           Date().timeIntervalSince(lastFocusToastAt) > 6.0 {
+            lastFocusToastAt = Date()
+            HUDManager.shared.showTemporary(
+                message: activeLocale.identifier.hasPrefix("zh")
+                    ? "微信输入模式，说“命令 …”执行命令"
+                    : "WeChat input mode. Say “Command …” for commands",
+                recognitionControlMode: .auto,
+                duration: 1.8
+            )
+        }
     }
 
     private func shouldKeepWakeHUDArmed() -> Bool {
@@ -4832,6 +4853,17 @@ final class SpeechManager: ObservableObject {
         }
         if let snapshot = activeSpecialInputModeSnapshot() {
             return snapshot
+        }
+        if isWeChatAppWideInputModeEnabled(),
+           let frontmostApp = NSWorkspace.shared.frontmostApplication {
+            return FocusedInputSnapshot(
+                pid: frontmostApp.processIdentifier,
+                bundleID: frontmostApp.bundleIdentifier,
+                elementFingerprint: nil,
+                source: .recentClickFallback,
+                windowTitle: nil,
+                anchorPoint: nil
+            )
         }
         return nil
     }

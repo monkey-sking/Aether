@@ -850,8 +850,19 @@ final class HUDManager {
             }
         }
 
+        let axEvaluation = axTypingEvaluationThrottled(now: now)
+        let strongAXTypingEvidence = hasStrongAXTypingEvidence(
+            now: now,
+            frontBundle: frontBundle,
+            evaluation: axEvaluation
+        )
+
         if Date() < typingSuppressedUntil, !explicitTypingClickReentry {
-            return false
+            if strongAXTypingEvidence {
+                typingSuppressedUntil = .distantPast
+            } else {
+                return false
+            }
         }
 
         if !explicitTypingClickReentry,
@@ -867,6 +878,9 @@ final class HUDManager {
             } else if let lockedBundle = explicitTypingReentryBundleID,
                let frontBundle,
                lockedBundle != frontBundle {
+                requiresExplicitTypingReentry = false
+                explicitTypingReentryBundleID = nil
+            } else if strongAXTypingEvidence {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
             } else {
@@ -889,7 +903,6 @@ final class HUDManager {
             return true
         }
 
-        let axEvaluation = axTypingEvaluationThrottled(now: now)
         let axEditableLikely = axEvaluation.editableLikely
         if axEvaluation.insertionContextAvailable,
            (axEvaluation.hasEditableAttribute || axEvaluation.hasSettableValue || axEvaluation.hasEditableAncestor) {
@@ -942,6 +955,45 @@ final class HUDManager {
             explicitTypingReentryBundleID = nil
         }
         return axEditableLikely
+    }
+
+    private func hasStrongAXTypingEvidence(
+        now: Date,
+        frontBundle: String?,
+        evaluation axEvaluation: AXFocusedTypingEvaluation
+    ) -> Bool {
+        if axEvaluation.insertionContextAvailable,
+           (axEvaluation.hasEditableAttribute || axEvaluation.hasSettableValue || axEvaluation.hasEditableAncestor) {
+            return true
+        }
+
+        if axCaretRectThrottled() != nil,
+           axEvaluation.editableLikely || axEvaluation.insertionContextAvailable {
+            return true
+        }
+
+        if let r = axFocusedElementRectThrottled(),
+           !isProbablyWholeWindowRect(r) {
+            if axEvaluation.insertionContextAvailable,
+               (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+                return true
+            }
+            if axEvaluation.editableLikely {
+                if isTypingBoxSizedRect(r) {
+                    return true
+                }
+                if isWeirdWebTypingApp(bundleID: frontBundle), isWebInputSizedRect(r) {
+                    return true
+                }
+            }
+        }
+
+        if isWeirdWebTypingApp(bundleID: frontBundle),
+           axEvaluation.looselyEditableForWeb {
+            return true
+        }
+
+        return false
     }
 
     func currentAXTypingEvaluation() -> AXFocusedTypingEvaluation {
