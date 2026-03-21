@@ -1155,7 +1155,14 @@ final class SpeechManager: ObservableObject {
         if !availability.dictationEnabled && availability.commandEnabled {
             return .command
         }
-        return effectiveRecognitionControlMode(for: availability).hudMode
+        switch effectiveRecognitionControlMode(for: availability) {
+        case .dictation:
+            return .dictation
+        case .command:
+            return .command
+        case .auto:
+            return typingEligible ? .dictation : .auto
+        }
     }
 
     private var hudRecognitionControlMode: HUDRecognitionControlMode {
@@ -1929,14 +1936,17 @@ final class SpeechManager: ObservableObject {
             isUtteranceActive: isUtteranceActive
         )
         let hudState = HUDManager.shared.state
-        let nextTypingMode = Self.reconcileTypingContextWithVisibleHUD(
-            recognitionControlMode: controlMode,
-            computedTypingContext: computedTypingMode,
-            hasStreamedDictation: hasStreamedDictation,
-            hudRecognitionControlMode: hudState.recognitionControlMode,
-            hudTypingContext: hudState.isTypingContext,
-            isUtteranceActive: isUtteranceActive
-        )
+        let hasStrongTypingFallback = hasRecentClickTypingFallbackEvidence()
+        let nextTypingMode = hasStrongTypingFallback
+            ? computedTypingMode
+            : Self.reconcileTypingContextWithVisibleHUD(
+                recognitionControlMode: controlMode,
+                computedTypingContext: computedTypingMode,
+                hasStreamedDictation: hasStreamedDictation,
+                hudRecognitionControlMode: hudState.recognitionControlMode,
+                hudTypingContext: hudState.isTypingContext,
+                isUtteranceActive: isUtteranceActive
+            )
         let effectiveTypingMode = effectiveTypingContext(
             reconciledTypingContext: nextTypingMode,
             computedTypingContext: computedTypingMode,
@@ -2488,6 +2498,7 @@ final class SpeechManager: ObservableObject {
             isUtteranceActive: isUtteranceActive
         )
         let hudState = HUDManager.shared.state
+        let hasStrongTypingFallback = hasRecentClickTypingFallbackEvidence()
         var typingContext = Self.reconcileTypingContextWithVisibleHUD(
             recognitionControlMode: controlMode,
             computedTypingContext: computedTypingContext,
@@ -2496,6 +2507,9 @@ final class SpeechManager: ObservableObject {
             hudTypingContext: hudState.isTypingContext,
             isUtteranceActive: isUtteranceActive
         )
+        if hasStrongTypingFallback {
+            typingContext = computedTypingContext
+        }
         typingContext = effectiveTypingContext(
             reconciledTypingContext: typingContext,
             computedTypingContext: computedTypingContext,
