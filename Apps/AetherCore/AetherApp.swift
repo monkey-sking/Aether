@@ -6,6 +6,51 @@ import Carbon
 import UniformTypeIdentifiers
 import IOKit.hidsystem
 
+enum AetherBuildVersionFormatter {
+    static func fileLabel(from buildVersion: String) -> String {
+        let digits = buildVersion.filter(\.isNumber)
+        let characters = Array(digits)
+        switch characters.count {
+        case 14:
+            return "\(String(characters[4..<8]))-\(String(characters[8..<14]))"
+        case 12:
+            return "\(String(characters[2..<6]))-\(String(characters[6..<12]))"
+        default:
+            return buildVersion
+        }
+    }
+
+    static func displayLabel(from buildVersion: String) -> String {
+        let digits = buildVersion.filter(\.isNumber)
+        let characters = Array(digits)
+        switch characters.count {
+        case 14:
+            return "\(String(characters[4..<6]))-\(String(characters[6..<8])) \(String(characters[8..<10])):\(String(characters[10..<12])):\(String(characters[12..<14]))"
+        case 12:
+            return "\(String(characters[2..<4]))-\(String(characters[4..<6])) \(String(characters[6..<8])):\(String(characters[8..<10])):\(String(characters[10..<12]))"
+        default:
+            return buildVersion
+        }
+    }
+
+    static func versionDisplay(shortVersion: String?, buildVersion: String?, publicLabel: String? = nil) -> String? {
+        guard let shortVersion, !shortVersion.isEmpty else {
+            if let publicLabel, !publicLabel.isEmpty {
+                return publicLabel
+            }
+            guard let buildVersion, !buildVersion.isEmpty else { return nil }
+            return displayLabel(from: buildVersion)
+        }
+        if let publicLabel, !publicLabel.isEmpty {
+            return "\(shortVersion) (\(publicLabel))"
+        }
+        guard let buildVersion, !buildVersion.isEmpty else {
+            return shortVersion
+        }
+        return "\(shortVersion) (\(displayLabel(from: buildVersion)))"
+    }
+}
+
 final class HeadsetRouteState {
     static let shared = HeadsetRouteState()
     private init() {}
@@ -117,7 +162,7 @@ final class VoiceService: ObservableObject {
         }
     }
 
-    var onIntent: ((VoiceIntent, String?, String?) -> Void)? {
+    var onIntent: ((VoiceIntent, String?, String?, String?) -> Void)? {
         get { manager.onIntent }
         set { manager.onIntent = newValue }
     }
@@ -560,6 +605,7 @@ class AppState: ObservableObject {
         var kind: VoiceUsageEventKind
         var action: String
         var content: String?
+        var spokenText: String?
 
         init(
             id: String = UUID().uuidString,
@@ -568,7 +614,8 @@ class AppState: ObservableObject {
             bundleIdentifier: String,
             kind: VoiceUsageEventKind,
             action: String,
-            content: String? = nil
+            content: String? = nil,
+            spokenText: String? = nil
         ) {
             self.id = id
             self.timestamp = timestamp
@@ -577,6 +624,7 @@ class AppState: ObservableObject {
             self.kind = kind
             self.action = action
             self.content = content
+            self.spokenText = spokenText
         }
     }
 
@@ -647,8 +695,16 @@ class AppState: ObservableObject {
         Bundle.main.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String ?? "0"
     }
 
+    var appPublicVersionLabel: String? {
+        Bundle.main.object(forInfoDictionaryKey: "AetherPublicVersionLabel") as? String
+    }
+
     var appVersionDisplay: String {
-        String(format: String(localized: "app.version_fmt"), appShortVersion, appBuildVersion)
+        AetherBuildVersionFormatter.versionDisplay(
+            shortVersion: appShortVersion,
+            buildVersion: appBuildVersion,
+            publicLabel: appPublicVersionLabel
+        ) ?? appShortVersion
     }
 
     private static func defaultSpeechTermGroups() -> [SpeechTermGroupConfig] {
@@ -1407,6 +1463,10 @@ class AppState: ObservableObject {
         voiceUsageHistory = []
     }
 
+    func resetVoiceUsageStatistics() {
+        voiceUsageHistory = []
+    }
+
     private func isVoiceUsageSuccessfulDictation(_ entry: VoiceUsageEvent) -> Bool {
         guard entry.kind == .dictation else { return false }
         return entry.action == "输入" || entry.action == "Dictation"
@@ -2157,7 +2217,7 @@ class AppState: ObservableObject {
             .assign(to: &$nowPlayingStatus)
 
 
-        voiceService.onIntent = { [weak self] intent, appName, bundleIdentifier in
+        voiceService.onIntent = { [weak self] intent, appName, bundleIdentifier, spokenText in
             guard let self else { return }
             DispatchQueue.main.async {
                 guard self.isProductUnlocked else {
@@ -2165,7 +2225,7 @@ class AppState: ObservableObject {
                     return
                 }
                 guard !self.isIdlePaused else { return }
-                self.applyVoiceIntent(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+                self.applyVoiceIntent(intent, appName: appName, bundleIdentifier: bundleIdentifier, spokenText: spokenText)
             }
         }
         voiceService.isDictationExecutionEnabled = { [weak self] in
@@ -2517,44 +2577,48 @@ class AppState: ObservableObject {
     private func applyVoiceIntent(
         _ intent: VoiceIntent,
         appName: String? = nil,
-        bundleIdentifier: String? = nil
+        bundleIdentifier: String? = nil,
+        spokenText: String? = nil
     ) {
         guard !isIdlePaused else { return }
+        func recordControl(_ intent: VoiceIntent, appName: String? = appName, bundleIdentifier: String? = bundleIdentifier) {
+            recordVoiceControl(intent, spokenText: spokenText, appName: appName, bundleIdentifier: bundleIdentifier)
+        }
         GlobalLogger.lifecycle.info("[VoiceIntent] execute \(voiceIntentActionTitle(intent))")
         switch intent {
         case .clickLeft:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=clickLeft")
             motionService.clickLeft()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .clickRight:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=clickRight")
             motionService.clickRight()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .doubleClick:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=doubleClick")
             motionService.doubleClick()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .toggleInputControlMode:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleInputControlMode")
             toggleRecognitionInputControlMode()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .toggleTracking:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleTracking")
             toggleMotionTracking()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .toggleLanguage:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleLanguage")
             guard isVoiceControlEnabled else { return }
             NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .toggleShortcutPanel:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=toggleShortcutPanel")
             toggleShortcutPanel(activateApp: false, focusSearchField: false)
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .mediaPlayPause:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=mediaPlayPause")
             nowPlayingService.togglePlayPause()
-            recordVoiceControl(
+            recordControl(
                 intent,
                 appName: nowPlayingAppName.isEmpty ? nil : nowPlayingAppName,
                 bundleIdentifier: nowPlayingBundleIdentifier.isEmpty ? nil : nowPlayingBundleIdentifier
@@ -2562,7 +2626,7 @@ class AppState: ObservableObject {
         case .mediaPrevious:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=mediaPrevious")
             nowPlayingService.previousTrack()
-            recordVoiceControl(
+            recordControl(
                 intent,
                 appName: nowPlayingAppName.isEmpty ? nil : nowPlayingAppName,
                 bundleIdentifier: nowPlayingBundleIdentifier.isEmpty ? nil : nowPlayingBundleIdentifier
@@ -2570,7 +2634,7 @@ class AppState: ObservableObject {
         case .mediaNext:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=mediaNext")
             nowPlayingService.nextTrack()
-            recordVoiceControl(
+            recordControl(
                 intent,
                 appName: nowPlayingAppName.isEmpty ? nil : nowPlayingAppName,
                 bundleIdentifier: nowPlayingBundleIdentifier.isEmpty ? nil : nowPlayingBundleIdentifier
@@ -2578,28 +2642,28 @@ class AppState: ObservableObject {
         case .showShortcutPanel:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=showShortcutPanel")
             showShortcutPanel(activateApp: false, focusSearchField: false)
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .hideShortcutPanel:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=hideShortcutPanel")
             hideShortcutPanel()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .startPointer:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=startPointer")
             motionService.startTracking()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .stopPointer:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=stopPointer")
             motionService.stopTracking()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .recenter:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=recenter")
             motionService.recenter()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .frontmostAppCommand(let command):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=frontmostAppCommand title=\(command.title) shortcut=\(command.shortcut.displayString) pid=\(command.processIdentifier)")
             let targetPID: pid_t? = command.isGlobalRule ? nil : command.processIdentifier
             AutomationOutputs.shared.pressShortcut(command.shortcut, targetPID: targetPID)
-            recordVoiceControl(
+            recordControl(
                 intent,
                 appName: command.appName,
                 bundleIdentifier: command.bundleIdentifier
@@ -2607,44 +2671,44 @@ class AppState: ObservableObject {
         case .scroll(let dx, let dy):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=scroll dx=\(dx) dy=\(dy)")
             motionService.scroll(dx: dx, dy: dy)
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .scrollToWeb(let edge):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=scrollToWeb edge=\(edge)")
             if edge == "top" { motionService.scrollToTop() }
             else { motionService.scrollToBottom() }
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .dragStart:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=dragStart")
             motionService.dragStart()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .dragEnd:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=dragEnd")
             motionService.dragEnd()
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .undo:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=undo")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .paste:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=paste")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .clearInput:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=clearInput")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .deleteBackward(let count):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=deleteBackward count=\(count)")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .moveCursorHorizontally(let offset):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=moveCursorHorizontally offset=\(offset)")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .selectHorizontally(let offset):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=selectHorizontally offset=\(offset)")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
-            recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+            recordControl(intent)
         case .dictation(let text):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=dictation text=\(text)")
             if HUDManager.shared.state.recognitionControlMode == .command || !HUDManager.shared.state.isTypingContext {
@@ -2664,16 +2728,17 @@ class AppState: ObservableObject {
                 } else if !trimmed.isEmpty {
                     recordVoiceUnknownCommand(trimmed, appName: appName, bundleIdentifier: bundleIdentifier)
                 } else {
-                    recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+                    recordControl(intent)
                 }
             } else {
-                recordVoiceControl(intent, appName: appName, bundleIdentifier: bundleIdentifier)
+                recordControl(intent)
             }
         }
     }
 
     private func recordVoiceControl(
         _ intent: VoiceIntent,
+        spokenText: String? = nil,
         appName: String? = nil,
         bundleIdentifier: String? = nil
     ) {
@@ -2681,6 +2746,7 @@ class AppState: ObservableObject {
             kind: .control,
             action: voiceIntentActionTitle(intent),
             content: nil,
+            spokenText: spokenText,
             appName: appName,
             bundleIdentifier: bundleIdentifier
         )
@@ -2761,6 +2827,7 @@ class AppState: ObservableObject {
         kind: VoiceUsageEventKind,
         action: String,
         content: String?,
+        spokenText: String? = nil,
         appName: String?,
         bundleIdentifier: String?
     ) {
@@ -2771,7 +2838,8 @@ class AppState: ObservableObject {
             bundleIdentifier: context.bundleIdentifier,
             kind: kind,
             action: action,
-            content: normalizedVoiceUsageContent(content)
+            content: normalizedVoiceUsageContent(content),
+            spokenText: normalizedVoiceUsageContent(spokenText)
         )
         voiceUsageHistory.insert(entry, at: 0)
     }

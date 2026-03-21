@@ -582,7 +582,11 @@ final class AetherUpdaterManager: ObservableObject {
         do {
             let (data, _) = try await URLSession.shared.data(from: feedURL)
             let parsed = AppcastParser.parse(data: data)
-            latestVersion = parsed.shortVersion ?? parsed.buildVersion
+            latestVersion = AetherBuildVersionFormatter.versionDisplay(
+                shortVersion: parsed.shortVersion,
+                buildVersion: parsed.buildVersion,
+                publicLabel: parsed.publicLabel
+            )
 
             guard let remoteShort = parsed.shortVersion, !remoteShort.isEmpty else {
                 hasAvailableUpdate = false
@@ -634,19 +638,22 @@ private final class AppcastParser: NSObject, XMLParserDelegate {
     private var currentText = ""
     var shortVersion: String?
     var buildVersion: String?
+    var publicLabel: String?
 
-    static func parse(data: Data) -> (shortVersion: String?, buildVersion: String?) {
+    static func parse(data: Data) -> (shortVersion: String?, buildVersion: String?, publicLabel: String?) {
         let delegate = AppcastParser()
         let parser = XMLParser(data: data)
         parser.delegate = delegate
         parser.parse()
-        return (delegate.shortVersion, delegate.buildVersion)
+        return (delegate.shortVersion, delegate.buildVersion, delegate.publicLabel)
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String : String] = [:]) {
         currentText = ""
         if elementName == "item" {
             seenItem = true
+        } else if seenItem, elementName == "enclosure", publicLabel == nil, let url = attributeDict["url"] {
+            publicLabel = Self.extractPublicLabel(from: url)
         }
     }
 
@@ -663,6 +670,16 @@ private final class AppcastParser: NSObject, XMLParserDelegate {
         } else if elementName == "sparkle:version", buildVersion == nil {
             buildVersion = value
         }
+    }
+
+    private static func extractPublicLabel(from url: String) -> String? {
+        let fileName = URL(string: url)?.lastPathComponent ?? (url as NSString).lastPathComponent
+        guard fileName.hasSuffix(".zip") else { return nil }
+        let stem = String(fileName.dropLast(4))
+        guard let candidate = stem.split(separator: "_").last else { return nil }
+        let label = String(candidate)
+        guard label.first == "b", label.dropFirst().allSatisfy(\.isNumber) else { return nil }
+        return label
     }
 }
 

@@ -22,14 +22,45 @@ ZIP_PATH="${ZIP_PATH:-${DEFAULT_ZIP_PATH}}"
 CHANNEL=""
 SHORT_VERSION=""
 BUILD_VERSION=""
+PUBLIC_LABEL="${PUBLIC_LABEL:-}"
 
 log() { echo "[sparkle-publish] $*"; }
 err() { echo "[sparkle-publish] ERROR: $*" >&2; exit 1; }
 
+fallback_public_build_label() {
+  local raw="$1"
+  local digits="${raw//[^0-9]/}"
+  if [[ ${#digits} -eq 14 ]]; then
+    echo "${digits:4:4}-${digits:8:6}"
+    return
+  fi
+  if [[ ${#digits} -eq 12 ]]; then
+    echo "${digits:2:4}-${digits:6:6}"
+    return
+  fi
+  echo "$raw"
+}
+
+next_public_build_label() {
+  if [[ -n "$PUBLIC_LABEL" ]]; then
+    echo "$PUBLIC_LABEL"
+    return
+  fi
+
+  if [[ "$CHANNEL" == "beta" && -d "${WEBSITE_ROOT}/.git" ]]; then
+    local published_count
+    published_count="$(git -C "$WEBSITE_ROOT" log --oneline --grep='^chore(beta): publish ' | wc -l | tr -d ' ')"
+    echo "b$((published_count + 1))"
+    return
+  fi
+
+  fallback_public_build_label "$BUILD_VERSION"
+}
+
 usage() {
   cat <<EOF
 Usage: $(basename "$0") --channel stable|beta [--app PATH] [--zip PATH] [--dmg PATH] [--website-root PATH]
-                         [--account NAME] [--short-version X.Y.Z] [--build-version N]
+                         [--account NAME] [--short-version X.Y.Z] [--build-version N] [--public-label LABEL]
 
 Copies update archives into the website repo and uses Sparkle's generate_appcast
 to update the matching appcast feed and generate delta updates.
@@ -58,6 +89,8 @@ while [[ $# -gt 0 ]]; do
       SHORT_VERSION="${2:-}"; shift 2 ;;
     --build-version)
       BUILD_VERSION="${2:-}"; shift 2 ;;
+    --public-label)
+      PUBLIC_LABEL="${2:-}"; shift 2 ;;
     -h|--help)
       usage
       exit 0
@@ -119,7 +152,8 @@ esac
 
 mkdir -p "$UPDATE_DIR"
 
-ZIP_NAME="${APP_NAME}_${SHORT_VERSION}_${BUILD_VERSION}.zip"
+PUBLIC_BUILD_LABEL="$(next_public_build_label)"
+ZIP_NAME="${APP_NAME}_${SHORT_VERSION}_${PUBLIC_BUILD_LABEL}.zip"
 ZIP_DEST_PATH="${UPDATE_DIR}/${ZIP_NAME}"
 
 log "Copying update ZIP to: ${ZIP_DEST_PATH}"
@@ -245,4 +279,4 @@ PY
 log "Done."
 log "ZIP: ${ZIP_DEST_PATH}"
 log "Appcast: ${UPDATE_DIR}/appcast.xml"
-log "Version: ${SHORT_VERSION} (${BUILD_VERSION})"
+log "Version: ${SHORT_VERSION} (${PUBLIC_BUILD_LABEL}; internal ${BUILD_VERSION})"

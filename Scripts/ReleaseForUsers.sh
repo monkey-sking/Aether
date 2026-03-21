@@ -17,6 +17,7 @@ UNIVERSAL_BUILD="${AETHER_UNIVERSAL:-1}"
 PUBLISH_SPARKLE="${PUBLISH_SPARKLE:-0}"
 SPARKLE_CHANNEL="${SPARKLE_CHANNEL:-stable}"
 WEBSITE_ROOT="${WEBSITE_ROOT:-${PROJECT_ROOT}/../Website}"
+PUBLIC_VERSION_LABEL="${PUBLIC_VERSION_LABEL:-}"
 
 APP_ENTITLEMENTS="${PROJECT_ROOT}/Apps/AetherCore/AetherCore.entitlements"
 APP_SIGN_ENTITLEMENTS="${BUILD_DIR}/app-sign.entitlements"
@@ -27,6 +28,22 @@ fi
 
 log() { echo "[release] $*"; }
 err() { echo "[release] ERROR: $*" >&2; exit 1; }
+
+compute_public_version_label() {
+  if [[ -n "$PUBLIC_VERSION_LABEL" ]]; then
+    echo "$PUBLIC_VERSION_LABEL"
+    return
+  fi
+
+  if [[ "$PUBLISH_SPARKLE" == "1" && "$SPARKLE_CHANNEL" == "beta" && -d "${WEBSITE_ROOT}/.git" ]]; then
+    local published_count
+    published_count="$(git -C "$WEBSITE_ROOT" log --oneline --grep='^chore(beta): publish ' | wc -l | tr -d ' ')"
+    echo "b$((published_count + 1))"
+    return
+  fi
+
+  echo ""
+}
 
 find_signing_identity() {
   if [[ -n "$SIGNING_IDENTITY" ]]; then
@@ -61,6 +78,17 @@ prepare_release_bundle() {
   rm -rf "${APP_PATH}/Contents/Library/SystemExtensions"
 
   cp "${APP_ENTITLEMENTS}" "${APP_SIGN_ENTITLEMENTS}"
+}
+
+stamp_public_version_label() {
+  local label="$1"
+  local plist="${APP_PATH}/Contents/Info.plist"
+
+  /usr/libexec/PlistBuddy -c "Delete :AetherPublicVersionLabel" "$plist" >/dev/null 2>&1 || true
+  if [[ -n "$label" ]]; then
+    /usr/libexec/PlistBuddy -c "Add :AetherPublicVersionLabel string $label" "$plist"
+    log "Stamped public version label: ${label}"
+  fi
 }
 
 sign_app_bundle() {
@@ -155,15 +183,18 @@ publish_sparkle_assets() {
     --app "$APP_PATH" \
     --zip "$ZIP_PATH" \
     --dmg "$DMG_PATH" \
+    --public-label "$PUBLIC_VERSION_LABEL" \
     --website-root "$WEBSITE_ROOT"
 }
 
 main() {
   cd "$PROJECT_ROOT"
   local identity
+  PUBLIC_VERSION_LABEL="$(compute_public_version_label)"
   identity="$(find_signing_identity)"
   build_unsigned
   prepare_release_bundle
+  stamp_public_version_label "$PUBLIC_VERSION_LABEL"
   sign_app_bundle "$identity"
   package_outputs
   sign_dmg "$identity"

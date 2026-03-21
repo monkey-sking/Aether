@@ -87,6 +87,7 @@ final class SpeechManager: ObservableObject {
         let targetPID: pid_t?; let targetBundleID: String?; let targetElementFingerprint: String?
         let targetSource: FocusedInputSource?
         let verificationSnapshot: InputVerificationSnapshot?
+        let spokenText: String?
         let routeReason: String
         let commandHUDPreviewMessage: String?
     }
@@ -98,6 +99,7 @@ final class SpeechManager: ObservableObject {
         let targetSource: FocusedInputSource?
         let verificationSnapshot: InputVerificationSnapshot?
         let diagnostics: String?
+        let spokenText: String?
         let routeReason: String
         let commandHUDPreviewMessage: String?
     }
@@ -245,7 +247,7 @@ final class SpeechManager: ObservableObject {
     private let injector = TextInjector()
 
     // MARK: - Internal State
-    var onIntent: ((VoiceIntent, String?, String?) -> Void)?
+    var onIntent: ((VoiceIntent, String?, String?, String?) -> Void)?
     var onRecognitionFailure: ((String?, String?, String?, String?) -> Void)?
     var isDictationExecutionEnabled: (() -> Bool)?
     var isCommandExecutionEnabled: (() -> Bool)?
@@ -1553,7 +1555,7 @@ final class SpeechManager: ObservableObject {
         recognitionSession.onPartial = { [weak self] text in self?.handlePartial(text) }
         recognitionSession.onFinal = { [weak self] text in self?.handleFinalResult(text) }
         recognitionSession.onError = { [weak self] error, isRecoverable in self?.handleRecognitionError(error, isRecoverable: isRecoverable) }
-        commandHandler.onIntent = { [weak self] intent in self?.onIntent?(intent, nil, nil) }
+        commandHandler.onIntent = { [weak self] intent in self?.onIntent?(intent, nil, nil, nil) }
 
         HeadMotionManager.shared.$isLookingAtScreen.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] isLooking in
             if isLooking && HeadMotionManager.shared.isTracking && self?.isGazeWakeEnabled == true {
@@ -2819,6 +2821,7 @@ final class SpeechManager: ObservableObject {
             typingContext: typingContext,
             utteranceID: resolvedUID,
             originSessionGeneration: sessionGeneration,
+            spokenText: rawTrimmed,
             routeReason: decision.reason,
             commandHUDPreviewMessage: commandHUDPreviewMessage
         )
@@ -2829,6 +2832,7 @@ final class SpeechManager: ObservableObject {
         typingContext: Bool,
         utteranceID: Int,
         originSessionGeneration: Int,
+        spokenText: String?,
         routeReason: String,
         commandHUDPreviewMessage: String?
     ) {
@@ -2846,7 +2850,7 @@ final class SpeechManager: ObservableObject {
                             originSessionGeneration: originSessionGeneration, utteranceID: utteranceID, sessionTypingMode: typingContext,
                             streamedTextSnapshot: dictationHandler.screenTypedText, screenTypedCount: dictationHandler.screenTypedText.count,
                             targetPID: pid, targetBundleID: bid, targetElementFingerprint: fp, targetSource: source, verificationSnapshot: verificationSnapshot,
-                            routeReason: routeReason, commandHUDPreviewMessage: commandHUDPreviewMessage)
+                            spokenText: spokenText, routeReason: routeReason, commandHUDPreviewMessage: commandHUDPreviewMessage)
         let targetBundleLog = bid ?? "nil"
         GlobalLogger.speech.info(
             "[IntentPipeline] enqueue utterance=\(utteranceID) session=\(originSessionGeneration) typing=\(typingContext) intent=\(intentSummary(intent)) targetPID=\(pid ?? 0) targetBundle=\(targetBundleLog) targetSource=\(source?.rawValue ?? "nil")"
@@ -2859,7 +2863,7 @@ final class SpeechManager: ObservableObject {
                                    streamedTextSnapshot: job.streamedTextSnapshot, screenTypedCount: job.screenTypedCount,
                                    targetPID: job.targetPID, targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
                                    targetSource: job.targetSource,
-                                   verificationSnapshot: job.verificationSnapshot, routeReason: job.routeReason,
+                                   verificationSnapshot: job.verificationSnapshot, spokenText: job.spokenText, routeReason: job.routeReason,
                                    commandHUDPreviewMessage: job.commandHUDPreviewMessage)
             Task.detached(priority: .userInitiated) { [weak self] in
                 guard let self else { return }
@@ -2960,7 +2964,7 @@ final class SpeechManager: ObservableObject {
                                     screenTypedCount: job.screenTypedCount, targetPID: job.targetPID,
                                     targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
                                     targetSource: job.targetSource,
-                                    verificationSnapshot: job.verificationSnapshot, diagnostics: "llm=ok",
+                                    verificationSnapshot: job.verificationSnapshot, diagnostics: "llm=ok", spokenText: job.spokenText,
                                     routeReason: job.routeReason, commandHUDPreviewMessage: job.commandHUDPreviewMessage)
             } catch { /* fallthrough */ }
         }
@@ -2970,7 +2974,7 @@ final class SpeechManager: ObservableObject {
                             screenTypedCount: job.screenTypedCount, targetPID: job.targetPID,
                             targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
                             targetSource: job.targetSource,
-                            verificationSnapshot: job.verificationSnapshot, diagnostics: nil,
+                            verificationSnapshot: job.verificationSnapshot, diagnostics: nil, spokenText: job.spokenText,
                             routeReason: job.routeReason, commandHUDPreviewMessage: job.commandHUDPreviewMessage)
     }
 
@@ -3026,12 +3030,12 @@ final class SpeechManager: ObservableObject {
         case .undo:
             injector.undoPasteIfRecent()
             status = NSLocalizedString("speech.undo", comment: "")
-            onIntent?(.undo, usageContext.appName, usageContext.bundleIdentifier)
+            onIntent?(.undo, usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
             clearHandledCommandPreview()
         case .paste:
             AutomationOutputs.shared.pasteFromClipboard()
             status = "Pasted (Cmd+V)"
-            onIntent?(.paste, usageContext.appName, usageContext.bundleIdentifier)
+            onIntent?(.paste, usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
             clearHandledCommandPreview()
         case .clearInput:
             let selectAll = HotkeyBinding(keyCode: kVK_ANSI_A, modifiers: CGEventFlags.maskCommand.rawValue)
@@ -3039,13 +3043,13 @@ final class SpeechManager: ObservableObject {
             AutomationOutputs.shared.pressShortcut(selectAll, targetPID: injectionPID)
             AutomationOutputs.shared.backspace(count: 1, targetPID: injectionPID)
             status = NSLocalizedString("speech.done", comment: "")
-            onIntent?(.clearInput, usageContext.appName, usageContext.bundleIdentifier)
+            onIntent?(.clearInput, usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
             clearHandledCommandPreview()
         case .deleteBackward(let count):
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
             AutomationOutputs.shared.backspace(count: count, targetPID: injectionPID)
             status = NSLocalizedString("speech.done", comment: "")
-            onIntent?(.deleteBackward(count), usageContext.appName, usageContext.bundleIdentifier)
+            onIntent?(.deleteBackward(count), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
             clearHandledCommandPreview()
         case .moveCursorHorizontally(let offset):
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
@@ -3057,7 +3061,7 @@ final class SpeechManager: ObservableObject {
                 AutomationOutputs.shared.pressShortcut(binding, targetPID: injectionPID)
             }
             status = NSLocalizedString("speech.done", comment: "")
-            onIntent?(.moveCursorHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier)
+            onIntent?(.moveCursorHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
             clearHandledCommandPreview()
         case .selectHorizontally(let offset):
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
@@ -3069,7 +3073,7 @@ final class SpeechManager: ObservableObject {
                 AutomationOutputs.shared.pressShortcut(binding, targetPID: injectionPID)
             }
             status = NSLocalizedString("speech.done", comment: "")
-            onIntent?(.selectHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier)
+            onIntent?(.selectHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
             clearHandledCommandPreview()
         case .dictation(let text):
             let finalText = trimRepeatedDictationOverlap(text, for: job)
@@ -3138,14 +3142,14 @@ final class SpeechManager: ObservableObject {
                 let verification = await self.verifyDictationInjection(finalText, for: job)
                 switch verification {
                 case .success:
-                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier)
+                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
                 case .mismatch:
                     self.onRecognitionFailure?(finalText, "post-injection-mismatch", usageContext.appName, usageContext.bundleIdentifier)
                 case .unverified:
                     GlobalLogger.speech.info(
                         "[TextPipeline] verification-unverified treating-as-success utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(job.targetBundleID ?? "nil")"
                     )
-                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier)
+                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
                 }
             }
             clearHandledCommandPreview()
@@ -3165,9 +3169,9 @@ final class SpeechManager: ObservableObject {
             if shouldSurfaceUnknownHUD {
                 showUnknownCommandHUD(transcript)
             }
-            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier)
+            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
         default:
-            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier)
+            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
             status = NSLocalizedString("speech.done", comment: "")
             clearHandledCommandPreview()
         }
@@ -4925,7 +4929,8 @@ final class SpeechManager: ObservableObject {
         var expectedValue = originalValue
         expectedValue.replaceSubrange(swiftRange, with: text)
 
-        var sawObservedChange = false
+        var sawCompatibleObservation = false
+        var sawContradictoryChange = false
         let retryDelays: [UInt64] = [
             180_000_000,
             280_000_000,
@@ -4942,6 +4947,7 @@ final class SpeechManager: ObservableObject {
                   let updatedValue = after.valueText else {
                 continue
             }
+            sawCompatibleObservation = true
 
             if updatedValue == expectedValue {
                 return .success
@@ -4959,11 +4965,19 @@ final class SpeechManager: ObservableObject {
             }
 
             if updatedValue != originalValue {
-                sawObservedChange = true
+                sawContradictoryChange = true
             }
         }
 
-        return sawObservedChange ? .unverified : .mismatch
+        if sawContradictoryChange {
+            return .mismatch
+        }
+
+        if sawCompatibleObservation {
+            return .unverified
+        }
+
+        return .unverified
     }
 
     private func likelyObservedCommittedDictation(

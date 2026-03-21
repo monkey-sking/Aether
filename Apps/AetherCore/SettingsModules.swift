@@ -2230,8 +2230,18 @@ private struct VoiceUsageInsightsCard: View {
                     .foregroundColor(.secondary)
                 } else {
                     let summary = appState.voiceUsageSummary
-                    Text(isChinese ? "全局概览" : "Overall Summary")
-                        .font(.subheadline.weight(.semibold))
+                    HStack(spacing: 10) {
+                        Text(isChinese ? "全局概览" : "Overall Summary")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Button(isChinese ? "重置统计" : "Reset Stats") {
+                            appState.resetVoiceUsageStatistics()
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.borderless)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
+                    }
                     LazyVGrid(columns: summaryColumns, alignment: .leading, spacing: 10) {
                         VoiceUsageSummaryBadge(
                             title: isChinese ? "总计" : "Total",
@@ -2379,7 +2389,18 @@ private struct VoiceUsageAppSummaryRow: View {
     let summary: AppState.VoiceUsageAppSummary
 
     private var bundleTail: String {
-        summary.bundleIdentifier
+        compactBundleIdentifier(summary.bundleIdentifier)
+    }
+
+    private func compactBundleIdentifier(_ bundleIdentifier: String) -> String {
+        let parts = bundleIdentifier.split(separator: ".")
+        if parts.count >= 2 {
+            return "…" + parts.suffix(2).joined(separator: ".")
+        }
+        if bundleIdentifier.count > 28 {
+            return String(bundleIdentifier.prefix(28)) + "…"
+        }
+        return bundleIdentifier
     }
 
     var body: some View {
@@ -2392,11 +2413,14 @@ private struct VoiceUsageAppSummaryRow: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
+                    .truncationMode(.middle)
             }
+            .layoutPriority(1)
             Spacer()
             Text("\(summary.dictationCount)/\(summary.dictationCharacterCount)/\(summary.failureCount)/\(summary.unrecognizedCount)/\(summary.controlCount)")
                 .font(.caption.monospacedDigit())
                 .foregroundColor(.secondary)
+                .fixedSize(horizontal: true, vertical: false)
             Text("\(summary.total)")
                 .font(.caption.weight(.semibold).monospacedDigit())
                 .padding(.horizontal, 8)
@@ -2445,6 +2469,17 @@ private struct VoiceUsageEventRow: View {
         return Self.dateTimeFormatter.string(from: event.timestamp)
     }
 
+    private var bundleText: String {
+        let parts = event.bundleIdentifier.split(separator: ".")
+        if parts.count >= 2 {
+            return "…" + parts.suffix(2).joined(separator: ".")
+        }
+        if event.bundleIdentifier.count > 28 {
+            return String(event.bundleIdentifier.prefix(28)) + "…"
+        }
+        return event.bundleIdentifier
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -2469,10 +2504,27 @@ private struct VoiceUsageEventRow: View {
                     .font(.caption2)
                     .foregroundColor(.secondary.opacity(0.85))
                     .lineLimit(1)
+                    .truncationMode(.middle)
             }
+            .layoutPriority(1)
+        }
+
+        HStack(spacing: 8) {
+                Text(bundleText)
+                    .font(.caption2)
+                    .foregroundColor(.secondary.opacity(0.85))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+        }
 
             if let content = event.content, !content.isEmpty {
                 Text(content)
+                    .font(.caption)
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+                    .padding(.top, 1)
+            } else if let spokenText = event.spokenText, !spokenText.isEmpty {
+                Text(isChinese ? "原词：\(spokenText)" : "Heard: \(spokenText)")
                     .font(.caption)
                     .foregroundColor(.primary)
                     .lineLimit(2)
