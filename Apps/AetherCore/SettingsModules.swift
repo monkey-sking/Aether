@@ -2150,7 +2150,7 @@ private struct CustomAppShortcutRuleEditorSheet: View {
 
 private struct VoiceUsageInsightsCard: View {
     @EnvironmentObject var appState: AppState
-    @State private var isPerAppSummaryExpanded: Bool = true
+    @State private var isPerAppSummaryExpanded: Bool = false
     @State private var isRecentActivityExpanded: Bool = true
 
     private var isChinese: Bool {
@@ -2168,7 +2168,11 @@ private struct VoiceUsageInsightsCard: View {
     }
 
     private var topApps: [AppState.VoiceUsageAppSummary] {
-        Array(appState.voiceUsageAppSummaries.prefix(8))
+        Array(appState.voiceUsageAppSummaries.prefix(5))
+    }
+
+    private var remainingAppCount: Int {
+        max(appState.voiceUsageAppSummaries.count - topApps.count, 0)
     }
 
     var body: some View {
@@ -2287,6 +2291,15 @@ private struct VoiceUsageInsightsCard: View {
                                         ForEach(topApps) { item in
                                             VoiceUsageAppSummaryRow(summary: item)
                                         }
+                                    }
+                                    if remainingAppCount > 0 {
+                                        Text(
+                                            isChinese
+                                                ? "其余 \(remainingAppCount) 个 App 已折叠。"
+                                                : "\(remainingAppCount) more apps are hidden."
+                                        )
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
                                     }
                                 }
                                 .padding(.top, 6)
@@ -2500,22 +2513,19 @@ private struct VoiceUsageEventRow: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
-                Text(event.bundleIdentifier)
-                    .font(.caption2)
-                    .foregroundColor(.secondary.opacity(0.85))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                Spacer(minLength: 0)
             }
             .layoutPriority(1)
-        }
 
-        HStack(spacing: 8) {
+            HStack(spacing: 8) {
                 Text(bundleText)
                     .font(.caption2)
                     .foregroundColor(.secondary.opacity(0.85))
                     .lineLimit(1)
+                    .truncationMode(.middle)
                 Spacer(minLength: 0)
-        }
+            }
+            .layoutPriority(1)
 
             if let content = event.content, !content.isEmpty {
                 Text(content)
