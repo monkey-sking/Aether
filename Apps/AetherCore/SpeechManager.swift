@@ -3943,6 +3943,9 @@ final class SpeechManager: ObservableObject {
 
         let frontmostApp = NSWorkspace.shared.frontmostApplication
         let liveTypingEvidence = liveTypingHUDEvidence()
+        if hasRecentClickTypingFallbackEvidence() {
+            return true
+        }
         if !isSystemSearchLikeApplication(frontmostApp),
            !sessionTypingMode,
            !isTypingRecoveryHoldActive,
@@ -3979,6 +3982,9 @@ final class SpeechManager: ObservableObject {
         if isSystemSearchLikeApplication(frontmostApp), HUDManager.shared.lastKnownTypingState() {
             return true
         }
+        if hasRecentClickTypingFallbackEvidence() {
+            return true
+        }
         if HUDManager.shared.hasRecentExplicitTypingClickReentry() {
             return true
         }
@@ -3990,6 +3996,9 @@ final class SpeechManager: ObservableObject {
     }
 
     private func focusedTypingHUDEvidence() -> Bool {
+        if hasRecentClickTypingFallbackEvidence() {
+            return true
+        }
         if HUDManager.shared.hasRecentExplicitTypingClickReentry() {
             return true
         }
@@ -4151,6 +4160,20 @@ final class SpeechManager: ObservableObject {
     ) -> Bool {
         let availability = availability ?? currentVoiceFeatureAvailability()
         return availability.commandEnabled || !availability.dictationEnabled
+    }
+
+    private func hasRecentClickTypingFallbackEvidence() -> Bool {
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication,
+              isWeirdTypingAppBundle(frontmostApp.bundleIdentifier) else {
+            return false
+        }
+        let hasEvidence = recentClickTypingFallbackSnapshot() != nil
+        if hasEvidence {
+            GlobalLogger.speech.info(
+                "[TypingMode] recent-click fallback evidence bundle=\(frontmostApp.bundleIdentifier ?? "nil")"
+            )
+        }
+        return hasEvidence
     }
 
     private func beginTypingRecoveryHold(reason: String) {
@@ -4594,7 +4617,7 @@ final class SpeechManager: ObservableObject {
               !bundleIsSystemSearchLike(bundleID) else {
             return nil
         }
-        guard let anchor = HUDManager.shared.recentMouseDownAnchor(maxAge: 3.0) else { return nil }
+        guard let anchor = HUDManager.shared.recentMouseDownAnchor(maxAge: 6.0) else { return nil }
         guard anchor.bundleID == nil || anchor.bundleID == bundleID else { return nil }
 
         let appProbe = focusedElementProbe(for: AXUIElementCreateApplication(frontmostApp.processIdentifier))
