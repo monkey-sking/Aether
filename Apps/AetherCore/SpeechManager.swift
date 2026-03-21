@@ -2030,12 +2030,15 @@ final class SpeechManager: ObservableObject {
             isUtteranceActive: isUtteranceActive
         )
         let hudState = HUDManager.shared.state
+        let hasAuthoritativeTypingEvidence = hasAuthoritativeTypingEvidence()
         let hasStrongTypingFallback = hasStrongTypingFallbackEvidence(
             lockedFocusedSnapshot: lockedFocusedSnapshot,
             lockedTargetMatches: lockedTargetMatches,
             computedTypingContext: computedTypingMode,
             hudRecognitionControlMode: hudState.recognitionControlMode,
-            hudTypingContext: hudState.isTypingContext
+            hudTypingContext: hudState.isTypingContext,
+            hasAuthoritativeTypingEvidence: hasAuthoritativeTypingEvidence,
+            hasStreamedDictation: hasStreamedDictation
         )
         let nextTypingMode = hasStrongTypingFallback
             ? computedTypingMode
@@ -2600,12 +2603,15 @@ final class SpeechManager: ObservableObject {
             isUtteranceActive: isUtteranceActive
         )
         let hudState = HUDManager.shared.state
+        let hasAuthoritativeTypingEvidence = hasAuthoritativeTypingEvidence()
         let hasStrongTypingFallback = hasStrongTypingFallbackEvidence(
             lockedFocusedSnapshot: lockedFocusedSnapshot,
             lockedTargetMatches: lockedTargetMatches,
             computedTypingContext: computedTypingContext,
             hudRecognitionControlMode: hudState.recognitionControlMode,
-            hudTypingContext: hudState.isTypingContext
+            hudTypingContext: hudState.isTypingContext,
+            hasAuthoritativeTypingEvidence: hasAuthoritativeTypingEvidence,
+            hasStreamedDictation: hasStreamedDictation
         )
         var typingContext = Self.reconcileTypingContextWithVisibleHUD(
             recognitionControlMode: controlMode,
@@ -4338,17 +4344,17 @@ final class SpeechManager: ObservableObject {
         lockedTargetMatches: Bool,
         computedTypingContext: Bool,
         hudRecognitionControlMode: HUDRecognitionControlMode,
-        hudTypingContext: Bool
+        hudTypingContext: Bool,
+        hasAuthoritativeTypingEvidence: Bool,
+        hasStreamedDictation: Bool
     ) -> Bool {
-        if hasRecentClickTypingFallbackEvidence() {
-            return true
-        }
         guard recognitionControlMode == .auto, computedTypingContext else {
             return false
         }
-        // Never override an explicitly visible "control semantics" HUD state. When the HUD is in command
-        // mode (or auto-but-not-typing), we should not preserve typing purely because we have a locked
-        // target; that would cause commands like "关闭标签" to be routed as dictation.
+        if hasAuthoritativeTypingEvidence || hasStreamedDictation {
+            return true
+        }
+        // Only the weakest typing evidence (a stale locked target) should yield to visible HUD control semantics.
         if hudRecognitionControlMode == .command { return false }
         if hudRecognitionControlMode == .auto, !hudTypingContext { return false }
         guard lockedTargetMatches else {
@@ -4358,6 +4364,22 @@ final class SpeechManager: ObservableObject {
             "[TypingMode] preserving typing context from locked input target pid=\(lockedFocusedSnapshot?.pid ?? 0) bundle=\(lockedFocusedSnapshot?.bundleID ?? "nil")"
         )
         return true
+    }
+
+    private func hasAuthoritativeTypingEvidence() -> Bool {
+        if isWeChatSpecialModeActive() {
+            return true
+        }
+        if hasRecentClickTypingFallbackEvidence() {
+            return true
+        }
+        if HUDManager.shared.hasRecentExplicitTypingClickReentry() {
+            return true
+        }
+        let axEvaluation = HUDManager.shared.currentAXTypingEvaluation()
+        return axEvaluation.insertionContextAvailable
+            || axEvaluation.editableLikely
+            || axEvaluation.looselyEditableForWeb
     }
 
     private func beginTypingRecoveryHold(reason: String) {
