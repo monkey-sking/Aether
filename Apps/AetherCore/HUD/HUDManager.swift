@@ -40,6 +40,12 @@ struct AXFocusedTypingEvaluation {
     )
 }
 
+struct RecentMouseDownAnchor {
+    let point: CGPoint
+    let timestamp: Date
+    let bundleID: String?
+}
+
 private final class CaretDebugDotView: NSView {
     static let dotSize: CGFloat = 8
 
@@ -338,6 +344,7 @@ final class HUDManager {
     private var lastInputInteractionAt: Date = .distantPast
     private var lastMouseDownPoint: CGPoint?
     private var lastMouseDownAt: Date = .distantPast
+    private var lastMouseDownBundleID: String?
     private var typingSuppressedUntil: Date = .distantPast
     private var requiresExplicitTypingReentry: Bool = false
     private var explicitTypingReentryBundleID: String?
@@ -751,6 +758,7 @@ final class HUDManager {
 
         lastMouseDownPoint = point
         lastMouseDownAt = Date()
+        lastMouseDownBundleID = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
 
         let activeInputRect: CGRect? = {
             if let r = detector.currentUpdate.inputRect, !isProbablyWholeWindowRect(r), (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
@@ -792,6 +800,19 @@ final class HUDManager {
             self.requestReposition(immediate: true)
             HeadMotionManager.shared.refreshTransientRecognitionControlModeIfNeeded(source: "mouse-noninput")
         }
+    }
+
+    func recentMouseDownAnchor(maxAge: TimeInterval = 1.8) -> RecentMouseDownAnchor? {
+        if !Thread.isMainThread {
+            return DispatchQueue.main.sync {
+                recentMouseDownAnchor(maxAge: maxAge)
+            }
+        }
+
+        guard let point = lastMouseDownPoint else { return nil }
+        let now = Date()
+        guard now.timeIntervalSince(lastMouseDownAt) <= maxAge else { return nil }
+        return RecentMouseDownAnchor(point: point, timestamp: lastMouseDownAt, bundleID: lastMouseDownBundleID)
     }
 
     // Replacement for HotkeyFeedbackHUD.typingContextSnapshot()

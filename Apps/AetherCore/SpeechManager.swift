@@ -85,6 +85,7 @@ final class SpeechManager: ObservableObject {
         let llmEnhancementEnabled: Bool; let originSessionGeneration: Int; let utteranceID: Int
         let sessionTypingMode: Bool; let streamedTextSnapshot: String; let screenTypedCount: Int
         let targetPID: pid_t?; let targetBundleID: String?; let targetElementFingerprint: String?
+        let targetSource: FocusedInputSource?
         let verificationSnapshot: InputVerificationSnapshot?
         let routeReason: String
         let commandHUDPreviewMessage: String?
@@ -94,6 +95,7 @@ final class SpeechManager: ObservableObject {
         let originSessionGeneration: Int; let utteranceID: Int
         let sessionTypingMode: Bool; let streamedTextSnapshot: String; let screenTypedCount: Int
         let targetPID: pid_t?; let targetBundleID: String?; let targetElementFingerprint: String?
+        let targetSource: FocusedInputSource?
         let verificationSnapshot: InputVerificationSnapshot?
         let diagnostics: String?
         let routeReason: String
@@ -106,6 +108,10 @@ final class SpeechManager: ObservableObject {
         let valueText: String?
         let selectedRangeLocation: Int?
         let selectedRangeLength: Int?
+    }
+    private enum FocusedInputSource: String, Sendable {
+        case accessibility
+        case recentClickFallback
     }
     private enum DictationVerificationResult {
         case success
@@ -381,6 +387,7 @@ final class SpeechManager: ObservableObject {
     private var sessionTargetPID: pid_t?
     private var sessionTargetBundleID: String?
     private var sessionTargetElementFingerprint: String?
+    private var sessionTargetSource: FocusedInputSource?
     private var didLogSessionTargetMismatch: Bool = false
     private var typingRecoveryHoldUntil: Date = .distantPast
     private var typingRecoveryHoldReason: String?
@@ -1987,6 +1994,10 @@ final class SpeechManager: ObservableObject {
                 || partialHasExplicitCommandPrefix(text)
                 || partialMayBecomeExplicitCommandPrefix(text)) {
                 commandHandler.onPartial(text)
+            } else if shouldUsePasteFallbackForCurrentTypingTarget() {
+                GlobalLogger.speech.info(
+                    "[TextPipeline] skip partial streaming for paste fallback target bundle=\(sessionTargetBundleID ?? "nil")"
+                )
             } else {
                 dictationHandler.onPartial(text)
             }
@@ -2285,7 +2296,8 @@ final class SpeechManager: ObservableObject {
         activeUtteranceID = 0
         if !isTypingRecoveryHoldActive {
             sessionTargetPID = nil; sessionTargetBundleID = nil
-            sessionTargetElementFingerprint = nil; didLogSessionTargetMismatch = false
+            sessionTargetElementFingerprint = nil; sessionTargetSource = nil
+            didLogSessionTargetMismatch = false
         }
         isUtteranceActive = false
         dictationHandler.reset(targetPID: nil)
@@ -2298,7 +2310,8 @@ final class SpeechManager: ObservableObject {
         activeUtteranceID = 0
         if !isTypingRecoveryHoldActive {
             sessionTargetPID = nil; sessionTargetBundleID = nil
-            sessionTargetElementFingerprint = nil; didLogSessionTargetMismatch = false
+            sessionTargetElementFingerprint = nil; sessionTargetSource = nil
+            didLogSessionTargetMismatch = false
         }
         isUtteranceActive = false; lastTranscript = ""; lastChangeAt = nil; lastStableText = ""
         dictationHandler.reset(targetPID: nil)
@@ -2689,6 +2702,7 @@ final class SpeechManager: ObservableObject {
         let resolvedPID = typingTarget?.pid
         let bid = typingTarget?.bundleID
         let fp = typingTarget?.elementFingerprint
+        let source = typingTarget?.source
         let pid = typingContext
             ? preferredTypingInjectionTargetPID(resolvedPID, bundleID: bid)
             : normalizedInjectionTargetPID(resolvedPID, bundleID: bid)
@@ -2696,11 +2710,11 @@ final class SpeechManager: ObservableObject {
         let job = IntentJob(seq: -1, intent: intent, localeIdentifier: localeID, llmEnhancementEnabled: isLLMEnhancementEnabled,
                             originSessionGeneration: originSessionGeneration, utteranceID: utteranceID, sessionTypingMode: typingContext,
                             streamedTextSnapshot: dictationHandler.screenTypedText, screenTypedCount: dictationHandler.screenTypedText.count,
-                            targetPID: pid, targetBundleID: bid, targetElementFingerprint: fp, verificationSnapshot: verificationSnapshot,
+                            targetPID: pid, targetBundleID: bid, targetElementFingerprint: fp, targetSource: source, verificationSnapshot: verificationSnapshot,
                             routeReason: routeReason, commandHUDPreviewMessage: commandHUDPreviewMessage)
         let targetBundleLog = bid ?? "nil"
         GlobalLogger.speech.info(
-            "[IntentPipeline] enqueue utterance=\(utteranceID) session=\(originSessionGeneration) typing=\(typingContext) intent=\(intentSummary(intent)) targetPID=\(pid ?? 0) targetBundle=\(targetBundleLog)"
+            "[IntentPipeline] enqueue utterance=\(utteranceID) session=\(originSessionGeneration) typing=\(typingContext) intent=\(intentSummary(intent)) targetPID=\(pid ?? 0) targetBundle=\(targetBundleLog) targetSource=\(source?.rawValue ?? "nil")"
         )
         Task { [weak self] in
             guard let self else { return }
@@ -2709,6 +2723,7 @@ final class SpeechManager: ObservableObject {
                                    originSessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID, sessionTypingMode: job.sessionTypingMode,
                                    streamedTextSnapshot: job.streamedTextSnapshot, screenTypedCount: job.screenTypedCount,
                                    targetPID: job.targetPID, targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
+                                   targetSource: job.targetSource,
                                    verificationSnapshot: job.verificationSnapshot, routeReason: job.routeReason,
                                    commandHUDPreviewMessage: job.commandHUDPreviewMessage)
             Task.detached(priority: .userInitiated) { [weak self] in
@@ -2777,7 +2792,10 @@ final class SpeechManager: ObservableObject {
             return FocusedInputSnapshot(
                 pid: sessionTargetPID ?? 0,
                 bundleID: sessionTargetBundleID,
-                elementFingerprint: sessionTargetElementFingerprint
+                elementFingerprint: sessionTargetElementFingerprint,
+                source: sessionTargetSource ?? .accessibility,
+                windowTitle: nil,
+                anchorPoint: nil
             )
         }
 
@@ -2794,6 +2812,7 @@ final class SpeechManager: ObservableObject {
                                     sessionTypingMode: job.sessionTypingMode, streamedTextSnapshot: job.streamedTextSnapshot,
                                     screenTypedCount: job.screenTypedCount, targetPID: job.targetPID,
                                     targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
+                                    targetSource: job.targetSource,
                                     verificationSnapshot: job.verificationSnapshot, diagnostics: "llm=ok",
                                     routeReason: job.routeReason, commandHUDPreviewMessage: job.commandHUDPreviewMessage)
             } catch { /* fallthrough */ }
@@ -2803,6 +2822,7 @@ final class SpeechManager: ObservableObject {
                             sessionTypingMode: job.sessionTypingMode, streamedTextSnapshot: job.streamedTextSnapshot,
                             screenTypedCount: job.screenTypedCount, targetPID: job.targetPID,
                             targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
+                            targetSource: job.targetSource,
                             verificationSnapshot: job.verificationSnapshot, diagnostics: nil,
                             routeReason: job.routeReason, commandHUDPreviewMessage: job.commandHUDPreviewMessage)
     }
@@ -2812,7 +2832,7 @@ final class SpeechManager: ObservableObject {
         let diagnosticsLog = job.diagnostics ?? "nil"
         let usageContext = resolvedUsageAppContext(for: job)
         GlobalLogger.speech.info(
-            "[IntentPipeline] apply seq=\(job.seq) utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) intent=\(intentSummary(job.intent)) diagnostics=\(diagnosticsLog)"
+            "[IntentPipeline] apply seq=\(job.seq) utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) intent=\(intentSummary(job.intent)) targetSource=\(job.targetSource?.rawValue ?? "nil") diagnostics=\(diagnosticsLog)"
         )
         if let commandHUDPreviewMessage = job.commandHUDPreviewMessage,
            !commandHUDPreviewMessage.isEmpty {
@@ -2926,7 +2946,13 @@ final class SpeechManager: ObservableObject {
             }
             let hasStreamed = job.screenTypedCount > 0 || !job.streamedTextSnapshot.isEmpty
             let targetBundleLog = job.targetBundleID ?? "nil"
-            if job.sessionTypingMode || hasStreamed {
+            if shouldUsePasteFallback(for: job) {
+                GlobalLogger.speech.info(
+                    "[TextPipeline] paste-fallback utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) textCount=\(finalText.count)"
+                )
+                injector.paste(finalText)
+                status = NSLocalizedString("speech.pasted_cmdv", comment: "")
+            } else if job.sessionTypingMode || hasStreamed {
                 // Use DictationHandler's diff-based correction instead of old TypingFinalizationPlanner
                 // The handler already applied corrections during streaming; final sync is done here
                 if finalText == job.streamedTextSnapshot {
@@ -3059,6 +3085,14 @@ final class SpeechManager: ObservableObject {
             recognitionControlMode: .command,
             icon: "keyboard.badge.exclamationmark",
         )
+    }
+
+    private func shouldUsePasteFallbackForCurrentTypingTarget() -> Bool {
+        currentFocusedInputSnapshot()?.source == .recentClickFallback
+    }
+
+    private func shouldUsePasteFallback(for job: ProcessedJob) -> Bool {
+        job.targetSource == .recentClickFallback
     }
 
     private func showUnknownCommandHUD(_ transcript: String) {
@@ -4159,7 +4193,14 @@ final class SpeechManager: ObservableObject {
     }
 
     // MARK: - Focus Snapshots
-    private struct FocusedInputSnapshot { let pid: pid_t; let bundleID: String?; let elementFingerprint: String? }
+    private struct FocusedInputSnapshot {
+        let pid: pid_t
+        let bundleID: String?
+        let elementFingerprint: String?
+        let source: FocusedInputSource
+        let windowTitle: String?
+        let anchorPoint: CGPoint?
+    }
 
     private func axStringAttribute(_ el: AXUIElement, _ attr: CFString) -> String? {
         var v: CFTypeRef?; guard AXUIElementCopyAttributeValue(el, attr, &v) == .success, let r = v as? String else { return nil }
@@ -4260,9 +4301,18 @@ final class SpeechManager: ObservableObject {
         lines.append("speech.sessionTargetPID=\(sessionTargetPID.map(String.init) ?? "nil")")
         lines.append("speech.sessionTargetBundleID=\(sessionTargetBundleID ?? "nil")")
         lines.append("speech.sessionTargetFingerprint=\(sessionTargetElementFingerprint ?? "nil")")
+        lines.append("speech.sessionTargetSource=\(sessionTargetSource?.rawValue ?? "nil")")
         lines.append("speech.currentFocusedInputSnapshot.pid=\(snapshot.map { String($0.pid) } ?? "nil")")
         lines.append("speech.currentFocusedInputSnapshot.bundleID=\(snapshot?.bundleID ?? "nil")")
         lines.append("speech.currentFocusedInputSnapshot.fingerprint=\(snapshot?.elementFingerprint ?? "nil")")
+        lines.append("speech.currentFocusedInputSnapshot.source=\(snapshot?.source.rawValue ?? "nil")")
+        lines.append("speech.currentFocusedInputSnapshot.windowTitle=\(snapshot?.windowTitle ?? "nil")")
+        let anchorPointSummary = snapshot.flatMap { snap in
+            snap.anchorPoint.map { point in
+                "{x=\(Int(point.x.rounded())), y=\(Int(point.y.rounded()))}"
+            }
+        } ?? "nil"
+        lines.append("speech.currentFocusedInputSnapshot.anchorPoint=\(anchorPointSummary)")
         lines.append("hud.lastKnownTypingState=\(hudTypingState)")
         lines.append("hud.ax.role=\(hudEvaluation.role)")
         lines.append("hud.ax.editableLikely=\(hudEvaluation.editableLikely)")
@@ -4438,14 +4488,31 @@ final class SpeechManager: ObservableObject {
         }
         return [role, sub, id, title, ph, wt, pos, size].joined(separator: "|")
     }
+    private struct FrontmostWindowCandidate {
+        let title: String?
+    }
+    private struct FocusProbeResult {
+        let error: AXError
+        let element: AXUIElement?
+    }
     private struct ResolvedFocusedInput {
         let element: AXUIElement
         let snapshot: FocusedInputSnapshot
     }
-    private func resolveCurrentFocusedInput() -> ResolvedFocusedInput? {
-        let sw = AXUIElementCreateSystemWide(); var fe: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(sw, kAXFocusedUIElementAttribute as CFString, &fe) == .success, let r = fe, CFGetTypeID(r) == AXUIElementGetTypeID() else { return nil }
-        var el = r as! AXUIElement
+
+    private func focusedElementProbe(for element: AXUIElement) -> FocusProbeResult {
+        var focusedRef: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXFocusedUIElementAttribute as CFString, &focusedRef)
+        guard result == .success,
+              let focusedRef,
+              CFGetTypeID(focusedRef) == AXUIElementGetTypeID() else {
+            return FocusProbeResult(error: result, element: nil)
+        }
+        return FocusProbeResult(error: result, element: focusedRef as! AXUIElement)
+    }
+
+    private func resolveFocusedInput(from element: AXUIElement) -> ResolvedFocusedInput? {
+        var el = element
         var pid: pid_t = 0
         AXUIElementGetPid(el, &pid)
         guard pid > 0 else { return nil }
@@ -4478,12 +4545,83 @@ final class SpeechManager: ObservableObject {
         let snapshot = FocusedInputSnapshot(
             pid: pid,
             bundleID: NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
-            elementFingerprint: makeElementFingerprint(el)
+            elementFingerprint: makeElementFingerprint(el),
+            source: .accessibility,
+            windowTitle: axStringAttribute(el, kAXTitleAttribute as CFString),
+            anchorPoint: nil
         )
         return ResolvedFocusedInput(element: el, snapshot: snapshot)
     }
+
+    private func frontmostWindowContainingPoint(
+        for app: NSRunningApplication,
+        point: CGPoint
+    ) -> FrontmostWindowCandidate? {
+        let options = CGWindowListOption(arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements)
+        guard let infos = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+
+        for info in infos {
+            guard let ownerPID = info[kCGWindowOwnerPID as String] as? Int,
+                  ownerPID == app.processIdentifier else { continue }
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
+            if let alpha = info[kCGWindowAlpha as String] as? Double, alpha <= 0.01 { continue }
+            guard let boundsDict = info[kCGWindowBounds as String] else { continue }
+            let boundsValue = boundsDict as! CFDictionary
+            guard let bounds = CGRect(dictionaryRepresentation: boundsValue), !bounds.isEmpty else { continue }
+
+            let candidate = FrontmostWindowCandidate(
+                title: info[kCGWindowName as String] as? String
+            )
+            var contentBounds = bounds.insetBy(dx: 10, dy: 10)
+            if contentBounds.height > 36 {
+                contentBounds.size.height -= 32
+            }
+            if contentBounds.contains(point) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func recentClickTypingFallbackSnapshot() -> FocusedInputSnapshot? {
+        let trusted = accessibilityTrustedSnapshot || AXIsProcessTrusted()
+        if accessibilityTrustedSnapshot != trusted { accessibilityTrustedSnapshot = trusted }
+        guard trusted else { return nil }
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication,
+              let bundleID = frontmostApp.bundleIdentifier,
+              !bundleIsSystemSearchLike(bundleID) else {
+            return nil
+        }
+        guard let anchor = HUDManager.shared.recentMouseDownAnchor(maxAge: 3.0) else { return nil }
+        guard anchor.bundleID == nil || anchor.bundleID == bundleID else { return nil }
+
+        let appProbe = focusedElementProbe(for: AXUIElementCreateApplication(frontmostApp.processIdentifier))
+        guard appProbe.error == .noValue || appProbe.error == .notImplemented else { return nil }
+        guard let window = frontmostWindowContainingPoint(for: frontmostApp, point: anchor.point) else { return nil }
+
+        return FocusedInputSnapshot(
+            pid: frontmostApp.processIdentifier,
+            bundleID: bundleID,
+            elementFingerprint: nil,
+            source: .recentClickFallback,
+            windowTitle: window.title,
+            anchorPoint: anchor.point
+        )
+    }
+
+    private func resolveCurrentFocusedInput() -> ResolvedFocusedInput? {
+        let probe = focusedElementProbe(for: AXUIElementCreateSystemWide())
+        guard let element = probe.element else { return nil }
+        return resolveFocusedInput(from: element)
+    }
+
     private func currentFocusedInputSnapshot() -> FocusedInputSnapshot? {
-        resolveCurrentFocusedInput()?.snapshot
+        if let snapshot = resolveCurrentFocusedInput()?.snapshot {
+            return snapshot
+        }
+        return recentClickTypingFallbackSnapshot()
     }
     private func currentFocusedInputVerificationSnapshot() -> InputVerificationSnapshot? {
         guard let resolved = resolveCurrentFocusedInput() else { return nil }
@@ -4594,7 +4732,9 @@ final class SpeechManager: ObservableObject {
     private func lockSessionInputTarget() {
         let snap = currentFocusedInputSnapshot()
         sessionTargetPID = snap?.pid; sessionTargetBundleID = snap?.bundleID
-        sessionTargetElementFingerprint = snap?.elementFingerprint; didLogSessionTargetMismatch = false
+        sessionTargetElementFingerprint = snap?.elementFingerprint
+        sessionTargetSource = snap?.source
+        didLogSessionTargetMismatch = false
     }
     private func syncSessionInputTargetFromCurrentFocus(resetDictationStream: Bool) {
         guard let snap = currentFocusedInputSnapshot() else { return }
@@ -4608,6 +4748,7 @@ final class SpeechManager: ObservableObject {
         sessionTargetPID = snap.pid
         sessionTargetBundleID = snap.bundleID
         sessionTargetElementFingerprint = snap.elementFingerprint
+        sessionTargetSource = snap.source
         didLogSessionTargetMismatch = false
         if resetDictationStream {
             dictationHandler.reset(targetPID: preferredTypingInjectionTargetPID(sessionTargetPID, bundleID: sessionTargetBundleID))
@@ -4634,6 +4775,13 @@ final class SpeechManager: ObservableObject {
             return currentFocusedInputSnapshot() != nil
         }
         if job.sessionTypingMode && (job.targetPID == nil || job.targetPID == 0) {
+            if job.targetSource == .recentClickFallback,
+               let front = NSWorkspace.shared.frontmostApplication {
+                if let bundleID = job.targetBundleID, !bundleID.isEmpty {
+                    return front.bundleIdentifier == bundleID
+                }
+                return true
+            }
             return currentFocusedInputSnapshot() != nil
         }
         guard let tp = job.targetPID, tp > 0 else { return true }

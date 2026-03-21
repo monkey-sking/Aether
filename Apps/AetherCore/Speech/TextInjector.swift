@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 protocol TextInjecting: AnyObject {
     func type(_ text: String, targetPID: pid_t?)
@@ -9,8 +10,15 @@ final class TextInjector: TextInjecting {
     private(set) var lastInjectedAt: Date?
 
     func paste(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        let previousItems = pasteboard.pasteboardItems
         AutomationOutputs.shared.pasteText(text)
         lastInjectedAt = Date()
+        guard let previousItems else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            pasteboard.clearContents()
+            pasteboard.writeObjects(previousItems)
+        }
     }
 
     func type(_ text: String, targetPID: pid_t? = nil) {
