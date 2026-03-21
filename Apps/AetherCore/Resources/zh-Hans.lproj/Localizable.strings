@@ -82,16 +82,16 @@
 "menu.enable_speech" = "开启语音识别权限";
 "menu.open_settings" = "打开设置";
 "menu.check_updates_ellipsis" = "检查更新…";
-"menu.settings_ellipsis" = "设置…";
+"menu.settings_ellipsis" = "打开设置…";
 "menu.more_controls" = "更多控制";
 "menu.shortcut_panel_fmt" = "快捷键面板 (%@)";
 "menu.show_shortcut_panel" = "显示快捷键面板";
-"menu.shortcut_panel" = "快捷键面板";
+"menu.shortcut_panel" = "快捷面板";
 "menu.start_pointer" = "开启头控";
 "menu.stop_pointer" = "停止头控";
 "menu.recenter_pointer" = "头控回中";
 "menu.show_window" = "显示窗口";
-"menu.quit" = "退出";
+"menu.quit" = "退出 Aether";
 
 /* Driver errors */
 "driver.error.need_accessibility" = "请先授予辅助功能权限";

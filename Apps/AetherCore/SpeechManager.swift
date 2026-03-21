@@ -427,6 +427,11 @@ final class SpeechManager: ObservableObject {
     private var lastHandledUtteranceID: Int = -1
     private var lastHandledTranscript: String = ""
     private var lastHandledAt: Date = .distantPast
+    private var lastCommittedDictationText: String = ""
+    private var lastCommittedDictationAt: Date = .distantPast
+    private var lastCommittedDictationPID: pid_t?
+    private var lastCommittedDictationBundleID: String?
+    private var lastCommittedDictationElementFingerprint: String?
     // Mic progress tracking (kept for HUD ring)
     private var micProgressTimer: Timer?
     private var segmentStartedAt: Date = .distantPast
@@ -1187,6 +1192,8 @@ final class SpeechManager: ObservableObject {
     ) {
         let baseTrailing = UserDefaults.standard.object(forKey: "trailingSilenceMs") as? Double ?? 1000
         let baseMinimum = UserDefaults.standard.object(forKey: "minUtteranceMs") as? Double ?? 550
+        let dictationTrailingFloor = UserDefaults.standard.object(forKey: "dictationTrailingSilenceFloorMs") as? Double ?? 1300
+        let dictationMinimumFloor = UserDefaults.standard.object(forKey: "dictationMinUtteranceFloorMs") as? Double ?? 650
         let style = currentSessionSpeechStyle(
             for: availability,
             sessionTypingModeOverride: sessionTypingMode
@@ -1199,8 +1206,8 @@ final class SpeechManager: ObservableObject {
             eosDetector.trailingSilenceMs = min(baseTrailing, commandTrailing)
             eosDetector.minUtteranceMs = min(baseMinimum, commandMinimum)
         case .dictation:
-            eosDetector.trailingSilenceMs = baseTrailing
-            eosDetector.minUtteranceMs = baseMinimum
+            eosDetector.trailingSilenceMs = max(baseTrailing, dictationTrailingFloor)
+            eosDetector.minUtteranceMs = max(baseMinimum, dictationMinimumFloor)
         }
 
         eosDetector.maxUtteranceMs = UserDefaults.standard.object(forKey: "maxUtteranceMs") as? Double ?? 30000
@@ -1841,10 +1848,14 @@ final class SpeechManager: ObservableObject {
         let originalRawText = rawText
         var text = rawText
         var wakeWordDetected = false
+        var wakeScore: Double = 0
+        var matchedWakePhrase: String?
 
         // Wake word detection & stripping
         if isWakeWordEnabled && !isDirectCommandEnabled {
             let result = wakeWordDetector.process(text, localeIdentifier: activeLocale.identifier)
+            wakeScore = result.score
+            matchedWakePhrase = result.matchedPhrase
             if result.wakeDetected {
                 wakeWordDetected = true
                 if !isAwake {
@@ -1860,7 +1871,7 @@ final class SpeechManager: ObservableObject {
         let controlMode = effectiveRecognitionControlMode(for: featureAvailability)
         if !originalRawText.isEmpty || !text.isEmpty {
             GlobalLogger.speech.info(
-                "[ASR Partial] raw='\(originalRawText)' normalized='\(text)' wakeDetected=\(wakeWordDetected) mode=\(controlMode.rawValue) locale=\(activeLocale.identifier)"
+                "[ASR Partial] raw='\(originalRawText)' normalized='\(text)' wakeDetected=\(wakeWordDetected) wakeScore=\(String(format: "%.2f", wakeScore)) wakePhrase=\(matchedWakePhrase ?? "nil") mode=\(controlMode.rawValue) locale=\(activeLocale.identifier)"
             )
         }
         let isWakeGatedStandby = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled && !isAwake
@@ -2397,14 +2408,20 @@ final class SpeechManager: ObservableObject {
 
         var textToRoute = rawTrimmed
         var wakeWordDetected = false
+        var wakeScore: Double = 0
+        var matchedWakePhrase: String?
 
         if isDirectCommandEnabled {
             let wakeResult = wakeWordDetector.process(rawTrimmed, localeIdentifier: activeLocale.identifier)
+            wakeScore = wakeResult.score
+            matchedWakePhrase = wakeResult.matchedPhrase
             if isWakeWordEnabled && wakeResult.wakeDetected {
                 textToRoute = wakeResult.payload; wakeWordDetected = true; playWakeSound(reason: "direct-command-final-wake")
             } else { textToRoute = rawTrimmed }
         } else if isAlwaysListeningEnabled {
             let wakeResult = wakeWordDetector.process(rawTrimmed, localeIdentifier: activeLocale.identifier)
+            wakeScore = wakeResult.score
+            matchedWakePhrase = wakeResult.matchedPhrase
             if isAwake {
                 if wakeResult.wakeDetected { textToRoute = wakeResult.payload; wakeWordDetected = true; playWakeSound(reason: "always-listening-awake-final-wake") }
                 else { textToRoute = rawTrimmed }
@@ -2412,6 +2429,11 @@ final class SpeechManager: ObservableObject {
                 if wakeResult.wakeDetected { textToRoute = wakeResult.payload; wakeWordDetected = true; playWakeSound(reason: "always-listening-sleeping-final-wake"); lastWakeTime = Date() }
                 else { return }
             }
+        }
+        if isWakeWordEnabled {
+            GlobalLogger.speech.info(
+                "[WakeWord] final score=\(String(format: "%.2f", wakeScore)) matched=\(matchedWakePhrase ?? "nil") detected=\(wakeWordDetected) raw='\(rawTrimmed)' payload='\(textToRoute)'"
+            )
         }
 
         let liveTyping = throttledTypingMode()
@@ -2849,12 +2871,20 @@ final class SpeechManager: ObservableObject {
             onIntent?(.selectHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier)
             clearHandledCommandPreview()
         case .dictation(let text):
+            let finalText = trimRepeatedDictationOverlap(text, for: job)
+            guard !finalText.isEmpty else {
+                GlobalLogger.speech.info(
+                    "[TextPipeline] skip fully-overlapped dictation utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(job.targetBundleID ?? "nil")"
+                )
+                clearHandledCommandPreview()
+                return
+            }
             guard isJobInputTargetValidForInjection(job) else {
                 let targetBundleLog = job.targetBundleID ?? "nil"
                 GlobalLogger.speech.info(
                     "[IntentPipeline] dictation blocked: invalid target utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog)"
                 )
-                onRecognitionFailure?(text, "invalid-input-target", usageContext.appName, usageContext.bundleIdentifier)
+                onRecognitionFailure?(finalText, "invalid-input-target", usageContext.appName, usageContext.bundleIdentifier)
                 status = NSLocalizedString("speech.done", comment: "")
                 showMissingInputTargetHUD()
                 clearHandledCommandPreview()
@@ -2865,24 +2895,24 @@ final class SpeechManager: ObservableObject {
             if job.sessionTypingMode || hasStreamed {
                 // Use DictationHandler's diff-based correction instead of old TypingFinalizationPlanner
                 // The handler already applied corrections during streaming; final sync is done here
-                if text == job.streamedTextSnapshot {
+                if finalText == job.streamedTextSnapshot {
                     GlobalLogger.speech.info(
-                        "[TextPipeline] synced-noop utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) textCount=\(text.count) streamedCount=\(job.streamedTextSnapshot.count)"
+                        "[TextPipeline] synced-noop utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) textCount=\(finalText.count) streamedCount=\(job.streamedTextSnapshot.count)"
                     )
                     // Already fully synced by streaming
-                } else if text.hasPrefix(job.streamedTextSnapshot) {
-                    let suffix = String(text.dropFirst(job.streamedTextSnapshot.count))
+                } else if finalText.hasPrefix(job.streamedTextSnapshot) {
+                    let suffix = String(finalText.dropFirst(job.streamedTextSnapshot.count))
                     GlobalLogger.speech.info(
-                        "[TextPipeline] append-suffix utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) suffixCount=\(suffix.count) finalCount=\(text.count) streamedCount=\(job.streamedTextSnapshot.count)"
+                        "[TextPipeline] append-suffix utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) suffixCount=\(suffix.count) finalCount=\(finalText.count) streamedCount=\(job.streamedTextSnapshot.count)"
                     )
                     if !suffix.isEmpty { injector.type(suffix, targetPID: job.targetPID) }
                 } else {
                     // Diff correction: find common prefix, backspace, type remainder
-                    let commonLen = commonPrefixLen(job.streamedTextSnapshot, text)
+                    let commonLen = commonPrefixLen(job.streamedTextSnapshot, finalText)
                     let toDelete = job.streamedTextSnapshot.count - commonLen
-                    let toType = String(text.dropFirst(commonLen))
+                    let toType = String(finalText.dropFirst(commonLen))
                     GlobalLogger.speech.info(
-                        "[TextPipeline] diff-correct utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) deleteCount=\(toDelete) typeCount=\(toType.count) finalCount=\(text.count) streamedCount=\(job.streamedTextSnapshot.count)"
+                        "[TextPipeline] diff-correct utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) deleteCount=\(toDelete) typeCount=\(toType.count) finalCount=\(finalText.count) streamedCount=\(job.streamedTextSnapshot.count)"
                     )
                     if toDelete > 0 { injector.deleteBackward(count: toDelete, targetPID: job.targetPID) }
                     if !toType.isEmpty { injector.type(toType, targetPID: job.targetPID) }
@@ -2890,24 +2920,25 @@ final class SpeechManager: ObservableObject {
                 status = NSLocalizedString("speech.typed", comment: "")
             } else {
                 GlobalLogger.speech.info(
-                    "[TextPipeline] direct-type utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) textCount=\(text.count)"
+                    "[TextPipeline] direct-type utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) textCount=\(finalText.count)"
                 )
-                injector.type(text, targetPID: job.targetPID)
+                injector.type(finalText, targetPID: job.targetPID)
                 status = NSLocalizedString("speech.typed", comment: "")
             }
+            rememberCommittedDictation(finalText, for: job)
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                let verification = await self.verifyDictationInjection(text, for: job)
+                let verification = await self.verifyDictationInjection(finalText, for: job)
                 switch verification {
                 case .success:
-                    self.onIntent?(.dictation(text), usageContext.appName, usageContext.bundleIdentifier)
+                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier)
                 case .mismatch:
-                    self.onRecognitionFailure?(text, "post-injection-mismatch", usageContext.appName, usageContext.bundleIdentifier)
+                    self.onRecognitionFailure?(finalText, "post-injection-mismatch", usageContext.appName, usageContext.bundleIdentifier)
                 case .unverified:
                     GlobalLogger.speech.info(
                         "[TextPipeline] verification-unverified treating-as-success utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(job.targetBundleID ?? "nil")"
                     )
-                    self.onIntent?(.dictation(text), usageContext.appName, usageContext.bundleIdentifier)
+                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier)
                 }
             }
             clearHandledCommandPreview()
@@ -3082,11 +3113,11 @@ final class SpeechManager: ObservableObject {
         case .command:
             targetTrailingMs = min(targetTrailingMs, 620)
         case .dictation:
-            targetTrailingMs = max(targetTrailingMs, 780)
+            targetTrailingMs = max(targetTrailingMs, 1150)
         }
 
         if sessionTypingMode {
-            targetTrailingMs = max(targetTrailingMs, 840)
+            targetTrailingMs = max(targetTrailingMs, 1150)
         }
 
         targetTrailingMs = min(max(targetTrailingMs, 450), 1400)
@@ -3433,6 +3464,7 @@ final class SpeechManager: ObservableObject {
                 : idleTypingEvidence
         )
         let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
+        let isWakeGatedStandby = isWakeGated && !isAwake && !isStopping
         let shouldHoldDictationHUD =
             isTypingRecoveryHoldActive
             && controlMode == .auto
@@ -3451,6 +3483,15 @@ final class SpeechManager: ObservableObject {
         }
         if (isAlwaysListeningEnabled || isWakeWordEnabled), let hint = missingVoicePermissionHint() {
             HUDManager.shared.update(mode: .command, message: hint.message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hint.icon); return
+        }
+        if isWakeGatedStandby {
+            clearHUDOverride()
+            clearUnarmedWakePreview()
+            if HUDManager.shared.isTemporaryHUDActive || HUDManager.shared.state.isLanguageIndicatorVisible {
+                return
+            }
+            HUDManager.shared.hide()
+            return
         }
         let isSessionActive = recognitionSession.isRunning || isStopping || effectiveDictating || isPTTHeld
         if !isContinuousActive && !isSessionActive {
@@ -4158,16 +4199,16 @@ final class SpeechManager: ObservableObject {
     private func axFocusedRole(_ el: AXUIElement) -> String {
         axStringAttribute(el, kAXRoleAttribute as CFString) ?? ""
     }
-    private func findDictationCandidate(in element: AXUIElement, depth: Int = 5) -> AXUIElement? {
+    private func findDictationCandidate(in element: AXUIElement, bundleID: String?, depth: Int = 5) -> AXUIElement? {
         guard depth > 0 else { return nil }
-        if isFocusedElementUsableForDictation(element) { return element }
+        if isFocusedElementUsableForDictation(element, bundleID: bundleID) { return element }
 
         var childrenRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
               let children = childrenRef as? [AXUIElement] else { return nil }
 
         for child in children {
-            if let found = findDictationCandidate(in: child, depth: depth - 1) {
+            if let found = findDictationCandidate(in: child, bundleID: bundleID, depth: depth - 1) {
                 return found
             }
         }
@@ -4200,17 +4241,23 @@ final class SpeechManager: ObservableObject {
         guard pid > 0 else { return nil }
         let frontBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+        let effectiveBundleID = bundleID ?? frontBundleID
 
-        if !isFocusedElementUsableForDictation(el) {
+        if !isFocusedElementUsableForDictation(el, bundleID: effectiveBundleID) {
             let role = axFocusedRole(el)
             if bundleIsSystemSearchLike(bundleID)
                 || bundleIsSystemSearchLike(frontBundleID)
-                || ["AXWindow", "AXSheet", "AXScrollArea", "AXSplitGroup", "AXGroup"].contains(role) {
-                if let candidate = findDictationCandidate(in: el) {
+                || isWeirdTypingAppBundle(bundleID)
+                || isWeirdTypingAppBundle(frontBundleID)
+                || ["AXWindow", "AXSheet", "AXScrollArea", "AXSplitGroup", "AXGroup", "AXStaticText", "AXWebArea"].contains(role) {
+                if let candidate = findDictationCandidate(in: el, bundleID: effectiveBundleID) {
                     el = candidate
                     AXUIElementGetPid(el, &pid)
                     guard pid > 0 else { return nil }
-                } else if !(bundleIsSystemSearchLike(bundleID) || bundleIsSystemSearchLike(frontBundleID)) {
+                } else if !(bundleIsSystemSearchLike(bundleID)
+                    || bundleIsSystemSearchLike(frontBundleID)
+                    || isWeirdTypingAppBundle(bundleID)
+                    || isWeirdTypingAppBundle(frontBundleID)) {
                     return nil
                 }
             } else {
@@ -4412,48 +4459,31 @@ final class SpeechManager: ObservableObject {
         return (nil, nil)
     }
 
-    private func isFocusedElementUsableForDictation(_ element: AXUIElement) -> Bool {
-        func boolAttr(_ attr: CFString) -> Bool {
-            var value: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(element, attr, &value) == .success else { return false }
-            if let b = value as? Bool { return b }
-            if let n = value as? NSNumber { return n.boolValue }
-            return false
-        }
-        func hasInsertionContext() -> Bool {
-            var value: CFTypeRef?
-            if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
-               let raw = value,
-               CFGetTypeID(raw) == AXValueGetTypeID() {
-                let ax = raw as! AXValue
-                if AXValueGetType(ax) == .cfRange {
-                    var range = CFRange()
-                    if AXValueGetValue(ax, .cfRange, &range) {
-                        if range.length == 0 { return true }
-                    } else {
-                        return true
-                    }
-                } else {
-                    return true
-                }
-            }
-            var markerRange: CFTypeRef?
-            return AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRange) == .success
-        }
-
+    private func isFocusedElementUsableForDictation(_ element: AXUIElement, bundleID: String? = nil) -> Bool {
         var roleRef: CFTypeRef?
         let role = (AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success)
             ? (roleRef as? String ?? "")
             : ""
 
-        let editable = boolAttr("AXEditable" as CFString)
-        let insertionContext = hasInsertionContext()
+        let editable = axBoolAttribute(element, "AXEditable" as CFString) == true
+        let insertionContext = hasInsertionContext(element)
+        let hasEditableAncestor = editableAncestor(for: element) != nil
+        let hasSettableValue = valueAttributeIsSettable(element)
+        let isWeirdTypingApp = isWeirdTypingAppBundle(bundleID)
         let directRoles: Set<String> = [kAXTextFieldRole as String, "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
 
         if directRoles.contains(role) { return true }
-        if role == kAXTextAreaRole as String { return insertionContext }
+        if role == kAXTextAreaRole as String {
+            return insertionContext || hasEditableAncestor || hasSettableValue
+        }
         if role == "AXWebArea" || role == "AXGroup" || role == "AXScrollArea" || role == "AXSplitGroup" || role == "AXStaticText" {
+            if insertionContext && (editable || hasEditableAncestor || hasSettableValue || isWeirdTypingApp) {
+                return true
+            }
             return editable && insertionContext
+        }
+        if insertionContext && (editable || hasEditableAncestor || hasSettableValue) {
+            return true
         }
         return editable && insertionContext
     }
@@ -4506,6 +4536,136 @@ final class SpeechManager: ObservableObject {
     private func normalizeRecognizedText(_ raw: String, scope: SpeechCorrectionScope = .dictation) -> String {
         let corrected = applyContextualSpeechCorrections(raw, scope: scope)
         return deduplicateRepeatedTailPhrase(corrected)
+    }
+    private func isWeirdTypingAppBundle(_ bundleID: String?) -> Bool {
+        let bundle = (bundleID ?? "").lowercased()
+        return bundle.contains("xinwechat")
+            || bundle.contains("wechat")
+            || bundle.contains("codex")
+            || bundle.contains("antigravity")
+    }
+    private func valueAttributeIsSettable(_ element: AXUIElement) -> Bool {
+        var settable = DarwinBoolean(false)
+        let result = AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable)
+        return result == .success && settable.boolValue
+    }
+    private func axBoolAttribute(_ element: AXUIElement, _ attr: CFString) -> Bool? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attr, &value) == .success else { return nil }
+        if let b = value as? Bool { return b }
+        if let n = value as? NSNumber { return n.boolValue }
+        return nil
+    }
+    private func hasInsertionContext(_ element: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
+           let raw = value,
+           CFGetTypeID(raw) == AXValueGetTypeID() {
+            let ax = raw as! AXValue
+            if AXValueGetType(ax) == .cfRange {
+                var range = CFRange()
+                if AXValueGetValue(ax, .cfRange, &range) {
+                    if range.length == 0 { return true }
+                } else {
+                    return true
+                }
+            } else {
+                return true
+            }
+        }
+        var markerRange: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRange) == .success
+    }
+    private func editableAncestor(for element: AXUIElement, depth: Int = 6) -> AXUIElement? {
+        for attr in ["AXEditableAncestor", "AXHighestEditableAncestor"] {
+            var value: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, attr as CFString, &value) == .success,
+               let candidate = value,
+               CFGetTypeID(candidate) == AXUIElementGetTypeID() {
+                return candidate as! AXUIElement
+            }
+        }
+
+        var current = element
+        for _ in 0..<depth {
+            var parentRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parentRef) == .success,
+                  let parentValue = parentRef,
+                  CFGetTypeID(parentValue) == AXUIElementGetTypeID() else {
+                break
+            }
+            let parent = parentValue as! AXUIElement
+            let parentRole = axStringAttribute(parent, kAXRoleAttribute as CFString) ?? ""
+            let isEditableParent = (axBoolAttribute(parent, "AXEditable" as CFString) == true)
+                || valueAttributeIsSettable(parent)
+                || hasInsertionContext(parent)
+            if isEditableParent
+                || parentRole == kAXTextFieldRole as String
+                || parentRole == "AXSearchField"
+                || parentRole == "AXComboBox"
+                || parentRole == "AXHTMLTextInput"
+                || parentRole == kAXTextAreaRole as String {
+                return parent
+            }
+            current = parent
+        }
+        return nil
+    }
+    private func trimRepeatedDictationOverlap(_ text: String, for job: ProcessedJob) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        guard Date().timeIntervalSince(lastCommittedDictationAt) <= 2.0 else { return trimmed }
+
+        let sameFingerprint = job.targetElementFingerprint != nil
+            && job.targetElementFingerprint == lastCommittedDictationElementFingerprint
+        let sameBundle = job.targetBundleID != nil
+            && job.targetBundleID == lastCommittedDictationBundleID
+        let samePID = job.targetPID != nil
+            && job.targetPID == lastCommittedDictationPID
+        guard sameFingerprint || sameBundle || samePID else { return trimmed }
+
+        let previous = lastCommittedDictationText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !previous.isEmpty else { return trimmed }
+
+        let overlap = repeatedTailPrefixOverlap(previous: previous, current: trimmed)
+        guard overlap > 0 else { return trimmed }
+
+        let start = trimmed.index(trimmed.startIndex, offsetBy: overlap)
+        let deduped = String(trimmed[start...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        GlobalLogger.speech.info(
+            "[TextPipeline] trimmed-cross-utterance-overlap overlap=\(overlap) previousCount=\(previous.count) currentCount=\(trimmed.count) dedupedCount=\(deduped.count)"
+        )
+        return deduped
+    }
+    private func repeatedTailPrefixOverlap(previous: String, current: String) -> Int {
+        let maxLen = min(previous.count, current.count)
+        guard maxLen > 0 else { return 0 }
+
+        for len in stride(from: maxLen, through: 2, by: -1) {
+            let prevStart = previous.index(previous.endIndex, offsetBy: -len)
+            let prevSuffix = String(previous[prevStart...])
+            let currEnd = current.index(current.startIndex, offsetBy: len)
+            let currPrefix = String(current[..<currEnd])
+            guard prevSuffix == currPrefix else { continue }
+
+            if len >= minimumCrossUtteranceOverlapLength(for: currPrefix) {
+                return len
+            }
+        }
+        return 0
+    }
+    private func minimumCrossUtteranceOverlapLength(for text: String) -> Int {
+        let scalars = text.unicodeScalars
+        let containsWhitespace = scalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) }
+        let containsASCIIAlnum = scalars.contains { CharacterSet.alphanumerics.contains($0) && $0.isASCII }
+        return (containsWhitespace || containsASCIIAlnum) ? 4 : 2
+    }
+    private func rememberCommittedDictation(_ text: String, for job: ProcessedJob) {
+        lastCommittedDictationText = text
+        lastCommittedDictationAt = Date()
+        lastCommittedDictationPID = job.targetPID
+        lastCommittedDictationBundleID = job.targetBundleID
+        lastCommittedDictationElementFingerprint = job.targetElementFingerprint
     }
     private func deduplicateRepeatedTailPhrase(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)

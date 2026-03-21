@@ -278,7 +278,10 @@ enum AXFocusedTypingContextDetector {
 
     private static func isWeirdWebTypingApp(bundleID: String?) -> Bool {
         let bundle = (bundleID ?? "").lowercased()
-        return bundle.contains("codex") || bundle.contains("antigravity")
+        return bundle.contains("codex")
+            || bundle.contains("antigravity")
+            || bundle.contains("xinwechat")
+            || bundle.contains("wechat")
     }
 }
 
@@ -942,6 +945,8 @@ final class HUDManager {
         let b = (bundleID ?? "").lowercased()
         if b.contains("codex") { return true }
         if b.contains("antigravity") { return true }
+        if b.contains("xinwechat") { return true }
+        if b.contains("wechat") { return true }
         return false
     }
 
