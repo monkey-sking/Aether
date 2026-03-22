@@ -2238,7 +2238,7 @@ private struct VoiceUsageInsightsCard: View {
     @State private var showingClearDataConfirm: Bool = false
     @State private var showingResetStatisticsConfirm: Bool = false
     @State private var showAllApps: Bool = false
-    @State private var perAppSortOption: AppState.UsageInsightsPerAppSortOption = .issuePriority
+    @State private var showAllRecentEvents: Bool = false
     @State private var recentActivityFilter: AppState.UsageInsightsRecentActivityFilter = .all
     @State private var showNoSpeechEvents: Bool = UserDefaults.standard.object(
         forKey: voiceUsageInsightsShowNoSpeechEventsStorageKey
@@ -2248,29 +2248,29 @@ private struct VoiceUsageInsightsCard: View {
         AppLocalization.isChinese
     }
 
-    private let summaryColumns = [
-        GridItem(.adaptive(minimum: 180, maximum: 240), spacing: 10, alignment: .top)
+    private let topMetricColumns = [
+        GridItem(.adaptive(minimum: 132, maximum: 220), spacing: 10, alignment: .top)
     ]
 
     private var snapshot: AppState.UsageInsightsSnapshot {
         appState.usageInsightsSnapshot(
             showNoSpeechEvents: showNoSpeechEvents,
             recentFilter: recentActivityFilter,
-            perAppSort: perAppSortOption,
-            recentLimit: 30
+            perAppSort: .issuePriority,
+            recentLimit: showAllRecentEvents ? 30 : 5
         )
     }
 
-    private var displayedPerAppItems: [AppState.UsageInsightsPerAppItem] {
-        showAllApps ? snapshot.perAppItems : Array(snapshot.perAppItems.prefix(5))
+    private var topAppItems: [AppState.UsageInsightsPerAppItem] {
+        Array(snapshot.perAppItems.prefix(4))
     }
 
     private var remainingAppCount: Int {
-        max(snapshot.perAppItems.count - displayedPerAppItems.count, 0)
+        max(snapshot.perAppItems.count - topAppItems.count, 0)
     }
 
-    private var hasUsageData: Bool {
-        snapshot.dashboard.summary.total > 0 || snapshot.dashboard.retainedHistoryCount > 0
+    private var hasMoreRecentEvents: Bool {
+        snapshot.recentMatchingCount > snapshot.recentEvents.count
     }
 
     private var hasStatisticsData: Bool {
@@ -2283,10 +2283,6 @@ private struct VoiceUsageInsightsCard: View {
 
     private func formattedEntries(_ value: Int) -> String {
         isChinese ? "\(value) 条" : "\(value) entries"
-    }
-
-    private func formattedCount(_ value: Int, englishUnit: String) -> String {
-        isChinese ? "\(value) 次" : "\(value) \(englishUnit)"
     }
 
     private func formattedCharacters(_ value: Int) -> String {
@@ -2305,18 +2301,20 @@ private struct VoiceUsageInsightsCard: View {
         return "Failed \(summary.failureCount) · Unmatched \(summary.unrecognizedCount) · Mismatch \(summary.mismatchCount)"
     }
 
-    private func retainedHistoryDetail(limit: Int) -> String {
-        if isChinese {
-            return "本机保留最近 \(limit) 条"
+    private func totalDetailText(_ summary: AppState.VoiceUsageSummary) -> String {
+        if summary.dictationCharacterCount > 0 {
+            return isChinese
+                ? "输入 \(formattedCharacters(summary.dictationCharacterCount))"
+                : "Entered \(formattedCharacters(summary.dictationCharacterCount))"
         }
-        return "Retains the latest \(limit) entries locally"
+        return isChinese ? "控制 \(summary.controlCount) 次" : "\(summary.controlCount) control actions"
     }
 
     private func recentActivityStatusText(visibleCount: Int, matchingCount: Int) -> String {
         if isChinese {
-            return "当前显示最近 \(visibleCount) 条，筛选命中 \(matchingCount) 条，已保留 \(appState.voiceUsageHistory.count) 条。"
+            return "当前显示 \(visibleCount) 条，筛选命中 \(matchingCount) 条，已保留 \(appState.voiceUsageHistory.count) 条。"
         }
-        return "Showing the latest \(visibleCount) matching entries (\(matchingCount) match, \(appState.voiceUsageHistory.count) retained)."
+        return "Showing \(visibleCount) items (\(matchingCount) match, \(appState.voiceUsageHistory.count) retained)."
     }
 
     private func recentFilterTitle(_ filter: AppState.UsageInsightsRecentActivityFilter) -> String {
@@ -2329,15 +2327,6 @@ private struct VoiceUsageInsightsCard: View {
             return String(localized: "insights.recent.filter.dictation")
         case .control:
             return String(localized: "insights.recent.filter.control")
-        }
-    }
-
-    private func perAppSortTitle(_ option: AppState.UsageInsightsPerAppSortOption) -> String {
-        switch option {
-        case .issuePriority:
-            return String(localized: "insights.per_app.sort.issues")
-        case .total:
-            return String(localized: "insights.per_app.sort.total")
         }
     }
 
@@ -2359,23 +2348,13 @@ private struct VoiceUsageInsightsCard: View {
     var body: some View {
         GlassCard(padding: 16) {
             VStack(alignment: .leading, spacing: 12) {
-                Label(
-                    isChinese ? "统计面板" : "Insights Dashboard",
-                    systemImage: "chart.bar.xaxis"
-                )
-                .font(.headline)
+                headerRow
+                topMetricsStrip
+                mainContent
 
-                Text(
-                    isChinese
-                        ? "按横向长条重排：左侧看状态与总览，中间看活动，右侧放导出与危险操作，下方再做按 App 对比。"
-                        : "Rebuilt for the wide host: status and overview on the left, activity in the center, exports and destructive actions on the right, with per-app comparison below."
-                )
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-                dashboardContent
-
-                perAppSummaryPanel
+                if showAllApps {
+                    expandedPerAppPanel
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -2408,102 +2387,191 @@ private struct VoiceUsageInsightsCard: View {
         }
     }
 
-    private var dashboardContent: some View {
+    private var headerRow: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(isChinese ? "语音统计" : "Voice Insights")
+                    .font(.headline)
+                Text(
+                    isChinese
+                        ? "按 App 查看输入与控制使用记录。"
+                        : "Review dictation and control activity across apps."
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
+            Spacer(minLength: 12)
+            Button(showAllRecentEvents ? (isChinese ? "收起历史" : "Collapse History") : (isChinese ? "查看全部历史" : "View Full History")) {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showAllRecentEvents.toggle()
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+
+    private var topMetricsStrip: some View {
+        let summary = snapshot.dashboard.summary
+
+        return sectionCard {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 10) {
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "记录" : "Tracking",
+                        value: appState.isVoiceUsageHistoryEnabled
+                            ? (isChinese ? "开启" : "On")
+                            : (isChinese ? "关闭" : "Off"),
+                        tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
+                        usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
+                    )
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "保留" : "Retained",
+                        value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
+                        detail: isChinese
+                            ? "上限 \(appState.voiceUsageHistoryLimit) 条"
+                            : "Limit \(appState.voiceUsageHistoryLimit)",
+                        tint: .accentColor
+                    )
+                    VoiceUsageStatusChip(
+                        title: "Locale",
+                        value: snapshot.diagnostics.localeIdentifier,
+                        tint: .primary,
+                        usesNeutralBackground: true
+                    )
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "总计" : "Total",
+                        value: formattedEntries(summary.total),
+                        detail: totalDetailText(summary),
+                        tint: .accentColor
+                    )
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "问题率" : "Issue Rate",
+                        value: formattedPercent(snapshot.dashboard.issueRate),
+                        detail: issueBreakdownText(summary),
+                        tint: snapshot.dashboard.issueEventCount > 0 ? .orange : .green
+                    )
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "异常" : "Anomalies",
+                        value: formattedEntries(summary.noSpeechCount),
+                        detail: isChinese ? "未识别到人声等环境问题" : "No-speech and environment issues",
+                        tint: summary.noSpeechCount > 0 ? .yellow : .secondary
+                    )
+                }
+
+                LazyVGrid(columns: topMetricColumns, alignment: .leading, spacing: 10) {
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "记录" : "Tracking",
+                        value: appState.isVoiceUsageHistoryEnabled
+                            ? (isChinese ? "开启" : "On")
+                            : (isChinese ? "关闭" : "Off"),
+                        tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
+                        usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
+                    )
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "保留" : "Retained",
+                        value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
+                        detail: isChinese
+                            ? "上限 \(appState.voiceUsageHistoryLimit) 条"
+                            : "Limit \(appState.voiceUsageHistoryLimit)",
+                        tint: .accentColor
+                    )
+                    VoiceUsageStatusChip(
+                        title: "Locale",
+                        value: snapshot.diagnostics.localeIdentifier,
+                        tint: .primary,
+                        usesNeutralBackground: true
+                    )
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "总计" : "Total",
+                        value: formattedEntries(summary.total),
+                        detail: totalDetailText(summary),
+                        tint: .accentColor
+                    )
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "问题率" : "Issue Rate",
+                        value: formattedPercent(snapshot.dashboard.issueRate),
+                        detail: issueBreakdownText(summary),
+                        tint: snapshot.dashboard.issueEventCount > 0 ? .orange : .green
+                    )
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "异常" : "Anomalies",
+                        value: formattedEntries(summary.noSpeechCount),
+                        detail: isChinese ? "未识别到人声等环境问题" : "No-speech and environment issues",
+                        tint: summary.noSpeechCount > 0 ? .yellow : .secondary
+                    )
+                }
+            }
+        }
+    }
+
+    private var mainContent: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: 12) {
-                leftDashboardColumn
-                    .frame(minWidth: 320, idealWidth: 360, maxWidth: 400, alignment: .leading)
                 activityPanel
-                    .frame(minWidth: 460, idealWidth: 560, maxWidth: .infinity, alignment: .leading)
-                rightDashboardColumn
-                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 360, alignment: .leading)
+                    .frame(minWidth: 560, idealWidth: 680, maxWidth: .infinity, alignment: .leading)
+                rightRailPanel
+                    .frame(minWidth: 280, idealWidth: 300, maxWidth: 320, alignment: .leading)
             }
 
             VStack(alignment: .leading, spacing: 12) {
-                leftDashboardColumn
                 activityPanel
-                rightDashboardColumn
+                rightRailPanel
             }
-        }
-    }
-
-    private var leftDashboardColumn: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            overviewSummaryPanel
-            recordingPolicyPanel
-        }
-    }
-
-    private var rightDashboardColumn: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            diagnosticsSummaryPanel
-            diagnosticsActionPanel
-            dangerZonePanel
         }
     }
 
     private var activityPanel: some View {
         sectionCard {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(isChinese ? "最近活动" : "Recent Activity")
+                    .font(.subheadline.weight(.semibold))
+                Text(
+                    isChinese
+                        ? "首屏只显示最近几条，主区专门留给浏览。"
+                        : "Keep the center area focused on browsing the latest activity."
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
+
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(isChinese ? "最近活动" : "Recent Activity")
-                            .font(.subheadline.weight(.semibold))
-                        Text(
-                            isChinese
-                                ? "只保留浏览需要的控件，避免活动列表被操作按钮打断。"
-                                : "Keep only browsing controls here so the activity list stays easy to scan."
-                        )
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    }
-                    Spacer()
+                HStack(alignment: .center, spacing: 10) {
                     Picker("", selection: $recentActivityFilter) {
                         ForEach(AppState.UsageInsightsRecentActivityFilter.allCases) { filter in
                             Text(recentFilterTitle(filter)).tag(filter)
                         }
                     }
-                    .pickerStyle(.menu)
+                    .pickerStyle(.segmented)
                     .labelsHidden()
+                    .controlSize(.small)
+
+                    Toggle(isOn: $showNoSpeechEvents) {
+                        Text(isChinese ? "显示未识别到人声" : "Show No-Speech")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
                     .controlSize(.small)
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(isChinese ? "最近活动" : "Recent Activity")
-                        .font(.subheadline.weight(.semibold))
-                    Text(
-                        isChinese
-                            ? "只保留浏览需要的控件，避免活动列表被操作按钮打断。"
-                            : "Keep only browsing controls here so the activity list stays easy to scan."
-                    )
-                    .font(.caption)
-                    .foregroundColor(.secondary)
                     Picker("", selection: $recentActivityFilter) {
                         ForEach(AppState.UsageInsightsRecentActivityFilter.allCases) { filter in
                             Text(recentFilterTitle(filter)).tag(filter)
                         }
                     }
-                    .pickerStyle(.menu)
+                    .pickerStyle(.segmented)
                     .labelsHidden()
+                    .controlSize(.small)
+
+                    Toggle(isOn: $showNoSpeechEvents) {
+                        Text(isChinese ? "显示未识别到人声" : "Show No-Speech")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
                     .controlSize(.small)
                 }
             }
-
-            Toggle(isOn: $showNoSpeechEvents) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(isChinese ? "显示未识别到人声" : "Show No-Speech Events")
-                        .font(.subheadline.weight(.semibold))
-                    Text(
-                        isChinese
-                            ? "关闭时会隐藏“未识别到人声”的历史记录。"
-                            : "When off, entries marked as no-speech are hidden from Recent Activity."
-                    )
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                }
-            }
-            .controlSize(.small)
-            .toggleStyle(.switch)
 
             if snapshot.recentEvents.isEmpty {
                 Text(LocalizedStringKey("insights.recent.no_match"))
@@ -2525,167 +2593,54 @@ private struct VoiceUsageInsightsCard: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
 
-    private var overviewSummaryPanel: some View {
-        sectionCard {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(isChinese ? "状态与总览" : "Status & Overview")
-                    .font(.subheadline.weight(.semibold))
-                Text(
-                    isChinese
-                        ? "先用左侧确认当前状态，再看问题率和核心量级。"
-                        : "Use the left rail for current state first, then read the issue rate and key totals."
-                )
-                .font(.caption)
-                .foregroundColor(.secondary)
-            }
-
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "记录" : "Tracking",
-                        value: appState.isVoiceUsageHistoryEnabled
-                            ? (isChinese ? "开启" : "On")
-                            : (isChinese ? "关闭" : "Off"),
-                        tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
-                        usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
-                    )
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "保留" : "Retained",
-                        value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
-                        tint: .accentColor
-                    )
-                    VoiceUsageStatusChip(
-                        title: "Locale",
-                        value: snapshot.diagnostics.localeIdentifier,
-                        tint: .primary,
-                        usesNeutralBackground: true
-                    )
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "记录" : "Tracking",
-                        value: appState.isVoiceUsageHistoryEnabled
-                            ? (isChinese ? "开启" : "On")
-                            : (isChinese ? "关闭" : "Off"),
-                        tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
-                        usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
-                    )
-                    HStack(spacing: 8) {
-                        VoiceUsageStatusChip(
-                            title: isChinese ? "保留" : "Retained",
-                            value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
-                            tint: .accentColor
-                        )
-                        VoiceUsageStatusChip(
-                            title: "Locale",
-                            value: snapshot.diagnostics.localeIdentifier,
-                            tint: .primary,
-                            usesNeutralBackground: true
-                        )
-                    }
-                }
-            }
-
-            if !hasUsageData {
-                Text(isChinese ? "暂无记录。先试一次输入或语音控制。" : "No usage yet. Try dictation or a voice control action first.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            } else {
-                let summary = snapshot.dashboard.summary
-                VoiceUsageSummaryBadge(
-                    title: isChinese ? "问题率" : "Issue Rate",
-                    value: formattedPercent(snapshot.dashboard.issueRate),
-                    detail: issueBreakdownText(summary),
-                    valueColor: snapshot.dashboard.issueEventCount > 0 ? .orange : .green,
-                    fillColor: (snapshot.dashboard.issueEventCount > 0 ? Color.orange : Color.green).opacity(0.12)
-                )
-
-                LazyVGrid(columns: summaryColumns, alignment: .leading, spacing: 10) {
-                    VoiceUsageSummaryBadge(
-                        title: isChinese ? "总计" : "Total Activity",
-                        value: formattedEntries(summary.total),
-                        detail: isChinese ? "自上次重置以来累计" : "Cumulative since the last reset"
-                    )
-                    VoiceUsageSummaryBadge(
-                        title: isChinese ? "近期保留" : "Retained History",
-                        value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
-                        detail: retainedHistoryDetail(limit: snapshot.dashboard.retentionLimit)
-                    )
-                    VoiceUsageSummaryBadge(
-                        title: isChinese ? "异常" : "Anomalies",
-                        value: formattedCount(summary.noSpeechCount, englishUnit: "anomalies"),
-                        detail: isChinese ? "未识别到人声等环境问题" : "No-speech and environment-triggered issues",
-                        valueColor: summary.noSpeechCount > 0 ? .yellow : .secondary
-                    )
-                    VoiceUsageSummaryBadge(
-                        title: isChinese ? "输入" : "Dictation",
-                        value: formattedCount(summary.dictationCount, englishUnit: "dictations"),
-                        detail: isChinese
-                            ? "累计输入 \(formattedCharacters(summary.dictationCharacterCount))"
-                            : "\(formattedCharacters(summary.dictationCharacterCount)) entered"
-                    )
-                    VoiceUsageSummaryBadge(
-                        title: isChinese ? "控制命令" : "Control",
-                        value: formattedCount(summary.controlCount, englishUnit: "commands")
-                    )
-                }
-            }
-        }
-    }
-
-    private var perAppSummaryPanel: some View {
-        sectionCard {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(isChinese ? "按 App 统计" : "Per-App Summary")
-                        .font(.subheadline.weight(.semibold))
-                    if !snapshot.perAppItems.isEmpty {
-                        Text(
-                            isChinese
-                                ? "当前显示 \(displayedPerAppItems.count) / \(snapshot.perAppItems.count) 个 App。"
-                                : "Showing \(displayedPerAppItems.count) of \(snapshot.perAppItems.count) apps."
-                        )
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    }
-                }
-                Spacer()
-                Picker("", selection: $perAppSortOption) {
-                    ForEach(AppState.UsageInsightsPerAppSortOption.allCases) { option in
-                        Text(perAppSortTitle(option)).tag(option)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .controlSize(.small)
-
-                if snapshot.perAppItems.count > 5 {
-                    Button(showAllApps ? String(localized: "insights.per_app.show_top") : String(localized: "insights.per_app.show_all")) {
+                if hasMoreRecentEvents {
+                    Button(isChinese ? "更多活动…" : "More Activity…") {
                         withAnimation(.easeInOut(duration: 0.15)) {
-                            showAllApps.toggle()
+                            showAllRecentEvents = true
                         }
                     }
                     .buttonStyle(.borderless)
                     .controlSize(.small)
                 }
             }
+        }
+    }
 
-            if snapshot.perAppItems.isEmpty {
-                Text(isChinese ? "当前没有按 App 汇总。" : "No per-app summary is available yet.")
+    private var rightRailPanel: some View {
+        sectionCard {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Top Apps")
+                    .font(.subheadline.weight(.semibold))
+                Text(
+                    isChinese
+                        ? "右侧只保留 App 摘要和操作，不和主列表抢宽度。"
+                        : "Keep app comparisons and actions in the narrow rail."
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
+
+            if topAppItems.isEmpty {
+                Text(isChinese ? "当前还没有按 App 的统计结果。" : "No per-app summary is available yet.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(displayedPerAppItems) { item in
-                        VoiceUsageAppSummaryRow(summary: item.summary)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(topAppItems) { item in
+                        VoiceUsageTopAppRow(item: item)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if !snapshot.perAppItems.isEmpty {
+                Button(showAllApps ? (isChinese ? "收起 App 列表" : "Collapse Apps") : (isChinese ? "查看全部 App" : "View All Apps")) {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showAllApps.toggle()
+                    }
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
 
                 if !showAllApps && remainingAppCount > 0 {
                     Text(
@@ -2693,67 +2648,26 @@ private struct VoiceUsageInsightsCard: View {
                             ? "其余 \(remainingAppCount) 个 App 已折叠。"
                             : "\(remainingAppCount) more apps are hidden."
                     )
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
                 }
             }
-        }
-    }
 
-    private var diagnosticsSummaryPanel: some View {
-        sectionCard {
-            Text(isChinese ? "诊断上下文" : "Diagnostics Context")
-                .font(.subheadline.weight(.semibold))
-
-            Text(
-                isChinese
-                    ? "右侧只保留诊断判断需要的上下文，不在这里继续做浏览。"
-                    : "Keep only the diagnostic context required for export and triage on the right rail."
-            )
-            .font(.caption)
-            .foregroundColor(.secondary)
-
-            LazyVGrid(columns: summaryColumns, alignment: .leading, spacing: 10) {
-                VoiceUsageSummaryBadge(
-                    title: "Locale",
-                    value: snapshot.diagnostics.localeIdentifier,
-                    detail: isChinese ? "当前语音语言上下文" : "Current speech locale context"
-                )
-                VoiceUsageSummaryBadge(
-                    title: isChinese ? "诊断历史" : "Retained Events",
-                    value: formattedEntries(snapshot.diagnostics.retainedHistoryCount),
-                    detail: isChinese ? "复制诊断历史会导出全部保留条目" : "Diagnostic export includes all retained entries"
-                )
-                VoiceUsageSummaryBadge(
-                    title: isChinese ? "AI 提示样本" : "AI Prompt Sample",
-                    value: formattedEntries(snapshot.diagnostics.aiPromptEventCount),
-                    detail: isChinese
-                        ? "最多带入最近 \(snapshot.diagnostics.aiPromptEventLimit) 条事件"
-                        : "Uses up to the latest \(snapshot.diagnostics.aiPromptEventLimit) events"
-                )
-                VoiceUsageSummaryBadge(
-                    title: isChinese ? "App 规则" : "Custom Rules",
-                    value: formattedEntries(snapshot.diagnostics.customRuleCount),
-                    detail: isChinese ? "AI 提示会附带当前自定义 App 规则" : "AI prompt includes current custom app rules"
-                )
-            }
-        }
-    }
-
-    private var diagnosticsActionPanel: some View {
-        sectionCard {
-            Text(isChinese ? "导出与调试" : "Export & Debug")
-                .font(.subheadline.weight(.semibold))
-
-            Text(
-                isChinese
-                    ? "导出动作留在右侧，不再和活动浏览混排。"
-                    : "Keep export actions on the right so they do not interrupt the browsing flow."
-            )
-            .font(.caption)
-            .foregroundColor(.secondary)
+            Divider()
 
             VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(isChinese ? "导出与诊断" : "Export & Diagnostics")
+                        .font(.subheadline.weight(.semibold))
+                    Text(
+                        isChinese
+                            ? "复制会导出全部保留记录；AI Prompt 会附带最近 \(snapshot.diagnostics.aiPromptEventCount) 条历史和当前自定义规则。"
+                            : "Diagnostic copy exports all retained entries. The AI prompt includes the latest \(snapshot.diagnostics.aiPromptEventCount) events and current custom rules."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+
                 Button(LocalizedStringKey("insights.copy_diagnostic_history")) {
                     do {
                         try appState.copyVoiceUsageHistoryForDiagnostics()
@@ -2788,85 +2702,71 @@ private struct VoiceUsageInsightsCard: View {
             .controlSize(.small)
             .buttonStyle(.bordered)
 
-            Text(LocalizedStringKey("insights.usage_description"))
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-    }
+            Divider()
 
-    private var recordingPolicyPanel: some View {
-        sectionCard {
-            Text(isChinese ? "记录与保留策略" : "Recording & Retention")
-                .font(.subheadline.weight(.semibold))
-
-            Toggle(isOn: $appState.isVoiceUsageHistoryEnabled) {
+            VStack(alignment: .leading, spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(LocalizedStringKey("insights.capture_toggle_title"))
-                        .font(.subheadline.weight(.semibold))
-                    Text(LocalizedStringKey("insights.capture_toggle_hint"))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            .controlSize(.small)
-            .toggleStyle(.switch)
-
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(isChinese ? "保留上限" : "Retention Limit")
+                    Text(isChinese ? "数据与保留" : "Data & Retention")
                         .font(.subheadline.weight(.semibold))
                     Text(
                         isChinese
-                            ? "默认保留最近 1000 条，可按 100 条为单位调整。"
-                            : "Defaults to the latest 1000 entries and can be adjusted in steps of 100."
+                            ? "记录开关和保留上限放右侧，不打断主区浏览。"
+                            : "Keep tracking and retention controls in the right rail."
                     )
                     .font(.caption)
                     .foregroundColor(.secondary)
                 }
-                Spacer()
-                Stepper(
-                    value: $appState.voiceUsageHistoryLimit,
-                    in: 100...5000,
-                    step: 100
-                ) {
-                    Text(formattedEntries(appState.voiceUsageHistoryLimit))
-                        .font(.subheadline.monospacedDigit())
-                        .frame(minWidth: 86, alignment: .trailing)
+
+                Toggle(isOn: $appState.isVoiceUsageHistoryEnabled) {
+                    Text(LocalizedStringKey("insights.capture_toggle_title"))
+                        .font(.caption)
                 }
-                .frame(width: 194)
-            }
+                .controlSize(.small)
+                .toggleStyle(.switch)
 
-            Text(LocalizedStringKey("insights.summary_history_scope"))
-                .font(.caption)
-                .foregroundColor(.secondary)
+                HStack(alignment: .center, spacing: 10) {
+                    Text(isChinese ? "保留上限" : "Retention Limit")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    Spacer(minLength: 8)
+                    Stepper(
+                        value: $appState.voiceUsageHistoryLimit,
+                        in: 100...5000,
+                        step: 100
+                    ) {
+                        Text(formattedEntries(appState.voiceUsageHistoryLimit))
+                            .font(.caption.monospacedDigit())
+                            .frame(minWidth: 72, alignment: .trailing)
+                    }
+                    .frame(width: 180)
+                }
 
-            if !appState.isVoiceUsageHistoryEnabled {
                 Text(
-                    hasHistoryData
-                        ? (isChinese
-                            ? "记录已关闭，已保留 \(snapshot.dashboard.retainedHistoryCount) 条历史数据。"
-                            : "Tracking is off. \(snapshot.dashboard.retainedHistoryCount) history items are retained.")
-                        : (isChinese ? "记录已关闭，当前没有历史数据。" : "Tracking is off and there is no history yet.")
+                    appState.isVoiceUsageHistoryEnabled
+                        ? (isChinese ? "新事件会继续追加到本地历史。" : "New events continue to be stored locally.")
+                        : (hasHistoryData
+                            ? (isChinese ? "记录已关闭，旧历史仍然保留。" : "Tracking is off. Existing history is still retained.")
+                            : (isChinese ? "记录已关闭，当前没有历史数据。" : "Tracking is off and there is no history yet."))
                 )
-                .font(.caption)
+                .font(.caption2)
                 .foregroundColor(.secondary)
             }
-        }
-    }
 
-    private var dangerZonePanel: some View {
-        sectionCard {
-            Text(isChinese ? "危险操作" : "Danger Zone")
-                .font(.subheadline.weight(.semibold))
-            Text(
-                isChinese
-                    ? "重置统计会清空累计概览和按 App 汇总；清空数据只删除历史条目。"
-                    : "Reset Statistics clears cumulative and per-app totals. Clear Data deletes retained history entries only."
-            )
-            .font(.caption)
-            .foregroundColor(.secondary)
+            Divider()
 
             VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(isChinese ? "危险操作" : "Danger Zone")
+                        .font(.subheadline.weight(.semibold))
+                    Text(
+                        isChinese
+                            ? "重置统计会清空累计概览；清空数据只删除保留历史。"
+                            : "Reset Statistics clears cumulative totals. Clear Data deletes retained history only."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+
                 Button(String(localized: "insights.reset_statistics")) {
                     showingResetStatisticsConfirm = true
                 }
@@ -2883,26 +2783,69 @@ private struct VoiceUsageInsightsCard: View {
             }
         }
     }
+
+    private var expandedPerAppPanel: some View {
+        sectionCard {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(isChinese ? "按 App 详情" : "Per-App Details")
+                        .font(.subheadline.weight(.semibold))
+                    Text(
+                        isChinese
+                            ? "展开后查看全部 App 统计，默认首屏保持摘要。"
+                            : "Expanded only on demand so the first screen stays compact."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button(isChinese ? "收起" : "Collapse") {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showAllApps = false
+                    }
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(snapshot.perAppItems) { item in
+                    VoiceUsageAppSummaryRow(summary: item.summary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
 }
 
 private struct VoiceUsageStatusChip: View {
     let title: String
     let value: String
+    var detail: String? = nil
     var tint: Color = .accentColor
     var usesNeutralBackground: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(title)
                 .font(.caption2)
                 .foregroundColor(.secondary)
             Text(value)
-                .font(.caption.weight(.semibold).monospacedDigit())
+                .font(.subheadline.weight(.semibold).monospacedDigit())
                 .foregroundColor(usesNeutralBackground ? .primary : tint)
+                .lineLimit(1)
+            if let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .frame(minWidth: 110, alignment: .leading)
+        .frame(minHeight: 68, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             (usesNeutralBackground ? Color(nsColor: .controlBackgroundColor) : tint)
                 .opacity(usesNeutralBackground ? 0.8 : 0.12)
@@ -2912,6 +2855,57 @@ private struct VoiceUsageStatusChip: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color.primary.opacity(usesNeutralBackground ? 0.06 : 0), lineWidth: 1)
         }
+    }
+}
+
+private struct VoiceUsageTopAppRow: View {
+    let item: AppState.UsageInsightsPerAppItem
+
+    private var isChinese: Bool {
+        AppLocalization.isChinese
+    }
+
+    private var issueRateText: String {
+        guard item.summary.total > 0 else { return "0%" }
+        let rate = Double(item.issueCount) / Double(item.summary.total)
+        return String(format: "%.0f%%", max(0, min(100, rate * 100)))
+    }
+
+    private var bundleText: String {
+        item.summary.bundleIdentifier
+    }
+
+    private var showsBundleHelp: Bool {
+        !bundleText.isEmpty && bundleText != item.summary.appName
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            SpeechAppIcon(bundleID: item.summary.bundleIdentifier)
+                .frame(width: 20, height: 20)
+
+            Text(item.summary.appName)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .help(showsBundleHelp ? bundleText : "")
+
+            Spacer(minLength: 8)
+
+            Text("\(item.summary.total)")
+                .font(.caption.monospacedDigit())
+                .foregroundColor(.secondary)
+                .frame(minWidth: 28, alignment: .trailing)
+
+            Text(issueRateText)
+                .font(.caption.monospacedDigit())
+                .foregroundColor(item.issueCount > 0 ? .orange : .secondary)
+                .frame(minWidth: 32, alignment: .trailing)
+                .help(isChinese ? "问题率" : "Issue rate")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -3172,6 +3166,23 @@ private struct VoiceUsageEventRow: View {
         !bundleText.isEmpty && bundleText != event.appName
     }
 
+    private var previewText: String {
+        if let content = event.content, !content.isEmpty {
+            return content.replacingOccurrences(of: "\n", with: " ")
+        }
+        if let spokenText = event.spokenText, !spokenText.isEmpty {
+            return isChinese ? "原词：\(spokenText)" : "Heard: \(spokenText)"
+        }
+        if event.kind == .dictation {
+            return isChinese ? "（空文本）" : "(empty text)"
+        }
+        return displayAction
+    }
+
+    private var previewColor: Color {
+        event.kind == .dictation ? .primary : .secondary
+    }
+
     private func copyEvent() {
         do {
             try appState.copyVoiceUsageEvent(event)
@@ -3188,77 +3199,52 @@ private struct VoiceUsageEventRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 10) {
-                SpeechAppIcon(bundleID: event.bundleIdentifier)
-                    .frame(width: 28, height: 28)
+        HStack(alignment: .center, spacing: 10) {
+            SpeechAppIcon(bundleID: event.bundleIdentifier)
+                .frame(width: 22, height: 22)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(event.appName)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                            .help(showsBundleHelp ? bundleText : "")
-                        Spacer(minLength: 8)
-                        Text(timeText)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundColor(.secondary)
-                        Button {
-                            copyEvent()
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                                .font(.caption2)
-                                .frame(width: 16, height: 16)
-                        }
-                        .buttonStyle(.borderless)
-                        .help(String(localized: "insights.copy_event"))
-                        .opacity(isHovering ? 1 : 0)
-                        .allowsHitTesting(isHovering)
-                        .accessibilityHidden(!isHovering)
-                    }
+            Text(event.appName)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .help(showsBundleHelp ? bundleText : "")
+                .frame(minWidth: 84, idealWidth: 110, maxWidth: 140, alignment: .leading)
 
-                    HStack(spacing: 6) {
-                        Label(displayAction, systemImage: eventIcon)
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(eventTint)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(eventTint.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            Label(displayAction, systemImage: eventIcon)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(eventTint)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(eventTint.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .frame(minWidth: 78, alignment: .leading)
 
-                        if let spokenText = event.spokenText, !spokenText.isEmpty, event.content == nil || event.content?.isEmpty == true {
-                            Text(isChinese ? "原词：\(spokenText)" : "Heard: \(spokenText)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                    }
-                }
+            Text(previewText)
+                .font(.caption)
+                .foregroundColor(previewColor)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            }
 
-            if let content = event.content, !content.isEmpty {
-                Text(content)
-                    .font(.caption)
-                    .foregroundColor(.primary)
-                    .lineLimit(3)
-                    .padding(.leading, 38)
-            } else if let spokenText = event.spokenText, !spokenText.isEmpty {
-                Text(isChinese ? "原词：\(spokenText)" : "Heard: \(spokenText)")
-                    .font(.caption)
-                    .foregroundColor(.primary)
-                    .lineLimit(3)
-                    .padding(.leading, 38)
-            } else if event.kind == .dictation {
-                Text(isChinese ? "（空文本）" : "(empty text)")
+            Text(timeText)
+                .font(.caption2.monospacedDigit())
+                .foregroundColor(.secondary)
+                .frame(width: 58, alignment: .trailing)
+
+            Button {
+                copyEvent()
+            } label: {
+                Image(systemName: "doc.on.doc")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .padding(.leading, 38)
+                    .frame(width: 16, height: 16)
             }
+            .buttonStyle(.borderless)
+            .help(String(localized: "insights.copy_event"))
+            .opacity(isHovering ? 1 : 0)
+            .allowsHitTesting(isHovering)
+            .accessibilityHidden(!isHovering)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.58 : 0.46))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
