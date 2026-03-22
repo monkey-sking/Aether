@@ -2265,6 +2265,10 @@ private struct VoiceUsageInsightsCard: View {
         Array(snapshot.perAppItems.prefix(4))
     }
 
+    private var displayedAppItems: [AppState.UsageInsightsPerAppItem] {
+        showAllApps ? snapshot.perAppItems : topAppItems
+    }
+
     private var remainingAppCount: Int {
         max(snapshot.perAppItems.count - topAppItems.count, 0)
     }
@@ -2351,10 +2355,6 @@ private struct VoiceUsageInsightsCard: View {
                 headerRow
                 topMetricsStrip
                 mainContent
-
-                if showAllApps {
-                    expandedPerAppPanel
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -2610,25 +2610,42 @@ private struct VoiceUsageInsightsCard: View {
     private var rightRailPanel: some View {
         sectionCard {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Top Apps")
+                Text(showAllApps ? (isChinese ? "按 App" : "All Apps") : "Top Apps")
                     .font(.subheadline.weight(.semibold))
                 Text(
-                    isChinese
-                        ? "右侧只保留 App 摘要和操作，不和主列表抢宽度。"
-                        : "Keep app comparisons and actions in the narrow rail."
+                    showAllApps
+                        ? (isChinese
+                            ? "在右侧原位展开全部 App，不再把列表追加到页面底部。"
+                            : "Expand all apps in place in the right rail instead of appending a second list below.")
+                        : (isChinese
+                            ? "右侧只保留 App 摘要和操作，不和主列表抢宽度。"
+                            : "Keep app comparisons and actions in the narrow rail.")
                 )
                 .font(.caption)
                 .foregroundColor(.secondary)
             }
 
-            if topAppItems.isEmpty {
+            if displayedAppItems.isEmpty {
                 Text(isChinese ? "当前还没有按 App 的统计结果。" : "No per-app summary is available yet.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(topAppItems) { item in
-                        VoiceUsageTopAppRow(item: item)
+                Group {
+                    if showAllApps {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(displayedAppItems) { item in
+                                    VoiceUsageTopAppRow(item: item)
+                                }
+                            }
+                        }
+                        .frame(maxHeight: 300)
+                    } else {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(displayedAppItems) { item in
+                                VoiceUsageTopAppRow(item: item)
+                            }
+                        }
                     }
                 }
             }
@@ -2781,39 +2798,6 @@ private struct VoiceUsageInsightsCard: View {
                 .buttonStyle(.bordered)
                 .disabled(!hasHistoryData)
             }
-        }
-    }
-
-    private var expandedPerAppPanel: some View {
-        sectionCard {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(isChinese ? "按 App 详情" : "Per-App Details")
-                        .font(.subheadline.weight(.semibold))
-                    Text(
-                        isChinese
-                            ? "展开后查看全部 App 统计，默认首屏保持摘要。"
-                            : "Expanded only on demand so the first screen stays compact."
-                    )
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                }
-                Spacer()
-                Button(isChinese ? "收起" : "Collapse") {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        showAllApps = false
-                    }
-                }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(snapshot.perAppItems) { item in
-                    VoiceUsageAppSummaryRow(summary: item.summary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
