@@ -766,6 +766,114 @@ class AppState: ObservableObject {
         }
     }
 
+    enum UsageInsightsTab: String, CaseIterable, Identifiable {
+        case overview
+        case activity
+        case diagnostics
+        case data
+
+        var id: String { rawValue }
+    }
+
+    enum UsageInsightsPerAppSortOption: String, CaseIterable, Identifiable {
+        case issuePriority
+        case total
+
+        var id: String { rawValue }
+    }
+
+    enum UsageInsightsRecentActivityFilter: String, CaseIterable, Identifiable {
+        case all
+        case issues
+        case dictation
+        case control
+
+        var id: String { rawValue }
+    }
+
+    enum UsageInsightsEventOutcome: String, Equatable {
+        case dictation
+        case control
+        case failure
+        case unmatched
+        case mismatch
+        case anomaly
+        case other
+    }
+
+    enum UsageInsightsReasonCode: String, Equatable {
+        case dictation
+        case command
+        case unknownCommand
+        case recognitionFailed
+        case recognitionInterrupted
+        case recognitionUnavailable
+        case inputFailed
+        case inputUnverified
+        case dictationDisabled
+        case noSpeech
+        case unmatched
+        case noInputTarget
+        case dictationWhileControl
+        case other
+    }
+
+    struct UsageInsightsEventRecord: Identifiable, Equatable {
+        let source: VoiceUsageEvent
+        let outcome: UsageInsightsEventOutcome
+        let reasonCode: UsageInsightsReasonCode
+
+        var id: String { source.id }
+        var isIssue: Bool {
+            switch outcome {
+            case .failure, .unmatched, .mismatch, .anomaly:
+                return true
+            case .dictation, .control, .other:
+                return false
+            }
+        }
+
+        var isNoSpeech: Bool {
+            outcome == .anomaly && reasonCode == .noSpeech
+        }
+    }
+
+    struct UsageInsightsDashboardSnapshot {
+        let summary: VoiceUsageSummary
+        let issueEventCount: Int
+        let issueRate: Double
+        let retainedHistoryCount: Int
+        let retentionLimit: Int
+    }
+
+    struct UsageInsightsPerAppItem: Identifiable {
+        let summary: VoiceUsageAppSummary
+
+        var id: String { summary.id }
+        var issueCount: Int {
+            summary.failureCount + summary.unrecognizedCount + summary.mismatchCount
+        }
+        var anomalyCount: Int {
+            summary.noSpeechCount
+        }
+    }
+
+    struct UsageInsightsDiagnosticsSnapshot {
+        let localeIdentifier: String
+        let retainedHistoryCount: Int
+        let aiPromptEventCount: Int
+        let aiPromptEventLimit: Int
+        let customRuleCount: Int
+    }
+
+    struct UsageInsightsSnapshot {
+        let dashboard: UsageInsightsDashboardSnapshot
+        let perAppItems: [UsageInsightsPerAppItem]
+        let recentEvents: [UsageInsightsEventRecord]
+        let recentMatchingCount: Int
+        let diagnostics: UsageInsightsDiagnosticsSnapshot
+    }
+
     struct CustomAppShortcutRulesBackup: Codable {
         var version: Int = 1
         var exportedAt: Date = Date()
@@ -1615,6 +1723,63 @@ class AppState: ObservableObject {
         storedVoiceUsageAppSummaries
     }
 
+    var usageInsightsAIPromptMaxEvents: Int {
+        Self.aiPromptMaxEventsDefault
+    }
+
+    func usageInsightsSnapshot(
+        showNoSpeechEvents: Bool,
+        recentFilter: UsageInsightsRecentActivityFilter,
+        perAppSort: UsageInsightsPerAppSortOption,
+        recentLimit: Int = 30
+    ) -> UsageInsightsSnapshot {
+        let summary = voiceUsageSummary
+        let issueEventCount = summary.failureCount + summary.unrecognizedCount + summary.mismatchCount
+        let issueRate = summary.total > 0 ? Double(issueEventCount) / Double(summary.total) : 0
+
+        let classifiedEvents = voiceUsageHistory.map(Self.classifyUsageInsightsEvent)
+        let filteredEvents = classifiedEvents.filter { record in
+            if !showNoSpeechEvents && record.isNoSpeech {
+                return false
+            }
+            switch recentFilter {
+            case .all:
+                return true
+            case .issues:
+                return record.isIssue
+            case .dictation:
+                return record.source.kind == .dictation
+            case .control:
+                return record.source.kind == .control
+            }
+        }
+
+        let perAppItems = sortedUsageInsightsPerAppItems(
+            storedVoiceUsageAppSummaries.map { UsageInsightsPerAppItem(summary: $0) },
+            by: perAppSort
+        )
+
+        return UsageInsightsSnapshot(
+            dashboard: UsageInsightsDashboardSnapshot(
+                summary: summary,
+                issueEventCount: issueEventCount,
+                issueRate: issueRate,
+                retainedHistoryCount: voiceUsageHistory.count,
+                retentionLimit: voiceUsageHistoryLimit
+            ),
+            perAppItems: perAppItems,
+            recentEvents: Array(filteredEvents.prefix(recentLimit)),
+            recentMatchingCount: filteredEvents.count,
+            diagnostics: UsageInsightsDiagnosticsSnapshot(
+                localeIdentifier: voiceService.effectiveLocaleIdentifier,
+                retainedHistoryCount: voiceUsageHistory.count,
+                aiPromptEventCount: min(voiceUsageHistory.count, Self.aiPromptMaxEventsDefault),
+                aiPromptEventLimit: Self.aiPromptMaxEventsDefault,
+                customRuleCount: customAppShortcutRules.count
+            )
+        )
+    }
+
     /// Clears event history and all derived voice-usage aggregates in one operation.
     func clearVoiceUsageData() {
         voiceUsageHistory = []
@@ -1643,6 +1808,101 @@ class AppState: ObservableObject {
     private static func localizedVoiceUsageAction(_ key: String, fallback: String) -> String {
         let value = NSLocalizedString(key, comment: "")
         return value == key ? fallback : value
+    }
+
+    static func classifyUsageInsightsEvent(_ entry: VoiceUsageEvent) -> UsageInsightsEventRecord {
+        let recognitionFailed = localizedVoiceUsageAction(
+            "voice_usage.failure.recognition_failed",
+            fallback: "Recognition Failed"
+        )
+        let recognitionInterrupted = localizedVoiceUsageAction(
+            "voice_usage.failure.interrupted",
+            fallback: "Recognition Interrupted"
+        )
+        let recognitionUnavailable = localizedVoiceUsageAction(
+            "voice_usage.failure.unavailable",
+            fallback: "Recognition Unavailable"
+        )
+        let inputFailed = localizedVoiceUsageAction(
+            "voice_usage.failure.injection_failed",
+            fallback: "Input Failed"
+        )
+        let inputUnverified = localizedVoiceUsageAction(
+            "voice_usage.failure.injection_unverified",
+            fallback: "Input Unverified"
+        )
+        let dictationDisabled = localizedVoiceUsageAction(
+            "voice_usage.failure.dictation_disabled",
+            fallback: "Voice Input Off"
+        )
+        let noSpeech = localizedVoiceUsageAction(
+            "voice_usage.failure.no_speech",
+            fallback: "No Speech Detected"
+        )
+        let unknownCommand = NSLocalizedString("intent.unknown", comment: "")
+
+        if isVoiceUsageSuccessfulDictation(entry) {
+            return UsageInsightsEventRecord(source: entry, outcome: .dictation, reasonCode: .dictation)
+        }
+
+        if isVoiceUsageNoSpeech(entry) {
+            return UsageInsightsEventRecord(source: entry, outcome: .anomaly, reasonCode: .noSpeech)
+        }
+
+        if isVoiceUsageFailure(entry) {
+            let reasonCode: UsageInsightsReasonCode
+            switch entry.action {
+            case recognitionInterrupted, "Recognition Interrupted", "识别已中断":
+                reasonCode = .recognitionInterrupted
+            case recognitionUnavailable, "Recognition Unavailable", "识别服务不可用":
+                reasonCode = .recognitionUnavailable
+            case inputFailed, "Input Failed", "输入失败":
+                reasonCode = .inputFailed
+            case inputUnverified, "Input Unverified", "输入未确认":
+                reasonCode = .inputUnverified
+            case dictationDisabled, "Voice Input Off", "语音输入已关闭":
+                reasonCode = .dictationDisabled
+            case noSpeech, "No Speech Detected", "未识别到人声":
+                reasonCode = .noSpeech
+            case recognitionFailed, "Recognition Failed", "识别失败":
+                reasonCode = .recognitionFailed
+            default:
+                reasonCode = .other
+            }
+            return UsageInsightsEventRecord(source: entry, outcome: .failure, reasonCode: reasonCode)
+        }
+
+        if isVoiceUsageUnrecognized(entry) {
+            let reasonCode: UsageInsightsReasonCode
+            switch entry.action {
+            case "未输入（无输入框）", "No Input Target":
+                reasonCode = .noInputTarget
+            default:
+                reasonCode = .unmatched
+            }
+            return UsageInsightsEventRecord(source: entry, outcome: .unmatched, reasonCode: reasonCode)
+        }
+
+        if isVoiceUsageHUDControlMismatch(entry) {
+            return UsageInsightsEventRecord(
+                source: entry,
+                outcome: .mismatch,
+                reasonCode: .dictationWhileControl
+            )
+        }
+
+        if entry.kind == .control {
+            let reasonCode: UsageInsightsReasonCode
+            switch entry.action {
+            case unknownCommand, "No Matching Command", "未匹配命令":
+                reasonCode = .unknownCommand
+            default:
+                reasonCode = .command
+            }
+            return UsageInsightsEventRecord(source: entry, outcome: .control, reasonCode: reasonCode)
+        }
+
+        return UsageInsightsEventRecord(source: entry, outcome: .other, reasonCode: .other)
     }
 
     private static func isVoiceUsageFailure(_ entry: VoiceUsageEvent) -> Bool {
@@ -1796,6 +2056,34 @@ class AppState: ObservableObject {
                 return $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
             }
             return $0.total > $1.total
+        }
+    }
+
+    private func sortedUsageInsightsPerAppItems(
+        _ items: [UsageInsightsPerAppItem],
+        by sort: UsageInsightsPerAppSortOption
+    ) -> [UsageInsightsPerAppItem] {
+        switch sort {
+        case .issuePriority:
+            return items.sorted { lhs, rhs in
+                if lhs.issueCount == rhs.issueCount {
+                    if lhs.anomalyCount != rhs.anomalyCount {
+                        return lhs.anomalyCount > rhs.anomalyCount
+                    }
+                    if lhs.summary.total == rhs.summary.total {
+                        return lhs.summary.appName.localizedCaseInsensitiveCompare(rhs.summary.appName) == .orderedAscending
+                    }
+                    return lhs.summary.total > rhs.summary.total
+                }
+                return lhs.issueCount > rhs.issueCount
+            }
+        case .total:
+            return items.sorted { lhs, rhs in
+                if lhs.summary.total == rhs.summary.total {
+                    return lhs.summary.appName.localizedCaseInsensitiveCompare(rhs.summary.appName) == .orderedAscending
+                }
+                return lhs.summary.total > rhs.summary.total
+            }
         }
     }
 

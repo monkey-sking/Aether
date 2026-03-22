@@ -122,3 +122,61 @@ final class AppStateLockScreenTests: XCTestCase {
         )
     }
 }
+
+@MainActor
+final class AppStateUsageInsightsTests: XCTestCase {
+    private func makeEvent(
+        kind: AppState.VoiceUsageEventKind,
+        action: String,
+        content: String? = nil
+    ) -> AppState.VoiceUsageEvent {
+        AppState.VoiceUsageEvent(
+            appName: "Notes",
+            bundleIdentifier: "com.apple.Notes",
+            kind: kind,
+            action: action,
+            content: content
+        )
+    }
+
+    func testSuccessfulDictationMapsToStableDictationOutcome() {
+        let record = AppState.classifyUsageInsightsEvent(
+            makeEvent(kind: .dictation, action: "Dictation", content: "hello world")
+        )
+
+        XCTAssertEqual(record.outcome, .dictation)
+        XCTAssertEqual(record.reasonCode, .dictation)
+        XCTAssertFalse(record.isIssue)
+    }
+
+    func testNoSpeechMapsToAnomalyOutcome() {
+        let record = AppState.classifyUsageInsightsEvent(
+            makeEvent(kind: .dictation, action: "No Speech Detected")
+        )
+
+        XCTAssertEqual(record.outcome, .anomaly)
+        XCTAssertEqual(record.reasonCode, .noSpeech)
+        XCTAssertTrue(record.isIssue)
+        XCTAssertTrue(record.isNoSpeech)
+    }
+
+    func testNoInputTargetMapsToUnmatchedReason() {
+        let record = AppState.classifyUsageInsightsEvent(
+            makeEvent(kind: .dictation, action: "No Input Target")
+        )
+
+        XCTAssertEqual(record.outcome, .unmatched)
+        XCTAssertEqual(record.reasonCode, .noInputTarget)
+        XCTAssertTrue(record.isIssue)
+    }
+
+    func testUnknownControlMapsToStableUnknownCommandReason() {
+        let record = AppState.classifyUsageInsightsEvent(
+            makeEvent(kind: .control, action: "No Matching Command")
+        )
+
+        XCTAssertEqual(record.outcome, .control)
+        XCTAssertEqual(record.reasonCode, .unknownCommand)
+        XCTAssertFalse(record.isIssue)
+    }
+}
