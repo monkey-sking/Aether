@@ -2334,6 +2334,21 @@ private struct VoiceUsageInsightsCard: View {
         }
     }
 
+    private var appOverviewTitle: String {
+        isChinese ? "问题较多的 App" : "Apps with More Issues"
+    }
+
+    private var appOverviewSubtitle: String {
+        if showAllApps {
+            return isChinese
+                ? "按问题优先显示全部 App，并列出总数和问题率。"
+                : "Shows all apps with total activity and issue rate, ordered by issues first."
+        }
+        return isChinese
+            ? "优先显示问题较多的 App，并列出总数和问题率。"
+            : "Highlights apps with more issues first, alongside total activity and issue rate."
+    }
+
     @ViewBuilder
     private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -2401,7 +2416,7 @@ private struct VoiceUsageInsightsCard: View {
                 .foregroundColor(.secondary)
             }
             Spacer(minLength: 12)
-            Button(showAllRecentEvents ? (isChinese ? "收起历史" : "Collapse History") : (isChinese ? "查看全部历史" : "View Full History")) {
+            Button(showAllRecentEvents ? (isChinese ? "收起记录" : "Show Less") : (isChinese ? "查看更多记录" : "Show More")) {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     showAllRecentEvents.toggle()
                 }
@@ -2418,7 +2433,7 @@ private struct VoiceUsageInsightsCard: View {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 10) {
                     VoiceUsageStatusChip(
-                        title: isChinese ? "记录" : "Tracking",
+                        title: isChinese ? "记录状态" : "Tracking",
                         value: appState.isVoiceUsageHistoryEnabled
                             ? (isChinese ? "开启" : "On")
                             : (isChinese ? "关闭" : "Off"),
@@ -2426,7 +2441,7 @@ private struct VoiceUsageInsightsCard: View {
                         usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
                     )
                     VoiceUsageStatusChip(
-                        title: isChinese ? "保留" : "Retained",
+                        title: isChinese ? "历史条数" : "Saved History",
                         value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
                         detail: isChinese
                             ? "上限 \(appState.voiceUsageHistoryLimit) 条"
@@ -2434,13 +2449,13 @@ private struct VoiceUsageInsightsCard: View {
                         tint: .accentColor
                     )
                     VoiceUsageStatusChip(
-                        title: "Locale",
+                        title: isChinese ? "识别语言" : "Speech Language",
                         value: snapshot.diagnostics.localeIdentifier,
                         tint: .primary,
                         usesNeutralBackground: true
                     )
                     VoiceUsageStatusChip(
-                        title: isChinese ? "总计" : "Total",
+                        title: isChinese ? "总使用次数" : "Total Activity",
                         value: formattedEntries(summary.total),
                         detail: totalDetailText(summary),
                         tint: .accentColor
@@ -2452,7 +2467,7 @@ private struct VoiceUsageInsightsCard: View {
                         tint: snapshot.dashboard.issueEventCount > 0 ? .orange : .green
                     )
                     VoiceUsageStatusChip(
-                        title: isChinese ? "异常" : "Anomalies",
+                        title: isChinese ? "环境问题" : "Environment Issues",
                         value: formattedEntries(summary.noSpeechCount),
                         detail: isChinese ? "未识别到人声等环境问题" : "No-speech and environment issues",
                         tint: summary.noSpeechCount > 0 ? .yellow : .secondary
@@ -2461,7 +2476,7 @@ private struct VoiceUsageInsightsCard: View {
 
                 LazyVGrid(columns: topMetricColumns, alignment: .leading, spacing: 10) {
                     VoiceUsageStatusChip(
-                        title: isChinese ? "记录" : "Tracking",
+                        title: isChinese ? "记录状态" : "Tracking",
                         value: appState.isVoiceUsageHistoryEnabled
                             ? (isChinese ? "开启" : "On")
                             : (isChinese ? "关闭" : "Off"),
@@ -2469,7 +2484,7 @@ private struct VoiceUsageInsightsCard: View {
                         usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
                     )
                     VoiceUsageStatusChip(
-                        title: isChinese ? "保留" : "Retained",
+                        title: isChinese ? "历史条数" : "Saved History",
                         value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
                         detail: isChinese
                             ? "上限 \(appState.voiceUsageHistoryLimit) 条"
@@ -2477,13 +2492,13 @@ private struct VoiceUsageInsightsCard: View {
                         tint: .accentColor
                     )
                     VoiceUsageStatusChip(
-                        title: "Locale",
+                        title: isChinese ? "识别语言" : "Speech Language",
                         value: snapshot.diagnostics.localeIdentifier,
                         tint: .primary,
                         usesNeutralBackground: true
                     )
                     VoiceUsageStatusChip(
-                        title: isChinese ? "总计" : "Total",
+                        title: isChinese ? "总使用次数" : "Total Activity",
                         value: formattedEntries(summary.total),
                         detail: totalDetailText(summary),
                         tint: .accentColor
@@ -2495,7 +2510,7 @@ private struct VoiceUsageInsightsCard: View {
                         tint: snapshot.dashboard.issueEventCount > 0 ? .orange : .green
                     )
                     VoiceUsageStatusChip(
-                        title: isChinese ? "异常" : "Anomalies",
+                        title: isChinese ? "环境问题" : "Environment Issues",
                         value: formattedEntries(summary.noSpeechCount),
                         detail: isChinese ? "未识别到人声等环境问题" : "No-speech and environment issues",
                         tint: summary.noSpeechCount > 0 ? .yellow : .secondary
@@ -2528,8 +2543,8 @@ private struct VoiceUsageInsightsCard: View {
                     .font(.subheadline.weight(.semibold))
                 Text(
                     isChinese
-                        ? "首屏只显示最近几条，主区专门留给浏览。"
-                        : "Keep the center area focused on browsing the latest activity."
+                        ? "查看最近的输入、控制和问题记录。"
+                        : "Review recent dictation, control, and issue events."
                 )
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -2595,7 +2610,7 @@ private struct VoiceUsageInsightsCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 if hasMoreRecentEvents {
-                    Button(isChinese ? "更多活动…" : "More Activity…") {
+                    Button(isChinese ? "查看更多记录" : "Show More") {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             showAllRecentEvents = true
                         }
@@ -2610,17 +2625,9 @@ private struct VoiceUsageInsightsCard: View {
     private var rightRailPanel: some View {
         sectionCard {
             VStack(alignment: .leading, spacing: 4) {
-                Text(showAllApps ? (isChinese ? "按 App" : "All Apps") : "Top Apps")
+                Text(appOverviewTitle)
                     .font(.subheadline.weight(.semibold))
-                Text(
-                    showAllApps
-                        ? (isChinese
-                            ? "在右侧原位展开全部 App，不再把列表追加到页面底部。"
-                            : "Expand all apps in place in the right rail instead of appending a second list below.")
-                        : (isChinese
-                            ? "右侧只保留 App 摘要和操作，不和主列表抢宽度。"
-                            : "Keep app comparisons and actions in the narrow rail.")
-                )
+                Text(appOverviewSubtitle)
                 .font(.caption)
                 .foregroundColor(.secondary)
             }
@@ -2630,6 +2637,19 @@ private struct VoiceUsageInsightsCard: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    Text(isChinese ? "总数" : "Total")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .frame(width: 40, alignment: .trailing)
+                    Text(isChinese ? "问题率" : "Issue Rate")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .frame(width: 52, alignment: .trailing)
+                }
+                .padding(.horizontal, 8)
+
                 Group {
                     if showAllApps {
                         ScrollView {
@@ -2678,8 +2698,8 @@ private struct VoiceUsageInsightsCard: View {
                         .font(.subheadline.weight(.semibold))
                     Text(
                         isChinese
-                            ? "复制会导出全部保留记录；AI Prompt 会附带最近 \(snapshot.diagnostics.aiPromptEventCount) 条历史和当前自定义规则。"
-                            : "Diagnostic copy exports all retained entries. The AI prompt includes the latest \(snapshot.diagnostics.aiPromptEventCount) events and current custom rules."
+                            ? "导出诊断记录，或生成用于排查的 AI 提示。"
+                            : "Export diagnostics or generate an AI prompt for troubleshooting."
                     )
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -2727,8 +2747,8 @@ private struct VoiceUsageInsightsCard: View {
                         .font(.subheadline.weight(.semibold))
                     Text(
                         isChinese
-                            ? "记录开关和保留上限放右侧，不打断主区浏览。"
-                            : "Keep tracking and retention controls in the right rail."
+                            ? "管理记录开关和历史保留数量。"
+                            : "Manage tracking and how much history is retained."
                     )
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -2773,12 +2793,12 @@ private struct VoiceUsageInsightsCard: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(isChinese ? "危险操作" : "Danger Zone")
+                    Text(isChinese ? "重置与清除" : "Reset & Clear")
                         .font(.subheadline.weight(.semibold))
                     Text(
                         isChinese
-                            ? "重置统计会清空累计概览；清空数据只删除保留历史。"
-                            : "Reset Statistics clears cumulative totals. Clear Data deletes retained history only."
+                            ? "重置统计或清除本地历史记录。"
+                            : "Reset statistics or clear retained local history."
                     )
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -2878,12 +2898,12 @@ private struct VoiceUsageTopAppRow: View {
             Text("\(item.summary.total)")
                 .font(.caption.monospacedDigit())
                 .foregroundColor(.secondary)
-                .frame(minWidth: 28, alignment: .trailing)
+                .frame(width: 40, alignment: .trailing)
 
             Text(issueRateText)
                 .font(.caption.monospacedDigit())
                 .foregroundColor(item.issueCount > 0 ? .orange : .secondary)
-                .frame(minWidth: 32, alignment: .trailing)
+                .frame(width: 52, alignment: .trailing)
                 .help(isChinese ? "问题率" : "Issue rate")
         }
         .padding(.horizontal, 8)
