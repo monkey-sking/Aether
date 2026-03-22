@@ -90,6 +90,8 @@ final class WakeWordDetector {
         }
     }
 
+    static var diagnosticsThreshold: Double { fuzzyWakeDetectionThreshold }
+
     static func defaultWakePhrases(for localeIdentifier: String) -> [String] {
         guard let defaults = VoiceLexiconDefaults.load() else { return [] }
         let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
@@ -163,6 +165,12 @@ final class WakeWordDetector {
 
     func contextualStrings(for localeIdentifier: String) -> [String] {
         Self.effectiveWakePhrases(for: localeIdentifier, overrides: overrides)
+    }
+
+    func diagnosticsSummary(for localeIdentifier: String) -> String {
+        let phrases = contextualStrings(for: localeIdentifier)
+        let joined = phrases.isEmpty ? "[]" : "[" + phrases.joined(separator: " | ") + "]"
+        return "locale=\(localeIdentifier) threshold=\(String(format: "%.2f", Self.diagnosticsThreshold)) phrases=\(joined)"
     }
 
     private static func overrideEntry(

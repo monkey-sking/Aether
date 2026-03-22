@@ -361,6 +361,7 @@ final class SpeechManager: ObservableObject {
     private let commandHandler = CommandHandler()
     private let commandRouter = VoiceCommandRouter()
     private let injector = TextInjector()
+    private var lastWakeWordDiagnosticsSignature: String = ""
 
     // MARK: - Internal State
     var onIntent: ((VoiceIntent, String?, String?, String?) -> Void)?
@@ -2082,16 +2083,23 @@ final class SpeechManager: ObservableObject {
 
         // Wake word detection & stripping
         if isWakeWordEnabled && !isDirectCommandEnabled {
+            logWakeWordConfigurationIfNeeded(reason: "partial")
             let result = wakeWordDetector.process(text, localeIdentifier: activeLocale.identifier)
             wakeScore = result.score
             matchedWakePhrase = result.matchedPhrase
             if result.wakeDetected {
                 wakeWordDetected = true
                 if !isAwake {
-                    lastWakeTime = Date(); playWakeSound(reason: "partial-wake-word")
-                    if isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled { rearmInputTarget(reason: "wake-word") }
+                    handleWakeActivation(
+                        reason: "partial-wake-word",
+                        rearmReason: (isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled) ? "wake-word" : nil
+                    )
                 }
                 text = result.payload
+            } else if wakeScore > 0 {
+                GlobalLogger.speech.info(
+                    "[WakeWordMiss] phase=partial score=\(String(format: "%.2f", wakeScore)) matched=\(matchedWakePhrase ?? "nil") threshold=\(String(format: "%.2f", WakeWordDetector.diagnosticsThreshold)) raw='\(originalRawText)'"
+                )
             }
         }
 
@@ -2671,6 +2679,19 @@ final class SpeechManager: ObservableObject {
         NSSound(named: "Tink")?.play()
     }
 
+    private func handleWakeActivation(reason: String, rearmReason: String? = nil) {
+        lastWakeTime = Date()
+        GlobalLogger.speech.info(
+            "[WakeWord] activated reason=\(reason) hudBefore=\(String(describing: HUDManager.shared.state.mode)) transcript='\(lastTranscript)'"
+        )
+        playWakeSound(reason: reason)
+        if let rearmReason {
+            rearmInputTarget(reason: rearmReason)
+        }
+        clearUnarmedWakePreview()
+        refreshContinuousHUD(isDictating: false)
+    }
+
     // MARK: - handleTranscript (unified finalization)
     private func handleTranscript(_ transcript: String, utteranceID: Int? = nil) {
         let rawTrimmed = canonicalizedExplicitCommandPrefixText(
@@ -2685,22 +2706,45 @@ final class SpeechManager: ObservableObject {
         var matchedWakePhrase: String?
 
         if isDirectCommandEnabled {
+            logWakeWordConfigurationIfNeeded(reason: "final-direct-command")
             let wakeResult = wakeWordDetector.process(rawTrimmed, localeIdentifier: activeLocale.identifier)
             wakeScore = wakeResult.score
             matchedWakePhrase = wakeResult.matchedPhrase
             if isWakeWordEnabled && wakeResult.wakeDetected {
-                textToRoute = wakeResult.payload; wakeWordDetected = true; playWakeSound(reason: "direct-command-final-wake")
-            } else { textToRoute = rawTrimmed }
+                textToRoute = wakeResult.payload; wakeWordDetected = true; handleWakeActivation(reason: "direct-command-final-wake")
+            } else {
+                if isWakeWordEnabled && wakeScore > 0 {
+                    GlobalLogger.speech.info(
+                        "[WakeWordMiss] phase=final-direct-command score=\(String(format: "%.2f", wakeScore)) matched=\(matchedWakePhrase ?? "nil") threshold=\(String(format: "%.2f", WakeWordDetector.diagnosticsThreshold)) raw='\(rawTrimmed)'"
+                    )
+                }
+                textToRoute = rawTrimmed
+            }
         } else if isAlwaysListeningEnabled {
+            logWakeWordConfigurationIfNeeded(reason: "final-always-listening")
             let wakeResult = wakeWordDetector.process(rawTrimmed, localeIdentifier: activeLocale.identifier)
             wakeScore = wakeResult.score
             matchedWakePhrase = wakeResult.matchedPhrase
             if isAwake {
-                if wakeResult.wakeDetected { textToRoute = wakeResult.payload; wakeWordDetected = true; playWakeSound(reason: "always-listening-awake-final-wake") }
-                else { textToRoute = rawTrimmed }
+                if wakeResult.wakeDetected { textToRoute = wakeResult.payload; wakeWordDetected = true; handleWakeActivation(reason: "always-listening-awake-final-wake") }
+                else {
+                    if wakeScore > 0 {
+                        GlobalLogger.speech.info(
+                            "[WakeWordMiss] phase=final-awake score=\(String(format: "%.2f", wakeScore)) matched=\(matchedWakePhrase ?? "nil") threshold=\(String(format: "%.2f", WakeWordDetector.diagnosticsThreshold)) raw='\(rawTrimmed)'"
+                        )
+                    }
+                    textToRoute = rawTrimmed
+                }
             } else {
-                if wakeResult.wakeDetected { textToRoute = wakeResult.payload; wakeWordDetected = true; playWakeSound(reason: "always-listening-sleeping-final-wake"); lastWakeTime = Date() }
-                else { return }
+                if wakeResult.wakeDetected { textToRoute = wakeResult.payload; wakeWordDetected = true; handleWakeActivation(reason: "always-listening-sleeping-final-wake") }
+                else {
+                    if wakeScore > 0 {
+                        GlobalLogger.speech.info(
+                            "[WakeWordMiss] phase=final-sleeping score=\(String(format: "%.2f", wakeScore)) matched=\(matchedWakePhrase ?? "nil") threshold=\(String(format: "%.2f", WakeWordDetector.diagnosticsThreshold)) raw='\(rawTrimmed)'"
+                        )
+                    }
+                    return
+                }
             }
         }
         if isWakeWordEnabled {
@@ -4802,6 +4846,17 @@ final class SpeechManager: ObservableObject {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    private func logWakeWordConfigurationIfNeeded(reason: String) {
+        guard isWakeWordEnabled else { return }
+        let summary = wakeWordDetector.diagnosticsSummary(for: activeLocale.identifier)
+        let signature = "\(reason)|\(isAlwaysListeningEnabled)|\(isDirectCommandEnabled)|\(isAwake)|\(summary)"
+        guard signature != lastWakeWordDiagnosticsSignature else { return }
+        lastWakeWordDiagnosticsSignature = signature
+        GlobalLogger.speech.info(
+            "[WakeWordConfig] reason=\(reason) alwaysListening=\(self.isAlwaysListeningEnabled) directCommand=\(self.isDirectCommandEnabled) awake=\(self.isAwake) \(summary)"
+        )
     }
 
     private func appendAXElementDiagnostics(
