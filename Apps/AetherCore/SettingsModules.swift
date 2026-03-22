@@ -2231,6 +2231,8 @@ private struct CustomAppShortcutRuleEditorSheet: View {
     }
 }
 
+private let voiceUsageInsightsShowNoSpeechEventsStorageKey = "voiceUsageInsights.showNoSpeechEvents"
+
 private struct VoiceUsageInsightsCard: View {
     @EnvironmentObject var appState: AppState
     @State private var isPerAppSummaryExpanded: Bool = false
@@ -2240,6 +2242,9 @@ private struct VoiceUsageInsightsCard: View {
     @State private var showAllApps: Bool = false
     @State private var perAppSortOption: PerAppSortOption = .issuePriority
     @State private var recentActivityFilter: RecentActivityFilter = .all
+    @State private var showNoSpeechEvents: Bool = UserDefaults.standard.object(
+        forKey: voiceUsageInsightsShowNoSpeechEventsStorageKey
+    ) as? Bool ?? false
 
     private enum PerAppSortOption: String, CaseIterable, Identifiable {
         case issuePriority
@@ -2261,6 +2266,10 @@ private struct VoiceUsageInsightsCard: View {
         AppLocalization.isChinese
     }
 
+    private var showNoSpeechEventsBinding: Binding<Bool> {
+        $showNoSpeechEvents
+    }
+
     private let summaryColumns = [
         GridItem(.flexible(minimum: 160), spacing: 10, alignment: .leading),
         GridItem(.flexible(minimum: 160), spacing: 10, alignment: .leading),
@@ -2269,6 +2278,9 @@ private struct VoiceUsageInsightsCard: View {
 
     private var filteredRecentEvents: [AppState.VoiceUsageEvent] {
         appState.voiceUsageHistory.filter { event in
+            if !showNoSpeechEvents && isNoSpeechEvent(event) {
+                return false
+            }
             switch recentActivityFilter {
             case .all:
                 return true
@@ -2673,6 +2685,22 @@ private struct VoiceUsageInsightsCard: View {
                                 .controlSize(.small)
                                 .buttonStyle(.bordered)
 
+                                Toggle(isOn: showNoSpeechEventsBinding) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(isChinese ? "显示未识别到人声" : "Show No-Speech Events")
+                                            .font(.subheadline.weight(.semibold))
+                                        Text(
+                                            isChinese
+                                                ? "关闭时会隐藏“未识别到人声”的历史记录。"
+                                                : "When off, entries marked as no-speech are hidden from Recent Activity."
+                                        )
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    }
+                                }
+                                .controlSize(.small)
+                                .toggleStyle(.switch)
+
                                 if recentEvents.isEmpty {
                                     Text(LocalizedStringKey("insights.recent.no_match"))
                                         .font(.caption)
@@ -2708,6 +2736,9 @@ private struct VoiceUsageInsightsCard: View {
                         }
                     )
                     .controlSize(.small)
+                    .onChange(of: showNoSpeechEvents) { _, newValue in
+                        UserDefaults.standard.set(newValue, forKey: voiceUsageInsightsShowNoSpeechEventsStorageKey)
+                    }
                 }
             }
         }

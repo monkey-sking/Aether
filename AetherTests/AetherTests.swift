@@ -92,3 +92,33 @@ class DictationHandlerTests: XCTestCase {
         XCTAssertEqual(handler.screenTypedText, "")
     }
 }
+
+@MainActor
+final class AppStateLockScreenTests: XCTestCase {
+    func testLoginWindowFrontmostIsConsideredLocked() {
+        XCTAssertTrue(AppState.isScreenLocked(frontmostBundleIdentifier: "com.apple.loginwindow"))
+    }
+
+    func testNonLoginWindowFrontmostIsNotConsideredLocked() {
+        XCTAssertFalse(AppState.isScreenLocked(frontmostBundleIdentifier: "com.apple.TextEdit"))
+        XCTAssertFalse(AppState.isScreenLocked(frontmostBundleIdentifier: nil))
+    }
+
+    func testLockStateOverridesVoiceExecutionGates() {
+        XCTAssertFalse(
+            AppState.shouldAllowVoiceIntent(
+                isScreenLocked: true,
+                isProductUnlocked: true,
+                isIdlePaused: false
+            )
+        )
+        XCTAssertFalse(
+            AppState.shouldAllowVoiceFeature(
+                isScreenLocked: true,
+                isProductUnlocked: true,
+                isFeatureEnabled: true,
+                isIdlePaused: false
+            )
+        )
+    }
+}

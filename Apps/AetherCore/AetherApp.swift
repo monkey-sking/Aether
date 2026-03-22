@@ -571,6 +571,10 @@ final class PermissionsService: ObservableObject {
 
 @MainActor
 class AppState: ObservableObject {
+    private static let screenIsLockedNotificationName = Notification.Name("com.apple.screenIsLocked")
+    private static let screenIsUnlockedNotificationName = Notification.Name("com.apple.screenIsUnlocked")
+    private static let loginWindowBundleIdentifier = "com.apple.loginwindow"
+
     struct SpeechTermGroupConfig: Codable, Identifiable, Equatable {
         var id: String
         var name: String
@@ -1170,6 +1174,7 @@ class AppState: ObservableObject {
     @Published var nowPlayingAlbum: String = ""
     @Published var nowPlayingStatus: String = "Idle"
     @Published var isIdlePaused: Bool = false
+    @Published private(set) var isScreenLocked: Bool = false
     @Published var voiceActivationMode: VoiceActivationMode = AppState.loadActivationMode() {
         didSet {
             guard oldValue != voiceActivationMode else { return }
@@ -1318,6 +1323,8 @@ class AppState: ObservableObject {
     }
     private var isMutatingAlwaysListening = false
     private var isApplyingActivationMode = false
+    private var screenLockObserverTokens: [NSObjectProtocol] = []
+    private var workspaceObserverTokens: [NSObjectProtocol] = []
     private var lastVoiceReady: Bool = {
         let mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         let speech = SFSpeechRecognizer.authorizationStatus() == .authorized
@@ -2387,6 +2394,8 @@ class AppState: ObservableObject {
     
     init() {
         CurrentAppShortcutPanelManager.shared.appState = self
+        installScreenLockObservers()
+        refreshScreenLockState()
 
         motionService.$isTracking
             .assign(to: &$isMotionTracking)
@@ -2500,6 +2509,7 @@ class AppState: ObservableObject {
         voiceService.onIntent = { [weak self] intent, appName, bundleIdentifier, spokenText in
             guard let self else { return }
             DispatchQueue.main.async {
+                guard !self.isScreenLocked else { return }
                 guard self.isProductUnlocked else {
                     self.presentActivationRequiredFeedback()
                     return
@@ -2509,19 +2519,28 @@ class AppState: ObservableObject {
             }
         }
         voiceService.isDictationExecutionEnabled = { [weak self] in
-            (self?.isProductUnlocked ?? false) &&
-            (self?.isVoiceInputEnabled ?? true) &&
-            !(self?.isIdlePaused ?? false)
+            guard let self else { return false }
+            return Self.shouldAllowVoiceFeature(
+                isScreenLocked: self.isScreenLocked,
+                isProductUnlocked: self.isProductUnlocked,
+                isFeatureEnabled: self.isVoiceInputEnabled,
+                isIdlePaused: self.isIdlePaused
+            )
         }
         voiceService.isCommandExecutionEnabled = { [weak self] in
-            (self?.isProductUnlocked ?? false) &&
-            (self?.isVoiceControlEnabled ?? true) &&
-            !(self?.isIdlePaused ?? false)
+            guard let self else { return false }
+            return Self.shouldAllowVoiceFeature(
+                isScreenLocked: self.isScreenLocked,
+                isProductUnlocked: self.isProductUnlocked,
+                isFeatureEnabled: self.isVoiceControlEnabled,
+                isIdlePaused: self.isIdlePaused
+            )
         }
         
         voiceService.onRecognitionFailure = { [weak self] transcript, reason, appName, bundleIdentifier in
             guard let self else { return }
             DispatchQueue.main.async {
+                guard !self.isScreenLocked else { return }
                 let trimmed = transcript?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let content = (trimmed?.isEmpty == false) ? trimmed : nil
                 self.recordVoiceFailure(content, reason: reason, appName: appName, bundleIdentifier: bundleIdentifier)
@@ -2770,7 +2789,77 @@ class AppState: ObservableObject {
         if !speechAuthorized { return .speech }
         return .done
     }
-    
+
+    private func installScreenLockObservers() {
+        let distributedCenter = DistributedNotificationCenter.default()
+        screenLockObserverTokens.append(
+            distributedCenter.addObserver(
+                forName: Self.screenIsLockedNotificationName,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.setScreenLocked(true)
+                }
+            }
+        )
+        screenLockObserverTokens.append(
+            distributedCenter.addObserver(
+                forName: Self.screenIsUnlockedNotificationName,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.setScreenLocked(false)
+                }
+            }
+        )
+
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        workspaceObserverTokens.append(
+            workspaceCenter.addObserver(
+                forName: NSWorkspace.didActivateApplicationNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshScreenLockState()
+                }
+            }
+        )
+    }
+
+    private func refreshScreenLockState() {
+        let frontmostBundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        setScreenLocked(Self.isScreenLocked(frontmostBundleIdentifier: frontmostBundleIdentifier))
+    }
+
+    private func setScreenLocked(_ locked: Bool) {
+        guard locked != isScreenLocked else { return }
+        isScreenLocked = locked
+    }
+
+    static func isScreenLocked(frontmostBundleIdentifier: String?) -> Bool {
+        frontmostBundleIdentifier == loginWindowBundleIdentifier
+    }
+
+    static func shouldAllowVoiceIntent(
+        isScreenLocked: Bool,
+        isProductUnlocked: Bool,
+        isIdlePaused: Bool
+    ) -> Bool {
+        isProductUnlocked && !isScreenLocked && !isIdlePaused
+    }
+
+    static func shouldAllowVoiceFeature(
+        isScreenLocked: Bool,
+        isProductUnlocked: Bool,
+        isFeatureEnabled: Bool,
+        isIdlePaused: Bool
+    ) -> Bool {
+        isProductUnlocked && isFeatureEnabled && !isScreenLocked && !isIdlePaused
+    }
+
     func finishCalibration() {
         motionService.finishCalibration()
     }
