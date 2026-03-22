@@ -2235,7 +2235,6 @@ private let voiceUsageInsightsShowNoSpeechEventsStorageKey = "voiceUsageInsights
 
 private struct VoiceUsageInsightsCard: View {
     @EnvironmentObject var appState: AppState
-    @State private var selectedTab: AppState.UsageInsightsTab = .overview
     @State private var showingClearDataConfirm: Bool = false
     @State private var showingResetStatisticsConfirm: Bool = false
     @State private var showAllApps: Bool = false
@@ -2320,19 +2319,6 @@ private struct VoiceUsageInsightsCard: View {
         return "Showing the latest \(visibleCount) matching entries (\(matchingCount) match, \(appState.voiceUsageHistory.count) retained)."
     }
 
-    private func tabTitle(_ tab: AppState.UsageInsightsTab) -> String {
-        switch tab {
-        case .overview:
-            return isChinese ? "概览" : "Overview"
-        case .activity:
-            return isChinese ? "活动" : "Activity"
-        case .diagnostics:
-            return isChinese ? "诊断" : "Diagnostics"
-        case .data:
-            return isChinese ? "数据" : "Data"
-        }
-    }
-
     private func recentFilterTitle(_ filter: AppState.UsageInsightsRecentActivityFilter) -> String {
         switch filter {
         case .all:
@@ -2374,76 +2360,22 @@ private struct VoiceUsageInsightsCard: View {
         GlassCard(padding: 16) {
             VStack(alignment: .leading, spacing: 12) {
                 Label(
-                    isChinese ? "统计工作台" : "Insights Workspace",
+                    isChinese ? "统计面板" : "Insights Dashboard",
                     systemImage: "chart.bar.xaxis"
                 )
                 .font(.headline)
 
                 Text(
                     isChinese
-                        ? "把累计概览、活动浏览、诊断导出和数据管理拆开，避免一张卡承担太多职责。"
-                        : "Split overview, activity, diagnostics, and data management so one card does not carry every workflow."
+                        ? "按横向长条重排：左侧看状态与总览，中间看活动，右侧放导出与危险操作，下方再做按 App 对比。"
+                        : "Rebuilt for the wide host: status and overview on the left, activity in the center, exports and destructive actions on the right, with per-app comparison below."
                 )
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-                Picker("", selection: $selectedTab) {
-                    ForEach(AppState.UsageInsightsTab.allCases) { tab in
-                        Text(tabTitle(tab)).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
+                dashboardContent
 
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        VoiceUsageStatusChip(
-                            title: isChinese ? "记录" : "Tracking",
-                            value: appState.isVoiceUsageHistoryEnabled
-                                ? (isChinese ? "开启" : "On")
-                                : (isChinese ? "关闭" : "Off"),
-                            tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
-                            usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
-                        )
-                        VoiceUsageStatusChip(
-                            title: isChinese ? "保留" : "Retained",
-                            value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
-                            tint: .accentColor
-                        )
-                        VoiceUsageStatusChip(
-                            title: "Locale",
-                            value: snapshot.diagnostics.localeIdentifier,
-                            tint: .primary,
-                            usesNeutralBackground: true
-                        )
-                        Spacer(minLength: 0)
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        VoiceUsageStatusChip(
-                            title: isChinese ? "记录" : "Tracking",
-                            value: appState.isVoiceUsageHistoryEnabled
-                                ? (isChinese ? "开启" : "On")
-                                : (isChinese ? "关闭" : "Off"),
-                            tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
-                            usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
-                        )
-                        HStack(spacing: 8) {
-                            VoiceUsageStatusChip(
-                                title: isChinese ? "保留" : "Retained",
-                                value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
-                                tint: .accentColor
-                            )
-                            VoiceUsageStatusChip(
-                                title: "Locale",
-                                value: snapshot.diagnostics.localeIdentifier,
-                                tint: .primary,
-                                usesNeutralBackground: true
-                            )
-                        }
-                    }
-                }
-
-                content
+                perAppSummaryPanel
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -2476,37 +2408,41 @@ private struct VoiceUsageInsightsCard: View {
         }
     }
 
-    @ViewBuilder
-    private var content: some View {
-        switch selectedTab {
-        case .overview:
-            overviewView
-        case .activity:
-            activityView
-        case .diagnostics:
-            diagnosticsView
-        case .data:
-            dataView
-        }
-    }
-
-    private var overviewView: some View {
+    private var dashboardContent: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: 12) {
-                overviewSummaryPanel
-                    .frame(minWidth: 340, idealWidth: 380, maxWidth: 430, alignment: .leading)
-                perAppSummaryPanel
-                    .frame(minWidth: 460, maxWidth: .infinity, alignment: .leading)
+                leftDashboardColumn
+                    .frame(minWidth: 320, idealWidth: 360, maxWidth: 400, alignment: .leading)
+                activityPanel
+                    .frame(minWidth: 460, idealWidth: 560, maxWidth: .infinity, alignment: .leading)
+                rightDashboardColumn
+                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 360, alignment: .leading)
             }
 
             VStack(alignment: .leading, spacing: 12) {
-                overviewSummaryPanel
-                perAppSummaryPanel
+                leftDashboardColumn
+                activityPanel
+                rightDashboardColumn
             }
         }
     }
 
-    private var activityView: some View {
+    private var leftDashboardColumn: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            overviewSummaryPanel
+            recordingPolicyPanel
+        }
+    }
+
+    private var rightDashboardColumn: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            diagnosticsSummaryPanel
+            diagnosticsActionPanel
+            dangerZonePanel
+        }
+    }
+
+    private var activityPanel: some View {
         sectionCard {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) {
@@ -2593,82 +2529,65 @@ private struct VoiceUsageInsightsCard: View {
         }
     }
 
-    private var diagnosticsView: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 12) {
-                diagnosticsSummaryPanel
-                    .frame(minWidth: 380, idealWidth: 440, maxWidth: .infinity, alignment: .leading)
-                diagnosticsActionPanel
-                    .frame(minWidth: 320, idealWidth: 360, maxWidth: 400, alignment: .leading)
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                diagnosticsSummaryPanel
-                diagnosticsActionPanel
-            }
-        }
-    }
-
-    private var dataView: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 12) {
-                recordingPolicyPanel
-                    .frame(minWidth: 420, idealWidth: 520, maxWidth: .infinity, alignment: .leading)
-                dangerZonePanel
-                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 360, alignment: .leading)
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                recordingPolicyPanel
-                dangerZonePanel
-            }
-        }
-    }
-
     private var overviewSummaryPanel: some View {
         sectionCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(isChinese ? "状态与总览" : "Status & Overview")
+                    .font(.subheadline.weight(.semibold))
+                Text(
+                    isChinese
+                        ? "先用左侧确认当前状态，再看问题率和核心量级。"
+                        : "Use the left rail for current state first, then read the issue rate and key totals."
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
+
             ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(isChinese ? "累计概览" : "Cumulative Overview")
-                            .font(.subheadline.weight(.semibold))
-                        Text(
-                            isChinese
-                                ? "先看总量、问题率和保留范围，再决定是否下钻到具体 App。"
-                                : "Start with totals, issue rate, and retention before drilling into individual apps."
-                        )
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    Picker("", selection: $perAppSortOption) {
-                        ForEach(AppState.UsageInsightsPerAppSortOption.allCases) { option in
-                            Text(perAppSortTitle(option)).tag(option)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .controlSize(.small)
+                HStack(spacing: 8) {
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "记录" : "Tracking",
+                        value: appState.isVoiceUsageHistoryEnabled
+                            ? (isChinese ? "开启" : "On")
+                            : (isChinese ? "关闭" : "Off"),
+                        tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
+                        usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
+                    )
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "保留" : "Retained",
+                        value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
+                        tint: .accentColor
+                    )
+                    VoiceUsageStatusChip(
+                        title: "Locale",
+                        value: snapshot.diagnostics.localeIdentifier,
+                        tint: .primary,
+                        usesNeutralBackground: true
+                    )
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(isChinese ? "累计概览" : "Cumulative Overview")
-                        .font(.subheadline.weight(.semibold))
-                    Text(
-                        isChinese
-                            ? "先看总量、问题率和保留范围，再决定是否下钻到具体 App。"
-                            : "Start with totals, issue rate, and retention before drilling into individual apps."
+                    VoiceUsageStatusChip(
+                        title: isChinese ? "记录" : "Tracking",
+                        value: appState.isVoiceUsageHistoryEnabled
+                            ? (isChinese ? "开启" : "On")
+                            : (isChinese ? "关闭" : "Off"),
+                        tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
+                        usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
                     )
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    Picker("", selection: $perAppSortOption) {
-                        ForEach(AppState.UsageInsightsPerAppSortOption.allCases) { option in
-                            Text(perAppSortTitle(option)).tag(option)
-                        }
+                    HStack(spacing: 8) {
+                        VoiceUsageStatusChip(
+                            title: isChinese ? "保留" : "Retained",
+                            value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
+                            tint: .accentColor
+                        )
+                        VoiceUsageStatusChip(
+                            title: "Locale",
+                            value: snapshot.diagnostics.localeIdentifier,
+                            tint: .primary,
+                            usesNeutralBackground: true
+                        )
                     }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .controlSize(.small)
                 }
             }
 
@@ -2678,14 +2597,15 @@ private struct VoiceUsageInsightsCard: View {
                     .foregroundColor(.secondary)
             } else {
                 let summary = snapshot.dashboard.summary
+                VoiceUsageSummaryBadge(
+                    title: isChinese ? "问题率" : "Issue Rate",
+                    value: formattedPercent(snapshot.dashboard.issueRate),
+                    detail: issueBreakdownText(summary),
+                    valueColor: snapshot.dashboard.issueEventCount > 0 ? .orange : .green,
+                    fillColor: (snapshot.dashboard.issueEventCount > 0 ? Color.orange : Color.green).opacity(0.12)
+                )
+
                 LazyVGrid(columns: summaryColumns, alignment: .leading, spacing: 10) {
-                    VoiceUsageSummaryBadge(
-                        title: isChinese ? "问题率" : "Issue Rate",
-                        value: formattedPercent(snapshot.dashboard.issueRate),
-                        detail: issueBreakdownText(summary),
-                        valueColor: snapshot.dashboard.issueEventCount > 0 ? .orange : .green,
-                        fillColor: (snapshot.dashboard.issueEventCount > 0 ? Color.orange : Color.green).opacity(0.12)
-                    )
                     VoiceUsageSummaryBadge(
                         title: isChinese ? "总计" : "Total Activity",
                         value: formattedEntries(summary.total),
@@ -2735,6 +2655,15 @@ private struct VoiceUsageInsightsCard: View {
                     }
                 }
                 Spacer()
+                Picker("", selection: $perAppSortOption) {
+                    ForEach(AppState.UsageInsightsPerAppSortOption.allCases) { option in
+                        Text(perAppSortTitle(option)).tag(option)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .controlSize(.small)
+
                 if snapshot.perAppItems.count > 5 {
                     Button(showAllApps ? String(localized: "insights.per_app.show_top") : String(localized: "insights.per_app.show_all")) {
                         withAnimation(.easeInOut(duration: 0.15)) {
@@ -2773,13 +2702,13 @@ private struct VoiceUsageInsightsCard: View {
 
     private var diagnosticsSummaryPanel: some View {
         sectionCard {
-            Text(isChinese ? "诊断概览" : "Diagnostics Summary")
+            Text(isChinese ? "诊断上下文" : "Diagnostics Context")
                 .font(.subheadline.weight(.semibold))
 
             Text(
                 isChinese
-                    ? "这部分保留必要的诊断上下文，横向铺开即可，不需要再堆成长列。"
-                    : "Keep the diagnostic context in a compact horizontal summary instead of another long vertical stack."
+                    ? "右侧只保留诊断判断需要的上下文，不在这里继续做浏览。"
+                    : "Keep only the diagnostic context required for export and triage on the right rail."
             )
             .font(.caption)
             .foregroundColor(.secondary)
@@ -2813,13 +2742,13 @@ private struct VoiceUsageInsightsCard: View {
 
     private var diagnosticsActionPanel: some View {
         sectionCard {
-            Text(isChinese ? "导出操作" : "Export Actions")
+            Text(isChinese ? "导出与调试" : "Export & Debug")
                 .font(.subheadline.weight(.semibold))
 
             Text(
                 isChinese
-                    ? "把复制和导出放到右侧，让浏览信息和执行操作分列。"
-                    : "Keep export actions in a dedicated side panel so browsing and doing are separated."
+                    ? "导出动作留在右侧，不再和活动浏览混排。"
+                    : "Keep export actions on the right so they do not interrupt the browsing flow."
             )
             .font(.caption)
             .foregroundColor(.secondary)
