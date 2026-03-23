@@ -2238,8 +2238,8 @@ private struct VoiceUsageInsightsCard: View {
     @State private var showingClearDataConfirm: Bool = false
     @State private var showingResetStatisticsConfirm: Bool = false
     @State private var showAdvancedTools: Bool = false
-    @State private var showAllApps: Bool = false
-    @State private var showAllRecentEvents: Bool = false
+    @State private var showingAllAppsSheet: Bool = false
+    @State private var showingAllRecentEventsSheet: Bool = false
     @State private var recentActivityFilter: AppState.UsageInsightsRecentActivityFilter = .all
     @State private var showNoSpeechEvents: Bool = UserDefaults.standard.object(
         forKey: voiceUsageInsightsShowNoSpeechEventsStorageKey
@@ -2258,16 +2258,12 @@ private struct VoiceUsageInsightsCard: View {
             showNoSpeechEvents: showNoSpeechEvents,
             recentFilter: recentActivityFilter,
             perAppSort: .total,
-            recentLimit: showAllRecentEvents ? 30 : 5
+            recentLimit: 5
         )
     }
 
     private var topAppItems: [AppState.UsageInsightsPerAppItem] {
         Array(snapshot.perAppItems.prefix(4))
-    }
-
-    private var displayedAppItems: [AppState.UsageInsightsPerAppItem] {
-        showAllApps ? snapshot.perAppItems : topAppItems
     }
 
     private var remainingAppCount: Int {
@@ -2329,11 +2325,6 @@ private struct VoiceUsageInsightsCard: View {
     }
 
     private var appOverviewSubtitle: String {
-        if showAllApps {
-            return isChinese
-                ? "查看全部 App 的使用总数，以及输入和控制的分布。"
-                : "View total activity and the dictation/control split across all apps."
-        }
         return isChinese
             ? "看看你主要在哪些 App 使用语音。"
             : "See which apps you use voice in most."
@@ -2362,6 +2353,18 @@ private struct VoiceUsageInsightsCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .onChange(of: showNoSpeechEvents) { _, newValue in
             UserDefaults.standard.set(newValue, forKey: voiceUsageInsightsShowNoSpeechEventsStorageKey)
+        }
+        .sheet(isPresented: $showingAllRecentEventsSheet) {
+            VoiceUsageAllRecentEventsSheet(
+                recentFilter: recentActivityFilter,
+                showNoSpeechEvents: showNoSpeechEvents,
+                retainedHistoryCount: snapshot.dashboard.retainedHistoryCount
+            )
+            .environmentObject(appState)
+        }
+        .sheet(isPresented: $showingAllAppsSheet) {
+            VoiceUsageAllAppsSheet(items: snapshot.perAppItems)
+                .environmentObject(appState)
         }
         .confirmationDialog(
             String(localized: "insights.reset_statistics_confirm_title"),
@@ -2549,9 +2552,7 @@ private struct VoiceUsageInsightsCard: View {
 
                 if hasMoreRecentEvents {
                     Button(isChinese ? "查看更多记录" : "Show More") {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            showAllRecentEvents = true
-                        }
+                        showingAllRecentEventsSheet = true
                     }
                     .buttonStyle(.borderless)
                     .controlSize(.small)
@@ -2570,7 +2571,7 @@ private struct VoiceUsageInsightsCard: View {
                 .foregroundColor(.secondary)
             }
 
-            if displayedAppItems.isEmpty {
+            if topAppItems.isEmpty {
                 Text(isChinese ? "当前还没有按 App 的使用记录。" : "No per-app activity is available yet.")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -2588,36 +2589,21 @@ private struct VoiceUsageInsightsCard: View {
                 }
                 .padding(.horizontal, 8)
 
-                Group {
-                    if showAllApps {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(displayedAppItems) { item in
-                                    VoiceUsageTopAppRow(item: item)
-                                }
-                            }
-                        }
-                        .frame(maxHeight: 300)
-                    } else {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(displayedAppItems) { item in
-                                VoiceUsageTopAppRow(item: item)
-                            }
-                        }
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(topAppItems) { item in
+                        VoiceUsageTopAppRow(item: item)
                     }
                 }
             }
 
             if !snapshot.perAppItems.isEmpty {
-                Button(showAllApps ? (isChinese ? "收起 App 列表" : "Collapse Apps") : (isChinese ? "查看全部 App" : "View All Apps")) {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        showAllApps.toggle()
-                    }
+                Button(isChinese ? "查看全部 App" : "View All Apps") {
+                    showingAllAppsSheet = true
                 }
                 .buttonStyle(.borderless)
                 .controlSize(.small)
 
-                if !showAllApps && remainingAppCount > 0 {
+                if remainingAppCount > 0 {
                     Text(
                         isChinese
                             ? "其余 \(remainingAppCount) 个 App 已折叠。"
@@ -2933,6 +2919,112 @@ private struct VoiceUsageTopAppRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+    }
+}
+
+private struct VoiceUsageAllRecentEventsSheet: View {
+    @EnvironmentObject var appState: AppState
+    let recentFilter: AppState.UsageInsightsRecentActivityFilter
+    let showNoSpeechEvents: Bool
+    let retainedHistoryCount: Int
+
+    private var isChinese: Bool {
+        AppLocalization.isChinese
+    }
+
+    private var snapshot: AppState.UsageInsightsSnapshot {
+        appState.usageInsightsSnapshot(
+            showNoSpeechEvents: showNoSpeechEvents,
+            recentFilter: recentFilter,
+            perAppSort: .total,
+            recentLimit: max(retainedHistoryCount, 30)
+        )
+    }
+
+    private func formattedEntries(_ value: Int) -> String {
+        isChinese ? "\(value) 条" : "\(value) entries"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(isChinese ? "全部记录" : "All Activity")
+                .font(.title3.weight(.semibold))
+
+            Text(
+                isChinese
+                    ? "当前筛选下共有 \(formattedEntries(snapshot.recentMatchingCount))。"
+                    : "\(formattedEntries(snapshot.recentMatchingCount)) match the current filter."
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(snapshot.recentEvents) { record in
+                        VoiceUsageEventRow(event: record.source)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 860, minHeight: 560)
+    }
+}
+
+private struct VoiceUsageAllAppsSheet: View {
+    @EnvironmentObject var appState: AppState
+    let items: [AppState.UsageInsightsPerAppItem]
+
+    private var isChinese: Bool {
+        AppLocalization.isChinese
+    }
+
+    private func formattedEntries(_ value: Int) -> String {
+        isChinese ? "\(value) 个 App" : "\(value) apps"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(isChinese ? "全部 App" : "All Apps")
+                .font(.title3.weight(.semibold))
+
+            Text(
+                isChinese
+                    ? "当前共有 \(formattedEntries(items.count))。"
+                    : "Showing \(formattedEntries(items.count))."
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
+
+            Divider()
+
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Text(isChinese ? "总数" : "Total")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(width: 40, alignment: .trailing)
+                Text(isChinese ? "输入/控制" : "Dict./Ctrl.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(width: 72, alignment: .trailing)
+            }
+            .padding(.horizontal, 8)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 6) {
+                    ForEach(items) { item in
+                        VoiceUsageTopAppRow(item: item)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 520, minHeight: 520)
     }
 }
 
