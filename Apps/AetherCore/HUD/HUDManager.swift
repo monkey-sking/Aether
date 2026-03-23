@@ -2823,17 +2823,10 @@ final class HUDManager {
     }
 
     private func shouldSuppressHUDForAetherForegroundWindow() -> Bool {
-        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier else {
-            return false
-        }
-
-        let visibleAppWindows = NSApp.windows.contains { window in
-            guard window.isVisible else { return false }
-            if window == hudWindow || window == caretDebugWindow { return false }
-            return true
-        }
-
-        return visibleAppWindows
+        // Aether relies on the HUD as the primary in-app speech feedback surface too.
+        // Hiding it whenever any Aether window is frontmost makes dictation/command feedback disappear
+        // inside the app itself, which regressed developer and settings workflows.
+        false
     }
 
     private func isFrontmostFocusedWindowLikelyFullscreen(app: NSRunningApplication, on screen: NSScreen) -> Bool {
