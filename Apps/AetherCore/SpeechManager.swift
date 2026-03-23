@@ -546,7 +546,9 @@ final class SpeechManager: ObservableObject {
     private var routeRebuildGraceUntil: Date = .distantPast
     private var recognitionStartupGraceUntil: Date = .distantPast
     private var recognitionUnavailableUntil: Date = .distantPast
+    private var noSpeechRecoveryUntil: Date = .distantPast
     private var consecutiveRecognitionUnavailableCount: Int = 0
+    private var consecutiveNoSpeechRecoveries: Int = 0
     private var lastContinuousStartAt: Date = .distantPast
     private var nextAllowedStartOnceAt: Date = .distantPast
     private var isContinuousDictationWaitingForInputFocus: Bool = false
@@ -1902,6 +1904,9 @@ final class SpeechManager: ObservableObject {
 
     func startOnce() {
         let now = Date()
+        if now < noSpeechRecoveryUntil {
+            return
+        }
         if now < recognitionUnavailableUntil {
             let remaining = recognitionUnavailableUntil.timeIntervalSince(now)
             if remaining > 0.05 {
@@ -2254,6 +2259,9 @@ final class SpeechManager: ObservableObject {
 
     private func handleFinalResult(_ text: String) {
         let normalized = normalizeRecognizedText(text)
+        if !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            resetNoSpeechRecoveryBackoff()
+        }
         os_log("isFinal received: '%{public}@'", log: log, type: .info, text)
         let controlMode = recognitionControlMode
         GlobalLogger.speech.info(
@@ -2294,10 +2302,12 @@ final class SpeechManager: ObservableObject {
             noteRecoverableHeadsetVoiceProcessingFailure(reason: "recognition-recoverable-error")
             metrics.recoverableErrors += 1
             os_log("Recognition recoverable error: %{public}@", log: log, type: .info, error.localizedDescription)
+            let recoveryDelay = recoverableRecognitionRetryDelay(for: reason)
             if isAlwaysListeningEnabled {
-                cleanup(); refreshContinuousHUD(); scheduleContinuousRecovery(delay: 0.12)
+                cleanup(); refreshContinuousHUD(); scheduleContinuousRecovery(delay: recoveryDelay)
             } else { stopAndFinalize() }
         } else {
+            resetNoSpeechRecoveryBackoff()
             metrics.fatalErrors += 1
             status = NSLocalizedString("speech.error", comment: ""); lastError = error.localizedDescription
             stopAndFinalize(); scheduleContinuousRecovery(delay: 0.4)
@@ -2330,6 +2340,26 @@ final class SpeechManager: ObservableObject {
         }
 
         return "recognition-failed"
+    }
+
+    private func recoverableRecognitionRetryDelay(for reason: String) -> TimeInterval {
+        guard reason == "no-speech-detected" else {
+            resetNoSpeechRecoveryBackoff()
+            return 0.12
+        }
+
+        consecutiveNoSpeechRecoveries = min(consecutiveNoSpeechRecoveries + 1, 6)
+        let delay = min(0.35 * pow(1.7, Double(consecutiveNoSpeechRecoveries - 1)), 1.5)
+        noSpeechRecoveryUntil = Date().addingTimeInterval(delay)
+        GlobalLogger.speech.info(
+            "[ASR Session] backoff after no-speech consecutive=\(consecutiveNoSpeechRecoveries) retryIn=\(String(format: "%.2f", delay))"
+        )
+        return delay
+    }
+
+    private func resetNoSpeechRecoveryBackoff() {
+        consecutiveNoSpeechRecoveries = 0
+        noSpeechRecoveryUntil = .distantPast
     }
 
     // MARK: - EOS Callbacks
@@ -3442,6 +3472,7 @@ final class SpeechManager: ObservableObject {
         guard !didRecordFirstPartialForSession else { return }
         guard sessionStartedAt != .distantPast else { return }
         didRecordFirstPartialForSession = true
+        resetNoSpeechRecoveryBackoff()
         startupDetectedUsableAudioForSession = true
         cancelStartupInputHealthProbe()
         let latency = max(0, now.timeIntervalSince(sessionStartedAt) * 1000.0)
@@ -5890,11 +5921,15 @@ private final class HeadsetInputMuteRouter {
 enum GlobalLogger {
     private static let subsystem = "com.7fei.Aether"
     private static let fileQueue = DispatchQueue(label: "com.7fei.Aether.logfile", qos: .utility)
+    private static let duplicateFilterQueue = DispatchQueue(label: "com.7fei.Aether.logdedupe")
     private static let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
+    private static var lastNoisyLogAtByKey: [String: Date] = [:]
+    private static var diagnosticsHandle: FileHandle?
+    private static var diagnosticsFileSize: Int64 = 0
 
     static let speech = OSLog(subsystem: subsystem, category: "Speech")
     static let lifecycle = OSLog(subsystem: subsystem, category: "Lifecycle")
@@ -5911,7 +5946,12 @@ enum GlobalLogger {
         else if log === router { category = "Router" }
         else { category = "Aether" }
 
-        let formatted = "\(Date()) [\(category)] \(message)\n"
+        let now = Date()
+        if shouldSuppressRepeatedLog(category: category, message: message, at: now) {
+            return
+        }
+
+        let formatted = "\(now) [\(category)] \(message)\n"
         fputs(formatted, stderr)
         os_log("%{public}@", log: log, type: type, message)
         appendToLogFile(timestampedMessage: formatted)
@@ -5921,19 +5961,15 @@ enum GlobalLogger {
         fileQueue.async {
             let url = diagnosticsLogURL()
             do {
-                let dir = url.deletingLastPathComponent()
-                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                if !FileManager.default.fileExists(atPath: url.path) {
-                    try "".write(to: url, atomically: true, encoding: .utf8)
-                }
-                let handle = try FileHandle(forWritingTo: url)
-                defer { try? handle.close() }
-                try trimLogFileIfNeeded(handle: handle, url: url)
+                guard let data = timestampedMessage.data(using: .utf8) else { return }
+                _ = try diagnosticsLogHandle(for: url)
+                try trimLogFileIfNeeded(url: url)
+                let handle = try diagnosticsLogHandle(for: url)
                 try handle.seekToEnd()
-                if let data = timestampedMessage.data(using: .utf8) {
-                    try handle.write(contentsOf: data)
-                }
+                try handle.write(contentsOf: data)
+                diagnosticsFileSize += Int64(data.count)
             } catch {
+                closeDiagnosticsHandle()
                 fputs("\(isoFormatter.string(from: Date())) [Logger] failed to append diagnostics log: \(error)\n", stderr)
             }
         }
@@ -5948,17 +5984,85 @@ enum GlobalLogger {
             .appendingPathComponent("diagnostics.log", isDirectory: false)
     }
 
-    private static func trimLogFileIfNeeded(handle: FileHandle, url: URL) throws {
-        let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
-        let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+    private static func diagnosticsLogHandle(for url: URL) throws -> FileHandle {
+        if let diagnosticsHandle {
+            return diagnosticsHandle
+        }
+
+        let dir = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+            diagnosticsFileSize = 0
+        } else {
+            let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+            diagnosticsFileSize = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+        }
+
+        let handle = try FileHandle(forWritingTo: url)
+        diagnosticsHandle = handle
+        return handle
+    }
+
+    private static func closeDiagnosticsHandle() {
+        try? diagnosticsHandle?.close()
+        diagnosticsHandle = nil
+    }
+
+    private static func trimLogFileIfNeeded(url: URL) throws {
         let maxBytes: Int64 = 1_500_000
         let keepBytes: Int64 = 1_000_000
-        guard size > maxBytes else { return }
+        guard diagnosticsFileSize > maxBytes else { return }
+        closeDiagnosticsHandle()
         let data = try Data(contentsOf: url, options: [.mappedIfSafe])
         let sliceStart = max(0, data.count - Int(keepBytes))
         let suffix = data.subdata(in: sliceStart..<data.count)
         try suffix.write(to: url, options: .atomic)
-        try handle.seek(toOffset: UInt64(suffix.count))
+        diagnosticsFileSize = Int64(suffix.count)
+    }
+
+    private static func shouldSuppressRepeatedLog(category: String, message: String, at now: Date) -> Bool {
+        guard let rule = repeatedLogRule(category: category, message: message) else { return false }
+        return duplicateFilterQueue.sync {
+            if let last = lastNoisyLogAtByKey[rule.key],
+               now.timeIntervalSince(last) < rule.window {
+                return true
+            }
+            lastNoisyLogAtByKey[rule.key] = now
+            if lastNoisyLogAtByKey.count > 64 {
+                lastNoisyLogAtByKey = lastNoisyLogAtByKey.filter { now.timeIntervalSince($0.value) < 120 }
+            }
+            return false
+        }
+    }
+
+    private static func repeatedLogRule(category: String, message: String) -> (key: String, window: TimeInterval)? {
+        let lowered = message.lowercased()
+        switch category {
+        case "Speech":
+            if message.contains("[ASR Session] task error"), lowered.contains("no speech detected") {
+                return ("speech.no-speech-error", 5.0)
+            }
+            if message.hasPrefix("[AudioRoute] startOnce") {
+                return ("speech.start-once", 2.0)
+            }
+            if message.hasPrefix("AudioCaptureSession start skipped alreadyRunning") {
+                return ("speech.audio-start-skipped", 2.0)
+            }
+            if message.hasPrefix("[VoiceProcessingIO] prefer passthrough") {
+                return ("speech.voice-processing-policy", 2.0)
+            }
+            if message.hasPrefix("[TypingTarget] rearm focused target reason=continuous-focus-check") {
+                return ("speech.continuous-focus-check", 3.0)
+            }
+        case "Lifecycle":
+            if message.contains("Event tap unexpectedly disabled") {
+                return ("lifecycle.event-tap-disabled", 10.0)
+            }
+        default:
+            break
+        }
+        return nil
     }
 }
 

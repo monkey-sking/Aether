@@ -474,6 +474,7 @@ class HeadMotionManager: ObservableObject {
     private var hotZoneMonitorTimer: Timer?
     private var connectionTimer: Timer?
     private var lastDataTime: Date?
+    private var lastEventTapRecoveryLogAt: Date = .distantPast
     var didLogEventTapKeyDebugHint: Bool = false
     
     private let motionManager = CMHeadphoneMotionManager()
@@ -5306,8 +5307,14 @@ class HeadMotionManager: ObservableObject {
             // Event taps can be disabled by the system after callback timeout or user input transitions.
             // Keep hotkeys resilient by auto-recovering a disabled tap.
             if self.isHotkeyRegistered, let tap = self.eventTap, !CGEvent.tapIsEnabled(tap: tap) {
-                GlobalLogger.lifecycle.error("HeadMotionManager: Event tap unexpectedly disabled; attempting auto-reenable.")
+                let now = Date()
+                if now.timeIntervalSince(self.lastEventTapRecoveryLogAt) >= 10.0 {
+                    self.lastEventTapRecoveryLogAt = now
+                    GlobalLogger.lifecycle.error("HeadMotionManager: Event tap unexpectedly disabled; attempting auto-reenable.")
+                }
                 CGEvent.tapEnable(tap: tap, enable: true)
+            } else {
+                self.lastEventTapRecoveryLogAt = .distantPast
             }
 
             let detectorSide = AirPodsDetector.shared.currentSide()
