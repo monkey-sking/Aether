@@ -2294,13 +2294,6 @@ private struct VoiceUsageInsightsCard: View {
         isChinese ? "\(value) 字" : "\(value) chars"
     }
 
-    private func totalDetailText(_ summary: AppState.VoiceUsageSummary) -> String {
-        if isChinese {
-            return "输入 \(summary.dictationCount) 次 · 控制 \(summary.controlCount) 次"
-        }
-        return "\(summary.dictationCount) dictations · \(summary.controlCount) controls"
-    }
-
     private func recentActivityStatusText(visibleCount: Int, matchingCount: Int) -> String {
         guard visibleCount > 0 else {
             return isChinese ? "当前没有可显示的记录。" : "No records are currently visible."
@@ -2399,83 +2392,78 @@ private struct VoiceUsageInsightsCard: View {
     private var topMetricsStrip: some View {
         let summary = snapshot.dashboard.summary
 
-        return sectionCard {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 10) {
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "记录状态" : "Tracking",
-                        value: appState.isVoiceUsageHistoryEnabled
-                            ? (isChinese ? "开启" : "On")
-                            : (isChinese ? "关闭" : "Off"),
-                        tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
-                        usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
-                    )
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "历史条数" : "Saved History",
-                        value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
-                        detail: isChinese
-                            ? "上限 \(appState.voiceUsageHistoryLimit) 条"
-                            : "Limit \(appState.voiceUsageHistoryLimit)",
-                        tint: .accentColor
-                    )
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "总使用次数" : "Total Activity",
-                        value: formattedEntries(summary.total),
-                        detail: totalDetailText(summary),
-                        tint: .accentColor
-                    )
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "输入次数" : "Dictation",
-                        value: formattedEntries(summary.dictationCount),
-                        detail: formattedCharacters(summary.dictationCharacterCount),
-                        tint: .blue
-                    )
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "控制次数" : "Control",
-                        value: formattedEntries(summary.controlCount),
-                        detail: isChinese ? "语音控制触发次数" : "Voice control actions",
-                        tint: .teal
-                    )
-                }
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 10) {
+                VoiceUsageStatusChip(
+                    title: isChinese ? "记录状态" : "Tracking",
+                    value: appState.isVoiceUsageHistoryEnabled
+                        ? (isChinese ? "开启" : "On")
+                        : (isChinese ? "关闭" : "Off"),
+                    tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
+                    usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
+                )
+                VoiceUsageStatusChip(
+                    title: isChinese ? "历史条数" : "Saved History",
+                    value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
+                    detail: isChinese
+                        ? "上限 \(appState.voiceUsageHistoryLimit) 条"
+                        : "Limit \(appState.voiceUsageHistoryLimit)",
+                    tint: .accentColor
+                )
+                VoiceUsageStatusChip(
+                    title: isChinese ? "总使用次数" : "Total Activity",
+                    value: formattedEntries(summary.total),
+                    tint: .accentColor
+                )
+                VoiceUsageStatusChip(
+                    title: isChinese ? "输入次数" : "Dictation",
+                    value: formattedEntries(summary.dictationCount),
+                    detail: formattedCharacters(summary.dictationCharacterCount),
+                    tint: .blue
+                )
+                VoiceUsageStatusChip(
+                    title: isChinese ? "控制次数" : "Control",
+                    value: formattedEntries(summary.controlCount),
+                    tint: .teal
+                )
+            }
 
-                LazyVGrid(columns: topMetricColumns, alignment: .leading, spacing: 10) {
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "记录状态" : "Tracking",
-                        value: appState.isVoiceUsageHistoryEnabled
-                            ? (isChinese ? "开启" : "On")
-                            : (isChinese ? "关闭" : "Off"),
-                        tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
-                        usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
-                    )
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "历史条数" : "Saved History",
-                        value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
-                        detail: isChinese
-                            ? "上限 \(appState.voiceUsageHistoryLimit) 条"
-                            : "Limit \(appState.voiceUsageHistoryLimit)",
-                        tint: .accentColor
-                    )
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "总使用次数" : "Total Activity",
-                        value: formattedEntries(summary.total),
-                        detail: totalDetailText(summary),
-                        tint: .accentColor
-                    )
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "输入次数" : "Dictation",
-                        value: formattedEntries(summary.dictationCount),
-                        detail: formattedCharacters(summary.dictationCharacterCount),
-                        tint: .blue
-                    )
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "控制次数" : "Control",
-                        value: formattedEntries(summary.controlCount),
-                        detail: isChinese ? "语音控制触发次数" : "Voice control actions",
-                        tint: .teal
-                    )
-                }
+            LazyVGrid(columns: topMetricColumns, alignment: .leading, spacing: 10) {
+                VoiceUsageStatusChip(
+                    title: isChinese ? "记录状态" : "Tracking",
+                    value: appState.isVoiceUsageHistoryEnabled
+                        ? (isChinese ? "开启" : "On")
+                        : (isChinese ? "关闭" : "Off"),
+                    tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
+                    usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
+                )
+                VoiceUsageStatusChip(
+                    title: isChinese ? "历史条数" : "Saved History",
+                    value: formattedEntries(snapshot.dashboard.retainedHistoryCount),
+                    detail: isChinese
+                        ? "上限 \(appState.voiceUsageHistoryLimit) 条"
+                        : "Limit \(appState.voiceUsageHistoryLimit)",
+                    tint: .accentColor
+                )
+                VoiceUsageStatusChip(
+                    title: isChinese ? "总使用次数" : "Total Activity",
+                    value: formattedEntries(summary.total),
+                    tint: .accentColor
+                )
+                VoiceUsageStatusChip(
+                    title: isChinese ? "输入次数" : "Dictation",
+                    value: formattedEntries(summary.dictationCount),
+                    detail: formattedCharacters(summary.dictationCharacterCount),
+                    tint: .blue
+                )
+                VoiceUsageStatusChip(
+                    title: isChinese ? "控制次数" : "Control",
+                    value: formattedEntries(summary.controlCount),
+                    tint: .teal
+                )
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var mainContent: some View {
@@ -2644,24 +2632,43 @@ private struct VoiceUsageInsightsCard: View {
 
     private var advancedPanel: some View {
         sectionCard {
-            DisclosureGroup(
-                isExpanded: $showAdvancedTools,
-                content: {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Divider()
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showAdvancedTools.toggle()
+                }
+            } label: {
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(isChinese ? "高级与数据" : "Advanced & Data")
+                            .font(.subheadline.weight(.semibold))
+                        Text(
+                            isChinese
+                                ? "导出诊断、管理本地记录，或执行重置与清除。"
+                                : "Export diagnostics, manage local history, or reset retained data."
+                        )
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: showAdvancedTools ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(isChinese ? "导出与诊断" : "Export & Diagnostics")
-                                    .font(.subheadline.weight(.semibold))
-                                Text(
-                                    isChinese
-                                        ? "导出诊断记录，或生成用于排查的 AI 提示。"
-                                        : "Export diagnostics or generate an AI prompt for troubleshooting."
-                                )
-                                .font(.caption)
+            if showAdvancedTools {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 12) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .center, spacing: 10) {
+                            Text(isChinese ? "导出与诊断" : "Export & Diagnostics")
+                                .font(.caption.weight(.semibold))
                                 .foregroundColor(.secondary)
-                            }
+
+                            Spacer(minLength: 8)
 
                             Button(LocalizedStringKey("insights.copy_diagnostic_history")) {
                                 do {
@@ -2694,30 +2701,86 @@ private struct VoiceUsageInsightsCard: View {
                                 }
                             }
                         }
-                        .controlSize(.small)
-                        .buttonStyle(.bordered)
-
-                        Divider()
 
                         VStack(alignment: .leading, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(isChinese ? "数据与保留" : "Data & Retention")
-                                    .font(.subheadline.weight(.semibold))
-                                Text(
-                                    isChinese
-                                        ? "管理记录开关和历史保留数量。"
-                                        : "Manage tracking and how much history is retained."
-                                )
-                                .font(.caption)
+                            Text(isChinese ? "导出与诊断" : "Export & Diagnostics")
+                                .font(.caption.weight(.semibold))
                                 .foregroundColor(.secondary)
-                            }
 
+                            HStack(spacing: 8) {
+                                Button(LocalizedStringKey("insights.copy_diagnostic_history")) {
+                                    do {
+                                        try appState.copyVoiceUsageHistoryForDiagnostics()
+                                        HUDManager.shared.showTemporary(
+                                            message: String(localized: "insights.copy_diagnostic_history_done"),
+                                            icon: "doc.on.doc"
+                                        )
+                                    } catch {
+                                        HUDManager.shared.showTemporary(
+                                            message: String(localized: "insights.copy_diagnostic_history_failed"),
+                                            icon: "xmark.circle.fill"
+                                        )
+                                    }
+                                }
+                                .disabled(!hasHistoryData)
+
+                                Button(LocalizedStringKey("insights.export_ai_prompt")) {
+                                    do {
+                                        try appState.exportAetherAIConfigPrompt()
+                                        HUDManager.shared.showTemporary(
+                                            message: String(localized: "insights.export_ai_prompt_done"),
+                                            icon: "doc.on.doc"
+                                        )
+                                    } catch {
+                                        HUDManager.shared.showTemporary(
+                                            message: String(localized: "insights.export_ai_prompt_failed"),
+                                            icon: "xmark.circle.fill"
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+
+                    Divider()
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .center, spacing: 14) {
                             Toggle(isOn: $appState.isVoiceUsageHistoryEnabled) {
                                 Text(LocalizedStringKey("insights.capture_toggle_title"))
                                     .font(.caption)
                             }
-                            .controlSize(.small)
                             .toggleStyle(.switch)
+                            .controlSize(.small)
+
+                            Spacer(minLength: 8)
+
+                            HStack(alignment: .center, spacing: 10) {
+                                Text(isChinese ? "保留上限" : "Retention Limit")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Stepper(
+                                    value: $appState.voiceUsageHistoryLimit,
+                                    in: 100...5000,
+                                    step: 100
+                                ) {
+                                    Text(formattedEntries(appState.voiceUsageHistoryLimit))
+                                        .font(.caption.monospacedDigit())
+                                        .frame(minWidth: 72, alignment: .trailing)
+                                }
+                                .frame(width: 180)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle(isOn: $appState.isVoiceUsageHistoryEnabled) {
+                                Text(LocalizedStringKey("insights.capture_toggle_title"))
+                                    .font(.caption)
+                            }
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
 
                             HStack(alignment: .center, spacing: 10) {
                                 Text(isChinese ? "保留上限" : "Retention Limit")
@@ -2735,65 +2798,53 @@ private struct VoiceUsageInsightsCard: View {
                                 }
                                 .frame(width: 180)
                             }
-
-                            Text(
-                                appState.isVoiceUsageHistoryEnabled
-                                    ? (isChinese ? "新事件会继续追加到本地历史。" : "New events continue to be stored locally.")
-                                    : (hasHistoryData
-                                        ? (isChinese ? "记录已关闭，旧历史仍然保留。" : "Tracking is off. Existing history is still retained.")
-                                        : (isChinese ? "记录已关闭，当前没有历史数据。" : "Tracking is off and there is no history yet."))
-                            )
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
                         }
+                    }
 
-                        Divider()
+                    Divider()
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(isChinese ? "重置与清除" : "Reset & Clear")
-                                    .font(.subheadline.weight(.semibold))
-                                Text(
-                                    isChinese
-                                        ? "重置统计或清除本地历史记录。"
-                                        : "Reset statistics or clear retained local history."
-                                )
-                                .font(.caption)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .center, spacing: 10) {
+                            Text(isChinese ? "重置与清除" : "Reset & Clear")
+                                .font(.caption.weight(.semibold))
                                 .foregroundColor(.secondary)
-                            }
+
+                            Spacer(minLength: 8)
 
                             Button(String(localized: "insights.reset_statistics")) {
                                 showingResetStatisticsConfirm = true
                             }
-                            .controlSize(.small)
-                            .buttonStyle(.bordered)
                             .disabled(!hasStatisticsData)
 
                             Button(String(localized: "insights.clear_data"), role: .destructive) {
                                 showingClearDataConfirm = true
                             }
-                            .controlSize(.small)
-                            .buttonStyle(.bordered)
                             .disabled(!hasHistoryData)
                         }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(isChinese ? "重置与清除" : "Reset & Clear")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.secondary)
+
+                            HStack(spacing: 8) {
+                                Button(String(localized: "insights.reset_statistics")) {
+                                    showingResetStatisticsConfirm = true
+                                }
+                                .disabled(!hasStatisticsData)
+
+                                Button(String(localized: "insights.clear_data"), role: .destructive) {
+                                    showingClearDataConfirm = true
+                                }
+                                .disabled(!hasHistoryData)
+                            }
+                        }
                     }
-                    .padding(.top, 2)
-                },
-                label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(isChinese ? "高级与数据" : "Advanced & Data")
-                            .font(.subheadline.weight(.semibold))
-                        Text(
-                            isChinese
-                                ? "导出诊断、管理本地记录，或执行重置与清除。"
-                                : "Export diagnostics, manage local history, or reset retained data."
-                        )
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
                 }
-            )
-            .controlSize(.small)
+                .padding(.top, 2)
+            }
         }
     }
 }
@@ -2824,16 +2875,16 @@ private struct VoiceUsageStatusChip: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .frame(minHeight: 68, alignment: .topLeading)
+        .frame(minHeight: 60, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             (usesNeutralBackground ? Color(nsColor: .controlBackgroundColor) : tint)
-                .opacity(usesNeutralBackground ? 0.8 : 0.12)
+                .opacity(usesNeutralBackground ? 0.72 : 0.08)
         )
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.primary.opacity(usesNeutralBackground ? 0.06 : 0), lineWidth: 1)
+                .stroke(Color.primary.opacity(usesNeutralBackground ? 0.05 : 0.03), lineWidth: 1)
         }
     }
 }
@@ -2882,8 +2933,6 @@ private struct VoiceUsageTopAppRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -3206,7 +3255,9 @@ private struct VoiceUsageEventRow: View {
             Text(timeText)
                 .font(.caption2.monospacedDigit())
                 .foregroundColor(.secondary)
-                .frame(width: 58, alignment: .trailing)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: 58, alignment: .trailing)
 
             Button {
                 copyEvent()
