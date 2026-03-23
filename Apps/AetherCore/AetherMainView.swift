@@ -539,6 +539,44 @@ private struct OverviewDashboardView: View {
             : "Launch Aether automatically after you log in."
     }
 
+    private var microphoneSetupActionTitle: String? {
+        guard !appState.microphoneAuthorized else { return nil }
+        switch appState.microphoneAuthorizationStatus {
+        case .denied, .restricted:
+            return String(localized: "permissions.fix_microphone")
+        default:
+            return String(localized: "main.action.enable")
+        }
+    }
+
+    private func handleMicrophoneSetupAction() {
+        switch appState.microphoneAuthorizationStatus {
+        case .denied, .restricted:
+            appState.repairMicrophoneGuided()
+        default:
+            appState.requestMicrophoneGuided()
+        }
+    }
+
+    private var speechSetupActionTitle: String? {
+        guard !appState.speechAuthorized else { return nil }
+        switch appState.speechAuthorizationStatus {
+        case .denied, .restricted:
+            return String(localized: "permissions.fix_speech")
+        default:
+            return String(localized: "main.action.enable")
+        }
+    }
+
+    private func handleSpeechSetupAction() {
+        switch appState.speechAuthorizationStatus {
+        case .denied, .restricted:
+            appState.repairSpeechGuided()
+        default:
+            appState.requestSpeechGuided()
+        }
+    }
+
     private var setupItems: [OverviewSetupItem] {
         [
             OverviewSetupItem(
@@ -560,8 +598,8 @@ private struct OverviewDashboardView: View {
                     ? String(localized: "main.permission.microphone.detail.ready")
                     : String(localized: "main.permission.microphone.detail.missing"),
                 isReady: appState.microphoneAuthorized,
-                actionTitle: appState.microphoneAuthorized ? nil : String(localized: "main.action.enable"),
-                action: appState.microphoneAuthorized ? nil : { appState.requestMicrophoneGuided() }
+                actionTitle: microphoneSetupActionTitle,
+                action: appState.microphoneAuthorized ? nil : handleMicrophoneSetupAction
             ),
             OverviewSetupItem(
                 id: "speech",
@@ -571,8 +609,8 @@ private struct OverviewDashboardView: View {
                     ? String(localized: "main.permission.speech.detail.ready")
                     : String(localized: "main.permission.speech.detail.missing"),
                 isReady: appState.speechAuthorized,
-                actionTitle: appState.speechAuthorized ? nil : String(localized: "main.action.enable"),
-                action: appState.speechAuthorized ? nil : { appState.requestSpeechGuided() }
+                actionTitle: speechSetupActionTitle,
+                action: appState.speechAuthorized ? nil : handleSpeechSetupAction
             )
         ]
     }

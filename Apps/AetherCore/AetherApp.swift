@@ -4024,33 +4024,31 @@ class AppState: ObservableObject {
         case .authorized:
             refreshPermissions()
         case .notDetermined:
-            // Important: do not jump to System Settings immediately.
-            // Let the native TCC prompt appear first, otherwise it can be interrupted.
             permissions.requestMicrophone()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                 guard let self else { return }
                 self.refreshPermissions()
-                if !self.microphoneAuthorized {
-                    self.permissions.openMicrophonePrivacyPane()
-                }
             }
         case .denied, .restricted:
-            // Recovery path for stale/broken TCC rows:
-            // reset app microphone decision, then re-request to force macOS prompt and re-create list entry.
-            Task { [weak self] in
-                _ = await Self.resetTCCAsync(service: "Microphone")
-                try? await Task.sleep(for: .milliseconds(200))
-                guard let self else { return }
-                self.permissions.requestMicrophone()
-                try? await Task.sleep(for: .milliseconds(900))
-                self.refreshPermissions()
-                if !self.microphoneAuthorized {
-                    self.permissions.openMicrophonePrivacyPane()
-                }
-            }
+            permissions.openMicrophonePrivacyPane()
+            refreshPermissions()
         @unknown default:
             permissions.openMicrophonePrivacyPane()
             refreshPermissions()
+        }
+    }
+
+    func repairMicrophoneGuided() {
+        Task { [weak self] in
+            _ = await Self.resetTCCAsync(service: "Microphone")
+            try? await Task.sleep(for: .milliseconds(200))
+            guard let self else { return }
+            self.permissions.requestMicrophone()
+            try? await Task.sleep(for: .milliseconds(1000))
+            self.refreshPermissions()
+            if !self.microphoneAuthorized {
+                self.permissions.openMicrophonePrivacyPane()
+            }
         }
     }
 
@@ -4061,28 +4059,30 @@ class AppState: ObservableObject {
             refreshPermissions()
         case .notDetermined:
             permissions.requestSpeech()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                 guard let self else { return }
                 self.refreshPermissions()
-                if !self.speechAuthorized {
-                    self.permissions.openSpeechPrivacyPane()
-                }
             }
         case .denied, .restricted:
-            Task { [weak self] in
-                _ = await Self.resetTCCAsync(service: "SpeechRecognition")
-                try? await Task.sleep(for: .milliseconds(200))
-                guard let self else { return }
-                self.permissions.requestSpeech()
-                try? await Task.sleep(for: .milliseconds(900))
-                self.refreshPermissions()
-                if !self.speechAuthorized {
-                    self.permissions.openSpeechPrivacyPane()
-                }
-            }
+            permissions.openSpeechPrivacyPane()
+            refreshPermissions()
         @unknown default:
             permissions.openSpeechPrivacyPane()
             refreshPermissions()
+        }
+    }
+
+    func repairSpeechGuided() {
+        Task { [weak self] in
+            _ = await Self.resetTCCAsync(service: "SpeechRecognition")
+            try? await Task.sleep(for: .milliseconds(200))
+            guard let self else { return }
+            self.permissions.requestSpeech()
+            try? await Task.sleep(for: .milliseconds(1000))
+            self.refreshPermissions()
+            if !self.speechAuthorized {
+                self.permissions.openSpeechPrivacyPane()
+            }
         }
     }
 

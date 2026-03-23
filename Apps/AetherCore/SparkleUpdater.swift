@@ -5,10 +5,37 @@ import Sparkle
 
 enum AetherUpdateFeedResolver {
     private static let channelKey = "aether.update.channel"
+    private static let explicitChannelKey = "aether.update.channel.explicit"
+
+    private static var buildDefaultChannel: AetherUpdateChannel {
+        isBetaBuild ? .beta : .stable
+    }
+
+    private static var isBetaBuild: Bool {
+        guard let rawLabel = Bundle.main.object(forInfoDictionaryKey: "AetherPublicVersionLabel") as? String else {
+            return false
+        }
+        return !rawLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     static func currentChannel() -> AetherUpdateChannel {
-        let raw = UserDefaults.standard.string(forKey: channelKey) ?? AetherUpdateChannel.stable.rawValue
-        return AetherUpdateChannel(rawValue: raw) ?? .stable
+        let defaults = UserDefaults.standard
+        let defaultChannel = buildDefaultChannel
+        if defaults.bool(forKey: explicitChannelKey) {
+            let raw = defaults.string(forKey: channelKey) ?? defaultChannel.rawValue
+            return AetherUpdateChannel(rawValue: raw) ?? defaultChannel
+        }
+
+        if defaults.string(forKey: channelKey) != defaultChannel.rawValue {
+            defaults.set(defaultChannel.rawValue, forKey: channelKey)
+        }
+        return defaultChannel
+    }
+
+    static func setChannel(_ channel: AetherUpdateChannel, explicit: Bool = true) {
+        let defaults = UserDefaults.standard
+        defaults.set(channel.rawValue, forKey: channelKey)
+        defaults.set(explicit, forKey: explicitChannelKey)
     }
 
     static func feedURLString(for channel: AetherUpdateChannel) -> String {

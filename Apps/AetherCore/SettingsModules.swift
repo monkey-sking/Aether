@@ -501,16 +501,32 @@ struct InputSettingsView: View {
                                     .foregroundColor(.orange)
 
                                 if !appState.microphoneAuthorized {
-                                    Button(NSLocalizedString("settings.voice.open_mic_permission", comment: "")) {
-                                        appState.requestMicrophoneGuided()
+                                    Button(
+                                        appState.microphoneAuthorizationStatus == .denied || appState.microphoneAuthorizationStatus == .restricted
+                                            ? NSLocalizedString("permissions.fix_microphone", comment: "")
+                                            : NSLocalizedString("settings.voice.open_mic_permission", comment: "")
+                                    ) {
+                                        if appState.microphoneAuthorizationStatus == .denied || appState.microphoneAuthorizationStatus == .restricted {
+                                            appState.repairMicrophoneGuided()
+                                        } else {
+                                            appState.requestMicrophoneGuided()
+                                        }
                                     }
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
                                 }
 
                                 if !appState.speechAuthorized {
-                                    Button(NSLocalizedString("settings.voice.open_speech_permission", comment: "")) {
-                                        appState.requestSpeechGuided()
+                                    Button(
+                                        appState.speechAuthorizationStatus == .denied || appState.speechAuthorizationStatus == .restricted
+                                            ? NSLocalizedString("permissions.fix_speech", comment: "")
+                                            : NSLocalizedString("settings.voice.open_speech_permission", comment: "")
+                                    ) {
+                                        if appState.speechAuthorizationStatus == .denied || appState.speechAuthorizationStatus == .restricted {
+                                            appState.repairSpeechGuided()
+                                        } else {
+                                            appState.requestSpeechGuided()
+                                        }
                                     }
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)

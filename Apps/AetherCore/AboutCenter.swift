@@ -682,7 +682,7 @@ final class AetherUpdaterManager: ObservableObject {
 
     func setUpdateChannel(_ channel: AetherUpdateChannel) {
         self.channel = channel
-        UserDefaults.standard.set(channel.rawValue, forKey: "aether.update.channel")
+        AetherUpdateFeedResolver.setChannel(channel)
         refreshFeedString()
         sparkleController.refreshFeedSelection()
     }

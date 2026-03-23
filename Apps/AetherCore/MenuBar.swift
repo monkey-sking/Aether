@@ -83,14 +83,30 @@ struct AetherMenuBar: Scene {
             }
 
             if !appState.microphoneAuthorized {
-                Button(String(localized: "menu.enable_microphone")) {
-                    appState.requestMicrophoneGuided()
+                Button(
+                    appState.microphoneAuthorizationStatus == .denied || appState.microphoneAuthorizationStatus == .restricted
+                        ? String(localized: "permissions.fix_microphone")
+                        : String(localized: "menu.enable_microphone")
+                ) {
+                    if appState.microphoneAuthorizationStatus == .denied || appState.microphoneAuthorizationStatus == .restricted {
+                        appState.repairMicrophoneGuided()
+                    } else {
+                        appState.requestMicrophoneGuided()
+                    }
                 }
             }
 
             if !appState.speechAuthorized {
-                Button(String(localized: "menu.enable_speech")) {
-                    appState.requestSpeechGuided()
+                Button(
+                    appState.speechAuthorizationStatus == .denied || appState.speechAuthorizationStatus == .restricted
+                        ? String(localized: "permissions.fix_speech")
+                        : String(localized: "menu.enable_speech")
+                ) {
+                    if appState.speechAuthorizationStatus == .denied || appState.speechAuthorizationStatus == .restricted {
+                        appState.repairSpeechGuided()
+                    } else {
+                        appState.requestSpeechGuided()
+                    }
                 }
             }
 
