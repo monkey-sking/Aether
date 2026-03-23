@@ -61,6 +61,11 @@ struct VoiceLanguageTermsOverrideConfig: Codable, Identifiable, Equatable {
     var id: String { localeIdentifier }
 }
 
+enum WakeWordMatchMode {
+    case strictPrefix
+    case retryAwareStandby
+}
+
 struct WakeWordDetectionResult {
     let wakeDetected: Bool
     /// Text that follows the wake phrase (empty string if entire utterance was the wake phrase).
@@ -74,10 +79,15 @@ final class WakeWordDetector {
     private struct WakePhraseMatch {
         let phrase: String
         let score: Double
+        let leadingRawDiscardCount: Int
         let consumeRawCount: Int
+
+        var totalConsumedRawCount: Int { leadingRawDiscardCount + consumeRawCount }
     }
 
     private static let fuzzyWakeDetectionThreshold = 0.88
+    private static let retryWakeDetectionThreshold = 0.93
+    private static let retryLeadingNoiseCharacterBudget = 12
     private let stateQueue = DispatchQueue(label: "com.aether.wake-word-detector.state", attributes: .concurrent)
     private var storedOverrides: [VoiceLanguageTermsOverrideConfig] = []
 
@@ -112,7 +122,11 @@ final class WakeWordDetector {
     }
 
     /// Detect whether text begins with a wake phrase and strip it.
-    func process(_ text: String, localeIdentifier: String = Locale.current.identifier) -> WakeWordDetectionResult {
+    func process(
+        _ text: String,
+        localeIdentifier: String = Locale.current.identifier,
+        matchMode: WakeWordMatchMode = .strictPrefix
+    ) -> WakeWordDetectionResult {
         let activeOverrides = overrides
         let phrases = Self.effectiveWakePhrases(for: localeIdentifier, overrides: activeOverrides)
             .sorted { $0.count > $1.count }
@@ -127,29 +141,39 @@ final class WakeWordDetector {
             return WakeWordDetectionResult(wakeDetected: false, payload: text, score: 0, matchedPhrase: nil)
         }
 
-        var bestMatch: WakePhraseMatch?
-        for phrase in phrases {
-            guard let match = Self.bestMatch(for: phrase, in: trimmedLeading) else { continue }
-            if let currentBest = bestMatch {
-                if match.score > currentBest.score || (match.score == currentBest.score && match.phrase.count > currentBest.phrase.count) {
-                    bestMatch = match
-                }
-            } else {
-                bestMatch = match
-            }
+        let strictMatch = Self.bestMatchAcrossPhrases(
+            phrases,
+            in: trimmedLeading,
+            leadingRawDiscardCount: 0
+        )
+        if let strictMatch, strictMatch.score >= Self.fuzzyWakeDetectionThreshold {
+            let payload = String(trimmedLeading.dropFirst(strictMatch.totalConsumedRawCount))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return WakeWordDetectionResult(
+                wakeDetected: true,
+                payload: payload,
+                score: strictMatch.score,
+                matchedPhrase: strictMatch.phrase
+            )
         }
 
-        guard let bestMatch, bestMatch.score >= Self.fuzzyWakeDetectionThreshold else {
-            return WakeWordDetectionResult(wakeDetected: false, payload: text, score: bestMatch?.score ?? 0, matchedPhrase: bestMatch?.phrase)
+        if matchMode == .retryAwareStandby,
+           let retryMatch = Self.bestRetryAwareMatch(phrases: phrases, in: trimmedLeading) {
+            let payload = String(trimmedLeading.dropFirst(retryMatch.totalConsumedRawCount))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return WakeWordDetectionResult(
+                wakeDetected: true,
+                payload: payload,
+                score: retryMatch.score,
+                matchedPhrase: retryMatch.phrase
+            )
         }
 
-        let payload = String(trimmedLeading.dropFirst(bestMatch.consumeRawCount))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         return WakeWordDetectionResult(
-            wakeDetected: true,
-            payload: payload,
-            score: bestMatch.score,
-            matchedPhrase: bestMatch.phrase
+            wakeDetected: false,
+            payload: text,
+            score: strictMatch?.score ?? 0,
+            matchedPhrase: strictMatch?.phrase
         )
     }
 
@@ -183,11 +207,49 @@ final class WakeWordDetector {
             overrides.first(where: { $0.localeIdentifier == canonical })
     }
 
+    private static func bestMatchAcrossPhrases(
+        _ phrases: [String],
+        in text: String,
+        leadingRawDiscardCount: Int
+    ) -> WakePhraseMatch? {
+        var bestCandidate: WakePhraseMatch?
+        for phrase in phrases {
+            guard let match = bestMatch(for: phrase, in: text, leadingRawDiscardCount: leadingRawDiscardCount) else {
+                continue
+            }
+            if let currentBest = bestCandidate {
+                if match.score > currentBest.score
+                    || (match.score == currentBest.score && match.phrase.count > currentBest.phrase.count)
+                    || (match.score == currentBest.score
+                        && match.phrase.count == currentBest.phrase.count
+                        && match.leadingRawDiscardCount < currentBest.leadingRawDiscardCount) {
+                    bestCandidate = match
+                }
+            } else {
+                bestCandidate = match
+            }
+        }
+        return bestCandidate
+    }
+
     private static func bestMatch(for phrase: String, in text: String) -> WakePhraseMatch? {
+        bestMatch(for: phrase, in: text, leadingRawDiscardCount: 0)
+    }
+
+    private static func bestMatch(
+        for phrase: String,
+        in text: String,
+        leadingRawDiscardCount: Int
+    ) -> WakePhraseMatch? {
         let loweredText = text.lowercased()
         let loweredPhrase = phrase.lowercased()
         if loweredText.hasPrefix(loweredPhrase) {
-            return WakePhraseMatch(phrase: phrase, score: 1.0, consumeRawCount: phrase.count)
+            return WakePhraseMatch(
+                phrase: phrase,
+                score: 1.0,
+                leadingRawDiscardCount: leadingRawDiscardCount,
+                consumeRawCount: phrase.count
+            )
         }
 
         let normalizedPhrase = normalizeForWakeMatching(phrase)
@@ -213,7 +275,12 @@ final class WakeWordDetector {
             )
             guard score > 0 else { continue }
 
-            let match = WakePhraseMatch(phrase: phrase, score: score, consumeRawCount: rawCount)
+            let match = WakePhraseMatch(
+                phrase: phrase,
+                score: score,
+                leadingRawDiscardCount: leadingRawDiscardCount,
+                consumeRawCount: rawCount
+            )
             if let currentBest = best {
                 if match.score > currentBest.score || (match.score == currentBest.score && match.consumeRawCount > currentBest.consumeRawCount) {
                     best = match
@@ -224,6 +291,62 @@ final class WakeWordDetector {
         }
 
         return best
+    }
+
+    private static func bestRetryAwareMatch(
+        phrases: [String],
+        in text: String
+    ) -> WakePhraseMatch? {
+        guard text.count > 1 else { return nil }
+
+        var bestRetryMatch: WakePhraseMatch?
+        let maxDiscard = min(text.count - 1, retryLeadingNoiseCharacterBudget)
+
+        for discardCount in 1...maxDiscard {
+            let skipped = String(text.prefix(discardCount))
+            let normalizedSkipped = normalizeForWakeMatching(skipped)
+            guard !normalizedSkipped.isEmpty,
+                  normalizedSkipped.count <= retryLeadingNoiseCharacterBudget else {
+                continue
+            }
+
+            let suffix = String(text.dropFirst(discardCount))
+            guard !suffix.isEmpty,
+                  let candidate = bestMatchAcrossPhrases(
+                    phrases,
+                    in: suffix,
+                    leadingRawDiscardCount: discardCount
+                  ),
+                  candidate.score >= retryWakeDetectionThreshold,
+                  isRetryExactMatch(
+                    candidate: String(suffix.prefix(candidate.consumeRawCount)),
+                    phrase: candidate.phrase
+                  ) else {
+                continue
+            }
+
+            if let currentBest = bestRetryMatch {
+                if candidate.score > currentBest.score
+                    || (candidate.score == currentBest.score
+                        && candidate.leadingRawDiscardCount < currentBest.leadingRawDiscardCount)
+                    || (candidate.score == currentBest.score
+                        && candidate.leadingRawDiscardCount == currentBest.leadingRawDiscardCount
+                        && candidate.phrase.count > currentBest.phrase.count) {
+                    bestRetryMatch = candidate
+                }
+            } else {
+                bestRetryMatch = candidate
+            }
+        }
+
+        return bestRetryMatch
+    }
+
+    private static func isRetryExactMatch(candidate: String, phrase: String) -> Bool {
+        if candidate.lowercased() == phrase.lowercased() {
+            return true
+        }
+        return normalizeForWakeMatching(candidate) == normalizeForWakeMatching(phrase)
     }
 
     private static func wakeMatchScore(

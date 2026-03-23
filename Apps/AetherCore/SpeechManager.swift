@@ -366,6 +366,7 @@ final class SpeechManager: ObservableObject {
     // MARK: - Internal State
     var onIntent: ((VoiceIntent, String?, String?, String?) -> Void)?
     var onRecognitionFailure: ((String?, String?, String?, String?) -> Void)?
+    var onWakeAnalyticsSignal: ((WakeAnalyticsSignal) -> Void)?
     var isDictationExecutionEnabled: (() -> Bool)?
     var isCommandExecutionEnabled: (() -> Bool)?
     var llmProvider: LLMProvider?
@@ -533,6 +534,13 @@ final class SpeechManager: ObservableObject {
     private var finalizationWorkItem: DispatchWorkItem?
     private var pendingEngineRestartWorkItem: DispatchWorkItem?
     private var continuousRecoveryWorkItem: DispatchWorkItem?
+    private struct PendingWakeFollowUp {
+        let groupID: String
+        var phrase: String?
+        let localeIdentifier: String
+        var timeoutWorkItem: DispatchWorkItem?
+    }
+    private var pendingWakeFollowUp: PendingWakeFollowUp?
     private var lastEngineRestartAt: Date = .distantPast
     private var suppressRecognitionFailuresUntil: Date = .distantPast
     private var suppressRecognitionFailuresReason: String?
@@ -2089,12 +2097,20 @@ final class SpeechManager: ObservableObject {
         // Wake word detection & stripping
         if isWakeWordEnabled && !isDirectCommandEnabled {
             logWakeWordConfigurationIfNeeded(reason: "partial")
-            let result = wakeWordDetector.process(text, localeIdentifier: activeLocale.identifier)
+            let wakeMatchMode: WakeWordMatchMode = (!isAwake && isAlwaysListeningEnabled)
+                ? .retryAwareStandby
+                : .strictPrefix
+            let result = wakeWordDetector.process(
+                text,
+                localeIdentifier: activeLocale.identifier,
+                matchMode: wakeMatchMode
+            )
             wakeScore = result.score
             matchedWakePhrase = result.matchedPhrase
             if result.wakeDetected {
                 wakeWordDetected = true
                 if !isAwake {
+                    beginPendingWakeFollowUp(phrase: matchedWakePhrase)
                     handleWakeActivation(
                         reason: "partial-wake-word",
                         rearmReason: (isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled) ? "wake-word" : nil
@@ -2713,6 +2729,103 @@ final class SpeechManager: ObservableObject {
         NSSound(named: "Tink")?.play()
     }
 
+    private func makeWakeFollowUpTimeoutWorkItem(groupID: String) -> DispatchWorkItem {
+        DispatchWorkItem { [weak self] in
+            DispatchQueue.main.async {
+                guard let self,
+                      let pending = self.pendingWakeFollowUp,
+                      pending.groupID == groupID else { return }
+                self.pendingWakeFollowUp = nil
+                self.onWakeAnalyticsSignal?(
+                    .empty(
+                        groupID: pending.groupID,
+                        phrase: pending.phrase,
+                        localeIdentifier: pending.localeIdentifier
+                    )
+                )
+            }
+        }
+    }
+
+    private func beginPendingWakeFollowUp(phrase: String?, allowReuseExisting: Bool = false) {
+        let normalizedPhrase = phrase?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if allowReuseExisting, var pending = pendingWakeFollowUp {
+            pending.timeoutWorkItem?.cancel()
+            if pending.phrase == nil, normalizedPhrase?.isEmpty == false {
+                pending.phrase = normalizedPhrase
+            }
+            let workItem = makeWakeFollowUpTimeoutWorkItem(groupID: pending.groupID)
+            pending.timeoutWorkItem = workItem
+            pendingWakeFollowUp = pending
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + alwaysListeningWakeWindowSeconds(),
+                execute: workItem
+            )
+            return
+        }
+
+        if let pending = pendingWakeFollowUp {
+            pending.timeoutWorkItem?.cancel()
+            onWakeAnalyticsSignal?(
+                .empty(
+                    groupID: pending.groupID,
+                    phrase: pending.phrase,
+                    localeIdentifier: pending.localeIdentifier
+                )
+            )
+            pendingWakeFollowUp = nil
+        }
+
+        let groupID = UUID().uuidString
+        let localeIdentifier = activeLocale.identifier
+        let phraseToStore = normalizedPhrase?.isEmpty == false ? normalizedPhrase : nil
+        onWakeAnalyticsSignal?(
+            .hit(
+                groupID: groupID,
+                phrase: phraseToStore,
+                localeIdentifier: localeIdentifier
+            )
+        )
+
+        let workItem = makeWakeFollowUpTimeoutWorkItem(groupID: groupID)
+
+        pendingWakeFollowUp = PendingWakeFollowUp(
+            groupID: groupID,
+            phrase: phraseToStore,
+            localeIdentifier: localeIdentifier,
+            timeoutWorkItem: workItem
+        )
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + alwaysListeningWakeWindowSeconds(),
+            execute: workItem
+        )
+    }
+
+    private func completePendingWakeFollowUpIfNeeded(intent: VoiceIntent, transcript: String) {
+        guard let pending = pendingWakeFollowUp else { return }
+
+        let followUp: WakeAnalyticsFollowUpKind
+        switch intent {
+        case .dictation:
+            followUp = .dictation
+        default:
+            guard Self.isCommandIntentStatic(intent) else { return }
+            followUp = .control
+        }
+
+        pending.timeoutWorkItem?.cancel()
+        pendingWakeFollowUp = nil
+        onWakeAnalyticsSignal?(
+            .converted(
+                groupID: pending.groupID,
+                followUp: followUp,
+                phrase: pending.phrase,
+                localeIdentifier: pending.localeIdentifier,
+                transcript: transcript
+            )
+        )
+    }
+
     private func handleWakeActivation(reason: String, rearmReason: String? = nil) {
         lastWakeTime = Date()
         GlobalLogger.speech.info(
@@ -2756,7 +2869,12 @@ final class SpeechManager: ObservableObject {
             }
         } else if isAlwaysListeningEnabled {
             logWakeWordConfigurationIfNeeded(reason: "final-always-listening")
-            let wakeResult = wakeWordDetector.process(rawTrimmed, localeIdentifier: activeLocale.identifier)
+            let wakeMatchMode: WakeWordMatchMode = isAwake ? .strictPrefix : .retryAwareStandby
+            let wakeResult = wakeWordDetector.process(
+                rawTrimmed,
+                localeIdentifier: activeLocale.identifier,
+                matchMode: wakeMatchMode
+            )
             wakeScore = wakeResult.score
             matchedWakePhrase = wakeResult.matchedPhrase
             if isAwake {
@@ -2785,6 +2903,9 @@ final class SpeechManager: ObservableObject {
             GlobalLogger.speech.info(
                 "[WakeWord] final score=\(String(format: "%.2f", wakeScore)) matched=\(matchedWakePhrase ?? "nil") detected=\(wakeWordDetected) raw='\(rawTrimmed)' payload='\(textToRoute)'"
             )
+        }
+        if wakeWordDetected {
+            beginPendingWakeFollowUp(phrase: matchedWakePhrase, allowReuseExisting: true)
         }
 
         let lockedFocusedSnapshot = currentFocusedInputSnapshot()
@@ -3003,6 +3124,7 @@ final class SpeechManager: ObservableObject {
             : nil
 
         noteIntentMetrics(intent)
+        completePendingWakeFollowUpIfNeeded(intent: intent, transcript: textToRoute)
 
         if wakeWordDetected { lastWakeTime = Date() }
         else if case .unknown = intent { /* don't extend */ }
@@ -4557,6 +4679,30 @@ final class SpeechManager: ObservableObject {
         return availability.commandEnabled || !availability.dictationEnabled
     }
 
+    static func shouldAcceptStreamedDictationTargetWithoutLiveFocus(
+        sessionTypingMode: Bool,
+        screenTypedCount: Int,
+        streamedTextSnapshot: String,
+        frontmostMatchesTarget: Bool
+    ) -> Bool {
+        guard sessionTypingMode else { return false }
+        guard screenTypedCount > 0 || !streamedTextSnapshot.isEmpty else { return false }
+        return frontmostMatchesTarget
+    }
+
+    static func shouldTrustLockedWeirdTypingTargetWithoutLiveFocus(
+        sessionTypingMode: Bool,
+        targetBundleID: String?,
+        targetElementFingerprint: String?,
+        verificationSnapshotAvailable: Bool,
+        frontmostMatchesTarget: Bool
+    ) -> Bool {
+        guard sessionTypingMode else { return false }
+        guard frontmostMatchesTarget else { return false }
+        guard isWeirdTypingAppBundleIdentifier(targetBundleID) else { return false }
+        return targetElementFingerprint != nil || verificationSnapshotAvailable
+    }
+
     private func hasRecentClickTypingFallbackEvidence() -> Bool {
         guard let frontmostApp = NSWorkspace.shared.frontmostApplication,
               isRecentClickFallbackTypingAppBundle(frontmostApp.bundleIdentifier) else {
@@ -5252,6 +5398,12 @@ final class SpeechManager: ObservableObject {
         }
 
         if sawContradictoryChange {
+            if shouldDowngradeVerificationMismatchForLockedWeirdTypingTarget(job) {
+                GlobalLogger.speech.info(
+                    "[TextPipeline] verification-mismatch downgraded utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(job.targetBundleID ?? "nil")"
+                )
+                return .unverified
+            }
             return .mismatch
         }
 
@@ -5260,6 +5412,16 @@ final class SpeechManager: ObservableObject {
         }
 
         return .unverified
+    }
+
+    private func shouldDowngradeVerificationMismatchForLockedWeirdTypingTarget(_ job: ProcessedJob) -> Bool {
+        Self.shouldTrustLockedWeirdTypingTargetWithoutLiveFocus(
+            sessionTypingMode: job.sessionTypingMode,
+            targetBundleID: job.targetBundleID,
+            targetElementFingerprint: job.targetElementFingerprint,
+            verificationSnapshotAvailable: job.verificationSnapshot != nil,
+            frontmostMatchesTarget: frontmostApplicationMatches(targetPID: job.targetPID, bundleID: job.targetBundleID)
+        )
     }
 
     private func likelyObservedCommittedDictation(
@@ -5347,6 +5509,34 @@ final class SpeechManager: ObservableObject {
             || bundleIsSystemSearchLike(NSWorkspace.shared.frontmostApplication?.bundleIdentifier) {
             return currentFocusedInputSnapshot() != nil
         }
+        let frontmostMatchesTarget: Bool = {
+            guard let front = NSWorkspace.shared.frontmostApplication else { return false }
+            if let targetPID = job.targetPID, targetPID > 0, front.processIdentifier == targetPID {
+                return true
+            }
+            if let targetBundleID = job.targetBundleID, !targetBundleID.isEmpty,
+               front.bundleIdentifier == targetBundleID {
+                return true
+            }
+            return false
+        }()
+        if Self.shouldTrustLockedWeirdTypingTargetWithoutLiveFocus(
+            sessionTypingMode: job.sessionTypingMode,
+            targetBundleID: job.targetBundleID,
+            targetElementFingerprint: job.targetElementFingerprint,
+            verificationSnapshotAvailable: job.verificationSnapshot != nil,
+            frontmostMatchesTarget: frontmostMatchesTarget
+        ) {
+            return true
+        }
+        if Self.shouldAcceptStreamedDictationTargetWithoutLiveFocus(
+            sessionTypingMode: job.sessionTypingMode,
+            screenTypedCount: job.screenTypedCount,
+            streamedTextSnapshot: job.streamedTextSnapshot,
+            frontmostMatchesTarget: frontmostMatchesTarget
+        ) {
+            return true
+        }
         if job.sessionTypingMode && (job.targetPID == nil || job.targetPID == 0) {
             if job.targetSource == .recentClickFallback,
                let front = NSWorkspace.shared.frontmostApplication {
@@ -5362,6 +5552,17 @@ final class SpeechManager: ObservableObject {
         let matches = front.processIdentifier == tp || (job.targetBundleID.map { front.bundleIdentifier == $0 } ?? false)
         guard matches else { return false }
         return true
+    }
+
+    private func frontmostApplicationMatches(targetPID: pid_t?, bundleID: String?) -> Bool {
+        guard let front = NSWorkspace.shared.frontmostApplication else { return false }
+        if let targetPID, targetPID > 0, front.processIdentifier == targetPID {
+            return true
+        }
+        if let bundleID, !bundleID.isEmpty, front.bundleIdentifier == bundleID {
+            return true
+        }
+        return false
     }
 
     private func resolvedUsageAppContext(for job: ProcessedJob) -> (appName: String?, bundleIdentifier: String?) {
@@ -5621,12 +5822,15 @@ final class SpeechManager: ObservableObject {
         let asciiCount = asciiAlphaNumericScalarCount(in: text)
         return asciiCount > max(chineseCount * 2, 8)
     }
-    private func isWeirdTypingAppBundle(_ bundleID: String?) -> Bool {
+    static func isWeirdTypingAppBundleIdentifier(_ bundleID: String?) -> Bool {
         let bundle = (bundleID ?? "").lowercased()
         return bundle.contains("xinwechat")
             || bundle.contains("wechat")
             || bundle.contains("codex")
             || bundle.contains("antigravity")
+    }
+    private func isWeirdTypingAppBundle(_ bundleID: String?) -> Bool {
+        Self.isWeirdTypingAppBundleIdentifier(bundleID)
     }
     private func isRecentClickFallbackTypingAppBundle(_ bundleID: String?) -> Bool {
         let bundle = (bundleID ?? "").lowercased()

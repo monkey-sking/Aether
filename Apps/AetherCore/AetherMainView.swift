@@ -163,6 +163,7 @@ struct AetherMainView: View {
         case voiceLexicon
         case voiceAppControls
         case voiceInsights
+        case wakeInsights
         case headGestures
         case shortcuts
     }
@@ -196,6 +197,8 @@ struct AetherMainView: View {
                         .tag(Panel.voiceLexicon)
                     sidebarItem(.voiceInsights)
                         .tag(Panel.voiceInsights)
+                    sidebarItem(.wakeInsights)
+                        .tag(Panel.wakeInsights)
                 } header: {
                     sidebarHeader("main.section.voice")
                 }
@@ -224,6 +227,8 @@ struct AetherMainView: View {
                 InputSettingsView(section: .appControls)
             case .voiceInsights:
                 InputSettingsView(section: .insights)
+            case .wakeInsights:
+                InputSettingsView(section: .wakeInsights)
             case .headGestures:
                 HeadGestureSettingsView()
             case .shortcuts:
@@ -287,6 +292,8 @@ struct AetherMainView: View {
             return NSLocalizedString("settings.section.app_controls.page_title", comment: "")
         case .voiceInsights:
             return NSLocalizedString("settings.section.insights.page_title", comment: "")
+        case .wakeInsights:
+            return AppLocalization.isChinese ? "唤醒与激活" : "Wake & Activation"
         case .headGestures:
             return String(localized: "main.panel.head_gestures")
         case .shortcuts:
@@ -308,6 +315,8 @@ struct AetherMainView: View {
             return "command.square.fill"
         case .voiceInsights:
             return "waveform.path.ecg"
+        case .wakeInsights:
+            return "waveform.badge.mic"
         case .headGestures:
             return "person.fill.viewfinder"
         case .shortcuts:

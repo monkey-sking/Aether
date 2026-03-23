@@ -7,6 +7,7 @@ enum VoiceSettingsSection: Hashable {
     case lexicon
     case appControls
     case insights
+    case wakeInsights
 
     var zhTitle: String { enTitle } // Deprecated
 
@@ -19,6 +20,7 @@ enum VoiceSettingsSection: Hashable {
         case .lexicon: return "text.badge.star"
         case .appControls: return "app.badge"
         case .insights: return "chart.bar.xaxis"
+        case .wakeInsights: return "waveform.badge.mic"
         }
     }
 
@@ -29,6 +31,7 @@ enum VoiceSettingsSection: Hashable {
         case .lexicon: return NSLocalizedString("settings.section.lexicon.title", comment: "")
         case .appControls: return NSLocalizedString("settings.section.app_controls.title", comment: "")
         case .insights: return NSLocalizedString("settings.section.insights.title", comment: "")
+        case .wakeInsights: return AppLocalization.isChinese ? "唤醒与激活" : "Wake & Activation"
         }
     }
 
@@ -48,6 +51,8 @@ enum VoiceSettingsSection: Hashable {
             return NSLocalizedString("settings.section.app_controls.page_title", comment: "")
         case .insights:
             return NSLocalizedString("settings.section.insights.page_title", comment: "")
+        case .wakeInsights:
+            return AppLocalization.isChinese ? "唤醒与激活" : "Wake & Activation"
         }
     }
 
@@ -63,6 +68,10 @@ enum VoiceSettingsSection: Hashable {
             return NSLocalizedString("settings.section.app_controls.subtitle", comment: "")
         case .insights:
             return NSLocalizedString("settings.section.insights.subtitle", comment: "")
+        case .wakeInsights:
+            return AppLocalization.isChinese
+                ? "查看唤醒词命中、空唤醒和后续转化。"
+                : "Review wake hits, empty wakes, and follow-up conversion."
         }
     }
 }
@@ -968,6 +977,10 @@ struct InputSettingsView: View {
 
                 if section == .insights {
                     VoiceUsageInsightsCard()
+                }
+
+                if section == .wakeInsights {
+                    WakeActivationInsightsCard()
                 }
             }
         }
@@ -2873,6 +2886,388 @@ private struct VoiceUsageInsightsCard: View {
     }
 }
 
+private struct WakeActivationInsightsCard: View {
+    @EnvironmentObject var appState: AppState
+    @State private var recentFilter: AppState.WakeInsightsRecentFilter = .all
+
+    private var isChinese: Bool {
+        AppLocalization.isChinese
+    }
+
+    private var snapshot: AppState.WakeInsightsSnapshot {
+        appState.wakeInsightsSnapshot(recentFilter: recentFilter, recentLimit: 12)
+    }
+
+    private var topPhraseItems: [AppState.WakeInsightsPhraseItem] {
+        Array(snapshot.phraseItems.prefix(6))
+    }
+
+    private var modeText: String {
+        switch appState.voiceActivationMode {
+        case .pushToTalk:
+            return isChinese ? "按住说话" : "Push to Talk"
+        case .wakeWord:
+            return isChinese ? "唤醒词" : "Wake Word"
+        case .handsFree:
+            return isChinese ? "免唤醒" : "Hands-Free"
+        }
+    }
+
+    private var conversionRateText: String {
+        "\(Int((snapshot.dashboard.conversionRate * 100).rounded()))%"
+    }
+
+    private var wakeWindowText: String {
+        let seconds = Int(snapshot.wakeWindowSeconds.rounded())
+        return isChinese ? "\(seconds) 秒" : "\(seconds)s"
+    }
+
+    private var localeText: String {
+        Locale.current.localizedString(forIdentifier: snapshot.currentLocaleIdentifier)
+            ?? snapshot.currentLocaleIdentifier
+    }
+
+    private var recentStatusText: String {
+        let visibleCount = snapshot.recentEvents.count
+        let matchingCount = snapshot.recentMatchingCount
+        guard visibleCount > 0 else {
+            return isChinese ? "无匹配" : "No match"
+        }
+        if matchingCount <= visibleCount {
+            return isChinese ? "最近 \(visibleCount) 条" : "Latest \(visibleCount)"
+        }
+        return isChinese
+            ? "最近 \(visibleCount) 条，共 \(matchingCount) 条匹配"
+            : "Latest \(visibleCount), \(matchingCount) matched"
+    }
+
+    private func recentFilterTitle(_ filter: AppState.WakeInsightsRecentFilter) -> String {
+        switch filter {
+        case .all:
+            return isChinese ? "全部" : "All"
+        case .hits:
+            return isChinese ? "命中" : "Hits"
+        case .conversions:
+            return isChinese ? "转化" : "Conversions"
+        case .empty:
+            return isChinese ? "空唤醒" : "Empty"
+        }
+    }
+
+    @ViewBuilder
+    private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.42))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            topMetricsStrip
+            if appState.voiceActivationMode != .wakeWord {
+                modeHintPanel
+            }
+            configurationPanel
+            phrasePanel
+            recentPanel
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var topMetricsStrip: some View {
+        ViewThatFits(in: .horizontal) {
+            topMetricsRow()
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                topMetricsRow(fillsAvailableWidth: false)
+                    .padding(.horizontal, 1)
+            }
+            .scrollIndicators(.hidden)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private func topMetricsRow(fillsAvailableWidth: Bool = true) -> some View {
+        HStack(spacing: 10) {
+            VoiceUsageStatusChip(
+                title: isChinese ? "当前模式" : "Mode",
+                value: modeText,
+                tint: appState.voiceActivationMode == .wakeWord ? .green : .secondary,
+                usesNeutralBackground: appState.voiceActivationMode != .wakeWord,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+            VoiceUsageStatusChip(
+                title: isChinese ? "唤醒次数" : "Wake Hits",
+                value: snapshot.dashboard.wakeHitCount.formatted(),
+                tint: .green,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+            VoiceUsageStatusChip(
+                title: isChinese ? "转化率" : "Conversion",
+                value: conversionRateText,
+                tint: .accentColor,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+            VoiceUsageStatusChip(
+                title: isChinese ? "转输入" : "To Dictation",
+                value: snapshot.dashboard.wakeToDictationCount.formatted(),
+                tint: .blue,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+            VoiceUsageStatusChip(
+                title: isChinese ? "转控制" : "To Control",
+                value: snapshot.dashboard.wakeToControlCount.formatted(),
+                tint: .teal,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+            VoiceUsageStatusChip(
+                title: isChinese ? "空唤醒" : "Empty Wake",
+                value: snapshot.dashboard.wakeEmptyCount.formatted(),
+                tint: .orange,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+        }
+    }
+
+    private var modeHintPanel: some View {
+        sectionCard {
+            Label(
+                isChinese ? "当前不在唤醒词模式" : "Wake Word Mode Is Off",
+                systemImage: "info.circle"
+            )
+            .font(.subheadline.weight(.semibold))
+
+            Text(
+                isChinese
+                    ? "这个页面显示的是历史唤醒记录。切回“唤醒词”模式后会继续记录新的唤醒与转化。"
+                    : "This page shows historical wake records. Switch back to Wake Word mode to keep collecting new wake and conversion events."
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var configurationPanel: some View {
+        sectionCard {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(isChinese ? "当前配置" : "Current Setup")
+                    .font(.subheadline.weight(.semibold))
+                Text(
+                    isChinese
+                        ? "这里显示当前使用的语言、唤醒窗口和有效唤醒词。"
+                        : "See the active locale, wake window, and effective wake phrases."
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140, maximum: 220), spacing: 10)], spacing: 10) {
+                VoiceUsageSummaryBadge(
+                    title: isChinese ? "当前语言" : "Locale",
+                    value: localeText
+                )
+                VoiceUsageSummaryBadge(
+                    title: isChinese ? "唤醒窗口" : "Wake Window",
+                    value: wakeWindowText
+                )
+                VoiceUsageSummaryBadge(
+                    title: isChinese ? "记录状态" : "Tracking",
+                    value: appState.isVoiceUsageHistoryEnabled
+                        ? (isChinese ? "开启" : "On")
+                        : (isChinese ? "关闭" : "Off"),
+                    valueColor: appState.isVoiceUsageHistoryEnabled ? .green : .secondary
+                )
+            }
+
+            if snapshot.activeWakePhrases.isEmpty {
+                Text(isChinese ? "当前语言还没有可用唤醒词。" : "No wake phrases are configured for the active locale.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 180), spacing: 8)], spacing: 8) {
+                    ForEach(snapshot.activeWakePhrases, id: \.self) { phrase in
+                        WakePhrasePill(phrase: phrase)
+                    }
+                }
+            }
+        }
+    }
+
+    private var phrasePanel: some View {
+        sectionCard {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(isChinese ? "唤醒词分布" : "Wake Phrase Distribution")
+                    .font(.subheadline.weight(.semibold))
+                Text(
+                    isChinese
+                        ? "看看哪些唤醒词更常被命中，以及它们后续转化情况。"
+                        : "See which wake phrases are hit most often and how they convert."
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
+
+            if topPhraseItems.isEmpty {
+                Text(isChinese ? "还没有可用的唤醒统计。" : "No wake statistics are available yet.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(topPhraseItems) { item in
+                        WakePhraseDistributionRow(item: item)
+                    }
+                }
+            }
+        }
+    }
+
+    private var recentPanel: some View {
+        sectionCard {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(isChinese ? "最近唤醒" : "Recent Wake Events")
+                    .font(.subheadline.weight(.semibold))
+            }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 10) {
+                    Picker("", selection: $recentFilter) {
+                        ForEach(AppState.WakeInsightsRecentFilter.allCases) { filter in
+                            Text(recentFilterTitle(filter)).tag(filter)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .controlSize(.small)
+
+                    Text(recentStatusText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Spacer(minLength: 8)
+                }
+
+                HStack(alignment: .center, spacing: 10) {
+                    Picker("", selection: $recentFilter) {
+                        ForEach(AppState.WakeInsightsRecentFilter.allCases) { filter in
+                            Text(recentFilterTitle(filter)).tag(filter)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .controlSize(.small)
+
+                    Text(recentStatusText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Spacer(minLength: 8)
+                }
+            }
+
+            if snapshot.recentEvents.isEmpty {
+                Text(isChinese ? "当前筛选下没有唤醒记录。" : "No wake records match the current filter.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(snapshot.recentEvents) { record in
+                        VoiceUsageEventRow(event: record.source)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+private struct WakePhrasePill: View {
+    let phrase: String
+
+    var body: some View {
+        Text(phrase)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.green.opacity(0.12))
+            .foregroundColor(.green)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct WakePhraseDistributionRow: View {
+    let item: AppState.WakeInsightsPhraseItem
+
+    private var conversionRateText: String {
+        "\(Int((item.conversionRate * 100).rounded()))%"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(item.phrase)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(conversionRateText)
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+
+            HStack(spacing: 8) {
+                WakePhraseMetricChip(title: AppLocalization.isChinese ? "命中" : "Hits", value: item.hitCount, tint: .green)
+                WakePhraseMetricChip(title: AppLocalization.isChinese ? "转化" : "Conv.", value: item.conversionCount, tint: .accentColor)
+                WakePhraseMetricChip(title: AppLocalization.isChinese ? "空唤醒" : "Empty", value: item.emptyCount, tint: .orange)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.46))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+        }
+    }
+}
+
+private struct WakePhraseMetricChip: View {
+    let title: String
+    let value: Int
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Text(value.formatted())
+                .monospacedDigit()
+        }
+        .font(.caption)
+        .foregroundColor(tint)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
 private struct VoiceUsageStatusChip: View {
     let title: String
     let value: String
@@ -3296,6 +3691,19 @@ private struct VoiceUsageEventRow: View {
 
     private var eventIcon: String {
         switch classifiedEvent.outcome {
+        case .activation:
+            switch classifiedEvent.reasonCode {
+            case .wakeHit:
+                return "waveform.badge.mic"
+            case .wakeToDictation:
+                return "text.bubble"
+            case .wakeToControl:
+                return "command"
+            case .wakeEmpty:
+                return "pause.circle"
+            default:
+                return "dot.radiowaves.left.and.right"
+            }
         case .dictation:
             return "text.bubble"
         case .control:
@@ -3315,6 +3723,19 @@ private struct VoiceUsageEventRow: View {
 
     private var eventTint: Color {
         switch classifiedEvent.outcome {
+        case .activation:
+            switch classifiedEvent.reasonCode {
+            case .wakeHit:
+                return .green
+            case .wakeToDictation:
+                return .accentColor
+            case .wakeToControl:
+                return .teal
+            case .wakeEmpty:
+                return .orange
+            default:
+                return .secondary
+            }
         case .dictation:
             return .accentColor
         case .control:
@@ -3355,6 +3776,35 @@ private struct VoiceUsageEventRow: View {
     }
 
     private var previewText: String {
+        if event.kind == .activation {
+            let phrase = event.wakePhrase?.replacingOccurrences(of: "\n", with: " ")
+            let followUp = event.content?.replacingOccurrences(of: "\n", with: " ")
+            switch event.eventCode {
+            case "wake.hit":
+                if let phrase, !phrase.isEmpty {
+                    return isChinese ? "唤醒词：\(phrase)" : "Wake phrase: \(phrase)"
+                }
+                return isChinese ? "等待后续语音" : "Waiting for follow-up"
+            case "wake.to_dictation", "wake.to_control":
+                if let phrase, !phrase.isEmpty, let followUp, !followUp.isEmpty {
+                    return "\(phrase) -> \(followUp)"
+                }
+                if let followUp, !followUp.isEmpty {
+                    return isChinese ? "后续：\(followUp)" : "Follow-up: \(followUp)"
+                }
+                if let phrase, !phrase.isEmpty {
+                    return isChinese ? "唤醒词：\(phrase)" : "Wake phrase: \(phrase)"
+                }
+                return isChinese ? "已转入后续动作" : "Converted to follow-up action"
+            case "wake.empty":
+                if let phrase, !phrase.isEmpty {
+                    return isChinese ? "唤醒词：\(phrase) · 未继续说话" : "Wake phrase: \(phrase) · no follow-up"
+                }
+                return isChinese ? "唤醒后未继续说话" : "No follow-up after wake"
+            default:
+                break
+            }
+        }
         if let content = event.content, !content.isEmpty {
             return content.replacingOccurrences(of: "\n", with: " ")
         }
@@ -3368,7 +3818,12 @@ private struct VoiceUsageEventRow: View {
     }
 
     private var previewColor: Color {
-        event.kind == .dictation ? .primary : .secondary
+        switch event.kind {
+        case .activation, .dictation:
+            return .primary
+        case .control:
+            return .secondary
+        }
     }
 
     private func copyEvent() {

@@ -65,6 +65,23 @@ enum OnboardingStep: Equatable {
     case done
 }
 
+enum WakeAnalyticsFollowUpKind: String, Codable {
+    case dictation
+    case control
+}
+
+enum WakeAnalyticsSignal {
+    case hit(groupID: String, phrase: String?, localeIdentifier: String)
+    case converted(
+        groupID: String,
+        followUp: WakeAnalyticsFollowUpKind,
+        phrase: String?,
+        localeIdentifier: String,
+        transcript: String?
+    )
+    case empty(groupID: String, phrase: String?, localeIdentifier: String)
+}
+
 @MainActor
 final class MotionService: ObservableObject {
     @Published private(set) var isTracking: Bool = false
@@ -170,6 +187,11 @@ final class VoiceService: ObservableObject {
     var onRecognitionFailure: ((String?, String?, String?, String?) -> Void)? {
         get { manager.onRecognitionFailure }
         set { manager.onRecognitionFailure = newValue }
+    }
+
+    var onWakeAnalyticsSignal: ((WakeAnalyticsSignal) -> Void)? {
+        get { manager.onWakeAnalyticsSignal }
+        set { manager.onWakeAnalyticsSignal = newValue }
     }
 
     var isDictationExecutionEnabled: (() -> Bool)? {
@@ -601,6 +623,7 @@ class AppState: ObservableObject {
     }
 
     enum VoiceUsageEventKind: String, Codable {
+        case activation
         case dictation
         case control
     }
@@ -614,6 +637,10 @@ class AppState: ObservableObject {
         var action: String
         var content: String?
         var spokenText: String?
+        var eventCode: String?
+        var wakeGroupID: String?
+        var wakePhrase: String?
+        var localeIdentifier: String?
 
         init(
             id: String = UUID().uuidString,
@@ -623,7 +650,11 @@ class AppState: ObservableObject {
             kind: VoiceUsageEventKind,
             action: String,
             content: String? = nil,
-            spokenText: String? = nil
+            spokenText: String? = nil,
+            eventCode: String? = nil,
+            wakeGroupID: String? = nil,
+            wakePhrase: String? = nil,
+            localeIdentifier: String? = nil
         ) {
             self.id = id
             self.timestamp = timestamp
@@ -633,6 +664,10 @@ class AppState: ObservableObject {
             self.action = action
             self.content = content
             self.spokenText = spokenText
+            self.eventCode = eventCode
+            self.wakeGroupID = wakeGroupID
+            self.wakePhrase = wakePhrase
+            self.localeIdentifier = localeIdentifier
         }
     }
 
@@ -645,6 +680,10 @@ class AppState: ObservableObject {
         let mismatchCount: Int
         let noSpeechCount: Int
         let controlCount: Int
+        let wakeHitCount: Int
+        let wakeEmptyCount: Int
+        let wakeToDictationCount: Int
+        let wakeToControlCount: Int
 
         enum CodingKeys: String, CodingKey {
             case total
@@ -655,6 +694,10 @@ class AppState: ObservableObject {
             case mismatchCount
             case noSpeechCount
             case controlCount
+            case wakeHitCount
+            case wakeEmptyCount
+            case wakeToDictationCount
+            case wakeToControlCount
         }
 
         init(
@@ -665,7 +708,11 @@ class AppState: ObservableObject {
             unrecognizedCount: Int,
             mismatchCount: Int,
             noSpeechCount: Int = 0,
-            controlCount: Int
+            controlCount: Int,
+            wakeHitCount: Int = 0,
+            wakeEmptyCount: Int = 0,
+            wakeToDictationCount: Int = 0,
+            wakeToControlCount: Int = 0
         ) {
             self.total = total
             self.dictationCount = dictationCount
@@ -675,6 +722,10 @@ class AppState: ObservableObject {
             self.mismatchCount = mismatchCount
             self.noSpeechCount = noSpeechCount
             self.controlCount = controlCount
+            self.wakeHitCount = wakeHitCount
+            self.wakeEmptyCount = wakeEmptyCount
+            self.wakeToDictationCount = wakeToDictationCount
+            self.wakeToControlCount = wakeToControlCount
         }
 
         init(from decoder: Decoder) throws {
@@ -687,6 +738,10 @@ class AppState: ObservableObject {
             mismatchCount = try container.decode(Int.self, forKey: .mismatchCount)
             noSpeechCount = try container.decodeIfPresent(Int.self, forKey: .noSpeechCount) ?? 0
             controlCount = try container.decode(Int.self, forKey: .controlCount)
+            wakeHitCount = try container.decodeIfPresent(Int.self, forKey: .wakeHitCount) ?? 0
+            wakeEmptyCount = try container.decodeIfPresent(Int.self, forKey: .wakeEmptyCount) ?? 0
+            wakeToDictationCount = try container.decodeIfPresent(Int.self, forKey: .wakeToDictationCount) ?? 0
+            wakeToControlCount = try container.decodeIfPresent(Int.self, forKey: .wakeToControlCount) ?? 0
         }
 
         static let zero = VoiceUsageSummary(
@@ -697,7 +752,11 @@ class AppState: ObservableObject {
             unrecognizedCount: 0,
             mismatchCount: 0,
             noSpeechCount: 0,
-            controlCount: 0
+            controlCount: 0,
+            wakeHitCount: 0,
+            wakeEmptyCount: 0,
+            wakeToDictationCount: 0,
+            wakeToControlCount: 0
         )
     }
 
@@ -792,6 +851,7 @@ class AppState: ObservableObject {
     }
 
     enum UsageInsightsEventOutcome: String, Equatable {
+        case activation
         case dictation
         case control
         case failure
@@ -815,6 +875,10 @@ class AppState: ObservableObject {
         case unmatched
         case noInputTarget
         case dictationWhileControl
+        case wakeHit
+        case wakeEmpty
+        case wakeToDictation
+        case wakeToControl
         case other
     }
 
@@ -826,10 +890,10 @@ class AppState: ObservableObject {
         var id: String { source.id }
         var isIssue: Bool {
             switch outcome {
-            case .failure, .unmatched, .mismatch, .anomaly:
-                return true
-            case .dictation, .control, .other:
-                return false
+                case .failure, .unmatched, .mismatch, .anomaly:
+                    return true
+                case .activation, .dictation, .control, .other:
+                    return false
             }
         }
 
@@ -872,6 +936,47 @@ class AppState: ObservableObject {
         let recentEvents: [UsageInsightsEventRecord]
         let recentMatchingCount: Int
         let diagnostics: UsageInsightsDiagnosticsSnapshot
+    }
+
+    enum WakeInsightsRecentFilter: String, CaseIterable, Identifiable {
+        case all
+        case hits
+        case conversions
+        case empty
+
+        var id: String { rawValue }
+    }
+
+    struct WakeInsightsDashboardSnapshot {
+        let wakeHitCount: Int
+        let wakeEmptyCount: Int
+        let wakeToDictationCount: Int
+        let wakeToControlCount: Int
+        let conversionRate: Double
+        let retainedHistoryCount: Int
+    }
+
+    struct WakeInsightsPhraseItem: Identifiable {
+        let phrase: String
+        let hitCount: Int
+        let conversionCount: Int
+        let emptyCount: Int
+
+        var id: String { phrase }
+        var conversionRate: Double {
+            guard hitCount > 0 else { return 0 }
+            return Double(conversionCount) / Double(hitCount)
+        }
+    }
+
+    struct WakeInsightsSnapshot {
+        let dashboard: WakeInsightsDashboardSnapshot
+        let activeWakePhrases: [String]
+        let currentLocaleIdentifier: String
+        let wakeWindowSeconds: Double
+        let recentEvents: [UsageInsightsEventRecord]
+        let recentMatchingCount: Int
+        let phraseItems: [WakeInsightsPhraseItem]
     }
 
     struct CustomAppShortcutRulesBackup: Codable {
@@ -1173,7 +1278,11 @@ class AppState: ObservableObject {
         )) ?? "{}"
 
         let resolvedMaxEvents = maxEvents ?? Self.aiPromptMaxEventsDefault
-        let recentEvents = Array(voiceUsageHistory.prefix(resolvedMaxEvents))
+        let recentEvents = Array(
+            voiceUsageHistory
+                .filter { $0.kind != .activation }
+                .prefix(resolvedMaxEvents)
+        )
         let usageJSON = (try? String(data: encoder.encode(recentEvents), encoding: .utf8)) ?? "[]"
 
         let commandIDs = VoiceCommandPreset.allCases.map { $0.rawValue }.joined(separator: ", ")
@@ -1737,7 +1846,9 @@ class AppState: ObservableObject {
         let issueEventCount = summary.failureCount + summary.unrecognizedCount + summary.mismatchCount
         let issueRate = summary.total > 0 ? Double(issueEventCount) / Double(summary.total) : 0
 
-        let classifiedEvents = voiceUsageHistory.map(Self.classifyUsageInsightsEvent)
+        let classifiedEvents = voiceUsageHistory
+            .filter { $0.kind != .activation }
+            .map(Self.classifyUsageInsightsEvent)
         let filteredEvents = classifiedEvents.filter { record in
             if !showNoSpeechEvents && record.isNoSpeech {
                 return false
@@ -1764,7 +1875,7 @@ class AppState: ObservableObject {
                 summary: summary,
                 issueEventCount: issueEventCount,
                 issueRate: issueRate,
-                retainedHistoryCount: voiceUsageHistory.count,
+                retainedHistoryCount: classifiedEvents.count,
                 retentionLimit: voiceUsageHistoryLimit
             ),
             perAppItems: perAppItems,
@@ -1772,11 +1883,89 @@ class AppState: ObservableObject {
             recentMatchingCount: filteredEvents.count,
             diagnostics: UsageInsightsDiagnosticsSnapshot(
                 localeIdentifier: voiceService.effectiveLocaleIdentifier,
-                retainedHistoryCount: voiceUsageHistory.count,
-                aiPromptEventCount: min(voiceUsageHistory.count, Self.aiPromptMaxEventsDefault),
+                retainedHistoryCount: classifiedEvents.count,
+                aiPromptEventCount: min(classifiedEvents.count, Self.aiPromptMaxEventsDefault),
                 aiPromptEventLimit: Self.aiPromptMaxEventsDefault,
                 customRuleCount: customAppShortcutRules.count
             )
+        )
+    }
+
+    func wakeInsightsSnapshot(
+        recentFilter: WakeInsightsRecentFilter,
+        recentLimit: Int = 30
+    ) -> WakeInsightsSnapshot {
+        let activationRecords = voiceUsageHistory
+            .filter { $0.kind == .activation }
+            .map(Self.classifyUsageInsightsEvent)
+
+        let filteredEvents = activationRecords.filter { record in
+            switch recentFilter {
+            case .all:
+                return true
+            case .hits:
+                return record.reasonCode == .wakeHit
+            case .conversions:
+                return record.reasonCode == .wakeToDictation || record.reasonCode == .wakeToControl
+            case .empty:
+                return record.reasonCode == .wakeEmpty
+            }
+        }
+
+        var phraseStats: [String: (hits: Int, conversions: Int, empty: Int)] = [:]
+        for entry in voiceUsageHistory where entry.kind == .activation {
+            let phrase = Self.normalizedWakePhrase(entry.wakePhrase) ?? (AppLocalization.isChinese ? "未记录" : "Unknown")
+            let current = phraseStats[phrase] ?? (hits: 0, conversions: 0, empty: 0)
+            switch entry.eventCode {
+            case "wake.hit":
+                phraseStats[phrase] = (hits: current.hits + 1, conversions: current.conversions, empty: current.empty)
+            case "wake.to_dictation", "wake.to_control":
+                phraseStats[phrase] = (hits: current.hits, conversions: current.conversions + 1, empty: current.empty)
+            case "wake.empty":
+                phraseStats[phrase] = (hits: current.hits, conversions: current.conversions, empty: current.empty + 1)
+            default:
+                phraseStats[phrase] = current
+            }
+        }
+
+        let phraseItems = phraseStats.map { phrase, stats in
+            WakeInsightsPhraseItem(
+                phrase: phrase,
+                hitCount: stats.hits,
+                conversionCount: stats.conversions,
+                emptyCount: stats.empty
+            )
+        }
+        .sorted {
+            if $0.hitCount == $1.hitCount {
+                return $0.phrase.localizedCaseInsensitiveCompare($1.phrase) == .orderedAscending
+            }
+            return $0.hitCount > $1.hitCount
+        }
+
+        let summary = voiceUsageSummary
+        let wakeHitCount = summary.wakeHitCount
+        let conversionCount = summary.wakeToDictationCount + summary.wakeToControlCount
+        let conversionRate = wakeHitCount > 0 ? Double(conversionCount) / Double(wakeHitCount) : 0
+
+        return WakeInsightsSnapshot(
+            dashboard: WakeInsightsDashboardSnapshot(
+                wakeHitCount: wakeHitCount,
+                wakeEmptyCount: summary.wakeEmptyCount,
+                wakeToDictationCount: summary.wakeToDictationCount,
+                wakeToControlCount: summary.wakeToControlCount,
+                conversionRate: conversionRate,
+                retainedHistoryCount: activationRecords.count
+            ),
+            activeWakePhrases: WakeWordDetector.effectiveWakePhrases(
+                for: voiceService.effectiveLocaleIdentifier,
+                overrides: voiceLanguageTermsOverrides
+            ),
+            currentLocaleIdentifier: voiceService.effectiveLocaleIdentifier,
+            wakeWindowSeconds: alwaysListeningWakeWindowSeconds,
+            recentEvents: Array(filteredEvents.prefix(recentLimit)),
+            recentMatchingCount: filteredEvents.count,
+            phraseItems: phraseItems
         )
     }
 
@@ -1810,6 +1999,12 @@ class AppState: ObservableObject {
         return value == key ? fallback : value
     }
 
+    private static func normalizedWakePhrase(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     static func classifyUsageInsightsEvent(_ entry: VoiceUsageEvent) -> UsageInsightsEventRecord {
         let recognitionFailed = localizedVoiceUsageAction(
             "voice_usage.failure.recognition_failed",
@@ -1840,6 +2035,23 @@ class AppState: ObservableObject {
             fallback: "No Speech Detected"
         )
         let unknownCommand = NSLocalizedString("intent.unknown", comment: "")
+
+        if entry.kind == .activation {
+            let reasonCode: UsageInsightsReasonCode
+            switch entry.eventCode {
+            case "wake.hit":
+                reasonCode = .wakeHit
+            case "wake.to_dictation":
+                reasonCode = .wakeToDictation
+            case "wake.to_control":
+                reasonCode = .wakeToControl
+            case "wake.empty":
+                reasonCode = .wakeEmpty
+            default:
+                reasonCode = .other
+            }
+            return UsageInsightsEventRecord(source: entry, outcome: .activation, reasonCode: reasonCode)
+        }
 
         if isVoiceUsageSuccessfulDictation(entry) {
             return UsageInsightsEventRecord(source: entry, outcome: .dictation, reasonCode: .dictation)
@@ -1957,6 +2169,7 @@ class AppState: ObservableObject {
     private static func rebuildVoiceUsageAppSummaries(from events: [VoiceUsageEvent]) -> [VoiceUsageAppSummary] {
         var summariesByBundle: [String: VoiceUsageAppSummary] = [:]
         for entry in events {
+            guard entry.kind != .activation else { continue }
             let current = summariesByBundle[entry.bundleIdentifier] ?? VoiceUsageAppSummary(
                 appName: entry.appName,
                 bundleIdentifier: entry.bundleIdentifier,
@@ -1975,7 +2188,8 @@ class AppState: ObservableObject {
     }
 
     private static func updatedVoiceUsageSummary(_ summary: VoiceUsageSummary, byAdding entry: VoiceUsageEvent) -> VoiceUsageSummary {
-        let total = summary.total + 1
+        let countsTowardVoiceTotals = entry.kind != .activation
+        let total = summary.total + (countsTowardVoiceTotals ? 1 : 0)
         var dictationCount = summary.dictationCount
         var dictationCharacterCount = summary.dictationCharacterCount
         var failureCount = summary.failureCount
@@ -1983,6 +2197,25 @@ class AppState: ObservableObject {
         var mismatchCount = summary.mismatchCount
         var noSpeechCount = summary.noSpeechCount
         var controlCount = summary.controlCount
+        var wakeHitCount = summary.wakeHitCount
+        var wakeEmptyCount = summary.wakeEmptyCount
+        var wakeToDictationCount = summary.wakeToDictationCount
+        var wakeToControlCount = summary.wakeToControlCount
+
+        if entry.kind == .activation {
+            switch entry.eventCode {
+            case "wake.hit":
+                wakeHitCount += 1
+            case "wake.empty":
+                wakeEmptyCount += 1
+            case "wake.to_dictation":
+                wakeToDictationCount += 1
+            case "wake.to_control":
+                wakeToControlCount += 1
+            default:
+                break
+            }
+        }
 
         if isVoiceUsageSuccessfulDictation(entry) {
             dictationCount += 1
@@ -2007,11 +2240,16 @@ class AppState: ObservableObject {
             unrecognizedCount: unrecognizedCount,
             mismatchCount: mismatchCount,
             noSpeechCount: noSpeechCount,
-            controlCount: controlCount
+            controlCount: controlCount,
+            wakeHitCount: wakeHitCount,
+            wakeEmptyCount: wakeEmptyCount,
+            wakeToDictationCount: wakeToDictationCount,
+            wakeToControlCount: wakeToControlCount
         )
     }
 
     private static func updatedVoiceUsageAppSummary(_ summary: VoiceUsageAppSummary, byAdding entry: VoiceUsageEvent) -> VoiceUsageAppSummary {
+        guard entry.kind != .activation else { return summary }
         let total = summary.total + 1
         var dictationCount = summary.dictationCount
         var dictationCharacterCount = summary.dictationCharacterCount
@@ -2479,8 +2717,8 @@ class AppState: ObservableObject {
         let summary = voiceUsageSummary
         let localeID = voiceService.effectiveLocaleIdentifier
         let summaryLine = AppLocalization.isChinese
-            ? "使用统计（总计=\(summary.total) 输入=\(summary.dictationCount) 控制=\(summary.controlCount) locale=\(localeID)）："
-            : "Usage Stats (total=\(summary.total) dictation=\(summary.dictationCount) control=\(summary.controlCount) locale=\(localeID)):"
+            ? "使用统计（总计=\(summary.total) 输入=\(summary.dictationCount) 控制=\(summary.controlCount) 唤醒=\(summary.wakeHitCount) 空唤醒=\(summary.wakeEmptyCount) locale=\(localeID)）："
+            : "Usage Stats (total=\(summary.total) dictation=\(summary.dictationCount) control=\(summary.controlCount) wake=\(summary.wakeHitCount) emptyWake=\(summary.wakeEmptyCount) locale=\(localeID)):"
         let payload = try voiceUsageHistoryExportString(
             summary: summaryLine,
             events: voiceUsageHistory
@@ -2832,6 +3070,27 @@ class AppState: ObservableObject {
                 let trimmed = transcript?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let content = (trimmed?.isEmpty == false) ? trimmed : nil
                 self.recordVoiceFailure(content, reason: reason, appName: appName, bundleIdentifier: bundleIdentifier)
+            }
+        }
+
+        voiceService.onWakeAnalyticsSignal = { [weak self] signal in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                guard !self.isScreenLocked else { return }
+                switch signal {
+                case .hit(let groupID, let phrase, let localeIdentifier):
+                    self.recordWakeHit(groupID: groupID, phrase: phrase, localeIdentifier: localeIdentifier)
+                case .converted(let groupID, let followUp, let phrase, let localeIdentifier, let transcript):
+                    self.recordWakeConversion(
+                        groupID: groupID,
+                        followUp: followUp,
+                        phrase: phrase,
+                        localeIdentifier: localeIdentifier,
+                        transcript: transcript
+                    )
+                case .empty(let groupID, let phrase, let localeIdentifier):
+                    self.recordWakeEmpty(groupID: groupID, phrase: phrase, localeIdentifier: localeIdentifier)
+                }
             }
         }
 
@@ -3482,13 +3741,76 @@ class AppState: ObservableObject {
         )
     }
 
+    private func recordWakeHit(groupID: String, phrase: String?, localeIdentifier: String) {
+        recordVoiceUsageEvent(
+            kind: .activation,
+            action: AppLocalization.isChinese ? "唤醒" : "Wake Hit",
+            content: nil,
+            appName: nil,
+            bundleIdentifier: nil,
+            eventCode: "wake.hit",
+            wakeGroupID: groupID,
+            wakePhrase: phrase,
+            localeIdentifier: localeIdentifier
+        )
+    }
+
+    private func recordWakeConversion(
+        groupID: String,
+        followUp: WakeAnalyticsFollowUpKind,
+        phrase: String?,
+        localeIdentifier: String,
+        transcript: String?
+    ) {
+        let action: String
+        let eventCode: String
+        switch followUp {
+        case .dictation:
+            action = AppLocalization.isChinese ? "唤醒后输入" : "Wake to Dictation"
+            eventCode = "wake.to_dictation"
+        case .control:
+            action = AppLocalization.isChinese ? "唤醒后控制" : "Wake to Control"
+            eventCode = "wake.to_control"
+        }
+
+        recordVoiceUsageEvent(
+            kind: .activation,
+            action: action,
+            content: transcript,
+            appName: nil,
+            bundleIdentifier: nil,
+            eventCode: eventCode,
+            wakeGroupID: groupID,
+            wakePhrase: phrase,
+            localeIdentifier: localeIdentifier
+        )
+    }
+
+    private func recordWakeEmpty(groupID: String, phrase: String?, localeIdentifier: String) {
+        recordVoiceUsageEvent(
+            kind: .activation,
+            action: AppLocalization.isChinese ? "空唤醒" : "Empty Wake",
+            content: nil,
+            appName: nil,
+            bundleIdentifier: nil,
+            eventCode: "wake.empty",
+            wakeGroupID: groupID,
+            wakePhrase: phrase,
+            localeIdentifier: localeIdentifier
+        )
+    }
+
     private func recordVoiceUsageEvent(
         kind: VoiceUsageEventKind,
         action: String,
         content: String?,
         spokenText: String? = nil,
         appName: String?,
-        bundleIdentifier: String?
+        bundleIdentifier: String?,
+        eventCode: String? = nil,
+        wakeGroupID: String? = nil,
+        wakePhrase: String? = nil,
+        localeIdentifier: String? = nil
     ) {
         guard isVoiceUsageHistoryEnabled else { return }
         let context = resolvedVoiceUsageAppContext(appName: appName, bundleIdentifier: bundleIdentifier)
@@ -3498,10 +3820,22 @@ class AppState: ObservableObject {
             kind: kind,
             action: action,
             content: normalizedVoiceUsageContent(content),
-            spokenText: normalizedVoiceUsageContent(spokenText)
+            spokenText: normalizedVoiceUsageContent(spokenText),
+            eventCode: eventCode,
+            wakeGroupID: wakeGroupID,
+            wakePhrase: Self.normalizedWakePhrase(wakePhrase),
+            localeIdentifier: normalizedVoiceUsageContent(localeIdentifier)
         )
+        if kind == .activation {
+            GlobalLogger.log(
+                "[WakeAnalyticsStore] code=\(eventCode ?? "nil") group=\(wakeGroupID ?? "nil") phrase=\(entry.wakePhrase ?? "nil") locale=\(entry.localeIdentifier ?? "nil")",
+                log: GlobalLogger.speech
+            )
+        }
         voiceUsageHistory.insert(entry, at: 0)
         storedVoiceUsageSummary = Self.updatedVoiceUsageSummary(storedVoiceUsageSummary, byAdding: entry)
+
+        guard kind != .activation else { return }
 
         let currentAppSummary = storedVoiceUsageAppSummaries.first(where: { $0.bundleIdentifier == entry.bundleIdentifier })
             ?? VoiceUsageAppSummary(

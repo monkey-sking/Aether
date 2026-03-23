@@ -398,6 +398,28 @@ final class HUDManager {
         startBackgroundFullscreenCheck()
     }
 
+    static func resolvedTypingContext(
+        recognitionControlMode: HUDRecognitionControlMode,
+        inferredTypingContext: Bool,
+        hudMode: HUDMode,
+        previousTypingContext: Bool
+    ) -> Bool {
+        switch recognitionControlMode {
+        case .command:
+            return false
+        case .dictation:
+            return true
+        case .auto:
+            if hudMode == .dictation {
+                return true
+            }
+            if hudMode == .processing {
+                return previousTypingContext
+            }
+            return inferredTypingContext
+        }
+    }
+
     private func startBackgroundFullscreenCheck() {
         backgroundFullscreenCheckTimer?.invalidate()
         
@@ -472,15 +494,13 @@ final class HUDManager {
             return
         }
         
-        let effectiveTypingContext: Bool
-        switch recognitionControlMode {
-        case .command:
-            effectiveTypingContext = false
-        case .dictation:
-            effectiveTypingContext = true
-        case .auto:
-            effectiveTypingContext = lastKnownTypingState()
-        }
+        let inferredTypingContext = lastKnownTypingState()
+        let effectiveTypingContext = Self.resolvedTypingContext(
+            recognitionControlMode: recognitionControlMode,
+            inferredTypingContext: inferredTypingContext,
+            hudMode: mode,
+            previousTypingContext: state.isTypingContext
+        )
 
         let isNoopVisibleRefresh =
             state.mode == mode &&

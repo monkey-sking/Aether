@@ -180,3 +180,69 @@ final class AppStateUsageInsightsTests: XCTestCase {
         XCTAssertFalse(record.isIssue)
     }
 }
+
+final class WakeWordDetectorTests: XCTestCase {
+    private func makeDetector() -> WakeWordDetector {
+        let detector = WakeWordDetector()
+        detector.overrides = [
+            VoiceLanguageTermsOverrideConfig(
+                localeIdentifier: "zh-CN",
+                wakeWords: ["幻影"],
+                commandPrefixes: [],
+                dictationPrefixes: []
+            )
+        ]
+        return detector
+    }
+
+    func testStrictPrefixModeRequiresWakeWordAtBeginning() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "嗯嗯 幻影 打开设置",
+            localeIdentifier: "zh-CN",
+            matchMode: .strictPrefix
+        )
+
+        XCTAssertFalse(result.wakeDetected)
+        XCTAssertEqual(result.payload, "嗯嗯 幻影 打开设置")
+    }
+
+    func testRetryAwareStandbyModeAcceptsLaterRetryInSameUtterance() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "嗯嗯 幻影 打开设置",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.matchedPhrase, "幻影")
+        XCTAssertEqual(result.payload, "打开设置")
+    }
+
+    func testRetryAwareStandbyModeKeepsLongLeadInRejected() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "这是一个很长的前缀然后才说幻影 打开设置",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertFalse(result.wakeDetected)
+    }
+
+    func testRetryAwareStandbyModeDoesNotUseFuzzyMidUtteranceRetry() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "嗯嗯 幻映 打开设置",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertFalse(result.wakeDetected)
+    }
+}

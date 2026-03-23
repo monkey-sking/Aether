@@ -461,6 +461,28 @@ final class SpeechManagerTypingModeTests: XCTestCase {
         XCTAssertFalse(reconciled)
     }
 
+    func testAutoHUDDictationModeForcesTypingContext() {
+        let resolved = HUDManager.resolvedTypingContext(
+            recognitionControlMode: .auto,
+            inferredTypingContext: false,
+            hudMode: .dictation,
+            previousTypingContext: false
+        )
+
+        XCTAssertTrue(resolved)
+    }
+
+    func testAutoHUDProcessingKeepsPreviousTypingContext() {
+        let resolved = HUDManager.resolvedTypingContext(
+            recognitionControlMode: .auto,
+            inferredTypingContext: false,
+            hudMode: .processing,
+            previousTypingContext: true
+        )
+
+        XCTAssertTrue(resolved)
+    }
+
     func testAutoModeIgnoresAirPodsPostureBiasWithoutTypingContext() {
         let decision = SpeechManager.resolvedRoutingBias(
             recognitionControlMode: .auto,
@@ -498,5 +520,61 @@ final class SpeechManagerTypingModeTests: XCTestCase {
 
         assertRoutingBias(decision.bias, equals: .forceCommand)
         XCTAssertTrue(decision.blockDictationWithoutInput)
+    }
+
+    func testStreamedDictationTargetIsTrustedWithoutLiveFocusWhenFrontmostMatches() {
+        XCTAssertTrue(
+            SpeechManager.shouldAcceptStreamedDictationTargetWithoutLiveFocus(
+                sessionTypingMode: true,
+                screenTypedCount: 3,
+                streamedTextSnapshot: "",
+                frontmostMatchesTarget: true
+            )
+        )
+    }
+
+    func testStreamedDictationTargetStillRequiresMatchingFrontmostTarget() {
+        XCTAssertFalse(
+            SpeechManager.shouldAcceptStreamedDictationTargetWithoutLiveFocus(
+                sessionTypingMode: true,
+                screenTypedCount: 3,
+                streamedTextSnapshot: "",
+                frontmostMatchesTarget: false
+            )
+        )
+    }
+
+    func testLockedWeirdTypingTargetIsTrustedWithoutLiveFocusWhenFrontmostMatches() {
+        XCTAssertTrue(
+            SpeechManager.shouldTrustLockedWeirdTypingTargetWithoutLiveFocus(
+                sessionTypingMode: true,
+                targetBundleID: "com.openai.codex",
+                targetElementFingerprint: "AXWebArea|editor",
+                verificationSnapshotAvailable: true,
+                frontmostMatchesTarget: true
+            )
+        )
+    }
+
+    func testLockedWeirdTypingTargetStillRequiresWeirdBundleOrLockedEvidence() {
+        XCTAssertFalse(
+            SpeechManager.shouldTrustLockedWeirdTypingTargetWithoutLiveFocus(
+                sessionTypingMode: true,
+                targetBundleID: "com.apple.TextEdit",
+                targetElementFingerprint: "AXTextArea|editor",
+                verificationSnapshotAvailable: true,
+                frontmostMatchesTarget: true
+            )
+        )
+
+        XCTAssertFalse(
+            SpeechManager.shouldTrustLockedWeirdTypingTargetWithoutLiveFocus(
+                sessionTypingMode: true,
+                targetBundleID: "com.openai.codex",
+                targetElementFingerprint: nil,
+                verificationSnapshotAvailable: false,
+                frontmostMatchesTarget: true
+            )
+        )
     }
 }
