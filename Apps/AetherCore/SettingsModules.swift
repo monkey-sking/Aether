@@ -2407,45 +2407,57 @@ private struct VoiceUsageInsightsCard: View {
     }
 
     private var topMetricsStrip: some View {
-        let summary = snapshot.dashboard.summary
+        ViewThatFits(in: .horizontal) {
+            topMetricsRow()
 
-        return VStack(alignment: .center, spacing: 10) {
-            HStack(spacing: 10) {
-                VoiceUsageStatusChip(
-                    title: isChinese ? "记录状态" : "Tracking",
-                    value: appState.isVoiceUsageHistoryEnabled
-                        ? (isChinese ? "开启" : "On")
-                        : (isChinese ? "关闭" : "Off"),
-                    tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
-                    usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled
-                )
-                VoiceUsageStatusChip(
-                    title: isChinese ? "历史条数" : "Saved History",
-                    value: historyValueText,
-                    tint: .accentColor
-                )
-                VoiceUsageStatusChip(
-                    title: isChinese ? "总使用次数" : "Total Activity",
-                    value: formattedPlainNumber(summary.total),
-                    tint: .accentColor
-                )
+            ScrollView(.horizontal, showsIndicators: false) {
+                topMetricsRow(fillsAvailableWidth: false)
+                    .padding(.horizontal, 1)
             }
-
-            HStack(spacing: 10) {
-                VoiceUsageStatusChip(
-                    title: isChinese ? "输入次数" : "Dictation",
-                    value: dictationValueText,
-                    tint: .blue
-                )
-                VoiceUsageStatusChip(
-                    title: isChinese ? "控制次数" : "Control",
-                    value: formattedPlainNumber(summary.controlCount),
-                    tint: .teal
-                )
-            }
-            .frame(maxWidth: 460)
+            .scrollIndicators(.hidden)
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private func topMetricsRow(fillsAvailableWidth: Bool = true) -> some View {
+        let summary = snapshot.dashboard.summary
+
+        HStack(spacing: 10) {
+            VoiceUsageStatusChip(
+                title: isChinese ? "记录状态" : "Tracking",
+                value: appState.isVoiceUsageHistoryEnabled
+                    ? (isChinese ? "开启" : "On")
+                    : (isChinese ? "关闭" : "Off"),
+                tint: appState.isVoiceUsageHistoryEnabled ? .green : .secondary,
+                usesNeutralBackground: !appState.isVoiceUsageHistoryEnabled,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+            VoiceUsageStatusChip(
+                title: isChinese ? "历史条数" : "Saved History",
+                value: historyValueText,
+                tint: .accentColor,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+            VoiceUsageStatusChip(
+                title: isChinese ? "总使用次数" : "Total Activity",
+                value: formattedPlainNumber(summary.total),
+                tint: .accentColor,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+            VoiceUsageStatusChip(
+                title: isChinese ? "输入次数" : "Dictation",
+                value: dictationValueText,
+                tint: .blue,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+            VoiceUsageStatusChip(
+                title: isChinese ? "控制次数" : "Control",
+                value: formattedPlainNumber(summary.controlCount),
+                tint: .teal,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+        }
     }
 
     private var mainContent: some View {
@@ -2867,17 +2879,21 @@ private struct VoiceUsageStatusChip: View {
     var detail: String? = nil
     var tint: Color = .accentColor
     var usesNeutralBackground: Bool = false
+    var fillsAvailableWidth: Bool = true
 
     var body: some View {
         VStack(alignment: .center, spacing: 3) {
             Text(title)
                 .font(.caption2)
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .multilineTextAlignment(.center)
             Text(value)
                 .font(.subheadline.weight(.semibold).monospacedDigit())
                 .foregroundColor(usesNeutralBackground ? .primary : tint)
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
             if let detail, !detail.isEmpty {
                 Text(detail)
                     .font(.caption2)
@@ -2889,8 +2905,9 @@ private struct VoiceUsageStatusChip: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        .frame(minWidth: fillsAvailableWidth ? nil : 92, alignment: .center)
         .frame(minHeight: 56, alignment: .center)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(maxWidth: fillsAvailableWidth ? .infinity : nil, alignment: .center)
         .background(
             (usesNeutralBackground ? Color(nsColor: .controlBackgroundColor) : tint)
                 .opacity(usesNeutralBackground ? 0.72 : 0.08)

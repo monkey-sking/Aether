@@ -2618,6 +2618,10 @@ final class SpeechManager: ObservableObject {
             if currentlyAwake {
                 if isWakeWordEnabled && !isDirectCommandEnabled { rearmInputTarget(reason: "wake-window-open") }
                 startMicProgressUI(durationSec: maxRecordingSegmentSeconds(), generation: sessionGeneration)
+            } else {
+                // Wake-word standby hides the HUD, but the next wake phrase still
+                // depends on the recognizer being re-armed immediately.
+                ensureRecognitionSessionForVisibleHUD(reason: "wake-window-closed")
             }
         }
         let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
@@ -3069,7 +3073,6 @@ final class SpeechManager: ObservableObject {
 
     private func handleFrontmostApplicationChanged() {
         guard isAlwaysListeningEnabled else { return }
-        guard isAwake || isDirectCommandEnabled || HUDManager.shared.state.mode != .hidden else { return }
 
         // App switches frequently invalidate the previously locked AX target while the wake window is still open.
         // Re-arm against the current focus so the next utterance does not keep routing to a stale element.
@@ -3091,9 +3094,9 @@ final class SpeechManager: ObservableObject {
     }
 
     private func shouldKeepWakeHUDArmed() -> Bool {
-        guard isAlwaysListeningEnabled else { return false }
-        if isDirectCommandEnabled || !isWakeWordEnabled { return true }
-        return isAwake
+        // Wake-word mode intentionally hides the HUD while idle, but continuous
+        // recognition still has to stay armed so the next wake word is not dropped.
+        isAlwaysListeningEnabled || isWakeWordEnabled
     }
 
     private func ensureRecognitionSessionForVisibleHUD(reason: String) {
@@ -3933,6 +3936,7 @@ final class SpeechManager: ObservableObject {
         if isWakeGatedStandby {
             clearHUDOverride()
             clearUnarmedWakePreview()
+            ensureRecognitionSessionForVisibleHUD(reason: "wake-standby-hidden")
             if HUDManager.shared.isTemporaryHUDActive || HUDManager.shared.state.isLanguageIndicatorVisible {
                 return
             }

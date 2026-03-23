@@ -1575,7 +1575,7 @@ final class VoiceCommandRouter {
         let entry = defaults.languageTermsOverrides.first(where: {
             VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
         })
-        return VoiceLexiconSupport.uniqueTerms(entry?.commandPrefixes ?? [])
+        return VoiceLexiconSupport.uniqueTerms((entry?.commandPrefixes ?? []) + compatibilityCommandPrefixes(for: localeIdentifier))
     }
 
     static func defaultDictationPrefixes(for localeIdentifier: String) -> [String] {
@@ -1584,7 +1584,7 @@ final class VoiceCommandRouter {
         let entry = defaults.languageTermsOverrides.first(where: {
             VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
         })
-        return VoiceLexiconSupport.uniqueTerms(entry?.dictationPrefixes ?? [])
+        return VoiceLexiconSupport.uniqueTerms((entry?.dictationPrefixes ?? []) + compatibilityDictationPrefixes(for: localeIdentifier))
     }
 
     static func effectiveCommandPrefixes(
@@ -1649,6 +1649,18 @@ final class VoiceCommandRouter {
         let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
         let extra: [String]
         switch (preset, canonical) {
+        case (.undo, "zh-CN"):
+            extra = ["撤销", "撤回"]
+        case (.undo, "en-US"):
+            extra = ["undo"]
+        case (.paste, "zh-CN"):
+            extra = ["粘贴"]
+        case (.paste, "en-US"):
+            extra = ["paste"]
+        case (.showShortcutPanel, "zh-CN"):
+            extra = ["显示面板", "打开面板"]
+        case (.hideShortcutPanel, "zh-CN"):
+            extra = ["关闭面板", "隐藏面板", "收起面板"]
         case (.dragStart, "zh-CN"):
             extra = ["开始拖拽", "开始拖"]
         case (.dragStart, "en-US"):
@@ -1661,6 +1673,24 @@ final class VoiceCommandRouter {
             extra = []
         }
         return uniqueAliases(base + extra)
+    }
+
+    private static func compatibilityCommandPrefixes(for localeIdentifier: String) -> [String] {
+        switch VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier) {
+        case "zh-CN":
+            return ["指令"]
+        default:
+            return []
+        }
+    }
+
+    private static func compatibilityDictationPrefixes(for localeIdentifier: String) -> [String] {
+        switch VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier) {
+        case "zh-CN":
+            return ["写"]
+        default:
+            return []
+        }
     }
 
     func contextualStrings(for localeIdentifier: String) -> [String] {

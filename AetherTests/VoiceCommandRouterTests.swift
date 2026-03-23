@@ -20,14 +20,14 @@ final class VoiceCommandRouterTests: XCTestCase {
     }
 
     func testBasicCommands() {
-        XCTAssertEqual(router.route(transcript: "点击"), .clickLeft)
-        XCTAssertEqual(router.route(transcript: "右键"), .clickRight)
-        XCTAssertEqual(router.route(transcript: "双击"), .doubleClick)
-        XCTAssertEqual(router.route(transcript: "撤销"), .undo)
-        XCTAssertEqual(router.route(transcript: "粘贴"), .paste)
-        XCTAssertEqual(router.route(transcript: "停止"), .stopPointer)
-        XCTAssertEqual(router.route(transcript: "开始"), .startPointer)
-        XCTAssertEqual(router.route(transcript: "居中"), .recenter)
+        XCTAssertEqual(router.route(transcript: "点击", localeIdentifier: "zh-CN"), .clickLeft)
+        XCTAssertEqual(router.route(transcript: "右键", localeIdentifier: "zh-CN"), .clickRight)
+        XCTAssertEqual(router.route(transcript: "双击", localeIdentifier: "zh-CN"), .doubleClick)
+        XCTAssertEqual(router.route(transcript: "撤销", localeIdentifier: "zh-CN"), .undo)
+        XCTAssertEqual(router.route(transcript: "粘贴", localeIdentifier: "zh-CN"), .paste)
+        XCTAssertEqual(router.route(transcript: "停止", localeIdentifier: "zh-CN"), .stopPointer)
+        XCTAssertEqual(router.route(transcript: "开始", localeIdentifier: "zh-CN"), .startPointer)
+        XCTAssertEqual(router.route(transcript: "居中", localeIdentifier: "zh-CN"), .recenter)
     }
 
     func testCursorMoveAndSelectionCommands() {
@@ -58,19 +58,19 @@ final class VoiceCommandRouterTests: XCTestCase {
     }
     
     func testScrollingAndDragging() {
-        XCTAssertEqual(router.route(transcript: "向上"), .scroll(0, -300))
-        XCTAssertEqual(router.route(transcript: "向下"), .scroll(0, 300))
-        XCTAssertEqual(router.route(transcript: "向下滚动"), .scroll(0, 300))
-        XCTAssertEqual(router.route(transcript: "到底"), .scrollToWeb("bottom"))
-        XCTAssertEqual(router.route(transcript: "到顶"), .scrollToWeb("top"))
-        XCTAssertEqual(router.route(transcript: "拖"), .dragStart)
-        XCTAssertEqual(router.route(transcript: "放"), .dragEnd)
+        XCTAssertEqual(router.route(transcript: "向上", localeIdentifier: "zh-CN"), .scroll(0, -300))
+        XCTAssertEqual(router.route(transcript: "向下", localeIdentifier: "zh-CN"), .scroll(0, 300))
+        XCTAssertEqual(router.route(transcript: "向下滚动", localeIdentifier: "zh-CN"), .scroll(0, 300))
+        XCTAssertEqual(router.route(transcript: "到底", localeIdentifier: "zh-CN"), .scrollToWeb("bottom"))
+        XCTAssertEqual(router.route(transcript: "到顶", localeIdentifier: "zh-CN"), .scrollToWeb("top"))
+        XCTAssertEqual(router.route(transcript: "拖", localeIdentifier: "zh-CN"), .dragStart)
+        XCTAssertEqual(router.route(transcript: "放", localeIdentifier: "zh-CN"), .dragEnd)
     }
 
     func testShortcutPanelAliases() {
-        XCTAssertEqual(router.route(transcript: "显示面板"), .showShortcutPanel)
-        XCTAssertEqual(router.route(transcript: "显示快捷键面板"), .showShortcutPanel)
-        XCTAssertEqual(router.route(transcript: "关闭面板"), .hideShortcutPanel)
+        XCTAssertEqual(router.route(transcript: "显示面板", localeIdentifier: "zh-CN"), .showShortcutPanel)
+        XCTAssertEqual(router.route(transcript: "显示快捷键面板", localeIdentifier: "zh-CN"), .showShortcutPanel)
+        XCTAssertEqual(router.route(transcript: "关闭面板", localeIdentifier: "zh-CN"), .hideShortcutPanel)
     }
 
     func testShortcutPanelOverridePreservesDefaultAliases() {
@@ -137,47 +137,67 @@ final class VoiceCommandRouterTests: XCTestCase {
 
     func testPinyinFallback() {
         // "右键" / "邮件" / "有件" (You Jian)
-        XCTAssertEqual(router.route(transcript: "邮件"), .clickRight)
-        XCTAssertEqual(router.route(transcript: "有件"), .clickRight)
+        XCTAssertEqual(router.route(transcript: "邮件", localeIdentifier: "zh-CN"), .clickRight)
+        XCTAssertEqual(router.route(transcript: "有件", localeIdentifier: "zh-CN"), .clickRight)
 
         // "单机" (Dan Ji -> Dian Ji roughly falling into .clickLeft using pinyin matching)
-        XCTAssertEqual(router.route(transcript: "单机"), .clickLeft)
+        XCTAssertEqual(router.route(transcript: "单机", localeIdentifier: "zh-CN"), .clickLeft)
         // "双机" (Shuang Ji)
-        XCTAssertEqual(router.route(transcript: "双机"), .doubleClick)
+        XCTAssertEqual(router.route(transcript: "双机", localeIdentifier: "zh-CN"), .doubleClick)
     }
     
     func testDictationParsing() {
         // Basic dictation fallback
-        XCTAssertEqual(router.route(transcript: "今天天气不错"), .dictation("今天天气不错"))
+        XCTAssertEqual(router.route(transcript: "今天天气不错", localeIdentifier: "zh-CN"), .dictation("今天天气不错"))
 
         // Force dictation keyword "输入"
-        XCTAssertEqual(router.route(transcript: "输入你好"), .dictation("你好"))
-        XCTAssertEqual(router.route(transcript: "写一段代码"), .dictation("一段代码"))
+        XCTAssertEqual(router.route(transcript: "输入你好", localeIdentifier: "zh-CN"), .dictation("你好"))
+        XCTAssertEqual(router.route(transcript: "写一段代码", localeIdentifier: "zh-CN"), .dictation("一段代码"))
     }
     
     func testTypingModeBehavior() {
         // In typing mode, normal words should go to dictation unless explicitly forcing command
         XCTAssertEqual(
-            router.route(transcript: "点击", bias: .dictationPreferred),
+            router.route(transcript: "点击", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
             .dictation("点击")
         )
 
         XCTAssertEqual(
-            router.route(transcript: "向下滚动", bias: .dictationPreferred),
-            .scroll(0, 300)
+            router.route(transcript: "向下滚动", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .dictation("向下滚动")
         )
         XCTAssertEqual(
-            router.route(transcript: "显示面板", bias: .dictationPreferred),
-            .showShortcutPanel
+            router.route(transcript: "显示面板", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .dictation("显示面板")
+        )
+        XCTAssertEqual(
+            router.route(transcript: "显示面板。", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .dictation("显示面板。")
+        )
+        XCTAssertEqual(
+            router.route(transcript: "请显示面板设计稿", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .dictation("请显示面板设计稿")
+        )
+        XCTAssertEqual(
+            router.route(transcript: "把这段文字粘贴到下面", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .dictation("把这段文字粘贴到下面")
+        )
+        XCTAssertEqual(
+            router.route(transcript: "我想撤销昨天那段说明", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .dictation("我想撤销昨天那段说明")
         )
 
         // "指令点击" in typing mode should bypass dictation and trigger command
         XCTAssertEqual(
-            router.route(transcript: "指令点击", bias: .dictationPreferred),
+            router.route(transcript: "指令点击", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
             .clickLeft
         )
         XCTAssertEqual(
-            router.route(transcript: "command right click", bias: .dictationPreferred),
+            router.route(transcript: "命令粘贴", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .paste
+        )
+        XCTAssertEqual(
+            router.route(transcript: "command right click", bias: .dictationPreferred, localeIdentifier: "en-US"),
             .clickRight
         )
     }
