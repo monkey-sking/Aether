@@ -2335,18 +2335,18 @@ private struct VoiceUsageInsightsCard: View {
     }
 
     private var appOverviewTitle: String {
-        isChinese ? "按 App" : "By App"
+        isChinese ? "常用 App" : "Top Apps"
     }
 
     private var appOverviewSubtitle: String {
         if showAllApps {
             return isChinese
-                ? "查看全部 App 的使用总数和问题率。"
-                : "View total activity and issue rate across all apps."
+                ? "查看全部 App 的使用总数，以及输入和控制的分布。"
+                : "View total activity and the dictation/control split across all apps."
         }
         return isChinese
-            ? "查看各 App 的使用总数和问题率。"
-            : "View total activity and issue rate across apps."
+            ? "看看你主要在哪些 App 使用语音。"
+            : "See which apps you use voice in most."
     }
 
     @ViewBuilder
@@ -2409,8 +2409,8 @@ private struct VoiceUsageInsightsCard: View {
                     .font(.headline)
                 Text(
                     isChinese
-                        ? "按 App 查看输入与控制使用记录。"
-                        : "Review dictation and control activity across apps."
+                        ? "查看最近在哪些 App 使用语音，以及输入和控制记录。"
+                        : "See which apps you use voice in and review recent dictation and control activity."
                 )
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -2633,7 +2633,7 @@ private struct VoiceUsageInsightsCard: View {
             }
 
             if displayedAppItems.isEmpty {
-                Text(isChinese ? "当前还没有按 App 的统计结果。" : "No per-app summary is available yet.")
+                Text(isChinese ? "当前还没有按 App 的使用记录。" : "No per-app activity is available yet.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
@@ -2643,10 +2643,10 @@ private struct VoiceUsageInsightsCard: View {
                         .font(.caption2)
                         .foregroundColor(.secondary)
                         .frame(width: 40, alignment: .trailing)
-                    Text(isChinese ? "问题率" : "Issue Rate")
+                    Text(isChinese ? "输入/控制" : "Dict./Ctrl.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                        .frame(width: 52, alignment: .trailing)
+                        .frame(width: 72, alignment: .trailing)
                 }
                 .padding(.horizontal, 8)
 
@@ -2869,10 +2869,8 @@ private struct VoiceUsageTopAppRow: View {
         AppLocalization.isChinese
     }
 
-    private var issueRateText: String {
-        guard item.summary.total > 0 else { return "0%" }
-        let rate = Double(item.issueCount) / Double(item.summary.total)
-        return String(format: "%.0f%%", max(0, min(100, rate * 100)))
+    private var activityBreakdownText: String {
+        "\(item.summary.dictationCount) / \(item.summary.controlCount)"
     }
 
     private var bundleText: String {
@@ -2900,11 +2898,11 @@ private struct VoiceUsageTopAppRow: View {
                 .foregroundColor(.secondary)
                 .frame(width: 40, alignment: .trailing)
 
-            Text(issueRateText)
+            Text(activityBreakdownText)
                 .font(.caption.monospacedDigit())
-                .foregroundColor(item.issueCount > 0 ? .orange : .secondary)
-                .frame(width: 52, alignment: .trailing)
-                .help(isChinese ? "问题率" : "Issue rate")
+                .foregroundColor(.secondary)
+                .frame(width: 72, alignment: .trailing)
+                .help(isChinese ? "输入次数 / 控制次数" : "Dictation count / control count")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
