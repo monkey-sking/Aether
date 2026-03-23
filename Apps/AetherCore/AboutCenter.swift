@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 import CryptoKit
+import Security
 
 struct AetherEntitlementDevice: Identifiable {
     let id: String
@@ -70,6 +71,9 @@ final class AetherLicenseManager: ObservableObject {
     static let shared = AetherLicenseManager()
     private static let entitlementSnapshotStorageKey = "aether.license.snapshot.v1"
     private static let entitlementTokenStorageKey = "aether.license.token.v1"
+    private static let installationIDStorageKey = "aether.installation.id"
+    private static let installationIDKeychainService = "com.7fei.Aether.installation"
+    private static let installationIDKeychainAccount = "default-device-id"
     private static let offlineGraceInterval: TimeInterval = 7 * 24 * 60 * 60
 
     @Published var email: String = UserDefaults.standard.string(forKey: "aether.license.email") ?? ""
@@ -85,9 +89,12 @@ final class AetherLicenseManager: ObservableObject {
     @Published private(set) var devices: [AetherEntitlementDevice] = []
     @Published private(set) var lastErrorMessage: String?
     @Published private(set) var infoMessage: String?
-    @Published private(set) var isRefreshingEntitlement: Bool = true
+    @Published private(set) var isFetchingDevices: Bool = false
+    @Published private(set) var isRefreshingEntitlement: Bool = false
     @Published private(set) var gateState: AetherEntitlementGateState = .loading
     @Published private(set) var isUsingOfflineGraceAccess: Bool = false
+
+    private var cachedInstallationID: String?
 
     private init() {
         restoreTokenIfAvailable()
@@ -147,6 +154,7 @@ final class AetherLicenseManager: ObservableObject {
     }
 
     func refreshEntitlement() async {
+        guard !isRefreshingEntitlement else { return }
         isRefreshingEntitlement = true
         recomputeGateState()
         guard !email.isEmpty, !licenseKey.isEmpty else {
@@ -160,9 +168,12 @@ final class AetherLicenseManager: ObservableObject {
     }
 
     func fetchDevices() async {
-        guard canManageDevices else { return }
+        guard canManageDevices, !isFetchingDevices else { return }
+        lastErrorMessage = nil
+        isFetchingDevices = true
+        defer { isFetchingDevices = false }
         do {
-            let json = try await postJSON(path: "/devices", body: credentialBody())
+            let json = try await postDeviceManagementJSON(path: "/devices")
             devices = parseDevices(json["devices"])
             updateSharedState(from: json)
         } catch {
@@ -172,9 +183,9 @@ final class AetherLicenseManager: ObservableObject {
 
     func removeDevice(deviceId: String) async {
         guard canManageDevices else { return }
+        lastErrorMessage = nil
         do {
-            let payload = credentialBody().merging(["targetDeviceId": deviceId]) { _, new in new }
-            let json = try await postJSON(path: "/devices/remove", body: payload)
+            let json = try await postDeviceManagementJSON(path: "/devices/remove", targetDeviceId: deviceId)
             updateSharedState(from: json)
             if (json["removedSelf"] as? Bool) == true {
                 clearCredentials()
@@ -476,6 +487,39 @@ final class AetherLicenseManager: ObservableObject {
         }
     }
 
+    private func postDeviceManagementJSON(path: String, targetDeviceId: String? = nil) async throws -> [String: Any] {
+        do {
+            return try await postJSON(path: path, body: deviceManagementBody(includeCurrentDeviceID: true, targetDeviceId: targetDeviceId))
+        } catch {
+            guard shouldRetryDeviceManagementWithoutCurrentDevice(after: error) else {
+                throw error
+            }
+            return try await postJSON(path: path, body: deviceManagementBody(includeCurrentDeviceID: false, targetDeviceId: targetDeviceId))
+        }
+    }
+
+    private func deviceManagementBody(includeCurrentDeviceID: Bool, targetDeviceId: String? = nil) -> [String: Any] {
+        var body = credentialBody()
+        if !includeCurrentDeviceID {
+            body.removeValue(forKey: "deviceId")
+        }
+        if let targetDeviceId {
+            body["targetDeviceId"] = targetDeviceId
+        }
+        return body
+    }
+
+    private func shouldRetryDeviceManagementWithoutCurrentDevice(after error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.code == 401 {
+            return true
+        }
+        let message = nsError.localizedDescription.lowercased()
+        return message.contains("device not authorized")
+            || message.contains("device unauthorized")
+            || message.contains("设备未授权")
+    }
+
     private func postJSON(path: String, body: [String: Any]) async throws -> [String: Any] {
         guard let url = URL(string: authBaseURL + path) else {
             throw NSError(domain: "AetherLicense", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid auth URL"])
@@ -525,12 +569,36 @@ final class AetherLicenseManager: ObservableObject {
     }
 
     private var installationID: String {
-        let key = "aether.installation.id"
-        if let stored = UserDefaults.standard.string(forKey: key), !stored.isEmpty {
+        if let cachedInstallationID, !cachedInstallationID.isEmpty {
+            return cachedInstallationID
+        }
+        if let stored = AetherInstallationIDKeychain.load(
+            service: Self.installationIDKeychainService,
+            account: Self.installationIDKeychainAccount
+        ) {
+            cachedInstallationID = stored
+            UserDefaults.standard.set(stored, forKey: Self.installationIDStorageKey)
             return stored
         }
+        if let legacy = UserDefaults.standard.string(forKey: Self.installationIDStorageKey),
+           !legacy.isEmpty {
+            cachedInstallationID = legacy
+            _ = AetherInstallationIDKeychain.save(
+                legacy,
+                service: Self.installationIDKeychainService,
+                account: Self.installationIDKeychainAccount
+            )
+            return legacy
+        }
+
         let value = UUID().uuidString
-        UserDefaults.standard.set(value, forKey: key)
+        cachedInstallationID = value
+        UserDefaults.standard.set(value, forKey: Self.installationIDStorageKey)
+        _ = AetherInstallationIDKeychain.save(
+            value,
+            service: Self.installationIDKeychainService,
+            account: Self.installationIDKeychainAccount
+        )
         return value
     }
 }
@@ -545,6 +613,53 @@ private extension Data {
             base64.append(String(repeating: "=", count: 4 - remainder))
         }
         self.init(base64Encoded: base64)
+    }
+}
+
+private enum AetherInstallationIDKeychain {
+    static func load(service: String, account: String) -> String? {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else {
+            return nil
+        }
+        guard let data = result as? Data,
+              let value = String(data: data, encoding: .utf8),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    static func save(_ value: String, service: String, account: String) -> Bool {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+        let attributes: [CFString: Any] = [
+            kSecValueData: Data(value.utf8),
+        ]
+
+        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        switch updateStatus {
+        case errSecSuccess:
+            return true
+        case errSecItemNotFound:
+            var addQuery = query
+            addQuery.merge(attributes) { _, new in new }
+            return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+        default:
+            return false
+        }
     }
 }
 

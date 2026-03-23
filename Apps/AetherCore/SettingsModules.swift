@@ -2888,6 +2888,8 @@ private struct VoiceUsageInsightsCard: View {
 
 private struct WakeActivationInsightsCard: View {
     @EnvironmentObject var appState: AppState
+    @State private var showingClearDataConfirm: Bool = false
+    @State private var showingResetStatisticsConfirm: Bool = false
     @State private var recentFilter: AppState.WakeInsightsRecentFilter = .all
 
     private var isChinese: Bool {
@@ -2900,6 +2902,17 @@ private struct WakeActivationInsightsCard: View {
 
     private var topPhraseItems: [AppState.WakeInsightsPhraseItem] {
         Array(snapshot.phraseItems.prefix(6))
+    }
+
+    private var hasStatisticsData: Bool {
+        snapshot.dashboard.wakeHitCount > 0
+            || snapshot.dashboard.wakeEmptyCount > 0
+            || snapshot.dashboard.wakeToDictationCount > 0
+            || snapshot.dashboard.wakeToControlCount > 0
+    }
+
+    private var hasHistoryData: Bool {
+        snapshot.dashboard.retainedHistoryCount > 0
     }
 
     private var modeText: String {
@@ -2941,6 +2954,10 @@ private struct WakeActivationInsightsCard: View {
             : "Latest \(visibleCount), \(matchingCount) matched"
     }
 
+    private func formattedEntries(_ value: Int) -> String {
+        isChinese ? "\(value) 条" : "\(value) entries"
+    }
+
     private func recentFilterTitle(_ filter: AppState.WakeInsightsRecentFilter) -> String {
         switch filter {
         case .all:
@@ -2978,8 +2995,33 @@ private struct WakeActivationInsightsCard: View {
             configurationPanel
             phrasePanel
             recentPanel
+            managementPanel
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .confirmationDialog(
+            String(localized: "insights.reset_statistics_confirm_title"),
+            isPresented: $showingResetStatisticsConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "insights.reset_statistics_confirm_action"), role: .destructive) {
+                appState.resetVoiceUsageStatistics()
+            }
+            Button(String(localized: "lexicon.clear_confirm_cancel"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "insights.reset_statistics_confirm_message"))
+        }
+        .confirmationDialog(
+            String(localized: "insights.clear_data_confirm_title"),
+            isPresented: $showingClearDataConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "insights.clear_data_confirm_action"), role: .destructive) {
+                appState.clearVoiceUsageHistory()
+            }
+            Button(String(localized: "lexicon.clear_confirm_cancel"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "insights.clear_data_confirm_message"))
+        }
     }
 
     private var topMetricsStrip: some View {
@@ -3186,6 +3228,111 @@ private struct WakeActivationInsightsCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+
+    private var managementPanel: some View {
+        sectionCard {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(isChinese ? "记录管理" : "Record Management")
+                    .font(.subheadline.weight(.semibold))
+                Text(
+                    isChinese
+                        ? "这里管理的是与语音统计共用的一套历史数据和摘要。"
+                        : "These controls manage the shared history and summary used by voice insights."
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 14) {
+                    Toggle(isOn: $appState.isVoiceUsageHistoryEnabled) {
+                        Text(LocalizedStringKey("insights.capture_toggle_title"))
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+
+                    Spacer(minLength: 8)
+
+                    HStack(alignment: .center, spacing: 10) {
+                        Text(isChinese ? "保留上限" : "Retention Limit")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(formattedEntries(appState.voiceUsageHistoryLimit))
+                            .font(.caption.monospacedDigit())
+                            .frame(minWidth: 72, alignment: .trailing)
+                        Stepper("", value: $appState.voiceUsageHistoryLimit, in: 100...5000, step: 100)
+                            .labelsHidden()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: $appState.isVoiceUsageHistoryEnabled) {
+                        Text(LocalizedStringKey("insights.capture_toggle_title"))
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+
+                    HStack(alignment: .center, spacing: 10) {
+                        Text(isChinese ? "保留上限" : "Retention Limit")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer(minLength: 8)
+                        Text(formattedEntries(appState.voiceUsageHistoryLimit))
+                            .font(.caption.monospacedDigit())
+                            .frame(minWidth: 72, alignment: .trailing)
+                        Stepper("", value: $appState.voiceUsageHistoryLimit, in: 100...5000, step: 100)
+                            .labelsHidden()
+                    }
+                }
+            }
+
+            Divider()
+
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 10) {
+                    Text(isChinese ? "重置与清除" : "Reset & Clear")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
+
+                    Spacer(minLength: 8)
+
+                    Button(String(localized: "insights.reset_statistics")) {
+                        showingResetStatisticsConfirm = true
+                    }
+                    .disabled(!hasStatisticsData)
+
+                    Button(String(localized: "insights.clear_data"), role: .destructive) {
+                        showingClearDataConfirm = true
+                    }
+                    .disabled(!hasHistoryData)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(isChinese ? "重置与清除" : "Reset & Clear")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 8) {
+                        Button(String(localized: "insights.reset_statistics")) {
+                            showingResetStatisticsConfirm = true
+                        }
+                        .disabled(!hasStatisticsData)
+
+                        Button(String(localized: "insights.clear_data"), role: .destructive) {
+                            showingClearDataConfirm = true
+                        }
+                        .disabled(!hasHistoryData)
+                    }
+                }
+            }
+            .controlSize(.small)
+            .buttonStyle(.bordered)
         }
     }
 }

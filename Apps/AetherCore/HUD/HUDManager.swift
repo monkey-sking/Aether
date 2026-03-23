@@ -2217,19 +2217,13 @@ final class HUDManager {
         let update = detector.currentUpdate
         let mouseLoc = currentCursorLocation()
         let now = Date()
-        let useBrowserPointerFollowFastPath = shouldUseBrowserPointerFollowFastPath(now: now)
-        
+
         // 1. Determine Anchor & Mode
         var anchor = mouseLoc
-        let uiTypingMode: Bool
-        switch state.recognitionControlMode {
-        case .command:
-            uiTypingMode = false
-        case .dictation:
-            uiTypingMode = true
-        case .auto:
-            uiTypingMode = useBrowserPointerFollowFastPath ? false : lastKnownTypingState()
-        }
+        // `state.isTypingContext` is the single semantic source of truth. Layout may
+        // still probe caret geometry below, but it must not compute and write back a
+        // second typing verdict or we recreate the HUD/SpeechManager feedback loop.
+        let uiTypingMode = state.isTypingContext
         let wasTypingMode = state.isTypingContext
         var layoutTypingMode = false
         var preferAboveInput = false
@@ -2372,11 +2366,6 @@ final class HUDManager {
             }
         }
         
-        // Sync to State for UI icons
-        if state.isTypingContext != uiTypingMode {
-            state.isTypingContext = uiTypingMode
-        }
-
         if state.recognitionControlMode == .dictation && !layoutTypingMode {
             panel.orderOut(nil)
             updateCaretDebugDot(point: nil, enabled: false)

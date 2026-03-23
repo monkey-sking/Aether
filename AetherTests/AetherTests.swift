@@ -246,3 +246,21 @@ final class WakeWordDetectorTests: XCTestCase {
         XCTAssertFalse(result.wakeDetected)
     }
 }
+
+@MainActor
+final class SpeechManagerOverlapTests: XCTestCase {
+    func testChineseCrossUtteranceOverlapNeedsFourCharacters() {
+        XCTAssertEqual(SpeechManager.minimumCrossUtteranceOverlapLength(for: "老师"), 4)
+        XCTAssertEqual(SpeechManager.minimumCrossUtteranceOverlapLength(for: "老师您好"), 4)
+    }
+
+    func testAsciiOrWhitespaceOverlapStillNeedsFourCharacters() {
+        XCTAssertEqual(SpeechManager.minimumCrossUtteranceOverlapLength(for: "test"), 4)
+        XCTAssertEqual(SpeechManager.minimumCrossUtteranceOverlapLength(for: "hi there"), 4)
+    }
+
+    func testSymbolOnlyOverlapUsesThreeCharacters() {
+        XCTAssertEqual(SpeechManager.minimumCrossUtteranceOverlapLength(for: "--"), 3)
+        XCTAssertEqual(SpeechManager.minimumCrossUtteranceOverlapLength(for: "..."), 3)
+    }
+}

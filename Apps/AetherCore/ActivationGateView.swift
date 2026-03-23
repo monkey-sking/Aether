@@ -1,4 +1,21 @@
 import SwiftUI
+import AppKit
+
+@MainActor
+private enum AetherApplicationTerminator {
+    static func terminateFromLockedUI() {
+        let app = NSApplication.shared
+        app.abortModal()
+        app.stop(nil)
+        app.sendAction(#selector(NSApplication.terminate(_:)), to: nil, from: nil)
+        DispatchQueue.main.async {
+            app.terminate(nil)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            _ = NSRunningApplication.current.terminate()
+        }
+    }
+}
 
 struct ActivationGateView: View {
     @EnvironmentObject private var appState: AppState
@@ -14,6 +31,14 @@ struct ActivationGateView: View {
     private var isDeviceLimitReached: Bool { licenseManager.gateState == .deviceLimitReached }
     private var canActivate: Bool { licenseManager.gateState != .loading }
     private var canStartTrial: Bool { licenseManager.gateState != .loading && !isDeviceLimitReached }
+    private var deviceListHintText: String {
+        if licenseManager.isFetchingDevices {
+            return isChinese ? "正在拉取设备列表…" : "Loading devices…"
+        }
+        return isChinese
+            ? "当前没有可移除的设备信息。若设备占用已满但列表仍为空，通常是授权服务还没有返回旧设备记录。"
+            : "No removable devices were returned. If the device count is full but the list stays empty, the licensing service did not return old device records yet."
+    }
 
     private var titleText: String {
         switch licenseManager.gateState {
@@ -127,6 +152,12 @@ struct ActivationGateView: View {
                                 Task { await licenseManager.refreshEntitlement() }
                             }
                             .buttonStyle(.bordered)
+
+                            Button(isChinese ? "退出 Aether" : "Quit Aether") {
+                                AetherApplicationTerminator.terminateFromLockedUI()
+                            }
+                            .buttonStyle(.bordered)
+                            .keyboardShortcut("q", modifiers: [.command])
                         }
                         .controlSize(.small)
 
@@ -147,7 +178,7 @@ struct ActivationGateView: View {
                             DisclosureGroup(isExpanded: $devicesExpanded) {
                                 VStack(alignment: .leading, spacing: 12) {
                                     if licenseManager.devices.isEmpty {
-                                        Text(isChinese ? "正在拉取设备列表，或当前还没有可移除的设备信息。" : "Loading devices, or there are no removable devices yet.")
+                                        Text(deviceListHintText)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     } else {

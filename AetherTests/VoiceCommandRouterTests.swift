@@ -422,40 +422,28 @@ final class SpeechManagerTypingModeTests: XCTestCase {
         XCTAssertTrue(resolved)
     }
 
-    func testAutoModeHUDControlStateOverridesStaleTypingBeforeStreaming() {
+    func testAutoModeReconciliationKeepsComputedTypingWhenTrue() {
         let reconciled = SpeechManager.reconcileTypingContextWithVisibleHUD(
             recognitionControlMode: .auto,
-            computedTypingContext: true,
-            hasStreamedDictation: false,
-            hudRecognitionControlMode: .auto,
-            hudTypingContext: false,
-            isUtteranceActive: false
-        )
-
-        XCTAssertFalse(reconciled)
-    }
-
-    func testAutoModeHUDTypingStateKeepsTypingWhenVisible() {
-        let reconciled = SpeechManager.reconcileTypingContextWithVisibleHUD(
-            recognitionControlMode: .auto,
-            computedTypingContext: true,
-            hasStreamedDictation: false,
-            hudRecognitionControlMode: .auto,
-            hudTypingContext: true,
-            isUtteranceActive: false
+            computedTypingContext: true
         )
 
         XCTAssertTrue(reconciled)
     }
 
-    func testAutoModeHUDControlStateStillWinsOverStreamingFlag() {
+    func testAutoModeReconciliationKeepsComputedTypingWhenFalse() {
         let reconciled = SpeechManager.reconcileTypingContextWithVisibleHUD(
             recognitionControlMode: .auto,
-            computedTypingContext: true,
-            hasStreamedDictation: true,
-            hudRecognitionControlMode: .auto,
-            hudTypingContext: false,
-            isUtteranceActive: false
+            computedTypingContext: false
+        )
+
+        XCTAssertFalse(reconciled)
+    }
+
+    func testCommandModeReconciliationStillPassesThroughComputedTyping() {
+        let reconciled = SpeechManager.reconcileTypingContextWithVisibleHUD(
+            recognitionControlMode: .command,
+            computedTypingContext: false
         )
 
         XCTAssertFalse(reconciled)

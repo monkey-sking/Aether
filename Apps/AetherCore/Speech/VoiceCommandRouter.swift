@@ -45,6 +45,15 @@ struct FrontmostAppCommand: Identifiable, Equatable {
         if menuPath.isEmpty { return title }
         return (menuPath + [title]).joined(separator: " > ")
     }
+
+    var isCustomRuleCommand: Bool {
+        guard let root = menuPath.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() else {
+            return false
+        }
+        return root == "自定义规则" || root == "custom rules"
+    }
 }
 
 extension FrontmostAppCommand: Sendable {}

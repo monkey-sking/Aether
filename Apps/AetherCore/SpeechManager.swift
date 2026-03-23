@@ -670,24 +670,14 @@ final class SpeechManager: ObservableObject {
 
     static func reconcileTypingContextWithVisibleHUD(
         recognitionControlMode: HeadMotionManager.RecognitionControlMode,
-        computedTypingContext: Bool,
-        hasStreamedDictation: Bool,
-        hudRecognitionControlMode: HUDRecognitionControlMode,
-        hudTypingContext: Bool,
-        isUtteranceActive: Bool
+        computedTypingContext: Bool
     ) -> Bool {
         guard recognitionControlMode == .auto else { return computedTypingContext }
 
-        // If the visible HUD is already in control semantics, trust that over a stale typing snapshot.
-        if hudRecognitionControlMode == .command { return false }
-        if hudRecognitionControlMode == .auto, !hudTypingContext { return false }
-
-        // Mid-utterance persistence (only after HUD allows typing semantics)
-        if isUtteranceActive && computedTypingContext { return true }
-
-        guard computedTypingContext else { return false }
-        guard !hasStreamedDictation else { return true }
-        return true
+        // The visible HUD is downstream from typing inference, so it cannot be allowed
+        // to veto routing in auto mode. Keep a single authoritative typing decision
+        // and let the HUD follow it instead of feeding back into it.
+        return computedTypingContext
     }
 
     static func resolvedRoutingBias(
@@ -2179,14 +2169,11 @@ final class SpeechManager: ObservableObject {
             hasStreamedDictation: hasStreamedDictation,
             isUtteranceActive: isUtteranceActive
         )
-        let hudState = HUDManager.shared.state
         let hasAuthoritativeTypingEvidence = hasAuthoritativeTypingEvidence()
         let hasStrongTypingFallback = hasStrongTypingFallbackEvidence(
             lockedFocusedSnapshot: lockedFocusedSnapshot,
             lockedTargetMatches: lockedTargetMatches,
             computedTypingContext: computedTypingMode,
-            hudRecognitionControlMode: hudState.recognitionControlMode,
-            hudTypingContext: hudState.isTypingContext,
             hasAuthoritativeTypingEvidence: hasAuthoritativeTypingEvidence,
             hasStreamedDictation: hasStreamedDictation
         )
@@ -2194,11 +2181,7 @@ final class SpeechManager: ObservableObject {
             ? computedTypingMode
             : Self.reconcileTypingContextWithVisibleHUD(
                 recognitionControlMode: controlMode,
-                computedTypingContext: computedTypingMode,
-                hasStreamedDictation: hasStreamedDictation,
-                hudRecognitionControlMode: hudState.recognitionControlMode,
-                hudTypingContext: hudState.isTypingContext,
-                isUtteranceActive: isUtteranceActive
+                computedTypingContext: computedTypingMode
             )
         let effectiveTypingMode = effectiveTypingContext(
             reconciledTypingContext: nextTypingMode,
@@ -2928,18 +2911,12 @@ final class SpeechManager: ObservableObject {
             lockedFocusedSnapshot: lockedFocusedSnapshot,
             lockedTargetMatches: lockedTargetMatches,
             computedTypingContext: computedTypingContext,
-            hudRecognitionControlMode: hudState.recognitionControlMode,
-            hudTypingContext: hudState.isTypingContext,
             hasAuthoritativeTypingEvidence: hasAuthoritativeTypingEvidence,
             hasStreamedDictation: hasStreamedDictation
         )
         var typingContext = Self.reconcileTypingContextWithVisibleHUD(
             recognitionControlMode: controlMode,
-            computedTypingContext: computedTypingContext,
-            hasStreamedDictation: hasStreamedDictation,
-            hudRecognitionControlMode: hudState.recognitionControlMode,
-            hudTypingContext: hudState.isTypingContext,
-            isUtteranceActive: isUtteranceActive
+            computedTypingContext: computedTypingContext
         )
         if hasStrongTypingFallback {
             typingContext = computedTypingContext
@@ -2949,10 +2926,6 @@ final class SpeechManager: ObservableObject {
             computedTypingContext: computedTypingContext,
             availability: featureAvailability
         )
-        let hudBlocksDictation = featureAvailability.commandEnabled &&
-            controlMode == .auto &&
-            !typingContext &&
-            (hudState.recognitionControlMode == .command || !hudState.isTypingContext)
         if typingContext != sessionTypingMode {
             sessionTypingMode = typingContext
         }
@@ -3077,12 +3050,6 @@ final class SpeechManager: ObservableObject {
                 "[Route] blocked dictation without input -> unknown transcript='\(p)'"
             )
         }
-        if hudBlocksDictation, case .dictation(let payload) = intent {
-            intent = .unknown(payload)
-            GlobalLogger.router.info(
-                "[Route] hud command mode blocked dictation -> unknown transcript='\(payload)'"
-            )
-        }
         let isForcedCommandMiss = decision.reason == "forced-command-no-match"
         if consumedExplicitCommandPrefix && isForcedCommandMiss {
             armPendingExplicitCommandPrefix(reason: "forced-command-miss")
@@ -3096,7 +3063,6 @@ final class SpeechManager: ObservableObject {
         if !isAlwaysListeningEnabled,
            recognitionControlMode != .command,
            !blockDictationWithoutInput,
-           !hudBlocksDictation,
            case .unknown = intent,
            !textToRoute.isEmpty,
            typingContext,
@@ -3701,8 +3667,17 @@ final class SpeechManager: ObservableObject {
         consumedExplicitCommandPrefix: Bool,
         inlineExplicitCommandPrefix: Bool
     ) -> Bool {
-        guard typingContext, isCommandIntentStatic(intent) else { return false }
-        return routingBias == .forceCommand || consumedExplicitCommandPrefix || inlineExplicitCommandPrefix
+        guard isCommandIntentStatic(intent) else { return false }
+
+        // Some commands already surface a dedicated HUD after execution.
+        switch intent {
+        case .toggleInputControlMode, .scrollToWeb, .dragStart, .dragEnd:
+            return false
+        case .dictation, .unknown:
+            return false
+        default:
+            return true
+        }
     }
 
     static func commandHUDPreviewMessage(
@@ -3775,6 +3750,13 @@ final class SpeechManager: ObservableObject {
             let path = command.displayPath.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = command.title.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !path.isEmpty else { return title }
+            if command.isCustomRuleCommand {
+                return compactHUDSnippet(
+                    title.isEmpty ? path : title,
+                    maxEnglishCharacters: 24,
+                    maxNonEnglishCharacters: 12
+                )
+            }
             if command.menuPath.count <= 1 {
                 return compactHUDSnippet(path, maxEnglishCharacters: 30, maxNonEnglishCharacters: 14)
             }
@@ -4727,8 +4709,6 @@ final class SpeechManager: ObservableObject {
         lockedFocusedSnapshot: FocusedInputSnapshot?,
         lockedTargetMatches: Bool,
         computedTypingContext: Bool,
-        hudRecognitionControlMode: HUDRecognitionControlMode,
-        hudTypingContext: Bool,
         hasAuthoritativeTypingEvidence: Bool,
         hasStreamedDictation: Bool
     ) -> Bool {
@@ -4738,9 +4718,6 @@ final class SpeechManager: ObservableObject {
         if hasAuthoritativeTypingEvidence || hasStreamedDictation {
             return true
         }
-        // Only the weakest typing evidence (a stale locked target) should yield to visible HUD control semantics.
-        if hudRecognitionControlMode == .command { return false }
-        if hudRecognitionControlMode == .auto, !hudTypingContext { return false }
         guard lockedTargetMatches else {
             return false
         }
@@ -5940,17 +5917,34 @@ final class SpeechManager: ObservableObject {
             let currPrefix = String(current[..<currEnd])
             guard prevSuffix == currPrefix else { continue }
 
-            if len >= minimumCrossUtteranceOverlapLength(for: currPrefix) {
+            if len >= Self.minimumCrossUtteranceOverlapLength(for: currPrefix) {
                 return len
             }
         }
         return 0
     }
-    private func minimumCrossUtteranceOverlapLength(for text: String) -> Int {
+    static func minimumCrossUtteranceOverlapLength(for text: String) -> Int {
         let scalars = text.unicodeScalars
         let containsWhitespace = scalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) }
         let containsASCIIAlnum = scalars.contains { CharacterSet.alphanumerics.contains($0) && $0.isASCII }
-        return (containsWhitespace || containsASCIIAlnum) ? 4 : 2
+        let containsCJK = scalars.contains {
+            let value = Int($0.value)
+            return (0x3400...0x4DBF).contains(value)
+                || (0x4E00...0x9FFF).contains(value)
+                || (0xF900...0xFAFF).contains(value)
+        }
+
+        if containsWhitespace || containsASCIIAlnum {
+            return 4
+        }
+
+        // Two-character Chinese words are common enough that a 2-char overlap floor
+        // causes false cross-utterance trimming, especially around wake-word splits.
+        if containsCJK {
+            return 4
+        }
+
+        return 3
     }
     private func rememberCommittedDictation(_ text: String, for job: ProcessedJob) {
         lastCommittedDictationText = text
