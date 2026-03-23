@@ -2256,7 +2256,7 @@ private struct VoiceUsageInsightsCard: View {
         appState.usageInsightsSnapshot(
             showNoSpeechEvents: showNoSpeechEvents,
             recentFilter: recentActivityFilter,
-            perAppSort: .issuePriority,
+            perAppSort: .total,
             recentLimit: showAllRecentEvents ? 30 : 5
         )
     }
@@ -2335,18 +2335,18 @@ private struct VoiceUsageInsightsCard: View {
     }
 
     private var appOverviewTitle: String {
-        isChinese ? "问题较多的 App" : "Apps with More Issues"
+        isChinese ? "按 App" : "By App"
     }
 
     private var appOverviewSubtitle: String {
         if showAllApps {
             return isChinese
-                ? "按问题优先显示全部 App，并列出总数和问题率。"
-                : "Shows all apps with total activity and issue rate, ordered by issues first."
+                ? "查看全部 App 的使用总数和问题率。"
+                : "View total activity and issue rate across all apps."
         }
         return isChinese
-            ? "优先显示问题较多的 App，并列出总数和问题率。"
-            : "Highlights apps with more issues first, alongside total activity and issue rate."
+            ? "查看各 App 的使用总数和问题率。"
+            : "View total activity and issue rate across apps."
     }
 
     @ViewBuilder
