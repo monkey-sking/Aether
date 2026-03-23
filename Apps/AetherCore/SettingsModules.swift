@@ -2436,12 +2436,6 @@ private struct VoiceUsageInsightsCard: View {
                         detail: isChinese ? "语音控制触发次数" : "Voice control actions",
                         tint: .teal
                     )
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "识别语言" : "Speech Language",
-                        value: snapshot.diagnostics.localeIdentifier,
-                        tint: .primary,
-                        usesNeutralBackground: true
-                    )
                 }
 
                 LazyVGrid(columns: topMetricColumns, alignment: .leading, spacing: 10) {
@@ -2478,12 +2472,6 @@ private struct VoiceUsageInsightsCard: View {
                         value: formattedEntries(summary.controlCount),
                         detail: isChinese ? "语音控制触发次数" : "Voice control actions",
                         tint: .teal
-                    )
-                    VoiceUsageStatusChip(
-                        title: isChinese ? "识别语言" : "Speech Language",
-                        value: snapshot.diagnostics.localeIdentifier,
-                        tint: .primary,
-                        usesNeutralBackground: true
                     )
                 }
             }
