@@ -46,6 +46,15 @@ enum AetherUpdateChannel: String, CaseIterable, Identifiable {
     case beta
 
     var id: String { rawValue }
+
+    var versionDisplayChannel: AetherBuildVersionFormatter.DisplayChannel {
+        switch self {
+        case .stable:
+            return .stable
+        case .beta:
+            return .beta
+        }
+    }
 }
 
 enum AetherEntitlementGateState: Equatable {
@@ -680,6 +689,18 @@ final class AetherUpdaterManager: ObservableObject {
         refreshFeedString()
     }
 
+    private var currentShortVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+
+    private var currentBuildVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+    }
+
+    private var currentPublicLabel: String? {
+        Bundle.main.object(forInfoDictionaryKey: "AetherPublicVersionLabel") as? String
+    }
+
     func setUpdateChannel(_ channel: AetherUpdateChannel) {
         self.channel = channel
         AetherUpdateFeedResolver.setChannel(channel)
@@ -700,7 +721,8 @@ final class AetherUpdaterManager: ObservableObject {
             latestVersion = AetherBuildVersionFormatter.versionDisplay(
                 shortVersion: parsed.shortVersion,
                 buildVersion: parsed.buildVersion,
-                publicLabel: parsed.publicLabel
+                publicLabel: parsed.publicLabel,
+                channel: channel.versionDisplayChannel
             )
 
             guard let remoteShort = parsed.shortVersion, !remoteShort.isEmpty else {
@@ -709,23 +731,43 @@ final class AetherUpdaterManager: ObservableObject {
                 return
             }
 
-            let currentShort = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-            let currentBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+            let currentDisplay = AetherBuildVersionFormatter.versionDisplay(
+                shortVersion: currentShortVersion,
+                buildVersion: currentBuildVersion,
+                publicLabel: currentPublicLabel,
+                channel: channel.versionDisplayChannel
+            ) ?? currentShortVersion
+            let comparedVersions = AetherBuildVersionFormatter.comparisonDisplay(
+                updateShortVersion: parsed.shortVersion,
+                updateBuildVersion: parsed.buildVersion,
+                updatePublicLabel: parsed.publicLabel,
+                bundleShortVersion: currentShortVersion,
+                bundleBuildVersion: currentBuildVersion,
+                bundlePublicLabel: currentPublicLabel,
+                channel: channel.versionDisplayChannel
+            )
 
-            let shortCompare = remoteShort.compare(currentShort, options: .numeric)
+            let shortCompare = remoteShort.compare(currentShortVersion, options: .numeric)
             let buildCompare: ComparisonResult
             if shortCompare == .orderedSame, let remoteBuild = parsed.buildVersion, !remoteBuild.isEmpty {
-                buildCompare = remoteBuild.compare(currentBuild, options: .numeric)
+                buildCompare = remoteBuild.compare(currentBuildVersion, options: .numeric)
             } else {
                 buildCompare = .orderedSame
             }
 
             if shortCompare == .orderedDescending || buildCompare == .orderedDescending {
                 hasAvailableUpdate = true
-                statusMessage = AppLocalization.isChinese ? "发现新版本。" : "Update available."
+                let updateDisplay = comparedVersions.update ?? latestVersion ?? remoteShort
+                let bundleDisplay = comparedVersions.bundle ?? currentDisplay
+                statusMessage = AppLocalization.isChinese
+                    ? "发现新版本：\(updateDisplay)（当前 \(bundleDisplay)）"
+                    : "Update available: \(updateDisplay) (current: \(bundleDisplay))."
             } else {
                 hasAvailableUpdate = false
-                statusMessage = AppLocalization.isChinese ? "当前已是最新版本。" : "Already on the latest version."
+                let bundleDisplay = comparedVersions.bundle ?? currentDisplay
+                statusMessage = AppLocalization.isChinese
+                    ? "当前已是最新：\(bundleDisplay)"
+                    : "Already on the latest version: \(bundleDisplay)."
             }
         } catch {
             hasAvailableUpdate = false
@@ -788,13 +830,7 @@ private final class AppcastParser: NSObject, XMLParserDelegate {
     }
 
     private static func extractPublicLabel(from url: String) -> String? {
-        let fileName = URL(string: url)?.lastPathComponent ?? (url as NSString).lastPathComponent
-        guard fileName.hasSuffix(".zip") else { return nil }
-        let stem = String(fileName.dropLast(4))
-        guard let candidate = stem.split(separator: "_").last else { return nil }
-        let label = String(candidate)
-        guard label.first == "b", label.dropFirst().allSatisfy(\.isNumber) else { return nil }
-        return label
+        AetherBuildVersionFormatter.publicLabel(from: url)
     }
 }
 

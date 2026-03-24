@@ -73,6 +73,70 @@ private final class AetherSparkleFeedDelegate: NSObject, SPUUpdaterDelegate {
     }
 }
 
+private final class AetherSparkleVersionDisplayer: NSObject, SUVersionDisplay {
+    static let shared = AetherSparkleVersionDisplayer()
+
+    private var currentDisplayChannel: AetherBuildVersionFormatter.DisplayChannel {
+        AetherUpdateFeedResolver.currentChannel().versionDisplayChannel
+    }
+
+    private var bundlePublicLabel: String? {
+        Bundle.main.object(forInfoDictionaryKey: "AetherPublicVersionLabel") as? String
+    }
+
+    private func publicLabel(for item: SUAppcastItem?) -> String? {
+        AetherBuildVersionFormatter.publicLabel(from: item?.fileURL?.absoluteString)
+    }
+
+    func formatUpdateVersion(
+        fromUpdate update: SUAppcastItem,
+        andBundleDisplayVersion bundleDisplayVersion: AutoreleasingUnsafeMutablePointer<NSString>,
+        withBundleVersion bundleVersion: String
+    ) -> String {
+        let displays = AetherBuildVersionFormatter.comparisonDisplay(
+            updateShortVersion: update.displayVersionString,
+            updateBuildVersion: update.versionString,
+            updatePublicLabel: publicLabel(for: update),
+            bundleShortVersion: bundleDisplayVersion.pointee as String,
+            bundleBuildVersion: bundleVersion,
+            bundlePublicLabel: bundlePublicLabel,
+            channel: currentDisplayChannel
+        )
+
+        let resolvedBundleDisplay = displays.bundle
+            ?? AetherBuildVersionFormatter.versionDisplay(
+                shortVersion: bundleDisplayVersion.pointee as String,
+                buildVersion: bundleVersion,
+                publicLabel: bundlePublicLabel,
+                channel: currentDisplayChannel
+            )
+            ?? (bundleDisplayVersion.pointee as String)
+        bundleDisplayVersion.pointee = resolvedBundleDisplay as NSString
+
+        return displays.update
+            ?? AetherBuildVersionFormatter.versionDisplay(
+                shortVersion: update.displayVersionString,
+                buildVersion: update.versionString,
+                publicLabel: publicLabel(for: update),
+                channel: currentDisplayChannel
+            )
+            ?? update.displayVersionString
+    }
+
+    func formatBundleDisplayVersion(
+        _ bundleDisplayVersion: String,
+        withBundleVersion bundleVersion: String,
+        matchingUpdate: SUAppcastItem?
+    ) -> String {
+        AetherBuildVersionFormatter.versionDisplay(
+            shortVersion: bundleDisplayVersion,
+            buildVersion: bundleVersion,
+            publicLabel: bundlePublicLabel ?? publicLabel(for: matchingUpdate),
+            channel: currentDisplayChannel
+        ) ?? bundleDisplayVersion
+    }
+}
+
 private final class AetherSparkleUserDriverDelegate: NSObject, SPUStandardUserDriverDelegate {
     static let shared = AetherSparkleUserDriverDelegate()
 
@@ -81,6 +145,10 @@ private final class AetherSparkleUserDriverDelegate: NSObject, SPUStandardUserDr
             HUDManager.shared.hideImmediately()
             AetherSparkleFocusHelper.bringAppToFront()
         }
+    }
+
+    func standardUserDriverRequestsVersionDisplayer() -> (any SUVersionDisplay)? {
+        AetherSparkleVersionDisplayer.shared
     }
 }
 

@@ -420,6 +420,7 @@
 "speech.no_matching_command" = "일치하는 명령어를 찾을 수 없습니다";
 "speech.voice_input_disabled" = "음성 입력이 꺼져 있습니다";
 "speech.voice_control_disabled" = "음성 제어가 꺼져 있습니다";
+"speech.app_paused_idle" = "마우스가 오래 멈춰 있어 앱이 일시 중지되었습니다. 마우스를 움직이면 다시 시작됩니다";
 "speech.no_mic_detected" = "마이크를 찾을 수 없습니다";
 "speech.pasted" = "붙여넣기";
 "speech.pasted_cmdv" = "붙여넣기 완료 (Cmd+V)";

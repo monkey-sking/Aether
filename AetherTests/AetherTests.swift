@@ -28,6 +28,11 @@ class DictationHandlerTests: XCTestCase {
             return text
         }
 
+        func rewriteText(_ text: String, mode: TextRewriteMode) async throws -> String {
+            try await Task.sleep(nanoseconds: delayNs)
+            return text
+        }
+
         func interpretCommand(_ text: String) async throws -> VoiceIntent {
             .unknown(text)
         }
@@ -179,6 +184,58 @@ final class AppStateUsageInsightsTests: XCTestCase {
         XCTAssertEqual(record.reasonCode, .unknownCommand)
         XCTAssertFalse(record.isIssue)
     }
+
+    func testRewriteEventMapsToStableDictationOutcome() {
+        let record = AppState.classifyUsageInsightsEvent(
+            AppState.VoiceUsageEvent(
+                appName: "Notes",
+                bundleIdentifier: "com.apple.Notes",
+                kind: .dictation,
+                action: "全文纠错优化",
+                content: "优化后的文本",
+                originalContent: "优化前的文本",
+                eventCode: "rewrite.fullDocument.proofreadAndPolish"
+            )
+        )
+
+        XCTAssertEqual(record.outcome, .dictation)
+        XCTAssertEqual(record.reasonCode, .dictation)
+        XCTAssertFalse(record.isIssue)
+    }
+}
+
+@MainActor
+final class AppStateLLMConfigurationTests: XCTestCase {
+    private func makeEphemeralDefaults() -> UserDefaults {
+        let suiteName = "AetherTests.LLM.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+
+    func testDefaultLLMEndpointTextPrefersStoredValueOverEnvironment() {
+        let defaults = makeEphemeralDefaults()
+        defaults.set("https://saved.example.com/v1", forKey: AppState.llmEndpointStorageKey)
+
+        let value = AppState.defaultLLMEndpointText(
+            environment: ["AETHER_LLM_ENDPOINT": "https://env.example.com/v1"],
+            defaults: defaults
+        )
+
+        XCTAssertEqual(value, "https://saved.example.com/v1")
+    }
+
+    func testDefaultLLMModelTextPrefersStoredValueOverEnvironment() {
+        let defaults = makeEphemeralDefaults()
+        defaults.set("gpt-4.1-mini", forKey: AppState.llmModelStorageKey)
+
+        let value = AppState.defaultLLMModelText(
+            environment: ["AETHER_LLM_MODEL": "env-model"],
+            defaults: defaults
+        )
+
+        XCTAssertEqual(value, "gpt-4.1-mini")
+    }
 }
 
 final class WakeWordDetectorTests: XCTestCase {
@@ -296,6 +353,239 @@ final class WakeWordDetectorTests: XCTestCase {
 
         XCTAssertTrue(result.wakeDetected)
         XCTAssertEqual(result.payload, "你好")
+    }
+}
+
+final class AetherBuildVersionFormatterTests: XCTestCase {
+    func testVersionDisplayUsesCompactMinutePrecision() {
+        XCTAssertEqual(
+            AetherBuildVersionFormatter.versionDisplay(
+                shortVersion: "0.1.0",
+                buildVersion: "20260324114540"
+            ),
+            "0.1.0 · 03-24 11:45"
+        )
+    }
+
+    func testComparisonDisplayDropsRepeatedShortVersionForBetaBuilds() {
+        let versions = AetherBuildVersionFormatter.comparisonDisplay(
+            updateShortVersion: "0.1.0",
+            updateBuildVersion: "20260324114540",
+            updatePublicLabel: "b78",
+            bundleShortVersion: "0.1.0",
+            bundleBuildVersion: "20260324112148",
+            bundlePublicLabel: "b77"
+        )
+
+        XCTAssertEqual(versions.update, "b78")
+        XCTAssertEqual(versions.bundle, "b77")
+    }
+
+    func testComparisonDisplayFallsBackToSecondsWhenMinuteMatches() {
+        let versions = AetherBuildVersionFormatter.comparisonDisplay(
+            updateShortVersion: "0.1.0",
+            updateBuildVersion: "20260324114540",
+            bundleShortVersion: "0.1.0",
+            bundleBuildVersion: "20260324114509"
+        )
+
+        XCTAssertEqual(versions.update, "03-24 11:45:40")
+        XCTAssertEqual(versions.bundle, "03-24 11:45:09")
+    }
+
+    func testBetaChannelVersionDisplayUsesPublicLabelOnly() {
+        XCTAssertEqual(
+            AetherBuildVersionFormatter.versionDisplay(
+                shortVersion: "0.1.0",
+                buildVersion: "20260324114540",
+                publicLabel: "b78",
+                channel: .beta
+            ),
+            "b78"
+        )
+    }
+
+    func testBetaChannelComparisonDisplayUsesBetaLabelsOnly() {
+        let versions = AetherBuildVersionFormatter.comparisonDisplay(
+            updateShortVersion: "0.1.1",
+            updateBuildVersion: "20260324114540",
+            updatePublicLabel: "b79",
+            bundleShortVersion: "0.1.0",
+            bundleBuildVersion: "20260324112148",
+            bundlePublicLabel: "b78",
+            channel: .beta
+        )
+
+        XCTAssertEqual(versions.update, "b79")
+        XCTAssertEqual(versions.bundle, "b78")
+    }
+}
+
+final class OpenAICompatibleProviderCompatibilityTests: XCTestCase {
+    func testRequestDescriptorAcceptsBaseV1Endpoint() {
+        let descriptor = OpenAICompatibleProvider.requestDescriptor(
+            for: URL(string: "https://api.openai.com/v1")!
+        )
+
+        XCTAssertEqual(descriptor.flavor, .chatCompletions)
+        XCTAssertEqual(descriptor.url.absoluteString, "https://api.openai.com/v1/chat/completions")
+    }
+
+    func testRequestDescriptorAcceptsLMStudioBaseEndpoint() {
+        let descriptor = OpenAICompatibleProvider.requestDescriptor(
+            for: URL(string: "http://127.0.0.1:1234/api/v1")!
+        )
+
+        XCTAssertEqual(descriptor.flavor, .lmStudioChat)
+        XCTAssertEqual(descriptor.url.absoluteString, "http://127.0.0.1:1234/api/v1/chat")
+    }
+
+    func testRequestDescriptorAcceptsBareGatewayHost() {
+        let descriptor = OpenAICompatibleProvider.requestDescriptor(
+            for: URL(string: "https://sub.jlypx.de")!
+        )
+
+        XCTAssertEqual(descriptor.flavor, .chatCompletions)
+        XCTAssertEqual(descriptor.url.absoluteString, "https://sub.jlypx.de/v1/chat/completions")
+    }
+
+    func testParseResponseTextSupportsChatMessageString() throws {
+        let data = try jsonData([
+            "choices": [
+                ["message": ["content": "OK"]]
+            ]
+        ])
+
+        XCTAssertEqual(try OpenAICompatibleProvider.parseResponseText(from: data), "OK")
+    }
+
+    func testParseResponseTextSupportsChatMessageContentArray() throws {
+        let data = try jsonData([
+            "choices": [
+                [
+                    "message": [
+                        "content": [
+                            ["type": "text", "text": "Hello"],
+                            ["type": "text", "text": "World"],
+                        ]
+                    ]
+                ]
+            ]
+        ])
+
+        XCTAssertEqual(try OpenAICompatibleProvider.parseResponseText(from: data), "Hello\n\nWorld")
+    }
+
+    func testParseResponseTextSupportsLegacyCompletions() throws {
+        let data = try jsonData([
+            "choices": [
+                ["text": "Legacy completion"]
+            ]
+        ])
+
+        XCTAssertEqual(try OpenAICompatibleProvider.parseResponseText(from: data), "Legacy completion")
+    }
+
+    func testParseResponseTextSupportsResponsesOutputArray() throws {
+        let data = try jsonData([
+            "output": [
+                [
+                    "type": "message",
+                    "content": [
+                        ["type": "output_text", "text": "Response API"]
+                    ]
+                ]
+            ]
+        ])
+
+        XCTAssertEqual(try OpenAICompatibleProvider.parseResponseText(from: data), "Response API")
+    }
+
+    func testParseModelListSupportsOpenAIListShape() throws {
+        let data = try jsonData([
+            "data": [
+                ["id": "gpt-4.1"],
+                ["id": "gpt-4o-mini"],
+            ]
+        ])
+
+        XCTAssertEqual(
+            try OpenAICompatibleProvider.parseModelList(from: data),
+            ["gpt-4.1", "gpt-4o-mini"]
+        )
+    }
+
+    func testParseModelListSupportsLMStudioListShape() throws {
+        let data = try jsonData([
+            "models": [
+                ["id": "qwen2.5-7b-instruct"],
+                ["id": "llama-3.2-3b-instruct"],
+            ]
+        ])
+
+        XCTAssertEqual(
+            try OpenAICompatibleProvider.parseModelList(from: data),
+            ["llama-3.2-3b-instruct", "qwen2.5-7b-instruct"]
+        )
+    }
+
+    func testRewritePromptIncludesASRExpertProfile() {
+        let prompt = OpenAICompatibleProvider.rewritePrompt(
+            text: "提示此我没发过去",
+            mode: .proofreadAndPolish,
+            profile: ASRExpertProfile(
+                isEnabled: true,
+                domain: "独立开发 / 图片处理 AI",
+                tone: .directive,
+                glossaryText: "Aether, Prompt, SwiftUI",
+                extraInstructions: "修成书面指令，去掉口癖"
+            )
+        )
+
+        XCTAssertTrue(prompt.contains("logic-consistency"))
+        XCTAssertTrue(prompt.contains("独立开发 / 图片处理 AI"))
+        XCTAssertTrue(prompt.contains("Aether, Prompt, SwiftUI"))
+        XCTAssertTrue(prompt.contains("修成书面指令，去掉口癖"))
+    }
+
+    func testDictationPromptSkipsDisabledASRExpertProfile() {
+        let prompt = OpenAICompatibleProvider.dictationPrompt(
+            text: "hello world",
+            profile: ASRExpertProfile(
+                isEnabled: false,
+                domain: "ignored",
+                tone: .formal,
+                glossaryText: "ignored",
+                extraInstructions: "ignored"
+            )
+        )
+
+        XCTAssertFalse(prompt.contains("ignored"))
+        XCTAssertTrue(prompt.contains("hello world"))
+    }
+
+    func testRewritePromptMergesExplicitAndContextualGlossary() {
+        let prompt = OpenAICompatibleProvider.rewritePrompt(
+            text: "原始文本",
+            mode: .proofreadAndPolish,
+            profile: ASRExpertProfile(
+                isEnabled: true,
+                domain: "macOS development",
+                tone: .formal,
+                glossaryText: "Aether => Aether\nSwiftUI => SwiftUI",
+                extraInstructions: ""
+            ),
+            contextualGlossaryText: "git hub => GitHub\nAether => Aether"
+        )
+
+        XCTAssertTrue(prompt.contains("Aether => Aether"))
+        XCTAssertTrue(prompt.contains("SwiftUI => SwiftUI"))
+        XCTAssertTrue(prompt.contains("git hub => GitHub"))
+        XCTAssertEqual(prompt.components(separatedBy: "Aether => Aether").count, 2)
+    }
+
+    private func jsonData(_ object: Any) throws -> Data {
+        try JSONSerialization.data(withJSONObject: object)
     }
 }
 

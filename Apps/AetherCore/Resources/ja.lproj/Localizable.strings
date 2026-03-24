@@ -144,6 +144,7 @@
 "speech.no_matching_command" = "コマンドが見つかりません";
 "speech.voice_input_disabled" = "音声入力はオフです";
 "speech.voice_control_disabled" = "音声コントロールはオフです";
+"speech.app_paused_idle" = "マウス操作がないためアプリは一時停止中です。マウスを動かすと再開します";
 "speech.no_editable_field" = "入力可能な項目が見つかりません";
 "speech.undo_done" = "取り消しました";
 "speech.pasted_cmdv" = "貼り付けました (Cmd+V)";

@@ -57,6 +57,27 @@ final class VoiceCommandRouterTests: XCTestCase {
             .selectHorizontally(1)
         )
     }
+
+    func testTypingModeRewriteCommandBypassesDictation() {
+        XCTAssertEqual(
+            router.route(transcript: "优化全文", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .rewriteText(
+                TextRewriteIntentPayload(
+                    scope: .fullDocument,
+                    mode: .proofreadAndPolish
+                )
+            )
+        )
+        XCTAssertEqual(
+            router.route(transcript: "帮我全文纠错优化一下", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .rewriteText(
+                TextRewriteIntentPayload(
+                    scope: .fullDocument,
+                    mode: .proofreadAndPolish
+                )
+            )
+        )
+    }
     
     func testScrollingAndDragging() {
         XCTAssertEqual(router.route(transcript: "向上", localeIdentifier: "zh-CN"), .scroll(0, -300))
@@ -452,6 +473,67 @@ final class SpeechManagerTypingModeTests: XCTestCase {
                 "，执行发送",
                 localeIdentifier: "zh-CN",
                 overrides: []
+            )
+        )
+    }
+
+    func testSubmitLikeFrontmostAppCommandRequiresReturnLikeShortcutAndSendAlias() {
+        let sendCommand = FrontmostAppCommand(
+            processIdentifier: 7,
+            bundleIdentifier: "com.openai.codex",
+            appName: "Codex",
+            menuPath: ["Custom Rules"],
+            title: "Send",
+            shortcut: HotkeyBinding(
+                keyCode: kVK_Return,
+                modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue)
+            ),
+            aliases: ["发送", "确认发送"]
+        )
+
+        XCTAssertTrue(SpeechManager.isSubmitLikeFrontmostAppCommand(sendCommand))
+    }
+
+    func testSubmitLikeFrontmostAppCommandRejectsNonSubmitShortcut() {
+        let closeTab = FrontmostAppCommand(
+            processIdentifier: 42,
+            bundleIdentifier: "com.google.Chrome",
+            appName: "Chrome",
+            menuPath: ["File"],
+            title: "Close Tab",
+            shortcut: HotkeyBinding(
+                keyCode: kVK_ANSI_W,
+                modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue)
+            ),
+            aliases: ["关闭标签"]
+        )
+
+        XCTAssertFalse(SpeechManager.isSubmitLikeFrontmostAppCommand(closeTab))
+    }
+
+    func testResidualDictationSuppressionTreatsPunctuationVariantsAsEquivalent() {
+        XCTAssertTrue(
+            SpeechManager.shouldSuppressResidualDictationAfterSubmit(
+                previous: "你好，麻烦处理一下。",
+                current: "你好麻烦处理一下"
+            )
+        )
+    }
+
+    func testResidualDictationSuppressionHandlesContainedRepeat() {
+        XCTAssertTrue(
+            SpeechManager.shouldSuppressResidualDictationAfterSubmit(
+                previous: "请帮我把这个发给他们确认一下",
+                current: "发给他们确认一下"
+            )
+        )
+    }
+
+    func testResidualDictationSuppressionDoesNotBlockNewSentence() {
+        XCTAssertFalse(
+            SpeechManager.shouldSuppressResidualDictationAfterSubmit(
+                previous: "请帮我把这个发给他们确认一下",
+                current: "然后提醒我明天继续跟进"
             )
         )
     }

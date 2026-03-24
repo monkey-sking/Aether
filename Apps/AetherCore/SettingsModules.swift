@@ -257,7 +257,7 @@ struct InputSettingsView: View {
                     : "Customize clear, delete, cursor movement, and selection expansion here.",
                 systemImage: "character.cursor.ibeam",
                 tint: .green,
-                presets: [.clearInput, .deleteBackward, .moveCursorLeft, .moveCursorRight, .selectLeft, .selectRight]
+                presets: [.clearInput, .deleteBackward, .moveCursorLeft, .moveCursorRight, .selectLeft, .selectRight, .rewriteFullText]
             ),
             VoiceLexiconSection(
                 title: isChinese ? "媒体控制" : "Media Controls",
@@ -685,6 +685,7 @@ struct InputSettingsView: View {
                 }
 
                 if section == .lexicon {
+                    LLMRewriteSettingsCard()
                     GlassCard {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(alignment: .top, spacing: 12) {
@@ -1118,6 +1119,681 @@ struct InputSettingsView: View {
         .buttonStyle(.plain)
     }
 
+}
+
+private struct LLMRewriteSettingsCard: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var revealsAPIKey = false
+    @State private var showsExpertSettings = false
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case apiKey
+        case model
+        case endpoint
+        case domain
+        case glossary
+        case extraInstructions
+    }
+
+    private var isChinese: Bool {
+        appState.isChineseUI
+    }
+
+    private var usesAppleOnDevice: Bool {
+        appState.llmServiceSource == .appleOnDevice
+    }
+
+    private var statusTitle: String {
+        if usesAppleOnDevice {
+            return appState.appleOnDeviceLLMAvailability.statusTitle(isChinese: isChinese)
+        }
+
+        switch appState.llmConfigurationState {
+        case .ready:
+            return isChinese ? "已就绪" : "Ready"
+        case .missingAPIKey:
+            return isChinese ? "缺少 Key" : "Missing Key"
+        case .missingModel:
+            return isChinese ? "缺少模型" : "Missing Model"
+        case .invalidEndpoint:
+            return isChinese ? "地址无效" : "Bad Endpoint"
+        case .appleOnDeviceUnavailable:
+            return isChinese ? "本机不可用" : "Unavailable"
+        }
+    }
+
+    private var statusTint: Color {
+        if usesAppleOnDevice {
+            return appState.appleOnDeviceLLMAvailability == .available ? .green : .orange
+        }
+
+        switch appState.llmConfigurationState {
+        case .ready:
+            return .green
+        case .missingAPIKey, .missingModel, .invalidEndpoint:
+            return .orange
+        case .appleOnDeviceUnavailable:
+            return .orange
+        }
+    }
+
+    private var statusDescription: String {
+        if usesAppleOnDevice {
+            return appState.appleOnDeviceLLMAvailability.detail(
+                isChinese: isChinese,
+                localeName: appState.activeSpeechLocaleDisplayName
+            )
+        }
+
+        switch appState.llmConfigurationState {
+        case .ready:
+            return isChinese
+                ? "全文优化与听写增强已可用，前后文本会记录到 Insights。"
+                : "Rewrite and dictation enhancement are ready, with before/after history in Insights."
+        case .missingAPIKey:
+            return isChinese
+                ? "请填写 API Key，密钥会写入 Keychain。"
+                : "Add an API key. It is stored in Keychain."
+        case .missingModel:
+            return isChinese
+                ? "请填写模型名，例如 gpt-4.1。"
+                : "Add a model name such as gpt-4.1."
+        case .invalidEndpoint:
+            return isChinese
+                ? "Endpoint 需要是合法 URL，填基础地址即可。"
+                : "Endpoint must be a valid URL. A base URL is enough."
+        case .appleOnDeviceUnavailable:
+            return appState.appleOnDeviceLLMAvailability.detail(
+                isChinese: isChinese,
+                localeName: appState.activeSpeechLocaleDisplayName
+            )
+        }
+    }
+
+    private var enhancementDescription: String {
+        if usesAppleOnDevice {
+            if appState.isLLMEnhancementEnabled {
+                return isChinese
+                    ? "会优先用 Apple 本地模型做听写增强和全文优化，不需要联网。"
+                    : "Uses the Apple on-device model for dictation enhancement and full-text rewrite without network access."
+            }
+            return isChinese
+                ? "关闭后，不会使用 Apple 本地模型做文本改写优化。"
+                : "When off, the Apple on-device model will not be used for rewrite enhancement."
+        }
+
+        if appState.isLLMEnhancementEnabled {
+            return isChinese
+                ? "听写增强和全文优化都会走这里的配置。"
+                : "Used by dictation enhancement and full-text rewrite."
+        }
+        return isChinese
+            ? "关闭后，全文纠错优化不会执行。"
+            : "When off, full-text rewrite will not run."
+    }
+
+    private var feedbackColor: Color {
+        switch appState.llmConfigurationFeedbackKind {
+        case .neutral:
+            return .secondary
+        case .success:
+            return .green
+        case .warning:
+            return .orange
+        case .error:
+            return .red
+        }
+    }
+
+    private var modelMenuTitle: String {
+        let current = appState.llmModelText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !current.isEmpty {
+            return current
+        }
+        return isChinese ? "选择模型" : "Choose Model"
+    }
+
+    private var fieldLabelWidth: CGFloat {
+        isChinese ? 52 : 68
+    }
+
+    private var expertSectionTitle: String {
+        isChinese ? "个性化整理" : "Personalize Rewrite"
+    }
+
+    private var expertSectionHint: String {
+        isChinese
+            ? "不用写专业提示词。留空也能用；一般只要填常用词，或者写一句“去口头禅、顺一点”就够了。"
+            : "You do not need a formal prompt here. Leave it blank, or just add common terms and a simple preference."
+    }
+
+    private var expertToggleTitle: String {
+        isChinese ? "启用个性化整理" : "Enable personalized rewrite"
+    }
+
+    @ViewBuilder
+    private func clearButton(for field: Field, text: Binding<String>) -> some View {
+        if focusedField == field && !text.wrappedValue.isEmpty {
+            Button {
+                text.wrappedValue = ""
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    @ViewBuilder
+    private func inputShell(
+        focused: Bool,
+        trailingPadding: CGFloat = 10,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        HStack(spacing: 8) {
+            content()
+        }
+        .padding(.leading, 9)
+        .padding(.trailing, trailingPadding)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .textBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(
+                    focused
+                        ? Color.accentColor.opacity(0.35)
+                        : Color.primary.opacity(0.08),
+                    lineWidth: 1
+                )
+        )
+    }
+
+    private var serviceSourcePicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(isChinese ? "服务来源" : "Provider")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
+
+            Picker("", selection: $appState.llmServiceSource) {
+                Text(isChinese ? "Apple 本地" : "Apple On-Device")
+                    .tag(LLMServiceSource.appleOnDevice)
+                Text(isChinese ? "OpenAI 兼容" : "OpenAI-Compatible")
+                    .tag(LLMServiceSource.openAICompatible)
+            }
+            .pickerStyle(.segmented)
+
+            Text(
+                usesAppleOnDevice
+                    ? (isChinese
+                        ? "更适合低延迟和隐私优先场景。"
+                        : "Best for lower latency and privacy-first rewrite.")
+                    : (isChinese
+                        ? "适合效果优先，使用兼容 OpenAI 的远端服务。"
+                        : "Best for quality-first setups using an OpenAI-compatible remote service.")
+            )
+            .font(.caption2)
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 8) {
+            Button(usesAppleOnDevice ? (isChinese ? "检查本机" : "Check Local Model") : (isChinese ? "测试服务" : "Test Connection")) {
+                Task { await appState.testLLMProviderConfiguration() }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(appState.isLLMConnectionTestRunning)
+
+            if !usesAppleOnDevice {
+                Button(isChinese ? "获取模型" : "Fetch Models") {
+                    Task { await appState.refreshLLMAvailableModels() }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(appState.isLLMModelRefreshRunning)
+            }
+
+            if appState.isLLMConnectionTestRunning || appState.isLLMModelRefreshRunning {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private var appleOnDeviceInfoPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(
+                isChinese
+                    ? "Apple 本地模式不需要 API Key、模型名或服务地址。可用时会直接调用系统模型。"
+                    : "Apple on-device mode does not require an API key, model name, or endpoint. It uses the system model directly when available."
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Text(
+                isChinese
+                    ? "当前语音语言：\(appState.activeSpeechLocaleDisplayName)"
+                    : "Current speech language: \(appState.activeSpeechLocaleDisplayName)"
+            )
+            .font(.caption2)
+            .foregroundColor(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var apiKeyRow: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text(isChinese ? "API Key" : "API Key")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
+                .frame(width: fieldLabelWidth, alignment: .leading)
+
+            inputShell(focused: focusedField == .apiKey) {
+                Group {
+                    if revealsAPIKey {
+                        TextField("sk-...", text: $appState.llmAPIKey)
+                            .focused($focusedField, equals: .apiKey)
+                    } else {
+                        SecureField("sk-...", text: $appState.llmAPIKey)
+                            .focused($focusedField, equals: .apiKey)
+                    }
+                }
+                .textFieldStyle(.plain)
+                .privacySensitive()
+
+                Spacer(minLength: 0)
+
+                clearButton(for: .apiKey, text: $appState.llmAPIKey)
+
+                Button {
+                    revealsAPIKey.toggle()
+                } label: {
+                    Image(systemName: revealsAPIKey ? "eye.slash" : "eye")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var modelField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(isChinese ? "模型" : "Model")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
+
+            inputShell(focused: focusedField == .model, trailingPadding: 8) {
+                TextField(
+                    isChinese ? "如 gpt-4.1" : "e.g. gpt-4.1",
+                    text: $appState.llmModelText
+                )
+                .focused($focusedField, equals: .model)
+                .textFieldStyle(.plain)
+
+                Spacer(minLength: 0)
+                clearButton(for: .model, text: $appState.llmModelText)
+
+                if !appState.llmAvailableModels.isEmpty {
+                    Menu {
+                        ForEach(appState.llmAvailableModels, id: \.self) { model in
+                            Button(model) {
+                                appState.llmModelText = model
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.up.chevron.down")
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+
+            if !appState.llmAvailableModels.isEmpty {
+                Text(
+                    isChinese
+                        ? "已加载 \(appState.llmAvailableModels.count) 个模型。"
+                        : "Loaded \(appState.llmAvailableModels.count) models."
+                )
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            }
+        }
+        .frame(minWidth: 220, idealWidth: 260, maxWidth: 320, alignment: .leading)
+    }
+
+    private var endpointField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(isChinese ? "服务地址" : "Endpoint")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
+
+            inputShell(focused: focusedField == .endpoint, trailingPadding: 8) {
+                TextField(
+                    "https://api.example.com/v1",
+                    text: $appState.llmEndpointText
+                )
+                .focused($focusedField, equals: .endpoint)
+                .textFieldStyle(.plain)
+
+                Spacer(minLength: 0)
+                clearButton(for: .endpoint, text: $appState.llmEndpointText)
+
+                Button(isChinese ? "默认" : "Default") {
+                    appState.llmEndpointText = OpenAICompatibleProvider.defaultEndpointString
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .foregroundColor(.secondary)
+            }
+
+            Text(
+                isChinese
+                    ? "填基础地址即可，常见后缀会自动适配。"
+                    : "A base URL is enough. Common suffixes are adapted automatically."
+            )
+            .font(.caption2)
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(minWidth: 280, idealWidth: 360, maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var expertSummary: String {
+        guard appState.asrExpertProfile.isEnabled else {
+            return isChinese ? "已关闭" : "Off"
+        }
+
+        var parts: [String] = []
+        let profile = appState.asrExpertProfile
+        if !profile.domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append(profile.domain.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        if !profile.glossaryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append(isChinese ? "常用词" : "Terms")
+        }
+        if !profile.extraInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append(isChinese ? "整理要求" : "Preferences")
+        }
+        if parts.isEmpty {
+            return isChinese ? "可选，不填也能用" : "Optional"
+        }
+        return parts.prefix(2).joined(separator: " · ")
+    }
+
+    private var expertSettingsPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            DisclosureGroup(
+                isExpanded: $showsExpertSettings,
+                content: {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(expertSectionHint)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Toggle(isOn: Binding(
+                            get: { appState.asrExpertProfile.isEnabled },
+                            set: { appState.asrExpertProfile.isEnabled = $0 }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(expertToggleTitle)
+                                    .font(.body)
+                                Text(
+                                    isChinese
+                                        ? "只会影响全文优化和听写增强，不影响测试连接。"
+                                        : "Only affects rewrite and dictation enhancement, not connection tests."
+                                )
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            }
+                        }
+                        .toggleStyle(.switch)
+
+                        HStack(alignment: .center, spacing: 10) {
+                            Text(isChinese ? "内容方向" : "Topic")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.secondary)
+                                .frame(width: fieldLabelWidth, alignment: .leading)
+
+                            inputShell(focused: focusedField == .domain) {
+                                TextField(
+                                    isChinese ? "例如：写代码、做产品、剪视频、记会议" : "Example: coding, product work, video editing, meetings",
+                                    text: Binding(
+                                        get: { appState.asrExpertProfile.domain },
+                                        set: { appState.asrExpertProfile.domain = $0 }
+                                    )
+                                )
+                                .focused($focusedField, equals: .domain)
+                                .textFieldStyle(.plain)
+
+                                Spacer(minLength: 0)
+                                clearButton(
+                                    for: .domain,
+                                    text: Binding(
+                                        get: { appState.asrExpertProfile.domain },
+                                        set: { appState.asrExpertProfile.domain = $0 }
+                                    )
+                                )
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        HStack(alignment: .center, spacing: 10) {
+                            Text(isChinese ? "整理风格" : "Style")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.secondary)
+                                .frame(width: fieldLabelWidth, alignment: .leading)
+
+                            Picker("", selection: Binding(
+                                get: { appState.asrExpertProfile.tone },
+                                set: { appState.asrExpertProfile.tone = $0 }
+                            )) {
+                                Text(isChinese ? "保留原话" : "Keep Spoken").tag(ASRExpertTone.preserveSpoken)
+                                Text(isChinese ? "更书面" : "More Formal").tag(ASRExpertTone.formal)
+                                Text(isChinese ? "更像指令" : "More Directive").tag(ASRExpertTone.directive)
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        HStack(alignment: .center, spacing: 10) {
+                            Text(isChinese ? "常用词" : "Terms")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.secondary)
+                                .frame(width: fieldLabelWidth, alignment: .leading)
+
+                            inputShell(focused: focusedField == .glossary) {
+                                TextField(
+                                    isChinese ? "例如：Aether、SwiftUI、Prompt、Whisper" : "Example: Aether, SwiftUI, Prompt, Whisper",
+                                    text: Binding(
+                                        get: { appState.asrExpertProfile.glossaryText },
+                                        set: { appState.asrExpertProfile.glossaryText = $0 }
+                                    )
+                                )
+                                .focused($focusedField, equals: .glossary)
+                                .textFieldStyle(.plain)
+
+                                Spacer(minLength: 0)
+                                clearButton(
+                                    for: .glossary,
+                                    text: Binding(
+                                        get: { appState.asrExpertProfile.glossaryText },
+                                        set: { appState.asrExpertProfile.glossaryText = $0 }
+                                    )
+                                )
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        HStack(alignment: .center, spacing: 10) {
+                            Text(isChinese ? "整理要求" : "Preferences")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.secondary)
+                                .frame(width: fieldLabelWidth, alignment: .leading)
+
+                            inputShell(focused: focusedField == .extraInstructions) {
+                                TextField(
+                                    isChinese ? "例如：去口头禅、断句清楚一点、保留原意" : "Example: remove filler words, split sentences clearly, keep the meaning",
+                                    text: Binding(
+                                        get: { appState.asrExpertProfile.extraInstructions },
+                                        set: { appState.asrExpertProfile.extraInstructions = $0 }
+                                    )
+                                )
+                                .focused($focusedField, equals: .extraInstructions)
+                                .textFieldStyle(.plain)
+
+                                Spacer(minLength: 0)
+                                clearButton(
+                                    for: .extraInstructions,
+                                    text: Binding(
+                                        get: { appState.asrExpertProfile.extraInstructions },
+                                        set: { appState.asrExpertProfile.extraInstructions = $0 }
+                                    )
+                                )
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Text(
+                            isChinese
+                                ? "这些选项会拼进全文优化和听写增强里；不知道怎么填时，直接留空就行。"
+                                : "These options are merged into rewrite prompts. Leave them blank if you are unsure."
+                        )
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.top, 8)
+                },
+                label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(expertSectionTitle)
+                            .font(.subheadline.weight(.semibold))
+                        Text(expertSummary)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            )
+        }
+    }
+
+    var body: some View {
+        GlassCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(isChinese ? "文本优化服务" : "Text Rewrite Service", systemImage: "wand.and.stars")
+                            .font(.headline)
+                        Text(
+                            isChinese
+                                ? "用于听写增强和全文优化。当前支持 OpenAI 兼容接口。"
+                                : "Used by dictation enhancement and full-text rewrite. Currently supports OpenAI-compatible services."
+                        )
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    LanguageStatusTag(title: statusTitle, tint: statusTint)
+                }
+
+                serviceSourcePicker
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Toggle(isOn: $appState.isLLMEnhancementEnabled) {
+                                Text(isChinese ? "启用文本改写优化" : "Enable Rewrite Enhancement")
+                                    .font(.body)
+                            }
+                            .toggleStyle(.switch)
+
+                            Text(enhancementDescription)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 12)
+                        actionButtons
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(isOn: $appState.isLLMEnhancementEnabled) {
+                            Text(isChinese ? "启用文本改写优化" : "Enable Rewrite Enhancement")
+                                .font(.body)
+                        }
+                        .toggleStyle(.switch)
+
+                        Text(enhancementDescription)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        actionButtons
+                    }
+                }
+
+                if usesAppleOnDevice {
+                    appleOnDeviceInfoPanel
+                } else {
+                    apiKeyRow
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 12) {
+                            modelField
+                            endpointField
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            modelField
+                            endpointField
+                        }
+                    }
+                }
+
+                expertSettingsPanel
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(statusDescription)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if let feedback = appState.llmConfigurationFeedback,
+                       !feedback.isEmpty {
+                        Text(feedback)
+                            .font(.caption)
+                            .foregroundColor(feedbackColor)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 }
 
 private struct HeadGestureShortcutMappingCard: View {
@@ -1738,6 +2414,8 @@ private extension VoiceCommandPreset {
             return isChinese ? "向左选择" : "Select Left"
         case .selectRight:
             return isChinese ? "向右选择" : "Select Right"
+        case .rewriteFullText:
+            return isChinese ? "全文纠错优化" : "Polish Full Text"
         }
     }
 
@@ -1802,6 +2480,8 @@ private extension VoiceCommandPreset {
             return isChinese ? "向左扩展选择，可带数量，比如“向左选择 4 个字”。" : "Extends selection to the left and supports counts like 'select left 4 chars'."
         case .selectRight:
             return isChinese ? "向右扩展选择，可带数量，比如“向右选择 4 个字”。" : "Extends selection to the right and supports counts like 'select right 4 chars'."
+        case .rewriteFullText:
+            return isChinese ? "读取当前输入框全文，交给大模型做纠错与润色，再替换原文，并在记录里保存优化前后内容。" : "Reads the full text from the current field, asks the LLM to proofread and polish it, replaces the original text, and stores both before/after versions in history."
         }
     }
 
@@ -1866,6 +2546,8 @@ private extension VoiceCommandPreset {
             return isChinese ? "例如：向左选择、左选 2 个字" : "Example: select left, extend left 2 chars"
         case .selectRight:
             return isChinese ? "例如：向右选择、右选 2 个字" : "Example: select right, extend right 2 chars"
+        case .rewriteFullText:
+            return isChinese ? "例如：全文纠错优化、优化全文" : "Example: polish full text, rewrite full text"
         }
     }
 }
@@ -3939,6 +4621,9 @@ private struct VoiceUsageEventRow: View {
     }
 
     private var previewText: String {
+        if showsRewritePreview {
+            return rewriteAfterText
+        }
         if event.kind == .activation {
             let phrase = event.wakePhrase?.replacingOccurrences(of: "\n", with: " ")
             let followUp = event.content?.replacingOccurrences(of: "\n", with: " ")
@@ -3978,6 +4663,28 @@ private struct VoiceUsageEventRow: View {
             return isChinese ? "（空文本）" : "(empty text)"
         }
         return displayAction
+    }
+
+    private var showsRewritePreview: Bool {
+        guard let original = event.originalContent,
+              !original.isEmpty,
+              let rewritten = event.content,
+              !rewritten.isEmpty else {
+            return false
+        }
+        return true
+    }
+
+    private var rewriteBeforeText: String {
+        let prefix = isChinese ? "前：" : "Before: "
+        let value = event.originalContent ?? ""
+        return prefix + value.replacingOccurrences(of: "\n", with: " ")
+    }
+
+    private var rewriteAfterText: String {
+        let prefix = isChinese ? "后：" : "After: "
+        let value = event.content ?? ""
+        return prefix + value.replacingOccurrences(of: "\n", with: " ")
     }
 
     private var previewColor: Color {
@@ -4024,12 +4731,29 @@ private struct VoiceUsageEventRow: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .frame(minWidth: 78, alignment: .leading)
 
-            Text(previewText)
-                .font(.caption)
-                .foregroundColor(previewColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
+                if showsRewritePreview {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(rewriteBeforeText)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                        Text(rewriteAfterText)
+                            .font(.caption)
+                            .foregroundColor(previewColor)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    }
+                } else {
+                    Text(previewText)
+                        .font(.caption)
+                        .foregroundColor(previewColor)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(timeText)
                 .font(.caption2.monospacedDigit())

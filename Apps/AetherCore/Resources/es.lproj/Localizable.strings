@@ -144,6 +144,7 @@
 "speech.no_matching_command" = "No se encontró ningún comando";
 "speech.voice_input_disabled" = "La entrada por voz está desactivada";
 "speech.voice_control_disabled" = "El control por voz está desactivado";
+"speech.app_paused_idle" = "La app está en pausa por inactividad del ratón. Mueva el ratón para reanudar";
 "speech.no_editable_field" = "No se detectó ningún campo de texto";
 "speech.undo_done" = "Deshecho";
 "speech.pasted_cmdv" = "Pegado (Cmd+V)";

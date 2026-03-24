@@ -144,6 +144,7 @@
 "speech.no_matching_command" = "Kein passender Befehl gefunden";
 "speech.voice_input_disabled" = "Spracheingabe ist ausgeschaltet";
 "speech.voice_control_disabled" = "Sprachsteuerung ist ausgeschaltet";
+"speech.app_paused_idle" = "Die App ist wegen Maus-Inaktivität pausiert. Bewegen Sie die Maus zum Fortsetzen";
 "speech.no_editable_field" = "Kein Eingabefeld erkannt";
 "speech.undo_done" = "Rückgängig gemacht";
 "speech.pasted_cmdv" = "Eingefügt (Cmd+V)";

@@ -80,7 +80,9 @@ enum VoiceLexiconDefaults {
             VoiceCommandOverrideConfig(localeIdentifier: "zh-CN", commandID: VoiceCommandPreset.selectLeft.rawValue, aliases: ["向左选择", "往左选择", "左选"]),
             VoiceCommandOverrideConfig(localeIdentifier: "en-US", commandID: VoiceCommandPreset.selectLeft.rawValue, aliases: ["select left", "extend left", "highlight left"]),
             VoiceCommandOverrideConfig(localeIdentifier: "zh-CN", commandID: VoiceCommandPreset.selectRight.rawValue, aliases: ["向右选择", "往右选择", "右选"]),
-            VoiceCommandOverrideConfig(localeIdentifier: "en-US", commandID: VoiceCommandPreset.selectRight.rawValue, aliases: ["select right", "extend right", "highlight right"])
+            VoiceCommandOverrideConfig(localeIdentifier: "en-US", commandID: VoiceCommandPreset.selectRight.rawValue, aliases: ["select right", "extend right", "highlight right"]),
+            VoiceCommandOverrideConfig(localeIdentifier: "zh-CN", commandID: VoiceCommandPreset.rewriteFullText.rawValue, aliases: ["全文纠错优化", "优化全文", "全文润色"]),
+            VoiceCommandOverrideConfig(localeIdentifier: "en-US", commandID: VoiceCommandPreset.rewriteFullText.rawValue, aliases: ["polish full text", "rewrite full text", "proofread full text"])
         ]
     }
 

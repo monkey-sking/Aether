@@ -5,8 +5,20 @@ import Speech
 import Carbon
 import UniformTypeIdentifiers
 import IOKit.hidsystem
+import Security
 
 enum AetherBuildVersionFormatter {
+    enum DisplayChannel {
+        case stable
+        case beta
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     static func fileLabel(from buildVersion: String) -> String {
         let digits = buildVersion.filter(\.isNumber)
         let characters = Array(digits)
@@ -20,34 +32,210 @@ enum AetherBuildVersionFormatter {
         }
     }
 
-    static func displayLabel(from buildVersion: String) -> String {
+    static func publicLabel(from downloadURL: String?) -> String? {
+        guard let downloadURL = normalized(downloadURL) else { return nil }
+        let fileName = URL(string: downloadURL)?.lastPathComponent ?? (downloadURL as NSString).lastPathComponent
+        guard fileName.hasSuffix(".zip") else { return nil }
+        let stem = String(fileName.dropLast(4))
+        guard let candidate = stem.split(separator: "_").last else { return nil }
+        let label = String(candidate)
+        guard label.first == "b", label.dropFirst().allSatisfy(\.isNumber) else { return nil }
+        return label
+    }
+
+    static func displayLabel(from buildVersion: String, includeSeconds: Bool = false) -> String {
         let digits = buildVersion.filter(\.isNumber)
         let characters = Array(digits)
         switch characters.count {
         case 14:
-            return "\(String(characters[4..<6]))-\(String(characters[6..<8])) \(String(characters[8..<10])):\(String(characters[10..<12])):\(String(characters[12..<14]))"
+            let time = includeSeconds
+                ? "\(String(characters[8..<10])):\(String(characters[10..<12])):\(String(characters[12..<14]))"
+                : "\(String(characters[8..<10])):\(String(characters[10..<12]))"
+            return "\(String(characters[4..<6]))-\(String(characters[6..<8])) \(time)"
         case 12:
-            return "\(String(characters[2..<4]))-\(String(characters[4..<6])) \(String(characters[6..<8])):\(String(characters[8..<10])):\(String(characters[10..<12]))"
+            let time = includeSeconds
+                ? "\(String(characters[6..<8])):\(String(characters[8..<10])):\(String(characters[10..<12]))"
+                : "\(String(characters[6..<8])):\(String(characters[8..<10]))"
+            return "\(String(characters[2..<4]))-\(String(characters[4..<6])) \(time)"
         default:
             return buildVersion
         }
     }
 
-    static func versionDisplay(shortVersion: String?, buildVersion: String?, publicLabel: String? = nil) -> String? {
-        guard let shortVersion, !shortVersion.isEmpty else {
-            if let publicLabel, !publicLabel.isEmpty {
-                return publicLabel
+    static func detailLabel(buildVersion: String?, publicLabel: String? = nil, includeSeconds: Bool = false) -> String? {
+        if let publicLabel = normalized(publicLabel) {
+            return publicLabel
+        }
+        guard let buildVersion = normalized(buildVersion) else { return nil }
+        return displayLabel(from: buildVersion, includeSeconds: includeSeconds)
+    }
+
+    private static func joinedVersion(shortVersion: String?, detail: String?) -> String? {
+        if let shortVersion = normalized(shortVersion) {
+            guard let detail = normalized(detail) else { return shortVersion }
+            return "\(shortVersion) · \(detail)"
+        }
+        return normalized(detail)
+    }
+
+    private static func comparisonDetailLabels(
+        updateBuildVersion: String?,
+        updatePublicLabel: String?,
+        bundleBuildVersion: String?,
+        bundlePublicLabel: String?
+    ) -> (update: String?, bundle: String?) {
+        var updateDetail = detailLabel(
+            buildVersion: updateBuildVersion,
+            publicLabel: updatePublicLabel
+        )
+        var bundleDetail = detailLabel(
+            buildVersion: bundleBuildVersion,
+            publicLabel: bundlePublicLabel
+        )
+
+        guard updateDetail != nil, bundleDetail != nil else {
+            return (updateDetail, bundleDetail)
+        }
+
+        if updateDetail == bundleDetail {
+            let preciseUpdate = detailLabel(
+                buildVersion: updateBuildVersion,
+                publicLabel: updatePublicLabel,
+                includeSeconds: true
+            )
+            let preciseBundle = detailLabel(
+                buildVersion: bundleBuildVersion,
+                publicLabel: bundlePublicLabel,
+                includeSeconds: true
+            )
+
+            if let preciseUpdate, let preciseBundle, preciseUpdate != preciseBundle {
+                updateDetail = preciseUpdate
+                bundleDetail = preciseBundle
+            } else if let updateBuildVersion = normalized(updateBuildVersion),
+                      let bundleBuildVersion = normalized(bundleBuildVersion),
+                      updateBuildVersion != bundleBuildVersion {
+                updateDetail = updateBuildVersion
+                bundleDetail = bundleBuildVersion
             }
-            guard let buildVersion, !buildVersion.isEmpty else { return nil }
-            return displayLabel(from: buildVersion)
         }
-        if let publicLabel, !publicLabel.isEmpty {
-            return "\(shortVersion) (\(publicLabel))"
+
+        return (updateDetail, bundleDetail)
+    }
+
+    static func versionDisplay(shortVersion: String?, buildVersion: String?, publicLabel: String? = nil) -> String? {
+        guard normalized(shortVersion) != nil else {
+            return detailLabel(buildVersion: buildVersion, publicLabel: publicLabel)
         }
-        guard let buildVersion, !buildVersion.isEmpty else {
-            return shortVersion
+        return joinedVersion(
+            shortVersion: shortVersion,
+            detail: detailLabel(buildVersion: buildVersion, publicLabel: publicLabel)
+        )
+    }
+
+    static func versionDisplay(
+        shortVersion: String?,
+        buildVersion: String?,
+        publicLabel: String? = nil,
+        channel: DisplayChannel
+    ) -> String? {
+        switch channel {
+        case .stable:
+            return versionDisplay(
+                shortVersion: shortVersion,
+                buildVersion: buildVersion,
+                publicLabel: publicLabel
+            )
+        case .beta:
+            return detailLabel(buildVersion: buildVersion, publicLabel: publicLabel)
+                ?? versionDisplay(
+                    shortVersion: shortVersion,
+                    buildVersion: buildVersion,
+                    publicLabel: publicLabel
+                )
         }
-        return "\(shortVersion) (\(displayLabel(from: buildVersion)))"
+    }
+
+    static func comparisonDisplay(
+        updateShortVersion: String?,
+        updateBuildVersion: String?,
+        updatePublicLabel: String? = nil,
+        bundleShortVersion: String?,
+        bundleBuildVersion: String?,
+        bundlePublicLabel: String? = nil
+    ) -> (update: String?, bundle: String?) {
+        let updateShortVersion = normalized(updateShortVersion)
+        let bundleShortVersion = normalized(bundleShortVersion)
+
+        if updateShortVersion != nil, updateShortVersion == bundleShortVersion {
+            let details = comparisonDetailLabels(
+                updateBuildVersion: updateBuildVersion,
+                updatePublicLabel: updatePublicLabel,
+                bundleBuildVersion: bundleBuildVersion,
+                bundlePublicLabel: bundlePublicLabel
+            )
+            if details.update != nil || details.bundle != nil {
+                return details
+            }
+        }
+
+        return (
+            versionDisplay(
+                shortVersion: updateShortVersion,
+                buildVersion: updateBuildVersion,
+                publicLabel: updatePublicLabel
+            ),
+            versionDisplay(
+                shortVersion: bundleShortVersion,
+                buildVersion: bundleBuildVersion,
+                publicLabel: bundlePublicLabel
+            )
+        )
+    }
+
+    static func comparisonDisplay(
+        updateShortVersion: String?,
+        updateBuildVersion: String?,
+        updatePublicLabel: String? = nil,
+        bundleShortVersion: String?,
+        bundleBuildVersion: String?,
+        bundlePublicLabel: String? = nil,
+        channel: DisplayChannel
+    ) -> (update: String?, bundle: String?) {
+        switch channel {
+        case .stable:
+            return comparisonDisplay(
+                updateShortVersion: updateShortVersion,
+                updateBuildVersion: updateBuildVersion,
+                updatePublicLabel: updatePublicLabel,
+                bundleShortVersion: bundleShortVersion,
+                bundleBuildVersion: bundleBuildVersion,
+                bundlePublicLabel: bundlePublicLabel
+            )
+        case .beta:
+            let details = comparisonDetailLabels(
+                updateBuildVersion: updateBuildVersion,
+                updatePublicLabel: updatePublicLabel,
+                bundleBuildVersion: bundleBuildVersion,
+                bundlePublicLabel: bundlePublicLabel
+            )
+            return (
+                details.update
+                    ?? detailLabel(buildVersion: updateBuildVersion, publicLabel: updatePublicLabel)
+                    ?? versionDisplay(
+                        shortVersion: updateShortVersion,
+                        buildVersion: updateBuildVersion,
+                        publicLabel: updatePublicLabel
+                    ),
+                details.bundle
+                    ?? detailLabel(buildVersion: bundleBuildVersion, publicLabel: bundlePublicLabel)
+                    ?? versionDisplay(
+                        shortVersion: bundleShortVersion,
+                        buildVersion: bundleBuildVersion,
+                        publicLabel: bundlePublicLabel
+                    )
+            )
+        }
     }
 }
 
@@ -194,6 +382,11 @@ final class VoiceService: ObservableObject {
         set { manager.onWakeAnalyticsSignal = newValue }
     }
 
+    var onIdlePauseResumeRequest: ((String) -> Void)? {
+        get { manager.onIdlePauseResumeRequest }
+        set { manager.onIdlePauseResumeRequest = newValue }
+    }
+
     var isDictationExecutionEnabled: (() -> Bool)? {
         get { manager.isDictationExecutionEnabled }
         set { manager.isDictationExecutionEnabled = newValue }
@@ -202,6 +395,11 @@ final class VoiceService: ObservableObject {
     var isCommandExecutionEnabled: (() -> Bool)? {
         get { manager.isCommandExecutionEnabled }
         set { manager.isCommandExecutionEnabled = newValue }
+    }
+
+    var isAppIdlePaused: (() -> Bool)? {
+        get { manager.isAppIdlePaused }
+        set { manager.isAppIdlePaused = newValue }
     }
     
     var explicitLocaleIdentifier: String? {
@@ -344,6 +542,10 @@ final class VoiceService: ObservableObject {
         manager.isWakeWordEnabled = enabled
     }
 
+    func setIdlePauseSuspended(_ suspended: Bool) {
+        manager.setIdlePauseSuspended(suspended)
+    }
+
     func setGazeWakeEnabled(_ enabled: Bool) {
         manager.isGazeWakeEnabled = false
     }
@@ -355,6 +557,13 @@ final class VoiceService: ObservableObject {
 
     func setLLMEnhancementEnabled(_ enabled: Bool) {
         manager.isLLMEnhancementEnabled = enabled
+    }
+
+    func setLLMProviderConfiguration(
+        _ config: LLMProviderConfiguration?,
+        source: LLMServiceSource
+    ) {
+        manager.setLLMProviderConfiguration(config, source: source)
     }
 
     func setDeveloperSpeechProfileEnabled(_ enabled: Bool) {
@@ -591,12 +800,89 @@ final class PermissionsService: ObservableObject {
     func openSpeechPrivacyPane() { manager.openSpeechPrivacyPane() }
 }
 
+private enum AetherSecretKeychain {
+    static func load(service: String, account: String) -> String? {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else { return nil }
+        guard let data = result as? Data,
+              let value = String(data: data, encoding: .utf8),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    static func save(_ value: String, service: String, account: String) -> Bool {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+        let attributes: [CFString: Any] = [
+            kSecValueData: Data(value.utf8),
+        ]
+
+        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        switch updateStatus {
+        case errSecSuccess:
+            return true
+        case errSecItemNotFound:
+            var addQuery = query
+            addQuery.merge(attributes) { _, new in new }
+            return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+        default:
+            return false
+        }
+    }
+
+    static func remove(service: String, account: String) -> Bool {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+    }
+}
+
 @MainActor
 class AppState: ObservableObject {
     private static let screenIsLockedNotificationName = Notification.Name("com.apple.screenIsLocked")
     private static let screenIsUnlockedNotificationName = Notification.Name("com.apple.screenIsUnlocked")
     private static let loginWindowBundleIdentifier = "com.apple.loginwindow"
     private static let permissionRecoveryArgumentPrefix = "--permission-recovery="
+    private static let defaultBundleIdentifier = "com.7fei.Aether"
+    static let llmProviderSourceStorageKey = "llmProvider.source"
+    static let llmEndpointStorageKey = "llmProvider.endpoint"
+    static let llmModelStorageKey = "llmProvider.model"
+    private static let llmKeychainService = defaultBundleIdentifier + ".llm"
+    private static let llmKeychainAccount = "api-key"
+    private static let asrExpertProfileStorageKey = "asrExpertProfileV1"
+
+    enum LLMConfigurationState: Equatable {
+        case ready
+        case missingAPIKey
+        case missingModel
+        case invalidEndpoint
+        case appleOnDeviceUnavailable
+    }
+
+    enum LLMConfigurationFeedbackKind {
+        case neutral
+        case success
+        case warning
+        case error
+    }
 
     private enum PendingPermissionRecovery: String {
         case microphone
@@ -642,11 +928,14 @@ class AppState: ObservableObject {
         var kind: VoiceUsageEventKind
         var action: String
         var content: String?
+        var originalContent: String?
         var spokenText: String?
         var eventCode: String?
         var wakeGroupID: String?
         var wakePhrase: String?
         var localeIdentifier: String?
+        var rewriteScope: String?
+        var rewriteMode: String?
 
         init(
             id: String = UUID().uuidString,
@@ -656,11 +945,14 @@ class AppState: ObservableObject {
             kind: VoiceUsageEventKind,
             action: String,
             content: String? = nil,
+            originalContent: String? = nil,
             spokenText: String? = nil,
             eventCode: String? = nil,
             wakeGroupID: String? = nil,
             wakePhrase: String? = nil,
-            localeIdentifier: String? = nil
+            localeIdentifier: String? = nil,
+            rewriteScope: String? = nil,
+            rewriteMode: String? = nil
         ) {
             self.id = id
             self.timestamp = timestamp
@@ -669,11 +961,14 @@ class AppState: ObservableObject {
             self.kind = kind
             self.action = action
             self.content = content
+            self.originalContent = originalContent
             self.spokenText = spokenText
             self.eventCode = eventCode
             self.wakeGroupID = wakeGroupID
             self.wakePhrase = wakePhrase
             self.localeIdentifier = localeIdentifier
+            self.rewriteScope = rewriteScope
+            self.rewriteMode = rewriteMode
         }
     }
 
@@ -1089,6 +1384,20 @@ class AppState: ObservableObject {
     private static func saveSpeechTermGroups(_ groups: [SpeechTermGroupConfig]) {
         if let data = try? JSONEncoder().encode(groups) {
             UserDefaults.standard.set(data, forKey: speechTermGroupsStorageKey)
+        }
+    }
+
+    private static func loadASRExpertProfile() -> ASRExpertProfile {
+        if let data = UserDefaults.standard.data(forKey: asrExpertProfileStorageKey),
+           let profile = try? JSONDecoder().decode(ASRExpertProfile.self, from: data) {
+            return profile
+        }
+        return ASRExpertProfile()
+    }
+
+    private static func saveASRExpertProfile(_ profile: ASRExpertProfile) {
+        if let data = try? JSONEncoder().encode(profile) {
+            UserDefaults.standard.set(data, forKey: asrExpertProfileStorageKey)
         }
     }
 
@@ -1544,6 +1853,7 @@ class AppState: ObservableObject {
     }
     private var isMutatingAlwaysListening = false
     private var isApplyingActivationMode = false
+    private var didSuspendVoiceRuntimeForIdlePause: Bool = false
     private var screenLockObserverTokens: [NSObjectProtocol] = []
     private var workspaceObserverTokens: [NSObjectProtocol] = []
     private var lastVoiceReady: Bool = {
@@ -1989,7 +2299,9 @@ class AppState: ObservableObject {
 
     private static func isVoiceUsageSuccessfulDictation(_ entry: VoiceUsageEvent) -> Bool {
         guard entry.kind == .dictation else { return false }
-        return entry.action == "输入" || entry.action == "Dictation"
+        return entry.action == "输入"
+            || entry.action == "Dictation"
+            || (entry.eventCode?.hasPrefix("rewrite.") ?? false)
     }
 
     private static func voiceUsageCharacterCount(for entry: VoiceUsageEvent) -> Int {
@@ -2864,6 +3176,220 @@ class AppState: ObservableObject {
             HotkeyManager.shared.registerPTT(normalized)
         }
     }
+
+    private static func normalizedStoredLLMValue(
+        forKey key: String,
+        defaults: UserDefaults
+    ) -> String? {
+        guard let value = defaults.string(forKey: key)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private static func llmKeychainServicesToRead(bundleIdentifier: String? = Bundle.main.bundleIdentifier) -> [String] {
+        let currentBundleService = (bundleIdentifier ?? defaultBundleIdentifier) + ".llm"
+        return [llmKeychainService, currentBundleService].reduce(into: []) { partial, service in
+            guard !partial.contains(service) else { return }
+            partial.append(service)
+        }
+    }
+
+    private static func llmKeychainServicesToWrite(bundleIdentifier: String? = Bundle.main.bundleIdentifier) -> [String] {
+        llmKeychainServicesToRead(bundleIdentifier: bundleIdentifier)
+    }
+
+    static func defaultLLMEndpointText(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard
+    ) -> String {
+        normalizedStoredLLMValue(forKey: llmEndpointStorageKey, defaults: defaults)
+            ?? environment["AETHER_LLM_ENDPOINT"]
+            ?? environment["OPENAI_BASE_URL"]
+            ?? OpenAICompatibleProvider.defaultEndpointString
+    }
+
+    static func defaultLLMModelText(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard
+    ) -> String {
+        normalizedStoredLLMValue(forKey: llmModelStorageKey, defaults: defaults)
+            ?? environment["AETHER_LLM_MODEL"]
+            ?? environment["OPENAI_MODEL"]
+            ?? ""
+    }
+
+    private static func loadStoredLLMAPIKey() -> String? {
+        for service in llmKeychainServicesToRead() {
+            if let key = AetherSecretKeychain.load(service: service, account: llmKeychainAccount) {
+                return key
+            }
+        }
+        return nil
+    }
+
+    private static func saveStoredLLMAPIKey(_ value: String) {
+        for service in llmKeychainServicesToWrite() {
+            _ = AetherSecretKeychain.save(value, service: service, account: llmKeychainAccount)
+        }
+    }
+
+    private static func removeStoredLLMAPIKey() {
+        for service in llmKeychainServicesToRead() {
+            _ = AetherSecretKeychain.remove(service: service, account: llmKeychainAccount)
+        }
+    }
+
+    private static func defaultLLMAPIKey(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String {
+        loadStoredLLMAPIKey()
+            ?? environment["AETHER_LLM_API_KEY"]
+            ?? environment["OPENAI_API_KEY"]
+            ?? ""
+    }
+
+    static func defaultLLMServiceSource(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard
+    ) -> LLMServiceSource {
+        if let stored = defaults.string(forKey: llmProviderSourceStorageKey),
+           let source = LLMServiceSource(rawValue: stored) {
+            return source
+        }
+
+        let hasRemoteConfiguration =
+            normalizedStoredLLMValue(forKey: llmEndpointStorageKey, defaults: defaults) != nil ||
+            normalizedStoredLLMValue(forKey: llmModelStorageKey, defaults: defaults) != nil ||
+            loadStoredLLMAPIKey() != nil ||
+            environment["AETHER_LLM_ENDPOINT"] != nil ||
+            environment["OPENAI_BASE_URL"] != nil ||
+            environment["AETHER_LLM_MODEL"] != nil ||
+            environment["OPENAI_MODEL"] != nil ||
+            environment["AETHER_LLM_API_KEY"] != nil ||
+            environment["OPENAI_API_KEY"] != nil
+
+        if !hasRemoteConfiguration,
+           AppleOnDeviceLLMProviderFactory.availability(localeIdentifier: Locale.current.identifier) == .available {
+            return .appleOnDevice
+        }
+
+        return .openAICompatible
+    }
+
+    var appleOnDeviceLLMAvailability: AppleOnDeviceLLMAvailability {
+        AppleOnDeviceLLMProviderFactory.availability(
+            localeIdentifier: voiceService.effectiveLocaleIdentifier
+        )
+    }
+
+    var activeSpeechLocaleDisplayName: String {
+        let identifier = voiceService.effectiveLocaleIdentifier
+        return Locale.current.localizedString(forIdentifier: identifier) ?? identifier
+    }
+
+    var llmConfigurationState: LLMConfigurationState {
+        if llmServiceSource == .appleOnDevice {
+            return appleOnDeviceLLMAvailability == .available
+                ? .ready
+                : .appleOnDeviceUnavailable
+        }
+
+        let endpoint = llmEndpointText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = llmModelText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !apiKey.isEmpty else { return .missingAPIKey }
+        guard !model.isEmpty else { return .missingModel }
+        guard !endpoint.isEmpty, URL(string: endpoint) != nil else { return .invalidEndpoint }
+        return .ready
+    }
+
+    var isLLMProviderConfigured: Bool {
+        llmConfigurationState == .ready
+    }
+
+    @Published private(set) var llmAvailableModels: [String] = []
+    @Published private(set) var isLLMConnectionTestRunning: Bool = false
+    @Published private(set) var isLLMModelRefreshRunning: Bool = false
+    @Published var llmConfigurationFeedback: String?
+    @Published var llmConfigurationFeedbackKind: LLMConfigurationFeedbackKind = .neutral
+    @Published var llmServiceSource: LLMServiceSource = AppState.defaultLLMServiceSource() {
+        didSet {
+            UserDefaults.standard.set(llmServiceSource.rawValue, forKey: Self.llmProviderSourceStorageKey)
+            llmAvailableModels = []
+            llmConfigurationFeedback = nil
+            llmConfigurationFeedbackKind = .neutral
+            syncLLMProviderConfiguration()
+        }
+    }
+
+    @Published var llmEndpointText: String = AppState.defaultLLMEndpointText() {
+        didSet {
+            let trimmed = llmEndpointText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed != llmEndpointText {
+                llmEndpointText = trimmed
+                return
+            }
+            if trimmed.isEmpty {
+                UserDefaults.standard.removeObject(forKey: Self.llmEndpointStorageKey)
+            } else {
+                UserDefaults.standard.set(trimmed, forKey: Self.llmEndpointStorageKey)
+            }
+            llmAvailableModels = []
+            llmConfigurationFeedback = nil
+            llmConfigurationFeedbackKind = .neutral
+            syncLLMProviderConfiguration()
+        }
+    }
+
+    @Published var llmModelText: String = AppState.defaultLLMModelText() {
+        didSet {
+            let trimmed = llmModelText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed != llmModelText {
+                llmModelText = trimmed
+                return
+            }
+            if trimmed.isEmpty {
+                UserDefaults.standard.removeObject(forKey: Self.llmModelStorageKey)
+            } else {
+                UserDefaults.standard.set(trimmed, forKey: Self.llmModelStorageKey)
+            }
+            llmConfigurationFeedback = nil
+            llmConfigurationFeedbackKind = .neutral
+            syncLLMProviderConfiguration()
+        }
+    }
+
+    @Published var llmAPIKey: String = AppState.defaultLLMAPIKey() {
+        didSet {
+            let trimmed = llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed != llmAPIKey {
+                llmAPIKey = trimmed
+                return
+            }
+            if trimmed.isEmpty {
+                Self.removeStoredLLMAPIKey()
+            } else {
+                Self.saveStoredLLMAPIKey(trimmed)
+            }
+            llmAvailableModels = []
+            llmConfigurationFeedback = nil
+            llmConfigurationFeedbackKind = .neutral
+            syncLLMProviderConfiguration()
+        }
+    }
+
+    @Published var asrExpertProfile: ASRExpertProfile = AppState.loadASRExpertProfile() {
+        didSet {
+            AppState.saveASRExpertProfile(asrExpertProfile)
+            llmConfigurationFeedback = nil
+            llmConfigurationFeedbackKind = .neutral
+            syncLLMProviderConfiguration()
+        }
+    }
     
     @Published var alwaysListeningWakeWindowSeconds: Double = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double ?? VoiceDefaults.alwaysListeningWakeWindowSeconds {
         didSet {
@@ -2917,6 +3443,154 @@ class AppState: ObservableObject {
 
     var isProductUnlocked: Bool {
         licenseManager.isProductUnlocked
+    }
+
+    private func makeConfiguredLLMProviderConfiguration() -> LLMProviderConfiguration? {
+        switch llmServiceSource {
+        case .appleOnDevice:
+            guard appleOnDeviceLLMAvailability == .available else { return nil }
+            return .appleOnDevice(
+                AppleOnDeviceLLMConfig(
+                    rewriteProfile: asrExpertProfile,
+                    contextualGlossaryText: nil,
+                    localeIdentifier: voiceService.effectiveLocaleIdentifier
+                )
+            )
+        case .openAICompatible:
+            guard let config = OpenAICompatibleProvider.makeConfig(
+                endpointString: llmEndpointText,
+                apiKey: llmAPIKey,
+                model: llmModelText,
+                rewriteProfile: asrExpertProfile
+            ) else {
+                return nil
+            }
+            return .openAICompatible(config)
+        }
+    }
+
+    private func makeConfiguredLLMProvider() -> LLMHealthCheckProvider? {
+        guard let configuration = makeConfiguredLLMProviderConfiguration() else {
+            return nil
+        }
+
+        switch configuration {
+        case .appleOnDevice(let config):
+            return AppleOnDeviceLLMProviderFactory.makeProvider(config: config)
+        case .openAICompatible(let config):
+            return OpenAICompatibleProvider(config: config)
+        }
+    }
+
+    private func makeModelDiscoveryLLMProvider() -> OpenAICompatibleProvider? {
+        guard llmServiceSource == .openAICompatible else {
+            return nil
+        }
+        let endpoint = llmEndpointText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !endpoint.isEmpty,
+              let endpointURL = URL(string: endpoint),
+              !apiKey.isEmpty else {
+            return nil
+        }
+        let model = llmModelText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return OpenAICompatibleProvider(
+            config: OpenAICompatibleProvider.Config(
+                endpoint: endpointURL,
+                apiKey: apiKey,
+                model: model.isEmpty ? "model-discovery" : model,
+                rewriteProfile: nil
+            )
+        )
+    }
+
+    private func syncLLMProviderConfiguration() {
+        voiceService.setLLMProviderConfiguration(
+            makeConfiguredLLMProviderConfiguration(),
+            source: llmServiceSource
+        )
+    }
+
+    func testLLMProviderConfiguration() async {
+        guard let provider = makeConfiguredLLMProvider() else {
+            llmConfigurationFeedbackKind = .warning
+            switch llmConfigurationState {
+            case .appleOnDeviceUnavailable:
+                llmConfigurationFeedback = appleOnDeviceLLMAvailability.detail(
+                    isChinese: isChineseUI,
+                    localeName: activeSpeechLocaleDisplayName
+                )
+            case .missingAPIKey:
+                llmConfigurationFeedback = isChineseUI ? "请先填写 API Key" : "Add an API key first"
+            case .missingModel:
+                llmConfigurationFeedback = isChineseUI ? "请先填写模型名" : "Add a model name first"
+            case .invalidEndpoint:
+                llmConfigurationFeedback = isChineseUI ? "请先修正 Endpoint" : "Fix the endpoint first"
+            case .ready:
+                llmConfigurationFeedback = nil
+            }
+            return
+        }
+
+        isLLMConnectionTestRunning = true
+        llmConfigurationFeedback = llmServiceSource == .appleOnDevice
+            ? (isChineseUI ? "正在检查 Apple 本地模型…" : "Checking the Apple on-device model...")
+            : (isChineseUI ? "正在测试连接…" : "Testing connection...")
+        llmConfigurationFeedbackKind = .neutral
+        defer { isLLMConnectionTestRunning = false }
+
+        do {
+            try await provider.testConfiguration()
+            llmConfigurationFeedback = llmServiceSource == .appleOnDevice
+                ? (isChineseUI ? "Apple 本地模型可用" : "The Apple on-device model is available.")
+                : (isChineseUI ? "连接成功，当前模型可用" : "Connection succeeded. The configured model is available.")
+            llmConfigurationFeedbackKind = .success
+        } catch {
+            llmConfigurationFeedback = error.localizedDescription
+            llmConfigurationFeedbackKind = .error
+        }
+    }
+
+    func refreshLLMAvailableModels() async {
+        guard llmServiceSource == .openAICompatible else {
+            llmConfigurationFeedbackKind = .neutral
+            llmConfigurationFeedback = isChineseUI
+                ? "Apple 本地模式不需要拉取模型列表。"
+                : "Apple on-device mode does not need model discovery."
+            return
+        }
+
+        guard let provider = makeModelDiscoveryLLMProvider() else {
+            llmConfigurationFeedbackKind = .warning
+            if llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                llmConfigurationFeedback = isChineseUI ? "先填 API Key 才能拉取模型列表" : "Add an API key before fetching models"
+            } else {
+                llmConfigurationFeedback = isChineseUI ? "请先修正 Endpoint" : "Fix the endpoint before fetching models"
+            }
+            return
+        }
+
+        isLLMModelRefreshRunning = true
+        llmConfigurationFeedback = isChineseUI ? "正在获取模型列表…" : "Loading models..."
+        llmConfigurationFeedbackKind = .neutral
+        defer { isLLMModelRefreshRunning = false }
+
+        do {
+            let models = try await provider.fetchAvailableModels()
+            llmAvailableModels = models
+            if llmModelText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let first = models.first {
+                llmModelText = first
+            }
+            llmConfigurationFeedback = isChineseUI
+                ? "已获取 \(models.count) 个模型"
+                : "Loaded \(models.count) models"
+            llmConfigurationFeedbackKind = .success
+        } catch {
+            llmAvailableModels = []
+            llmConfigurationFeedback = error.localizedDescription
+            llmConfigurationFeedbackKind = .error
+        }
     }
 
     
@@ -2999,6 +3673,7 @@ class AppState: ObservableObject {
         }
         
         voiceService.setLLMEnhancementEnabled(self.isLLMEnhancementEnabled)
+        syncLLMProviderConfiguration()
         voiceService.setDeveloperSpeechProfileEnabled(self.isDeveloperSpeechProfileEnabled)
         voiceService.setVoiceCommandOverrides(self.voiceCommandOverrides)
         voiceService.setVoiceLanguageTermsOverrides(self.voiceLanguageTermsOverrides)
@@ -3064,6 +3739,13 @@ class AppState: ObservableObject {
                 isIdlePaused: self.isIdlePaused
             )
         }
+        voiceService.isAppIdlePaused = { [weak self] in
+            self?.isIdlePaused ?? false
+        }
+        voiceService.onIdlePauseResumeRequest = { [weak self] source in
+            guard let self, self.isIdlePaused else { return }
+            _ = HeadMotionManager.shared.requestIdlePauseResume(source: source)
+        }
         
         voiceService.onRecognitionFailure = { [weak self] transcript, reason, appName, bundleIdentifier in
             guard let self else { return }
@@ -3096,6 +3778,9 @@ class AppState: ObservableObject {
             }
         }
 
+        HeadMotionManager.shared.onIdlePauseStateChanged = { [weak self] paused in
+            self?.applyIdlePauseState(paused)
+        }
         HeadMotionManager.shared.$isGloballyPausedForIdle
             .receive(on: DispatchQueue.main)
             .sink { [weak self] paused in
@@ -3426,9 +4111,24 @@ class AppState: ObservableObject {
     private func applyIdlePauseState(_ paused: Bool) {
         guard paused != isIdlePaused else { return }
         isIdlePaused = paused
+        GlobalLogger.lifecycle.info(
+            "[IdlePause] app state paused=\(paused) voiceMode=\(voiceActivationMode.rawValue) voiceEnabled=\(isVoiceEnabled)"
+        )
         if paused {
             CurrentAppShortcutPanelManager.shared.hide()
+            didSuspendVoiceRuntimeForIdlePause = voiceActivationMode != .wakeWord
+            voiceService.setIdlePauseSuspended(didSuspendVoiceRuntimeForIdlePause)
+            voiceService.syncHUDState()
+            return
         }
+
+        if didSuspendVoiceRuntimeForIdlePause,
+           isProductUnlocked && !isScreenLocked && isVoiceEnabled {
+            applyVoiceActivationMode()
+        }
+        didSuspendVoiceRuntimeForIdlePause = false
+        voiceService.setIdlePauseSuspended(false)
+        voiceService.syncHUDState()
     }
 
     func showShortcutPanel(activateApp: Bool = true, focusSearchField: Bool = true) {
@@ -3630,6 +4330,9 @@ class AppState: ObservableObject {
             GlobalLogger.lifecycle.info("[VoiceIntent] action=selectHorizontally offset=\(offset)")
             // Already applied inside SpeechManager. Keep this branch for usage tracking only.
             recordControl(intent)
+        case .rewriteText(let payload):
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=rewriteText scope=\(payload.scope.rawValue) mode=\(payload.mode.rawValue)")
+            recordVoiceRewrite(payload, spokenText: spokenText, appName: appName, bundleIdentifier: bundleIdentifier)
         case .dictation(let text):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=dictation text=\(text)")
             if HUDManager.shared.state.recognitionControlMode == .command || !HUDManager.shared.state.isTypingContext {
@@ -3700,6 +4403,30 @@ class AppState: ObservableObject {
             content: text,
             appName: appName,
             bundleIdentifier: bundleIdentifier
+        )
+    }
+
+    private func recordVoiceRewrite(
+        _ payload: TextRewriteIntentPayload,
+        spokenText: String? = nil,
+        appName: String? = nil,
+        bundleIdentifier: String? = nil
+    ) {
+        guard let sourceText = payload.sourceText,
+              let resultText = payload.resultText else {
+            return
+        }
+        recordVoiceUsageEvent(
+            kind: .dictation,
+            action: payload.mode.actionTitle(isChinese: AppLocalization.isChinese),
+            content: resultText,
+            originalContent: sourceText,
+            spokenText: spokenText,
+            appName: appName,
+            bundleIdentifier: bundleIdentifier,
+            eventCode: "rewrite.\(payload.scope.rawValue).\(payload.mode.rawValue)",
+            rewriteScope: payload.scope.rawValue,
+            rewriteMode: payload.mode.rawValue
         )
     }
     
@@ -3807,13 +4534,16 @@ class AppState: ObservableObject {
         kind: VoiceUsageEventKind,
         action: String,
         content: String?,
+        originalContent: String? = nil,
         spokenText: String? = nil,
         appName: String?,
         bundleIdentifier: String?,
         eventCode: String? = nil,
         wakeGroupID: String? = nil,
         wakePhrase: String? = nil,
-        localeIdentifier: String? = nil
+        localeIdentifier: String? = nil,
+        rewriteScope: String? = nil,
+        rewriteMode: String? = nil
     ) {
         guard isVoiceUsageHistoryEnabled else { return }
         let context = resolvedVoiceUsageAppContext(appName: appName, bundleIdentifier: bundleIdentifier)
@@ -3823,11 +4553,14 @@ class AppState: ObservableObject {
             kind: kind,
             action: action,
             content: normalizedVoiceUsageContent(content),
+            originalContent: normalizedVoiceUsageContent(originalContent),
             spokenText: normalizedVoiceUsageContent(spokenText),
             eventCode: eventCode,
             wakeGroupID: wakeGroupID,
             wakePhrase: Self.normalizedWakePhrase(wakePhrase),
-            localeIdentifier: normalizedVoiceUsageContent(localeIdentifier)
+            localeIdentifier: normalizedVoiceUsageContent(localeIdentifier),
+            rewriteScope: normalizedVoiceUsageContent(rewriteScope),
+            rewriteMode: normalizedVoiceUsageContent(rewriteMode)
         )
         if kind == .activation {
             GlobalLogger.log(
@@ -3936,6 +4669,8 @@ class AppState: ObservableObject {
                 return offset >= 0 ? "向右选择\(count)个字" : "向左选择\(count)个字"
             }
             return offset >= 0 ? "Select right \(count) chars" : "Select left \(count) chars"
+        case .rewriteText(let payload):
+            return payload.mode.actionTitle(isChinese: AppLocalization.isChinese)
         case .dictation: return NSLocalizedString("intent.dictation", comment: "")
         case .unknown: return NSLocalizedString("intent.unknown", comment: "")
         }

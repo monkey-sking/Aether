@@ -144,6 +144,7 @@
 "speech.no_matching_command" = "Aucune commande correspondante";
 "speech.voice_input_disabled" = "La saisie vocale est désactivée";
 "speech.voice_control_disabled" = "Le contrôle vocal est désactivé";
+"speech.app_paused_idle" = "L’app est en pause après inactivité de la souris. Bougez la souris pour reprendre";
 "speech.no_editable_field" = "Aucun champ de saisie détecté";
 "speech.undo_done" = "Annulé";
 "speech.pasted_cmdv" = "Collé (Cmd+V)";

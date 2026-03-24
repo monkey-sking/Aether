@@ -31,6 +31,7 @@ final class DictationHandler {
 
     var llmProvider: LLMProvider?
     var isLLMEnhancementEnabled: Bool = false
+    var llmProviderContext: String = "source=openai-compatible"
     var onStatusUpdate: ((String) -> Void)?
 
     // MARK: - Init
@@ -82,12 +83,21 @@ final class DictationHandler {
     func onFinal(_ text: String) async {
         let utteranceID = self.currentUtteranceID
         let corrected: String
-        if isLLMEnhancementEnabled, let provider = llmProvider, !text.isEmpty {
-            do {
-                let enhanced = try await provider.enhanceDictation(text)
-                corrected = enhanced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : enhanced
-            } catch {
-                os_log("LLM enhancement failed: %{public}@", log: log, type: .error, error.localizedDescription)
+        if isLLMEnhancementEnabled, !text.isEmpty {
+            if let provider = llmProvider {
+                do {
+                    let enhanced = try await provider.enhanceDictation(text)
+                    corrected = enhanced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : enhanced
+                } catch {
+                    GlobalLogger.speech.error(
+                        "[DictationLLM] failure phase=finalize textCount=\(text.count) targetPID=\(targetPID ?? 0) \(llmProviderContext) error=\(error.localizedDescription)"
+                    )
+                    corrected = text
+                }
+            } else {
+                GlobalLogger.speech.error(
+                    "[DictationLLM] failure phase=finalize textCount=\(text.count) targetPID=\(targetPID ?? 0) \(llmProviderContext) note=provider-unavailable"
+                )
                 corrected = text
             }
         } else {

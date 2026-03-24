@@ -17,6 +17,7 @@ class HeadMotionManager: ObservableObject {
     static let shared = HeadMotionManager()
     var isTrackingExecutionEnabled: (() -> Bool)?
     var onTrackingExecutionDenied: (() -> Void)?
+    var onIdlePauseStateChanged: ((Bool) -> Void)?
 
     static let pttDownNotification = Notification.Name("AetherPTTDown")
     static let pttUpNotification = Notification.Name("AetherPTTUp")
@@ -2000,9 +2001,13 @@ class HeadMotionManager: ObservableObject {
         if let lastLocation = lastObservedMouseHotZoneCursorLocation {
             let movedDistance = hypot(cursorLocation.x - lastLocation.x, cursorLocation.y - lastLocation.y)
             if movedDistance >= mouseInteractionResumeDistance {
+                let idleAge = now.timeIntervalSince(lastMouseHotZoneMovementAt)
                 lastMouseHotZoneMovementAt = now
                 lastObservedMouseHotZoneCursorLocation = cursorLocation
                 if isMouseInteractionPausedForInactivity {
+                    GlobalLogger.lifecycle.info(
+                        "[IdlePause] resume after mouse movement distance=\(Int(movedDistance)) idleAge=\(String(format: "%.1f", idleAge))s"
+                    )
                     isMouseInteractionPausedForInactivity = false
                     setGlobalIdlePause(false)
                 }
@@ -2016,6 +2021,10 @@ class HeadMotionManager: ObservableObject {
 
         let shouldPause = now.timeIntervalSince(lastMouseHotZoneMovementAt) >= mouseInteractionIdlePauseAfter
         if shouldPause && !isMouseInteractionPausedForInactivity {
+            let idleAge = now.timeIntervalSince(lastMouseHotZoneMovementAt)
+            GlobalLogger.lifecycle.info(
+                "[IdlePause] trigger mouse idle idleAge=\(String(format: "%.1f", idleAge))s threshold=\(Int(mouseInteractionIdlePauseAfter))s"
+            )
             isMouseInteractionPausedForInactivity = true
             resetHeadGestureRecognition()
             setGlobalIdlePause(true)
@@ -2026,7 +2035,12 @@ class HeadMotionManager: ObservableObject {
     @MainActor
     private func setGlobalIdlePause(_ paused: Bool) {
         guard paused != isGloballyPausedForIdle else { return }
+        let idleAge = Date().timeIntervalSince(lastMouseHotZoneMovementAt)
+        GlobalLogger.lifecycle.info(
+            "[IdlePause] state changed paused=\(paused) tracking=\(isTracking) idleAge=\(String(format: "%.1f", idleAge))s threshold=\(Int(mouseInteractionIdlePauseAfter))s"
+        )
         isGloballyPausedForIdle = paused
+        onIdlePauseStateChanged?(paused)
         if paused {
             wasTrackingBeforeIdlePause = isTracking
             if isTracking {
@@ -2040,6 +2054,30 @@ class HeadMotionManager: ObservableObject {
             }
             wasTrackingBeforeIdlePause = false
         }
+    }
+
+    @discardableResult
+    func requestIdlePauseResume(source: String) -> Bool {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                requestIdlePauseResumeOnMain(source: source)
+            }
+        }
+        var didResume = false
+        DispatchQueue.main.sync {
+            didResume = requestIdlePauseResumeOnMain(source: source)
+        }
+        return didResume
+    }
+
+    @MainActor
+    private func requestIdlePauseResumeOnMain(source: String) -> Bool {
+        guard isGloballyPausedForIdle else { return false }
+        GlobalLogger.lifecycle.info("[IdlePause] resume requested source=\(source)")
+        lastMouseHotZoneMovementAt = Date()
+        isMouseInteractionPausedForInactivity = false
+        setGlobalIdlePause(false)
+        return true
     }
 
     private func endAllPTT(reason: String) {
@@ -4898,6 +4936,9 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func beginAirPodsPTT(source: PTTSource, origin: String) -> MPRemoteCommandHandlerStatus {
+        if isGloballyPausedForIdle {
+            _ = requestIdlePauseResume(source: "airpods-ptt-begin")
+        }
         guard voiceActivationMode == .pushToTalk, isPTTEnabled else { return .commandFailed }
         noteHeadsetRemoteEvent(
             display: String(localized: "headset.event.single")
@@ -4916,6 +4957,9 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func toggleAirPodsPTT(origin: String) -> MPRemoteCommandHandlerStatus {
+        if isGloballyPausedForIdle {
+            _ = requestIdlePauseResume(source: "airpods-ptt-toggle")
+        }
         guard voiceActivationMode == .pushToTalk, isPTTEnabled else { return .commandFailed }
         noteHeadsetRemoteEvent(
             display: String(localized: "headset.event.single_toggle")
@@ -4929,6 +4973,9 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func beginPTT(from source: PTTSource, origin: String) {
+        if isGloballyPausedForIdle {
+            _ = requestIdlePauseResume(source: "ptt-\(origin)")
+        }
         guard !activePTTSources.contains(source) else { return }
         let wasPressed = isPTTPressed
         activePTTSources.insert(source)
@@ -5047,7 +5094,13 @@ class HeadMotionManager: ObservableObject {
                 return Unmanaged.passUnretained(event)
             }
 
-            if manager.isGloballyPausedForIdle {
+            let canAttemptIdlePauseResume =
+                type == .flagsChanged
+                || type == .keyDown
+                || type == .keyUp
+                || type == .otherMouseDown
+                || type == .otherMouseUp
+            if manager.isGloballyPausedForIdle && !canAttemptIdlePauseResume {
                 return Unmanaged.passUnretained(event)
             }
             
@@ -5060,6 +5113,7 @@ class HeadMotionManager: ObservableObject {
                 if let action = HotkeyManager.shared.matchFlagsChanged(keyCode: keyCode, flags: flags) {
                     switch action {
                     case .toggleLanguage:
+                        guard !manager.isGloballyPausedForIdle else { return Unmanaged.passUnretained(event) }
                         GlobalLogger.input.info("Hotkey: Toggle Language (flagsChanged)")
                         NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
                         return Unmanaged.passUnretained(event)
@@ -5109,6 +5163,7 @@ class HeadMotionManager: ObservableObject {
                 if let action = HotkeyManager.shared.matchKeyDown(keyCode: keyCode, flags: flags) {
                     switch action {
                     case .toggleTracking:
+                        guard !manager.isGloballyPausedForIdle else { return Unmanaged.passUnretained(event) }
                         if manager.isTracking {
                             GlobalLogger.input.info("Hotkey: Stop Tracking")
                             HUDManager.shared.showTemporary(
@@ -5127,6 +5182,7 @@ class HeadMotionManager: ObservableObject {
                         return nil
 
                     case .toggleInputControlMode:
+                        guard !manager.isGloballyPausedForIdle else { return Unmanaged.passUnretained(event) }
                         GlobalLogger.input.info("Hotkey: Toggle Input/Control Mode")
                         DispatchQueue.main.async {
                             manager.toggleRecognitionInputControlMode(source: "keyboard-hotkey", persist: true)
@@ -5134,11 +5190,13 @@ class HeadMotionManager: ObservableObject {
                         return nil
 
                     case .toggleLanguage:
+                        guard !manager.isGloballyPausedForIdle else { return Unmanaged.passUnretained(event) }
                         GlobalLogger.input.info("Hotkey: Toggle Language")
                         NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
                         return Unmanaged.passUnretained(event)
 
                     case .toggleShortcutPanel:
+                        guard !manager.isGloballyPausedForIdle else { return Unmanaged.passUnretained(event) }
                         GlobalLogger.input.info("Hotkey: Toggle Shortcut Panel")
                         NotificationCenter.default.post(name: .toggleShortcutPanel, object: nil)
                         return nil
@@ -5186,6 +5244,7 @@ class HeadMotionManager: ObservableObject {
                 if let action = HotkeyManager.shared.matchMouseDown(button: btn, flags: flags) {
                     switch action {
                     case .toggleTracking:
+                        guard !manager.isGloballyPausedForIdle else { break }
                         if manager.isTracking {
                             GlobalLogger.input.info("Mouse Hotkey: Stop Tracking")
                             HUDManager.shared.showTemporary(
@@ -5204,6 +5263,7 @@ class HeadMotionManager: ObservableObject {
                         return nil
                         
                     case .toggleInputControlMode:
+                        guard !manager.isGloballyPausedForIdle else { break }
                         GlobalLogger.input.info("Mouse Hotkey: Toggle Input/Control Mode")
                         DispatchQueue.main.async {
                             manager.toggleRecognitionInputControlMode(source: "mouse-hotkey", persist: true)
@@ -5211,11 +5271,13 @@ class HeadMotionManager: ObservableObject {
                         return nil
 
                     case .toggleLanguage:
+                        guard !manager.isGloballyPausedForIdle else { break }
                         GlobalLogger.input.info("Mouse Hotkey: Toggle Language")
                         NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
                         return nil
 
                     case .toggleShortcutPanel:
+                        guard !manager.isGloballyPausedForIdle else { break }
                         GlobalLogger.input.info("Mouse Hotkey: Toggle Shortcut Panel")
                         NotificationCenter.default.post(name: .toggleShortcutPanel, object: nil)
                         return nil

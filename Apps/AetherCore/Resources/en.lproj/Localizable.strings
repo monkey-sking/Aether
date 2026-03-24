@@ -472,6 +472,7 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "speech.no_matching_command" = "No matching command";
 "speech.voice_input_disabled" = "Voice input is off";
 "speech.voice_control_disabled" = "Voice control is off";
+"speech.app_paused_idle" = "App is paused after mouse idle. Move the mouse to resume";
 "speech.no_mic_detected" = "No Microphone Detected";
 "speech.pasted" = "Pasted";
 "speech.pasted_cmdv" = "Pasted (Cmd+V)";

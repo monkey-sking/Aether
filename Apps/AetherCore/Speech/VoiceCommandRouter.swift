@@ -1166,6 +1166,7 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
     case moveCursorRight
     case selectLeft
     case selectRight
+    case rewriteFullText
 
     var id: String { rawValue }
 
@@ -1198,7 +1199,8 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
         .moveCursorLeft,
         .moveCursorRight,
         .selectLeft,
-        .selectRight
+        .selectRight,
+        .rewriteFullText
     ]
 
     var intent: VoiceIntent {
@@ -1261,12 +1263,19 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return .selectHorizontally(-1)
         case .selectRight:
             return .selectHorizontally(1)
+        case .rewriteFullText:
+            return .rewriteText(
+                TextRewriteIntentPayload(
+                    scope: .fullDocument,
+                    mode: .proofreadAndPolish
+                )
+            )
         }
     }
 
     var isTypingSafe: Bool {
         switch self {
-        case .toggleShortcutPanel, .showShortcutPanel, .hideShortcutPanel, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .undo, .paste, .clearInput, .deleteBackward, .moveCursorLeft, .moveCursorRight, .selectLeft, .selectRight:
+        case .toggleShortcutPanel, .showShortcutPanel, .hideShortcutPanel, .scrollUp, .scrollDown, .scrollTop, .scrollBottom, .undo, .paste, .clearInput, .deleteBackward, .moveCursorLeft, .moveCursorRight, .selectLeft, .selectRight, .rewriteFullText:
             return true
         default:
             return false
@@ -1334,6 +1343,8 @@ enum VoiceCommandPreset: String, CaseIterable, Identifiable {
             return isChinese ? "向左选择" : "Select Left"
         case .selectRight:
             return isChinese ? "向右选择" : "Select Right"
+        case .rewriteFullText:
+            return isChinese ? "全文纠错优化" : "Polish Full Text"
         }
     }
 }
@@ -1373,6 +1384,7 @@ enum VoiceIntent: Equatable {
     case deleteBackward(Int)
     case moveCursorHorizontally(Int) // negative = left, positive = right
     case selectHorizontally(Int) // negative = left, positive = right
+    case rewriteText(TextRewriteIntentPayload)
     case dictation(String)
     case unknown(String)
 }
@@ -1528,6 +1540,12 @@ final class VoiceCommandRouter {
                 if let cursorMatch = matchCursorEditingCommand(text: candidate, localeIdentifier: localeIdentifier) {
                     return cursorMatch
                 }
+            }
+        }
+
+        for candidate in commandTextCandidates {
+            if let rewriteMatch = matchRewriteCommand(text: candidate, localeIdentifier: localeIdentifier) {
+                return rewriteMatch
             }
         }
 
@@ -1702,6 +1720,10 @@ final class VoiceCommandRouter {
             extra = ["结束拖拽", "结束拖"]
         case (.dragEnd, "en-US"):
             extra = ["end drag", "drag end"]
+        case (.rewriteFullText, "zh-CN"):
+            extra = ["全文纠错优化", "优化全文", "全文润色", "全文校对", "全文改写优化"]
+        case (.rewriteFullText, "en-US"):
+            extra = ["polish full text", "rewrite full text", "proofread full text"]
         default:
             extra = []
         }
@@ -2254,6 +2276,38 @@ final class VoiceCommandRouter {
         return nil
     }
 
+    private func matchRewriteCommand(text raw: String, localeIdentifier: String) -> VoiceCommandDecision? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let currentState = stateSnapshot()
+        let aliases = normalizedAliases(
+            for: .rewriteFullText,
+            localeIdentifier: localeIdentifier,
+            overrides: currentState.overrides
+        )
+        guard !aliases.isEmpty else { return nil }
+
+        let candidates = Self.uniqueAliases([
+            trimmed,
+            sanitizeRewriteCommandText(trimmed, localeIdentifier: localeIdentifier)
+        ])
+
+        for candidate in candidates {
+            let normalized = normalizeMatchString(candidate)
+            guard !normalized.isEmpty else { continue }
+            if aliases.contains(normalized) {
+                return VoiceCommandDecision(
+                    intent: VoiceCommandPreset.rewriteFullText.intent,
+                    confidence: .high,
+                    reason: "rewrite-full-text"
+                )
+            }
+        }
+
+        return nil
+    }
+
     private func parseDeleteCount(from raw: String) -> Int? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return 1 }
@@ -2283,6 +2337,51 @@ final class VoiceCommandRouter {
         }
 
         return nil
+    }
+
+    private func sanitizeRewriteCommandText(_ raw: String, localeIdentifier: String) -> String {
+        var value = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingLeadingCommandPrefixIgnorables()
+            .trimmingTrailingCommandAffixIgnorables()
+
+        let leadingFillers: [String]
+        let trailingFillers: [String]
+
+        switch VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier) {
+        case "zh-CN":
+            leadingFillers = ["请你", "请", "帮我", "麻烦你", "麻烦"]
+            trailingFillers = ["一下吧", "一下", "吧", "呀"]
+        default:
+            leadingFillers = ["please", "can you", "could you", "help me"]
+            trailingFillers = ["please"]
+        }
+
+        var changed = true
+        while changed {
+            changed = false
+            for filler in leadingFillers.sorted(by: { $0.count > $1.count }) {
+                if value.lowercased().hasPrefix(filler.lowercased()) {
+                    value = String(value.dropFirst(filler.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    changed = true
+                    break
+                }
+            }
+        }
+
+        changed = true
+        while changed {
+            changed = false
+            for filler in trailingFillers.sorted(by: { $0.count > $1.count }) {
+                if value.lowercased().hasSuffix(filler.lowercased()) {
+                    value = String(value.dropLast(filler.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    changed = true
+                    break
+                }
+            }
+        }
+
+        return value
     }
 
     private func parseChineseNumeral(_ raw: String) -> Int? {
