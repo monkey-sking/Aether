@@ -398,6 +398,13 @@ final class HUDManager {
         startBackgroundFullscreenCheck()
     }
 
+    private func currentTypingContextBundleID() -> String? {
+        // Suppression/reentry state is app-scoped. Prefer the real frontmost app so
+        // stale detector source bundles from the previous app cannot keep the new app
+        // stuck in an old "non-input click" state.
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? detector.currentUpdate.sourceBundleID
+    }
+
     static func resolvedTypingContext(
         recognitionControlMode: HUDRecognitionControlMode,
         inferredTypingContext: Bool,
@@ -816,7 +823,7 @@ final class HUDManager {
             appendTypingSuppressionDiagnostic(
                 suppressed: false,
                 reason: "ax-trust-change",
-                bundleID: detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                bundleID: currentTypingContextBundleID()
             )
         }
 
@@ -832,7 +839,7 @@ final class HUDManager {
         }
 
         let now = Date()
-        let bundleID = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let bundleID = currentTypingContextBundleID()
         lastMouseDownPoint = point
         lastMouseDownAt = now
         lastMouseDownBundleID = bundleID
@@ -979,7 +986,7 @@ final class HUDManager {
     // Replacement for HotkeyFeedbackHUD.typingContextSnapshot()
     func lastKnownTypingState() -> Bool {
         let now = Date()
-        let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let frontBundle = currentTypingContextBundleID()
         let suppressionSensitiveApp = isExplicitTypingSuppressionApp(bundleID: frontBundle)
         let explicitTypingClickReentry = suppressionSensitiveApp ? false : hasRecentExplicitTypingClickReentry(at: now)
 
@@ -1002,25 +1009,15 @@ final class HUDManager {
         }
 
         let axEvaluation = axTypingEvaluationThrottled(now: now)
-        let strongAXTypingEvidence = hasStrongAXTypingEvidence(
-            now: now,
-            frontBundle: frontBundle,
-            evaluation: axEvaluation
-        )
-        let shouldHoldSuppressionForFarNonInputClick = shouldHoldSuppressionAgainstStrongAXEvidence(
+        let shouldReleaseSuppression = shouldReleaseExplicitTypingSuppression(
             now: now,
             frontBundle: frontBundle,
             evaluation: axEvaluation
         )
 
         if Date() < typingSuppressedUntil, !explicitTypingClickReentry {
-            if strongAXTypingEvidence && !suppressionSensitiveApp && !shouldHoldSuppressionForFarNonInputClick {
-                typingSuppressedUntil = .distantPast
-                appendTypingSuppressionDiagnostic(
-                    suppressed: false,
-                    reason: "strong-ax-evidence",
-                    bundleID: frontBundle
-                )
+            if shouldReleaseSuppression {
+                clearExplicitTypingSuppression(reason: "strong-ax-evidence", bundleID: frontBundle)
             } else {
                 return false
             }
@@ -1035,31 +1032,13 @@ final class HUDManager {
 
         if requiresExplicitTypingReentry {
             if explicitTypingClickReentry {
-                requiresExplicitTypingReentry = false
-                explicitTypingReentryBundleID = nil
-                appendTypingSuppressionDiagnostic(
-                    suppressed: false,
-                    reason: "explicit-click-reentry",
-                    bundleID: frontBundle
-                )
+                clearExplicitTypingSuppression(reason: "explicit-click-reentry", bundleID: frontBundle)
             } else if let lockedBundle = explicitTypingReentryBundleID,
                let frontBundle,
                lockedBundle != frontBundle {
-                requiresExplicitTypingReentry = false
-                explicitTypingReentryBundleID = nil
-                appendTypingSuppressionDiagnostic(
-                    suppressed: false,
-                    reason: "frontmost-bundle-changed",
-                    bundleID: frontBundle
-                )
-            } else if strongAXTypingEvidence && !suppressionSensitiveApp && !shouldHoldSuppressionForFarNonInputClick {
-                requiresExplicitTypingReentry = false
-                explicitTypingReentryBundleID = nil
-                appendTypingSuppressionDiagnostic(
-                    suppressed: false,
-                    reason: "strong-ax-evidence",
-                    bundleID: frontBundle
-                )
+                clearExplicitTypingSuppression(reason: "frontmost-bundle-changed", bundleID: frontBundle)
+            } else if shouldReleaseSuppression {
+                clearExplicitTypingSuppression(reason: "strong-ax-evidence", bundleID: frontBundle)
             } else {
                 return false
             }
@@ -1216,6 +1195,44 @@ final class HUDManager {
         return b.contains("codex") || b.contains("antigravity")
     }
 
+    private func shouldReleaseExplicitTypingSuppression(
+        now: Date,
+        frontBundle: String?,
+        evaluation: AXFocusedTypingEvaluation
+    ) -> Bool {
+        guard requiresExplicitTypingReentry else { return false }
+        guard hasStrongAXTypingEvidence(
+            now: now,
+            frontBundle: frontBundle,
+            evaluation: evaluation
+        ) else {
+            return false
+        }
+        guard !shouldHoldSuppressionAgainstStrongAXEvidence(
+            now: now,
+            frontBundle: frontBundle,
+            evaluation: evaluation
+        ) else {
+            return false
+        }
+
+        if isExplicitTypingSuppressionApp(bundleID: frontBundle) {
+            return now >= typingSuppressedUntil
+        }
+        return true
+    }
+
+    private func clearExplicitTypingSuppression(reason: String, bundleID: String?) {
+        typingSuppressedUntil = .distantPast
+        requiresExplicitTypingReentry = false
+        explicitTypingReentryBundleID = nil
+        appendTypingSuppressionDiagnostic(
+            suppressed: false,
+            reason: reason,
+            bundleID: bundleID
+        )
+    }
+
     func hasRecentExplicitTypingClickReentry() -> Bool {
         hasRecentExplicitTypingClickReentry(at: Date())
     }
@@ -1229,7 +1246,7 @@ final class HUDManager {
 
         guard requiresExplicitTypingReentry else { return false }
         let now = Date()
-        let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let frontBundle = currentTypingContextBundleID()
         let suppressionSensitiveApp = isExplicitTypingSuppressionApp(bundleID: frontBundle)
         if !suppressionSensitiveApp, hasRecentExplicitTypingClickReentry(at: now) {
             return false
@@ -1237,6 +1254,15 @@ final class HUDManager {
         if let lockedBundle = explicitTypingReentryBundleID,
            let frontBundle,
            lockedBundle != frontBundle {
+            return false
+        }
+        let axEvaluation = axTypingEvaluationThrottled(now: now)
+        if shouldReleaseExplicitTypingSuppression(
+            now: now,
+            frontBundle: frontBundle,
+            evaluation: axEvaluation
+        ) {
+            clearExplicitTypingSuppression(reason: "strong-ax-evidence", bundleID: frontBundle)
             return false
         }
         return isExplicitTypingSuppressionApp(bundleID: frontBundle)
@@ -1287,7 +1313,7 @@ final class HUDManager {
     }
 
     private func preferredExplicitTypingInputRect() -> CGRect? {
-        let frontBundle = detector.currentUpdate.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let frontBundle = currentTypingContextBundleID()
         var candidates: [CGRect] = []
         if let r = detector.currentUpdate.inputRect,
            !isProbablyWholeWindowRect(r),
