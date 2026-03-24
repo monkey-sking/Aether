@@ -91,12 +91,17 @@ enum AXFocusedTypingContextDetector {
         }()
         let hasStrongInsertionEvidenceOnFocus = hasInsertionContextOnFocus && (caretRect != nil || focusedRectLooksLikeInput)
         let editableEvidence = hasEditableAttribute || hasSettableValue || hasEditableAncestor
+        let browserLikeContainerTypingEvidence =
+            isBrowserLikeBundle(frontmostBundleID)
+            && hasInsertionContextOnFocus
+            && editableEvidence
 
         let insertionContextAvailable = {
             guard hasInsertionContextOnFocus else { return false }
             if containerLikeRoles.contains(role) {
                 if caretRect != nil { return true }
-                return focusedRectLooksLikeInput
+                if focusedRectLooksLikeInput { return true }
+                return browserLikeContainerTypingEvidence
             }
             return true
         }()
@@ -112,6 +117,7 @@ enum AXFocusedTypingContextDetector {
             if role == "AXWebArea" {
                 if hasStrongInsertionEvidenceOnFocus { return true }
                 if editableEvidence && focusedRectLooksLikeInput { return true }
+                if browserLikeContainerTypingEvidence { return true }
                 if isWeirdWebTypingApp(bundleID: frontmostBundleID),
                    focusedRectLooksLikeInput,
                    (insertionContextAvailable || editableEvidence) {
@@ -122,6 +128,7 @@ enum AXFocusedTypingContextDetector {
             if groupLikeRoles.contains(role) {
                 if hasStrongInsertionEvidenceOnFocus { return true }
                 if focusedRectLooksLikeInput && (hasEditableAncestor || hasEditableDescendant(element)) { return true }
+                if browserLikeContainerTypingEvidence { return true }
                 if editableEvidence && focusedRectLooksLikeInput { return true }
                 return false
             }
@@ -288,6 +295,19 @@ enum AXFocusedTypingContextDetector {
             || bundle.contains("antigravity")
             || bundle.contains("xinwechat")
             || bundle.contains("wechat")
+    }
+
+    private static func isBrowserLikeBundle(_ bundleID: String?) -> Bool {
+        let bundle = (bundleID ?? "").lowercased()
+        guard !bundle.isEmpty else { return false }
+        return bundle.contains("safari")
+            || bundle.contains("chrome")
+            || bundle.contains("chromium")
+            || bundle.contains("brave")
+            || bundle.contains("arc")
+            || bundle.contains("firefox")
+            || bundle.contains("edge")
+            || bundle.contains("kagi")
     }
 }
 
