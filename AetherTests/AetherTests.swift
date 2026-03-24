@@ -222,6 +222,32 @@ final class WakeWordDetectorTests: XCTestCase {
         XCTAssertEqual(result.payload, "打开设置")
     }
 
+    func testStrictPrefixModeStripsAutoInsertedSeparatorAfterWakeWord() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "幻影，你好世界",
+            localeIdentifier: "zh-CN",
+            matchMode: .strictPrefix
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.payload, "你好世界")
+    }
+
+    func testRetryAwareStandbyModeStripsAutoInsertedSeparatorAfterWakeWord() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "嗯嗯 幻影， 你好世界",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.payload, "你好世界")
+    }
+
     func testRetryAwareStandbyModeKeepsLongLeadInRejected() {
         let detector = makeDetector()
 
@@ -244,6 +270,32 @@ final class WakeWordDetectorTests: XCTestCase {
         )
 
         XCTAssertFalse(result.wakeDetected)
+    }
+
+    func testWakePayloadStripsAutoInsertedPunctuationAfterWakeWord() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "幻影，你好",
+            localeIdentifier: "zh-CN",
+            matchMode: .strictPrefix
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.payload, "你好")
+    }
+
+    func testRetryAwareWakePayloadStripsAutoInsertedPunctuationAfterWakeWord() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "嗯嗯 幻影，你好",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.payload, "你好")
     }
 }
 

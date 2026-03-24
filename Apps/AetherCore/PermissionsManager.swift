@@ -23,6 +23,11 @@ final class PermissionsManager: ObservableObject {
         // Defer permission check to onAppear to avoid TCC crash on launch
     }
 
+    private func prepareForSystemPermissionPrompt() {
+        NSApp.unhide(nil)
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+    }
+
     func refresh() {
         // Accessibility / Input Monitoring
         accessibilityTrusted = AXIsProcessTrusted()
@@ -85,10 +90,13 @@ final class PermissionsManager: ObservableObject {
         }
         isMicrophoneRequestInFlight = true
         lastMicrophonePromptAt = now
-        AVCaptureDevice.requestAccess(for: .audio) { _ in
-            DispatchQueue.main.async {
-                self.isMicrophoneRequestInFlight = false
-                self.refresh()
+        prepareForSystemPermissionPrompt()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            AVCaptureDevice.requestAccess(for: .audio) { _ in
+                DispatchQueue.main.async {
+                    self.isMicrophoneRequestInFlight = false
+                    self.refresh()
+                }
             }
         }
     }
@@ -106,10 +114,13 @@ final class PermissionsManager: ObservableObject {
         }
         isSpeechRequestInFlight = true
         lastSpeechPromptAt = now
-        SFSpeechRecognizer.requestAuthorization { _ in
-            DispatchQueue.main.async {
-                self.isSpeechRequestInFlight = false
-                self.refresh()
+        prepareForSystemPermissionPrompt()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            SFSpeechRecognizer.requestAuthorization { _ in
+                DispatchQueue.main.async {
+                    self.isSpeechRequestInFlight = false
+                    self.refresh()
+                }
             }
         }
     }

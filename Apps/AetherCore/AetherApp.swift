@@ -596,6 +596,12 @@ class AppState: ObservableObject {
     private static let screenIsLockedNotificationName = Notification.Name("com.apple.screenIsLocked")
     private static let screenIsUnlockedNotificationName = Notification.Name("com.apple.screenIsUnlocked")
     private static let loginWindowBundleIdentifier = "com.apple.loginwindow"
+    private static let permissionRecoveryArgumentPrefix = "--permission-recovery="
+
+    private enum PendingPermissionRecovery: String {
+        case microphone
+        case speech
+    }
 
     struct SpeechTermGroupConfig: Codable, Identifiable, Equatable {
         var id: String
@@ -1523,14 +1529,12 @@ class AppState: ObservableObject {
             if !isMutatingAlwaysListening, isAlwaysListeningEnabled {
                 if !microphoneAuthorized {
                     setAlwaysListeningEnabledInternal(false)
-                    permissions.requestMicrophone()
-                    refreshPermissions()
+                    requestMicrophoneGuided()
                     return
                 }
                 if !speechAuthorized {
                     setAlwaysListeningEnabledInternal(false)
-                    permissions.requestSpeech()
-                    refreshPermissions()
+                    requestSpeechGuided()
                     return
                 }
             }
@@ -1584,8 +1588,7 @@ class AppState: ObservableObject {
                     message: NSLocalizedString("speech.need_mic_permission", comment: ""),
                     icon: "mic.slash.fill"
                 )
-                permissions.requestMicrophone()
-                refreshPermissions()
+                requestMicrophoneGuided()
                 // Keep user's selected mode visible in UI.
                 // Runtime engine state is gated by SpeechManager permission checks.
                 isPTTEnabled = true
@@ -1605,8 +1608,7 @@ class AppState: ObservableObject {
                     message: NSLocalizedString("speech.need_recognition_permission", comment: ""),
                     icon: "waveform.badge.exclamationmark"
                 )
-                permissions.requestSpeech()
-                refreshPermissions()
+                requestSpeechGuided()
                 // Keep user's selected mode visible in UI.
                 // Runtime engine state is gated by SpeechManager permission checks.
                 isPTTEnabled = true
@@ -3235,6 +3237,7 @@ class AppState: ObservableObject {
 
         syncProductAccessGate()
         refreshPermissions()
+        continuePendingPermissionRecoveryIfNeeded()
     }
 
     private func syncProductAccessGate() {
@@ -3940,8 +3943,8 @@ class AppState: ObservableObject {
 
     func refreshPermissions() { permissions.refresh() }
     func requestAccessibility() { permissions.requestAccessibility() }
-    func requestMicrophone() { permissions.requestMicrophone() }
-    func requestSpeech() { permissions.requestSpeech() }
+    func requestMicrophone() { requestMicrophoneGuided() }
+    func requestSpeech() { requestSpeechGuided() }
     func openAccessibilityPane() { permissions.openAccessibilityPrivacyPane() }
     func openMicrophonePane() { permissions.openMicrophonePrivacyPane() }
     func openSpeechPane() { permissions.openSpeechPrivacyPane() }
@@ -3988,13 +3991,11 @@ class AppState: ObservableObject {
     func setAlwaysListeningEnabled(_ enabled: Bool) {
         if enabled {
             if !microphoneAuthorized {
-                permissions.requestMicrophone()
-                refreshPermissions()
+                requestMicrophoneGuided()
                 return
             }
             if !speechAuthorized {
-                permissions.requestSpeech()
-                refreshPermissions()
+                requestSpeechGuided()
                 return
             }
         }
@@ -4018,16 +4019,26 @@ class AppState: ObservableObject {
         }
     }
 
+    private func performPermissionRequestAfterActivatingApp(_ action: @escaping () -> Void) {
+        showMainWindow()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            action()
+        }
+    }
+
     func requestMicrophoneGuided() {
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
         switch status {
         case .authorized:
             refreshPermissions()
         case .notDetermined:
-            permissions.requestMicrophone()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            performPermissionRequestAfterActivatingApp { [weak self] in
                 guard let self else { return }
-                self.refreshPermissions()
+                self.permissions.requestMicrophone()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    guard let self else { return }
+                    self.refreshPermissions()
+                }
             }
         case .denied, .restricted:
             permissions.openMicrophonePrivacyPane()
@@ -4040,15 +4051,12 @@ class AppState: ObservableObject {
 
     func repairMicrophoneGuided() {
         Task { [weak self] in
-            _ = await Self.resetTCCAsync(service: "Microphone")
-            try? await Task.sleep(for: .milliseconds(200))
             guard let self else { return }
-            self.permissions.requestMicrophone()
-            try? await Task.sleep(for: .milliseconds(1000))
-            self.refreshPermissions()
-            if !self.microphoneAuthorized {
-                self.permissions.openMicrophonePrivacyPane()
+            let didReset = await Self.resetTCCAsync(service: "Microphone")
+            if didReset && self.relaunchForPermissionRecovery(.microphone) {
+                return
             }
+            self.requestMicrophoneGuided()
         }
     }
 
@@ -4058,10 +4066,13 @@ class AppState: ObservableObject {
         case .authorized:
             refreshPermissions()
         case .notDetermined:
-            permissions.requestSpeech()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            performPermissionRequestAfterActivatingApp { [weak self] in
                 guard let self else { return }
-                self.refreshPermissions()
+                self.permissions.requestSpeech()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    guard let self else { return }
+                    self.refreshPermissions()
+                }
             }
         case .denied, .restricted:
             permissions.openSpeechPrivacyPane()
@@ -4074,16 +4085,55 @@ class AppState: ObservableObject {
 
     func repairSpeechGuided() {
         Task { [weak self] in
-            _ = await Self.resetTCCAsync(service: "SpeechRecognition")
-            try? await Task.sleep(for: .milliseconds(200))
             guard let self else { return }
-            self.permissions.requestSpeech()
-            try? await Task.sleep(for: .milliseconds(1000))
-            self.refreshPermissions()
-            if !self.speechAuthorized {
-                self.permissions.openSpeechPrivacyPane()
+            let didReset = await Self.resetTCCAsync(service: "SpeechRecognition")
+            if didReset && self.relaunchForPermissionRecovery(.speech) {
+                return
+            }
+            self.requestSpeechGuided()
+        }
+    }
+
+    private func continuePendingPermissionRecoveryIfNeeded() {
+        guard let recovery = Self.pendingPermissionRecoveryFromLaunchArguments() else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self else { return }
+            switch recovery {
+            case .microphone:
+                self.requestMicrophoneGuided()
+            case .speech:
+                self.requestSpeechGuided()
             }
         }
+    }
+
+    private func relaunchForPermissionRecovery(_ recovery: PendingPermissionRecovery) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = [
+            "-n",
+            Bundle.main.bundlePath,
+            "--args",
+            "\(Self.permissionRecoveryArgumentPrefix)\(recovery.rawValue)"
+        ]
+
+        do {
+            try process.run()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                NSApp.terminate(nil)
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private static func pendingPermissionRecoveryFromLaunchArguments() -> PendingPermissionRecovery? {
+        guard let argument = CommandLine.arguments.first(where: { $0.hasPrefix(permissionRecoveryArgumentPrefix) }) else {
+            return nil
+        }
+        let rawValue = String(argument.dropFirst(permissionRecoveryArgumentPrefix.count))
+        return PendingPermissionRecovery(rawValue: rawValue)
     }
 
     nonisolated private static func resetTCCAsync(service: String) async -> Bool {
@@ -4094,8 +4144,9 @@ class AppState: ObservableObject {
 
     nonisolated private static func resetTCC(service: String) -> Bool {
         let process = Process()
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.7fei.Aether"
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-        process.arguments = ["reset", service, "com.7fei.Aether"]
+        process.arguments = ["reset", service, bundleIdentifier]
         do {
             try process.run()
             process.waitUntilExit()

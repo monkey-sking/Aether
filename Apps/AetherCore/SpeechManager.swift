@@ -1837,19 +1837,23 @@ final class SpeechManager: ObservableObject {
 
     // MARK: - Permissions
     func requestPermissions() {
-        SFSpeechRecognizer.requestAuthorization { [weak self] auth in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                switch auth {
-                case .authorized: self.status = "Speech Authorized"
-                case .denied: self.status = "Speech Denied"
-                case .restricted: self.status = "Speech Restricted"
-                case .notDetermined: self.status = "Speech Not Determined"
-                @unknown default: self.status = "Speech Unknown"
+        NSApp.unhide(nil)
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            SFSpeechRecognizer.requestAuthorization { [weak self] auth in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    switch auth {
+                    case .authorized: self.status = "Speech Authorized"
+                    case .denied: self.status = "Speech Denied"
+                    case .restricted: self.status = "Speech Restricted"
+                    case .notDetermined: self.status = "Speech Not Determined"
+                    @unknown default: self.status = "Speech Unknown"
+                    }
                 }
             }
+            AVCaptureDevice.requestAccess(for: .audio) { _ in }
         }
-        AVCaptureDevice.requestAccess(for: .audio) { _ in }
     }
 
     private func missingVoicePermissionHint() -> (message: String, icon: String)? {
@@ -3535,9 +3539,25 @@ final class SpeechManager: ObservableObject {
     }
 
     private func showUnknownCommandHUD(_ transcript: String) {
-        _ = transcript
+        let suggestions = commandRouter
+            .suggestedCommandPhrases(
+                for: transcript,
+                localeIdentifier: activeLocale.identifier,
+                limit: 3
+            )
+            .map {
+                Self.compactHUDSnippet(
+                    $0,
+                    maxEnglishCharacters: 18,
+                    maxNonEnglishCharacters: 8
+                )
+            }
+        let baseMessage = NSLocalizedString("speech.no_matching_command", comment: "")
+        let message = suggestions.isEmpty
+            ? baseMessage
+            : "\(baseMessage) · \(suggestions.joined(separator: " / "))"
         HUDManager.shared.showTemporary(
-            message: NSLocalizedString("speech.no_matching_command", comment: ""),
+            message: message,
             recognitionControlMode: .command,
             icon: "xmark.circle.fill",
         )
@@ -3794,7 +3814,9 @@ final class SpeechManager: ObservableObject {
         localeIdentifier: String,
         overrides: [VoiceLanguageTermsOverrideConfig]
     ) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingLeadingCommandPrefixIgnorables()
         guard !trimmed.isEmpty else { return false }
 
         let prefixes = VoiceCommandRouter.effectiveCommandPrefixes(
@@ -4527,7 +4549,7 @@ final class SpeechManager: ObservableObject {
     private func partialHasExplicitCommandPrefix(_ text: String) -> Bool {
         let trimmed = canonicalizedExplicitCommandPrefixText(
             text.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
+        ).trimmingLeadingCommandPrefixIgnorables()
         guard !trimmed.isEmpty else { return false }
 
         let prefixes = VoiceCommandRouter.effectiveCommandPrefixes(
@@ -4549,7 +4571,7 @@ final class SpeechManager: ObservableObject {
     private func partialMayBecomeExplicitCommandPrefix(_ text: String) -> Bool {
         let trimmed = canonicalizedExplicitCommandPrefixText(
             text.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
+        ).trimmingLeadingCommandPrefixIgnorables()
         guard !trimmed.isEmpty else { return false }
 
         let prefixes = VoiceCommandRouter.effectiveCommandPrefixes(
@@ -4571,7 +4593,7 @@ final class SpeechManager: ObservableObject {
     private func isExplicitCommandPrefixOnly(_ text: String) -> Bool {
         let trimmed = canonicalizedExplicitCommandPrefixText(
             text.trimmingCharacters(in: .whitespacesAndNewlines)
-        ).lowercased()
+        ).trimmingLeadingCommandPrefixIgnorables().lowercased()
         guard !trimmed.isEmpty else { return false }
 
         return VoiceCommandRouter.effectiveCommandPrefixes(
@@ -4633,13 +4655,22 @@ final class SpeechManager: ObservableObject {
         )
         guard prefixes.contains(where: { $0 == "执行" }) else { return trimmed }
 
+        let leadingIgnorableCount = trimmed.prefix { character in
+            character.unicodeScalars.allSatisfy {
+                CharacterSet.whitespacesAndNewlines.contains($0)
+                    || CharacterSet.punctuationCharacters.contains($0)
+            }
+        }.count
+        let leadingIgnorables = String(trimmed.prefix(leadingIgnorableCount))
+        let commandProbe = String(trimmed.dropFirst(leadingIgnorableCount))
+
         let variants = ["直径", "致敬", "制景", "之景", "知景"]
         for variant in variants {
-            if trimmed == variant {
-                return "执行"
+            if commandProbe == variant {
+                return leadingIgnorables + "执行"
             }
-            if trimmed.hasPrefix(variant) {
-                return "执行" + trimmed.dropFirst(variant.count)
+            if commandProbe.hasPrefix(variant) {
+                return leadingIgnorables + "执行" + commandProbe.dropFirst(variant.count)
             }
         }
         return trimmed

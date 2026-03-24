@@ -1415,6 +1415,13 @@ final class VoiceCommandRouter {
         case fuzzy
     }
 
+    private struct SuggestedCommandPhrase {
+        let phrase: String
+        let normalized: String
+        let pinyin: String
+        let priorityBoost: Int
+    }
+
     private struct State {
         var overrides: [VoiceCommandOverrideConfig] = []
         var languageTermsOverrides: [VoiceLanguageTermsOverrideConfig] = []
@@ -1487,7 +1494,12 @@ final class VoiceCommandRouter {
                 overrides: currentState.languageTermsOverrides
             )
         )
-        let commandText = explicitCommandPayload ?? trimmed
+        let commandTextCandidates = commandMatchingCandidates(
+            transcript: trimmed,
+            explicitCommandPayload: explicitCommandPayload,
+            localeIdentifier: localeIdentifier
+        )
+        let commandText = commandTextCandidates.first ?? (explicitCommandPayload ?? trimmed)
 
         // Normalize for command matching
         let s = commandText.lowercased().replacingOccurrences(of: " ", with: "")
@@ -1504,14 +1516,18 @@ final class VoiceCommandRouter {
         let isForceCommand = bias == .forceCommand || explicitCommandPayload != nil
 
         if isForceCommand || bias != .dictationPreferred {
-            if let deleteMatch = matchDeleteBackwardCommand(
-                text: commandText,
-                localeIdentifier: localeIdentifier
-            ) {
-                return deleteMatch
+            for candidate in commandTextCandidates {
+                if let deleteMatch = matchDeleteBackwardCommand(
+                    text: candidate,
+                    localeIdentifier: localeIdentifier
+                ) {
+                    return deleteMatch
+                }
             }
-            if let cursorMatch = matchCursorEditingCommand(text: commandText, localeIdentifier: localeIdentifier) {
-                return cursorMatch
+            for candidate in commandTextCandidates {
+                if let cursorMatch = matchCursorEditingCommand(text: candidate, localeIdentifier: localeIdentifier) {
+                    return cursorMatch
+                }
             }
         }
 
@@ -1523,42 +1539,50 @@ final class VoiceCommandRouter {
         }
 
         // --- 4. Local Command Matching (Standard Workflow) ---
-        if let match = matchCommand(
-            normalized: s,
-            raw: commandText,
-            localeIdentifier: localeIdentifier,
-            overrides: currentState.overrides,
-            stage: .exact
-        ) {
-            return VoiceCommandDecision(intent: match.preset.intent, confidence: match.confidence, reason: match.reason)
+        for candidate in commandTextCandidates {
+            if let match = matchCommand(
+                normalized: normalizeMatchString(candidate),
+                raw: candidate,
+                localeIdentifier: localeIdentifier,
+                overrides: currentState.overrides,
+                stage: .exact
+            ) {
+                return VoiceCommandDecision(intent: match.preset.intent, confidence: match.confidence, reason: match.reason)
+            }
         }
 
-        if let appMatch = matchFrontmostAppCommand(
-            normalized: s,
-            raw: commandText,
-            frontmostAppCommands: currentState.frontmostAppCommands,
-            stage: .exact
-        ) {
-            return VoiceCommandDecision(intent: .frontmostAppCommand(appMatch.command), confidence: appMatch.confidence, reason: appMatch.reason)
+        for candidate in commandTextCandidates {
+            if let appMatch = matchFrontmostAppCommand(
+                normalized: normalizeMatchString(candidate),
+                raw: candidate,
+                frontmostAppCommands: currentState.frontmostAppCommands,
+                stage: .exact
+            ) {
+                return VoiceCommandDecision(intent: .frontmostAppCommand(appMatch.command), confidence: appMatch.confidence, reason: appMatch.reason)
+            }
         }
 
-        if let appMatch = matchFrontmostAppCommand(
-            normalized: s,
-            raw: commandText,
-            frontmostAppCommands: currentState.frontmostAppCommands,
-            stage: .fuzzy
-        ) {
-            return VoiceCommandDecision(intent: .frontmostAppCommand(appMatch.command), confidence: appMatch.confidence, reason: appMatch.reason)
+        for candidate in commandTextCandidates {
+            if let appMatch = matchFrontmostAppCommand(
+                normalized: normalizeMatchString(candidate),
+                raw: candidate,
+                frontmostAppCommands: currentState.frontmostAppCommands,
+                stage: .fuzzy
+            ) {
+                return VoiceCommandDecision(intent: .frontmostAppCommand(appMatch.command), confidence: appMatch.confidence, reason: appMatch.reason)
+            }
         }
 
-        if let match = matchCommand(
-            normalized: s,
-            raw: commandText,
-            localeIdentifier: localeIdentifier,
-            overrides: currentState.overrides,
-            stage: .fuzzy
-        ) {
-            return VoiceCommandDecision(intent: match.preset.intent, confidence: match.confidence, reason: match.reason)
+        for candidate in commandTextCandidates {
+            if let match = matchCommand(
+                normalized: normalizeMatchString(candidate),
+                raw: candidate,
+                localeIdentifier: localeIdentifier,
+                overrides: currentState.overrides,
+                stage: .fuzzy
+            ) {
+                return VoiceCommandDecision(intent: match.preset.intent, confidence: match.confidence, reason: match.reason)
+            }
         }
 
         // --- 5. Default Fallback ---
@@ -1735,6 +1759,55 @@ final class VoiceCommandRouter {
         return ordered
     }
 
+    func suggestedCommandPhrases(
+        for raw: String,
+        localeIdentifier: String = Locale.current.identifier,
+        limit: Int = 3
+    ) -> [String] {
+        guard limit > 0 else { return [] }
+
+        let currentState = stateSnapshot()
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        let explicitCommandPayload = stripLeadingPrefix(
+            from: trimmed,
+            prefixes: Self.effectiveCommandPrefixes(
+                for: localeIdentifier,
+                overrides: currentState.languageTermsOverrides
+            )
+        )
+        let queryCandidates = commandMatchingCandidates(
+            transcript: trimmed,
+            explicitCommandPayload: explicitCommandPayload,
+            localeIdentifier: localeIdentifier
+        )
+
+        guard !queryCandidates.isEmpty else { return [] }
+
+        let suggestions = suggestedCommandPhraseCandidates(
+            localeIdentifier: localeIdentifier,
+            overrides: currentState.overrides,
+            frontmostAppCommands: currentState.frontmostAppCommands
+        )
+
+        return suggestions
+            .compactMap { candidate -> (phrase: String, score: Int)? in
+                let score = queryCandidates.reduce(0) { partial, query in
+                    max(partial, scoreSuggestedCommandPhrase(candidate, query: query))
+                }
+                guard score > 0 else { return nil }
+                return (phrase: candidate.phrase, score: score)
+            }
+            .sorted {
+                if $0.score != $1.score { return $0.score > $1.score }
+                if $0.phrase.count != $1.phrase.count { return $0.phrase.count < $1.phrase.count }
+                return $0.phrase.localizedCaseInsensitiveCompare($1.phrase) == .orderedAscending
+            }
+            .prefix(limit)
+            .map(\.phrase)
+    }
+
     private func matchCommand(
         normalized: String,
         raw: String,
@@ -1896,17 +1969,231 @@ final class VoiceCommandRouter {
     }
 
     private func stripLeadingPrefix(from text: String, prefixes: [String]) -> String? {
-        let lowered = text.lowercased()
+        let candidateText = text.trimmingLeadingCommandPrefixIgnorables()
+        let lowered = candidateText.lowercased()
         let sortedPrefixes = Self.uniqueAliases(prefixes).sorted { $0.count > $1.count }
 
         for prefix in sortedPrefixes {
             let loweredPrefix = prefix.lowercased()
             guard lowered.hasPrefix(loweredPrefix) else { continue }
-            let remainder = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            return remainder.isEmpty ? text : remainder
+            let remainder = String(candidateText.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return remainder.isEmpty ? candidateText : remainder
         }
 
         return nil
+    }
+
+    private func commandMatchingCandidates(
+        transcript: String,
+        explicitCommandPayload: String?,
+        localeIdentifier: String
+    ) -> [String] {
+        let base = (explicitCommandPayload ?? transcript).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !base.isEmpty else { return [] }
+
+        var candidates: [String] = []
+
+        if explicitCommandPayload != nil {
+            let sanitized = sanitizeExplicitCommandPayload(base, localeIdentifier: localeIdentifier)
+            if !sanitized.isEmpty {
+                candidates.append(sanitized)
+            }
+        }
+
+        let punctuationTrimmed = base
+            .trimmingLeadingCommandPrefixIgnorables()
+            .trimmingTrailingCommandAffixIgnorables()
+        if !punctuationTrimmed.isEmpty {
+            candidates.append(punctuationTrimmed)
+        }
+
+        candidates.append(base)
+
+        var ordered: [String] = []
+        var seen = Set<String>()
+        for candidate in candidates {
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let key = trimmed.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            ordered.append(trimmed)
+        }
+        return ordered
+    }
+
+    private func sanitizeExplicitCommandPayload(_ raw: String, localeIdentifier: String) -> String {
+        let fallback = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !fallback.isEmpty else { return fallback }
+
+        let canonicalLocale = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let leadingFillers: [String]
+        let trailingFillers: [String]
+
+        switch canonicalLocale {
+        case "zh-CN":
+            leadingFillers = [
+                "麻烦你帮我", "麻烦你给我", "麻烦帮我", "麻烦给我",
+                "请帮我", "请给我", "请你帮我", "请你给我",
+                "帮我", "给我", "替我", "麻烦你", "麻烦", "请你", "请"
+            ]
+            trailingFillers = [
+                "一下下", "一下子", "一下", "吧", "啊", "呀", "呢", "哦", "哈", "啦"
+            ]
+        default:
+            leadingFillers = [
+                "could you please", "can you please", "would you please",
+                "could you", "can you", "would you", "please", "help me"
+            ]
+            trailingFillers = ["please"]
+        }
+
+        var candidate = fallback
+            .trimmingLeadingCommandPrefixIgnorables()
+            .trimmingTrailingCommandAffixIgnorables()
+
+        var didChange = true
+        while didChange, !candidate.isEmpty {
+            didChange = false
+
+            for filler in leadingFillers.sorted(by: { $0.count > $1.count }) {
+                guard candidate.lowercased().hasPrefix(filler.lowercased()) else { continue }
+                candidate = String(candidate.dropFirst(filler.count))
+                    .trimmingLeadingCommandPrefixIgnorables()
+                    .trimmingTrailingCommandAffixIgnorables()
+                didChange = true
+                break
+            }
+
+            for filler in trailingFillers.sorted(by: { $0.count > $1.count }) {
+                guard candidate.lowercased().hasSuffix(filler.lowercased()) else { continue }
+                candidate = String(candidate.dropLast(filler.count))
+                    .trimmingLeadingCommandPrefixIgnorables()
+                    .trimmingTrailingCommandAffixIgnorables()
+                didChange = true
+                break
+            }
+        }
+
+        return candidate.isEmpty ? fallback : candidate
+    }
+
+    private func suggestedCommandPhraseCandidates(
+        localeIdentifier: String,
+        overrides: [VoiceCommandOverrideConfig],
+        frontmostAppCommands: [FrontmostAppCommand]
+    ) -> [SuggestedCommandPhrase] {
+        var ordered: [SuggestedCommandPhrase] = []
+        var seen = Set<String>()
+
+        func appendPhrase(_ phrase: String, priorityBoost: Int) {
+            let trimmed = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            let key = trimmed.lowercased()
+            guard !seen.contains(key) else { return }
+            seen.insert(key)
+            ordered.append(
+                SuggestedCommandPhrase(
+                    phrase: trimmed,
+                    normalized: normalizeMatchString(trimmed),
+                    pinyin: normalizeMatchString(trimmed.pinyin),
+                    priorityBoost: priorityBoost
+                )
+            )
+        }
+
+        for command in frontmostAppCommands {
+            for alias in command.aliases {
+                appendPhrase(alias, priorityBoost: 40)
+            }
+        }
+
+        for preset in VoiceCommandPreset.allCases {
+            for alias in Self.effectiveAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides) {
+                appendPhrase(alias, priorityBoost: 0)
+            }
+        }
+
+        return ordered
+    }
+
+    private func scoreSuggestedCommandPhrase(_ candidate: SuggestedCommandPhrase, query rawQuery: String) -> Int {
+        let query = normalizeMatchString(rawQuery)
+        let queryPinyin = normalizeMatchString(rawQuery.pinyin)
+        guard !query.isEmpty else { return 0 }
+
+        let lengthPenalty = min(60, abs(candidate.normalized.count - query.count))
+        var best = 0
+
+        if candidate.normalized == query {
+            best = max(best, 1000 - lengthPenalty)
+        }
+        if candidate.normalized.hasPrefix(query) {
+            best = max(best, 920 - lengthPenalty)
+        }
+        if query.hasPrefix(candidate.normalized) {
+            best = max(best, 880 - lengthPenalty)
+        }
+        if candidate.normalized.contains(query) {
+            best = max(best, 760 - lengthPenalty)
+        }
+        if query.contains(candidate.normalized) {
+            best = max(best, 720 - lengthPenalty)
+        }
+
+        if !queryPinyin.isEmpty, !candidate.pinyin.isEmpty {
+            let pinyinPenalty = min(60, abs(candidate.pinyin.count - queryPinyin.count))
+
+            if candidate.pinyin == queryPinyin {
+                best = max(best, 620 - pinyinPenalty)
+            }
+            if candidate.pinyin.hasPrefix(queryPinyin) {
+                best = max(best, 560 - pinyinPenalty)
+            }
+            if queryPinyin.hasPrefix(candidate.pinyin) {
+                best = max(best, 520 - pinyinPenalty)
+            }
+            if candidate.pinyin.contains(queryPinyin) {
+                best = max(best, 460 - pinyinPenalty)
+            }
+            if queryPinyin.contains(candidate.pinyin) {
+                best = max(best, 420 - pinyinPenalty)
+            }
+
+            let distance = Self.levenshtein(candidate.pinyin, queryPinyin)
+            if max(candidate.pinyin.count, queryPinyin.count) >= 4, distance <= 1 {
+                best = max(best, 360 - pinyinPenalty)
+            }
+        }
+
+        guard best > 0 else { return 0 }
+        return best + candidate.priorityBoost
+    }
+
+    private static func levenshtein(_ lhs: String, _ rhs: String) -> Int {
+        let lhsChars = Array(lhs)
+        let rhsChars = Array(rhs)
+
+        if lhsChars.isEmpty { return rhsChars.count }
+        if rhsChars.isEmpty { return lhsChars.count }
+
+        var previous = Array(0...rhsChars.count)
+        for (lhsIndex, lhsChar) in lhsChars.enumerated() {
+            var current = [lhsIndex + 1]
+            current.reserveCapacity(rhsChars.count + 1)
+
+            for (rhsIndex, rhsChar) in rhsChars.enumerated() {
+                let substitutionCost = lhsChar == rhsChar ? 0 : 1
+                let insertion = current[rhsIndex] + 1
+                let deletion = previous[rhsIndex + 1] + 1
+                let substitution = previous[rhsIndex] + substitutionCost
+                current.append(min(insertion, deletion, substitution))
+            }
+
+            previous = current
+        }
+
+        return previous.last ?? 0
     }
 
     private func stateSnapshot() -> State {
@@ -2035,5 +2322,27 @@ extension String {
             .applyingTransform(.stripDiacritics, reverse: false)?
             .lowercased()
             .replacingOccurrences(of: " ", with: "") ?? self.lowercased()
+    }
+
+    func trimmingLeadingCommandPrefixIgnorables() -> String {
+        String(
+            drop(while: { character in
+                character.unicodeScalars.allSatisfy {
+                    CharacterSet.whitespacesAndNewlines.contains($0)
+                        || CharacterSet.punctuationCharacters.contains($0)
+                }
+            })
+        )
+    }
+
+    func trimmingTrailingCommandAffixIgnorables() -> String {
+        String(
+            reversed().drop(while: { character in
+                character.unicodeScalars.allSatisfy {
+                    CharacterSet.whitespacesAndNewlines.contains($0)
+                        || CharacterSet.punctuationCharacters.contains($0)
+                }
+            }).reversed()
+        )
     }
 }

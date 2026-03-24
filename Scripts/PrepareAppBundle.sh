@@ -56,7 +56,13 @@ if [[ -n "$SIGNING_IDENTITY" ]]; then
       "$APP_PATH" >/dev/null
   fi
 else
-  /usr/bin/codesign --force --deep --sign - "$APP_PATH" >/dev/null
+  if [[ -f "$ENTITLEMENTS_PATH" ]]; then
+    /usr/bin/codesign --force --deep --sign - \
+      --entitlements "$ENTITLEMENTS_PATH" \
+      "$APP_PATH" >/dev/null
+  else
+    /usr/bin/codesign --force --deep --sign - "$APP_PATH" >/dev/null
+  fi
 fi
 
 /usr/bin/codesign --verify --deep --strict "$APP_PATH" >/dev/null 2>&1

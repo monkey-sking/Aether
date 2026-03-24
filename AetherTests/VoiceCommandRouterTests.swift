@@ -1,4 +1,5 @@
 import XCTest
+import Carbon.HIToolbox
 @testable import Aether
 
 final class VoiceCommandRouterTests: XCTestCase {
@@ -202,6 +203,95 @@ final class VoiceCommandRouterTests: XCTestCase {
         )
     }
 
+    func testTypingModeExecutionPrefixRunsCommands() {
+        XCTAssertEqual(
+            router.route(transcript: "执行粘贴", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .paste
+        )
+        XCTAssertEqual(
+            router.route(transcript: "执行，帮我粘贴一下吧", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .paste
+        )
+    }
+
+    func testTypingModeExecutionPrefixRunsFrontmostAppCommands() {
+        let sendCommand = FrontmostAppCommand(
+            processIdentifier: 7,
+            bundleIdentifier: "com.openai.codex",
+            appName: "Codex",
+            menuPath: ["Custom Rules"],
+            title: "Send",
+            shortcut: HotkeyBinding(
+                keyCode: kVK_Return,
+                modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue)
+            ),
+            aliases: ["发送", "确认发送"]
+        )
+        router.frontmostAppCommands = [sendCommand]
+
+        XCTAssertEqual(
+            router.route(transcript: "执行发送", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .frontmostAppCommand(sendCommand)
+        )
+        XCTAssertEqual(
+            router.route(transcript: "，执行发送", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .frontmostAppCommand(sendCommand)
+        )
+        XCTAssertEqual(
+            router.route(transcript: "执行，请帮我确认发送一下", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .frontmostAppCommand(sendCommand)
+        )
+    }
+
+    func testSuggestedCommandPhrasesPreferClosestContextualAlias() {
+        let sendCommand = FrontmostAppCommand(
+            processIdentifier: 7,
+            bundleIdentifier: "com.openai.codex",
+            appName: "Codex",
+            menuPath: ["Custom Rules"],
+            title: "Send",
+            shortcut: HotkeyBinding(
+                keyCode: kVK_Return,
+                modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue)
+            ),
+            aliases: ["发送", "确认发送"]
+        )
+        router.frontmostAppCommands = [sendCommand]
+
+        XCTAssertEqual(
+            router.suggestedCommandPhrases(for: "执行确认发", localeIdentifier: "zh-CN").first,
+            "确认发送"
+        )
+    }
+
+    func testSuggestedCommandPhrasesStripPrefixNoise() {
+        let sendCommand = FrontmostAppCommand(
+            processIdentifier: 7,
+            bundleIdentifier: "com.openai.codex",
+            appName: "Codex",
+            menuPath: ["Custom Rules"],
+            title: "Send",
+            shortcut: HotkeyBinding(
+                keyCode: kVK_Return,
+                modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue)
+            ),
+            aliases: ["发送", "确认发送"]
+        )
+        router.frontmostAppCommands = [sendCommand]
+
+        XCTAssertEqual(
+            router.suggestedCommandPhrases(for: "执行，帮我发送给他一下", localeIdentifier: "zh-CN").first,
+            "发送"
+        )
+    }
+
+    func testSuggestedCommandPhrasesUsePinyinSimilarity() {
+        XCTAssertEqual(
+            router.suggestedCommandPhrases(for: "执行粘帖", localeIdentifier: "zh-CN").first,
+            "粘贴"
+        )
+    }
+
     func testCommandPreferredUnknownDoesNotFallBackToDictation() {
         XCTAssertEqual(
             router.route(transcript: "测试", bias: .commandPreferred),
@@ -353,6 +443,16 @@ final class SpeechManagerTypingModeTests: XCTestCase {
                 localeIdentifier: "en-US"
             ),
             "Save as PDF"
+        )
+    }
+
+    func testLeadingExplicitCommandPrefixIgnoresAutoInsertedPunctuation() {
+        XCTAssertTrue(
+            SpeechManager.hasLeadingExplicitCommandPrefix(
+                "，执行发送",
+                localeIdentifier: "zh-CN",
+                overrides: []
+            )
         )
     }
 

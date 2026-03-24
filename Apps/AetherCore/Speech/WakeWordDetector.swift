@@ -148,7 +148,7 @@ final class WakeWordDetector {
         )
         if let strictMatch, strictMatch.score >= Self.fuzzyWakeDetectionThreshold {
             let payload = String(trimmedLeading.dropFirst(strictMatch.totalConsumedRawCount))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingLeadingWakePayloadSeparators()
             return WakeWordDetectionResult(
                 wakeDetected: true,
                 payload: payload,
@@ -160,7 +160,7 @@ final class WakeWordDetector {
         if matchMode == .retryAwareStandby,
            let retryMatch = Self.bestRetryAwareMatch(phrases: phrases, in: trimmedLeading) {
             let payload = String(trimmedLeading.dropFirst(retryMatch.totalConsumedRawCount))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingLeadingWakePayloadSeparators()
             return WakeWordDetectionResult(
                 wakeDetected: true,
                 payload: payload,
@@ -419,6 +419,22 @@ final class WakeWordDetector {
 }
 
 private extension String {
+    func trimmingLeadingWakePayloadSeparators() -> String {
+        let separatorScalars = CharacterSet(charactersIn: ",.!?;:，。！？；：、…")
+
+        var index = startIndex
+        while index < endIndex {
+            let scalarView = self[index].unicodeScalars
+            let isIgnorable = scalarView.allSatisfy {
+                CharacterSet.whitespacesAndNewlines.contains($0)
+                    || separatorScalars.contains($0)
+            }
+            if !isIgnorable { break }
+            index = self.index(after: index)
+        }
+        return String(self[index...])
+    }
+
     func trimmingLeadingWakeIgnorables() -> String {
         var index = startIndex
         while index < endIndex {
