@@ -367,7 +367,7 @@ final class VoiceService: ObservableObject {
         }
     }
 
-    var onIntent: ((VoiceIntent, String?, String?, String?) -> Void)? {
+    var onIntent: ((VoiceIntent, String?, String?, String?, String?, String?) -> Void)? {
         get { manager.onIntent }
         set { manager.onIntent = newValue }
     }
@@ -3709,7 +3709,7 @@ class AppState: ObservableObject {
             .assign(to: &$nowPlayingStatus)
 
 
-        voiceService.onIntent = { [weak self] intent, appName, bundleIdentifier, spokenText in
+        voiceService.onIntent = { [weak self] intent, appName, bundleIdentifier, spokenText, originalContent, diagnostics in
             guard let self else { return }
             DispatchQueue.main.async {
                 guard !self.isScreenLocked else { return }
@@ -3718,7 +3718,14 @@ class AppState: ObservableObject {
                     return
                 }
                 guard !self.isIdlePaused else { return }
-                self.applyVoiceIntent(intent, appName: appName, bundleIdentifier: bundleIdentifier, spokenText: spokenText)
+                self.applyVoiceIntent(
+                    intent,
+                    appName: appName,
+                    bundleIdentifier: bundleIdentifier,
+                    spokenText: spokenText,
+                    originalContent: originalContent,
+                    diagnostics: diagnostics
+                )
             }
         }
         voiceService.isDictationExecutionEnabled = { [weak self] in
@@ -4199,7 +4206,9 @@ class AppState: ObservableObject {
         _ intent: VoiceIntent,
         appName: String? = nil,
         bundleIdentifier: String? = nil,
-        spokenText: String? = nil
+        spokenText: String? = nil,
+        originalContent: String? = nil,
+        diagnostics: String? = nil
     ) {
         guard !isIdlePaused else { return }
         func recordControl(_ intent: VoiceIntent, appName: String? = appName, bundleIdentifier: String? = bundleIdentifier) {
@@ -4337,9 +4346,23 @@ class AppState: ObservableObject {
             GlobalLogger.lifecycle.info("[VoiceIntent] action=dictation text=\(text)")
             if HUDManager.shared.state.recognitionControlMode == .command || !HUDManager.shared.state.isTypingContext {
                 GlobalLogger.lifecycle.info("[VoiceIntent] hud_control_mismatch text=\(text)")
-                recordVoiceDictationWhileHUDControl(text, appName: appName, bundleIdentifier: bundleIdentifier)
+                recordVoiceDictationWhileHUDControl(
+                    text,
+                    originalContent: originalContent,
+                    spokenText: spokenText,
+                    diagnostics: diagnostics,
+                    appName: appName,
+                    bundleIdentifier: bundleIdentifier
+                )
             } else {
-                recordVoiceDictation(text, appName: appName, bundleIdentifier: bundleIdentifier)
+                recordVoiceDictation(
+                    text,
+                    originalContent: originalContent,
+                    spokenText: spokenText,
+                    diagnostics: diagnostics,
+                    appName: appName,
+                    bundleIdentifier: bundleIdentifier
+                )
             }
         case .unknown:
             GlobalLogger.lifecycle.info("[VoiceIntent] action=unknown")
@@ -4386,23 +4409,66 @@ class AppState: ObservableObject {
         )
     }
 
-    private func recordVoiceDictation(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
+    private func dictationEventCode(from diagnostics: String?) -> String? {
+        guard let diagnostics,
+              diagnostics.hasPrefix("llm=") else {
+            return nil
+        }
+        let value = diagnostics.dropFirst(4)
+        guard !value.isEmpty else { return nil }
+        return "dictation.llm.\(value)"
+    }
+
+    private func normalizedDictationOriginalContent(
+        _ originalContent: String?,
+        committedText: String
+    ) -> String? {
+        guard let originalContent else { return nil }
+        let trimmedOriginal = originalContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedCommitted = committedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedOriginal.isEmpty, trimmedOriginal != trimmedCommitted else {
+            return nil
+        }
+        return originalContent
+    }
+
+    private func recordVoiceDictation(
+        _ text: String,
+        originalContent: String? = nil,
+        spokenText: String? = nil,
+        diagnostics: String? = nil,
+        appName: String? = nil,
+        bundleIdentifier: String? = nil
+    ) {
         recordVoiceUsageEvent(
             kind: .dictation,
             action: AppLocalization.isChinese ? "输入" : "Dictation",
             content: text,
+            originalContent: normalizedDictationOriginalContent(originalContent, committedText: text),
+            spokenText: spokenText,
             appName: appName,
-            bundleIdentifier: bundleIdentifier
+            bundleIdentifier: bundleIdentifier,
+            eventCode: dictationEventCode(from: diagnostics)
         )
     }
     
-    private func recordVoiceDictationWhileHUDControl(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
+    private func recordVoiceDictationWhileHUDControl(
+        _ text: String,
+        originalContent: String? = nil,
+        spokenText: String? = nil,
+        diagnostics: String? = nil,
+        appName: String? = nil,
+        bundleIdentifier: String? = nil
+    ) {
         recordVoiceUsageEvent(
             kind: .dictation,
             action: AppLocalization.isChinese ? "控制模式下输入" : "Dictation While HUD Control",
             content: text,
+            originalContent: normalizedDictationOriginalContent(originalContent, committedText: text),
+            spokenText: spokenText,
             appName: appName,
-            bundleIdentifier: bundleIdentifier
+            bundleIdentifier: bundleIdentifier,
+            eventCode: dictationEventCode(from: diagnostics)
         )
     }
 

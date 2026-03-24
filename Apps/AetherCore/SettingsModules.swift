@@ -4696,6 +4696,42 @@ private struct VoiceUsageEventRow: View {
         }
     }
 
+    private var dictationStatusText: String? {
+        guard event.kind == .dictation,
+              let eventCode = event.eventCode,
+              eventCode.hasPrefix("dictation.llm.") else {
+            return nil
+        }
+
+        let status = String(eventCode.dropFirst("dictation.llm.".count))
+        switch status {
+        case "applied":
+            return isChinese ? "LLM 已应用" : "LLM applied"
+        case "unchanged":
+            return isChinese ? "LLM 未改动" : "LLM unchanged"
+        case "disabled":
+            return isChinese ? "LLM 已关闭" : "LLM disabled"
+        case "skipped-no-typing":
+            return isChinese ? "LLM 跳过（非输入场景）" : "LLM skipped (non-typing)"
+        case "provider-unavailable":
+            return isChinese ? "LLM 不可用" : "LLM unavailable"
+        case "provider-failed":
+            return isChinese ? "LLM 调用失败" : "LLM failed"
+        case "rejected-language-drift":
+            return isChinese ? "LLM 已拒绝（语言漂移）" : "LLM rejected (language drift)"
+        case "rejected-protected-token":
+            return isChinese ? "LLM 已拒绝（保护字段）" : "LLM rejected (protected tokens)"
+        case "rejected-short-text-rewrite":
+            return isChinese ? "LLM 已拒绝（短句改动过大）" : "LLM rejected (short text)"
+        case "rejected-over-rewrite":
+            return isChinese ? "LLM 已拒绝（改动过大）" : "LLM rejected (rewrite too large)"
+        case "rejected-empty":
+            return isChinese ? "LLM 已拒绝（空结果）" : "LLM rejected (empty output)"
+        default:
+            return nil
+        }
+    }
+
     private func copyEvent() {
         do {
             try appState.copyVoiceUsageEvent(event)
@@ -4746,11 +4782,20 @@ private struct VoiceUsageEventRow: View {
                             .truncationMode(.tail)
                     }
                 } else {
-                    Text(previewText)
-                        .font(.caption)
-                        .foregroundColor(previewColor)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(previewText)
+                            .font(.caption)
+                            .foregroundColor(previewColor)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        if let dictationStatusText {
+                            Text(dictationStatusText)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

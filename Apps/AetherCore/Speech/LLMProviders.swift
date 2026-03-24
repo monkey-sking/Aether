@@ -276,7 +276,7 @@ final class OpenAICompatibleProvider: LLMHealthCheckProvider {
     static let defaultEndpointString = "https://api.openai.com/v1/chat/completions"
     private static let modelListTimeout: TimeInterval = 12
     private static let testConnectionTimeout: TimeInterval = 15
-    private static let dictationTimeout: TimeInterval = 20
+    private static let dictationTimeout: TimeInterval = 10
     private static let rewriteTimeout: TimeInterval = 35
 
     private let config: Config
@@ -345,7 +345,11 @@ final class OpenAICompatibleProvider: LLMHealthCheckProvider {
             profile: config.rewriteProfile,
             contextualGlossaryText: config.contextualGlossaryText
         )
-        return try await call(prompt: prompt, timeout: Self.dictationTimeout)
+        return try await call(
+            prompt: prompt,
+            temperature: 0,
+            timeout: Self.dictationTimeout
+        )
     }
 
     func rewriteText(_ text: String, mode: TextRewriteMode) async throws -> String {
@@ -400,7 +404,9 @@ final class OpenAICompatibleProvider: LLMHealthCheckProvider {
     ) -> String {
         var sections: [String] = [
             "Add punctuation and fix obvious ASR or dictation errors.",
+            "Prefer the smallest possible edit. If you are unsure, keep the original wording.",
             "Preserve the original meaning and primary language.",
+            "Do not rewrite numbers, URLs, email addresses, file paths, code identifiers, proper nouns, or product names unless the recognition error is obvious.",
             "Output only the corrected text."
         ]
 

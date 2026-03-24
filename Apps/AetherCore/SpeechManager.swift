@@ -208,6 +208,7 @@ final class SpeechManager: ObservableObject {
         let holdsTextRewriteBarrier: Bool
         let diagnostics: String?
         let spokenText: String?
+        let originalContent: String?
         let routeReason: String
         let commandHUDPreviewMessage: String?
     }
@@ -234,6 +235,10 @@ final class SpeechManager: ObservableObject {
         case success
         case mismatch
         case unverified
+    }
+    enum DictationEnhancementValidationResult: Equatable {
+        case accept(String, changed: Bool)
+        case reject(String)
     }
     private actor IntentPipeline {
         private var nextSeq: Int = 0; private var expectedSeq: Int = 0
@@ -378,7 +383,7 @@ final class SpeechManager: ObservableObject {
     private let maxTextRewriteSourceCharacters = 12_000
 
     // MARK: - Internal State
-    var onIntent: ((VoiceIntent, String?, String?, String?) -> Void)?
+    var onIntent: ((VoiceIntent, String?, String?, String?, String?, String?) -> Void)?
     var onRecognitionFailure: ((String?, String?, String?, String?) -> Void)?
     var onWakeAnalyticsSignal: ((WakeAnalyticsSignal) -> Void)?
     var onIdlePauseResumeRequest: ((String) -> Void)?
@@ -689,6 +694,63 @@ final class SpeechManager: ObservableObject {
             // This prevents a stale input-state snapshot from hijacking a visible control-mode utterance.
             return liveTyping || (sessionTypingMode && hasStreamedDictation)
         }
+    }
+
+    static func shouldAllowWakeGatedTyping(
+        isWakeWordEnabled: Bool,
+        isDirectCommandEnabled: Bool,
+        isAwake: Bool,
+        wakeWordDetected: Bool
+    ) -> Bool {
+        guard isWakeWordEnabled, !isDirectCommandEnabled else { return true }
+        return isAwake || wakeWordDetected
+    }
+
+    static func validateDictationEnhancement(
+        sourceText: String,
+        candidateText: String,
+        localeIdentifier: String
+    ) -> DictationEnhancementValidationResult {
+        let source = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !candidate.isEmpty else {
+            return .reject("empty")
+        }
+        if source == candidate {
+            return .accept(candidate, changed: false)
+        }
+
+        let sourceBody = guardrailComparableTextBody(source)
+        let candidateBody = guardrailComparableTextBody(candidate)
+        if sourceBody == candidateBody {
+            return .accept(candidate, changed: false)
+        }
+
+        if hasProtectedTokenDrift(sourceText: source, candidateText: candidate) {
+            return .reject("protected-token")
+        }
+        if hasLanguageDrift(sourceText: source, candidateText: candidate, localeIdentifier: localeIdentifier) {
+            return .reject("language-drift")
+        }
+
+        let sourceCount = sourceBody.count
+        let editDistance = levenshteinDistance(sourceBody, candidateBody)
+        if sourceCount <= 6, editDistance > 1 {
+            return .reject("short-text-rewrite")
+        }
+        if sourceCount <= 12, editDistance > 3 {
+            return .reject("short-text-rewrite")
+        }
+
+        if sourceCount > 12 {
+            let ratio = Double(editDistance) / Double(max(sourceCount, 1))
+            if ratio > 0.45 {
+                return .reject("over-rewrite")
+            }
+        }
+
+        return .accept(candidate, changed: true)
     }
 
     static func reconcileTypingContextWithVisibleHUD(
@@ -1707,7 +1769,7 @@ final class SpeechManager: ObservableObject {
         recognitionSession.onPartial = { [weak self] text in self?.handlePartial(text) }
         recognitionSession.onFinal = { [weak self] text in self?.handleFinalResult(text) }
         recognitionSession.onError = { [weak self] error, isRecoverable in self?.handleRecognitionError(error, isRecoverable: isRecoverable) }
-        commandHandler.onIntent = { [weak self] intent in self?.onIntent?(intent, nil, nil, nil) }
+        commandHandler.onIntent = { [weak self] intent in self?.onIntent?(intent, nil, nil, nil, nil, nil) }
 
         HeadMotionManager.shared.$isLookingAtScreen.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] isLooking in
             if isLooking && HeadMotionManager.shared.isTracking && self?.isGazeWakeEnabled == true {
@@ -2194,8 +2256,13 @@ final class SpeechManager: ObservableObject {
                 "[ASR Partial] raw='\(originalRawText)' normalized='\(text)' wakeDetected=\(wakeWordDetected) wakeScore=\(String(format: "%.2f", wakeScore)) wakePhrase=\(matchedWakePhrase ?? "nil") mode=\(controlMode.rawValue) locale=\(activeLocale.identifier)"
             )
         }
-        let isWakeGatedStandby = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled && !isAwake
-        if isWakeGatedStandby && !wakeWordDetected {
+        let wakeTypingAllowed = Self.shouldAllowWakeGatedTyping(
+            isWakeWordEnabled: isWakeWordEnabled,
+            isDirectCommandEnabled: isDirectCommandEnabled,
+            isAwake: isAwake,
+            wakeWordDetected: wakeWordDetected
+        )
+        if !wakeTypingAllowed {
             clearUnarmedWakePreview()
             refreshContinuousHUD(isDictating: false)
             return
@@ -2231,7 +2298,7 @@ final class SpeechManager: ObservableObject {
         let lockedFocusedSnapshot = currentFocusedInputSnapshot()
         let lockedTargetMatches = hasLockedFocusedInputTarget(lockedFocusedSnapshot)
         let liveTyping = throttledTypingMode()
-        let canType = isAwake || isDirectCommandEnabled || !isAlwaysListeningEnabled
+        let canType = wakeTypingAllowed
         let hasStreamedDictation = !dictationHandler.screenTypedText.isEmpty
         let computedTypingMode = Self.resolvedUtteranceTypingMode(
             recognitionControlMode: controlMode,
@@ -2953,9 +3020,16 @@ final class SpeechManager: ObservableObject {
                 }
                 textToRoute = rawTrimmed
             }
-        } else if isAlwaysListeningEnabled {
+        } else if isWakeWordEnabled && !isDirectCommandEnabled {
             logWakeWordConfigurationIfNeeded(reason: "final-always-listening")
-            let wakeMatchMode: WakeWordMatchMode = isAwake ? .strictPrefix : .retryAwareStandby
+            let wakeMatchMode: WakeWordMatchMode
+            if isAwake {
+                wakeMatchMode = .strictPrefix
+            } else if isAlwaysListeningEnabled {
+                wakeMatchMode = .retryAwareStandby
+            } else {
+                wakeMatchMode = .strictPrefix
+            }
             let wakeResult = wakeWordDetector.process(
                 rawTrimmed,
                 localeIdentifier: activeLocale.identifier,
@@ -3000,11 +3074,17 @@ final class SpeechManager: ObservableObject {
         let hasStreamedDictation = !dictationHandler.screenTypedText.isEmpty
         let featureAvailability = currentVoiceFeatureAvailability()
         let controlMode = effectiveRecognitionControlMode(for: featureAvailability)
+        let wakeTypingAllowed = Self.shouldAllowWakeGatedTyping(
+            isWakeWordEnabled: isWakeWordEnabled,
+            isDirectCommandEnabled: isDirectCommandEnabled,
+            isAwake: isAwake,
+            wakeWordDetected: wakeWordDetected
+        )
         let computedTypingContext = Self.resolvedUtteranceTypingMode(
             recognitionControlMode: controlMode,
             sessionTypingMode: sessionTypingMode,
             liveTyping: liveTyping,
-            canType: true,
+            canType: wakeTypingAllowed,
             hasStreamedDictation: hasStreamedDictation,
             isUtteranceActive: isUtteranceActive
         )
@@ -3450,37 +3530,91 @@ final class SpeechManager: ObservableObject {
             ([job.targetBundleID].compactMap { $0 } + currentContextBundleIDs()).map { $0.lowercased() }
         )
 
-        if case .dictation(let text) = job.intent,
-           job.llmEnhancementEnabled,
-           job.sessionTypingMode {
-            if let llmProvider = contextualLLMProvider(bundleIDs: llmBundleIDs) {
-                do {
-                    let enhanced = try await llmProvider.enhanceDictation(text)
-                    let finalText = enhanced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : enhanced
-                    return ProcessedJob(seq: job.seq, intent: .dictation(finalText), localeIdentifier: job.localeIdentifier,
-                                        originSessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID,
-                                        sessionTypingMode: job.sessionTypingMode, streamedTextSnapshot: job.streamedTextSnapshot,
-                                        screenTypedCount: job.screenTypedCount, targetPID: job.targetPID,
-                                        targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
-                                        targetSource: job.targetSource,
-                                        verificationSnapshot: job.verificationSnapshot, holdsTextRewriteBarrier: job.holdsTextRewriteBarrier,
-                                        diagnostics: "llm=ok", spokenText: job.spokenText,
-                                        routeReason: job.routeReason, commandHUDPreviewMessage: job.commandHUDPreviewMessage)
-                } catch {
-                    logDictationEnhancementFailure(
-                        phase: "process",
-                        job: job,
-                        textCount: text.count,
-                        error: error
-                    )
-                }
-            } else {
+        if case .dictation(let text) = job.intent {
+            let sourceText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let passthroughResult = { (diagnostics: String) in
+                ProcessedJob(
+                    seq: job.seq,
+                    intent: .dictation(text),
+                    localeIdentifier: job.localeIdentifier,
+                    originSessionGeneration: job.originSessionGeneration,
+                    utteranceID: job.utteranceID,
+                    sessionTypingMode: job.sessionTypingMode,
+                    streamedTextSnapshot: job.streamedTextSnapshot,
+                    screenTypedCount: job.screenTypedCount,
+                    targetPID: job.targetPID,
+                    targetBundleID: job.targetBundleID,
+                    targetElementFingerprint: job.targetElementFingerprint,
+                    targetSource: job.targetSource,
+                    verificationSnapshot: job.verificationSnapshot,
+                    holdsTextRewriteBarrier: job.holdsTextRewriteBarrier,
+                    diagnostics: diagnostics,
+                    spokenText: job.spokenText,
+                    originalContent: sourceText,
+                    routeReason: job.routeReason,
+                    commandHUDPreviewMessage: job.commandHUDPreviewMessage
+                )
+            }
+
+            guard job.llmEnhancementEnabled else {
+                return passthroughResult("llm=disabled")
+            }
+            guard job.sessionTypingMode else {
+                return passthroughResult("llm=skipped-no-typing")
+            }
+            guard let llmProvider = contextualLLMProvider(bundleIDs: llmBundleIDs) else {
                 logDictationEnhancementFailure(
                     phase: "process",
                     job: job,
                     textCount: text.count,
                     note: "provider-unavailable"
                 )
+                return passthroughResult("llm=provider-unavailable")
+            }
+
+            do {
+                let enhanced = try await llmProvider.enhanceDictation(text)
+                switch Self.validateDictationEnhancement(
+                    sourceText: text,
+                    candidateText: enhanced,
+                    localeIdentifier: job.localeIdentifier
+                ) {
+                case .accept(let finalText, let changed):
+                    return ProcessedJob(
+                        seq: job.seq,
+                        intent: .dictation(finalText),
+                        localeIdentifier: job.localeIdentifier,
+                        originSessionGeneration: job.originSessionGeneration,
+                        utteranceID: job.utteranceID,
+                        sessionTypingMode: job.sessionTypingMode,
+                        streamedTextSnapshot: job.streamedTextSnapshot,
+                        screenTypedCount: job.screenTypedCount,
+                        targetPID: job.targetPID,
+                        targetBundleID: job.targetBundleID,
+                        targetElementFingerprint: job.targetElementFingerprint,
+                        targetSource: job.targetSource,
+                        verificationSnapshot: job.verificationSnapshot,
+                        holdsTextRewriteBarrier: job.holdsTextRewriteBarrier,
+                        diagnostics: changed ? "llm=applied" : "llm=unchanged",
+                        spokenText: job.spokenText,
+                        originalContent: sourceText,
+                        routeReason: job.routeReason,
+                        commandHUDPreviewMessage: job.commandHUDPreviewMessage
+                    )
+                case .reject(let reason):
+                    GlobalLogger.speech.info(
+                        "[DictationLLM] rejected phase=process reason=\(reason) \(llmProviderDiagnosticsContext(utteranceID: job.utteranceID, typing: job.sessionTypingMode, targetPID: job.targetPID, bundleID: job.targetBundleID, sourceCount: text.count))"
+                    )
+                    return passthroughResult("llm=rejected-\(reason)")
+                }
+            } catch {
+                logDictationEnhancementFailure(
+                    phase: "process",
+                    job: job,
+                    textCount: text.count,
+                    error: error
+                )
+                return passthroughResult("llm=provider-failed")
             }
         }
         if case .rewriteText(var payload) = job.intent {
@@ -3512,6 +3646,7 @@ final class SpeechManager: ObservableObject {
                     holdsTextRewriteBarrier: job.holdsTextRewriteBarrier,
                     diagnostics: "rewrite=\(failureReason.rawValue)",
                     spokenText: job.spokenText,
+                    originalContent: nil,
                     routeReason: job.routeReason,
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
@@ -3547,6 +3682,7 @@ final class SpeechManager: ObservableObject {
                     holdsTextRewriteBarrier: job.holdsTextRewriteBarrier,
                     diagnostics: "rewrite=llm-unavailable",
                     spokenText: job.spokenText,
+                    originalContent: nil,
                     routeReason: job.routeReason,
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
@@ -3580,6 +3716,7 @@ final class SpeechManager: ObservableObject {
                     holdsTextRewriteBarrier: job.holdsTextRewriteBarrier,
                     diagnostics: "rewrite=missing-source",
                     spokenText: job.spokenText,
+                    originalContent: nil,
                     routeReason: job.routeReason,
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
@@ -3605,6 +3742,7 @@ final class SpeechManager: ObservableObject {
                     holdsTextRewriteBarrier: job.holdsTextRewriteBarrier,
                     diagnostics: "rewrite=ok",
                     spokenText: job.spokenText,
+                    originalContent: nil,
                     routeReason: job.routeReason,
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
@@ -3638,6 +3776,7 @@ final class SpeechManager: ObservableObject {
                     holdsTextRewriteBarrier: job.holdsTextRewriteBarrier,
                     diagnostics: "rewrite=provider-failed",
                     spokenText: job.spokenText,
+                    originalContent: nil,
                     routeReason: job.routeReason,
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
@@ -3651,6 +3790,7 @@ final class SpeechManager: ObservableObject {
                             targetSource: job.targetSource,
                             verificationSnapshot: job.verificationSnapshot, holdsTextRewriteBarrier: job.holdsTextRewriteBarrier,
                             diagnostics: nil, spokenText: job.spokenText,
+                            originalContent: nil,
                             routeReason: job.routeReason, commandHUDPreviewMessage: job.commandHUDPreviewMessage)
     }
 
@@ -3722,12 +3862,12 @@ final class SpeechManager: ObservableObject {
         case .undo:
             injector.undoPasteIfRecent()
             status = NSLocalizedString("speech.undo", comment: "")
-            onIntent?(.undo, usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+            onIntent?(.undo, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
             clearHandledCommandPreview()
         case .paste:
             AutomationOutputs.shared.pasteFromClipboard()
             status = "Pasted (Cmd+V)"
-            onIntent?(.paste, usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+            onIntent?(.paste, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
             clearHandledCommandPreview()
         case .clearInput:
             let selectAll = HotkeyBinding(keyCode: kVK_ANSI_A, modifiers: CGEventFlags.maskCommand.rawValue)
@@ -3735,13 +3875,13 @@ final class SpeechManager: ObservableObject {
             AutomationOutputs.shared.pressShortcut(selectAll, targetPID: injectionPID)
             AutomationOutputs.shared.backspace(count: 1, targetPID: injectionPID)
             status = NSLocalizedString("speech.done", comment: "")
-            onIntent?(.clearInput, usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+            onIntent?(.clearInput, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
             clearHandledCommandPreview()
         case .deleteBackward(let count):
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
             AutomationOutputs.shared.backspace(count: count, targetPID: injectionPID)
             status = NSLocalizedString("speech.done", comment: "")
-            onIntent?(.deleteBackward(count), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+            onIntent?(.deleteBackward(count), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
             clearHandledCommandPreview()
         case .moveCursorHorizontally(let offset):
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
@@ -3753,7 +3893,7 @@ final class SpeechManager: ObservableObject {
                 AutomationOutputs.shared.pressShortcut(binding, targetPID: injectionPID)
             }
             status = NSLocalizedString("speech.done", comment: "")
-            onIntent?(.moveCursorHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+            onIntent?(.moveCursorHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
             clearHandledCommandPreview()
         case .selectHorizontally(let offset):
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
@@ -3765,7 +3905,7 @@ final class SpeechManager: ObservableObject {
                 AutomationOutputs.shared.pressShortcut(binding, targetPID: injectionPID)
             }
             status = NSLocalizedString("speech.done", comment: "")
-            onIntent?(.selectHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+            onIntent?(.selectHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
             clearHandledCommandPreview()
         case .rewriteText(let payload):
             defer {
@@ -3889,7 +4029,7 @@ final class SpeechManager: ObservableObject {
 
             if rewrittenText == sourceText {
                 status = textRewriteSuccessMessage(changed: false)
-                onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+                onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
                 clearHandledCommandPreview()
                 return
             }
@@ -3908,7 +4048,7 @@ final class SpeechManager: ObservableObject {
                 let verification = await self.verifyTextRewriteInjection(rewrittenText, for: job)
                 switch verification {
                 case .success:
-                    self.onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+                    self.onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
                 case .mismatch:
                     self.logTextRewriteFailure(
                         .commitFailed,
@@ -3928,13 +4068,13 @@ final class SpeechManager: ObservableObject {
                     )
                     self.onRecognitionFailure?(rewrittenText, "post-injection-mismatch", usageContext.appName, usageContext.bundleIdentifier)
                 case .unverified:
-                    self.onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+                    self.onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
                 }
             }
             clearHandledCommandPreview()
         case .frontmostAppCommand(let command):
             armPostSubmitDictationSuppressionIfNeeded(for: command, job: job)
-            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
             status = NSLocalizedString("speech.done", comment: "")
             clearHandledCommandPreview()
         case .dictation(let text):
@@ -4012,14 +4152,14 @@ final class SpeechManager: ObservableObject {
                 let verification = await self.verifyDictationInjection(finalText, for: job)
                 switch verification {
                 case .success:
-                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
                 case .mismatch:
                     self.onRecognitionFailure?(finalText, "post-injection-mismatch", usageContext.appName, usageContext.bundleIdentifier)
                 case .unverified:
                     GlobalLogger.speech.info(
                         "[TextPipeline] verification-unverified treating-as-success utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(job.targetBundleID ?? "nil")"
                     )
-                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
                 }
             }
             clearHandledCommandPreview()
@@ -4039,9 +4179,9 @@ final class SpeechManager: ObservableObject {
             if shouldSurfaceUnknownHUD {
                 showUnknownCommandHUD(transcript)
             }
-            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
         default:
-            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText)
+            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
             status = NSLocalizedString("speech.done", comment: "")
             clearHandledCommandPreview()
         }
@@ -4441,6 +4581,130 @@ final class SpeechManager: ObservableObject {
         }
 
         return false
+    }
+
+    private enum ScriptBias {
+        case chinese
+        case latin
+        case mixed
+        case other
+    }
+
+    private static func guardrailComparableTextBody(_ text: String) -> String {
+        let filtered = text.unicodeScalars.filter {
+            CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0)
+        }
+        return String(String.UnicodeScalarView(filtered)).lowercased()
+    }
+
+    private static func hasProtectedTokenDrift(sourceText: String, candidateText: String) -> Bool {
+        let sourceTokens = Set(protectedTokens(in: sourceText))
+        guard !sourceTokens.isEmpty else { return false }
+        let candidateTokens = Set(protectedTokens(in: candidateText))
+        return sourceTokens != candidateTokens
+    }
+
+    private static func protectedTokens(in text: String) -> [String] {
+        let patterns = [
+            #"https?://\S+"#,
+            #"www\.\S+"#,
+            #"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#,
+            #"(?:~?/[\w.\-]+)+(?:\.[A-Za-z0-9]+)?"#,
+            #"(?<![\p{L}\d])\d[\d:.,/-]*(?![\p{L}\d])"#
+        ]
+
+        return patterns.flatMap { pattern in
+            regexMatches(pattern: pattern, in: text)
+        }
+    }
+
+    private static func hasLanguageDrift(
+        sourceText: String,
+        candidateText: String,
+        localeIdentifier: String
+    ) -> Bool {
+        let sourceBias = scriptBias(for: sourceText, localeIdentifier: localeIdentifier)
+        let candidateBias = scriptBias(for: candidateText, localeIdentifier: localeIdentifier)
+
+        switch (sourceBias, candidateBias) {
+        case (.chinese, .latin), (.latin, .chinese):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func scriptBias(for text: String, localeIdentifier: String) -> ScriptBias {
+        let chineseCount = text.unicodeScalars.reduce(into: 0) { partialResult, scalar in
+            let value = Int(scalar.value)
+            if (0x3400...0x4DBF).contains(value)
+                || (0x4E00...0x9FFF).contains(value)
+                || (0xF900...0xFAFF).contains(value) {
+                partialResult += 1
+            }
+        }
+        let latinCount = text.unicodeScalars.reduce(into: 0) { partialResult, scalar in
+            if scalar.isASCII, CharacterSet.letters.contains(scalar) {
+                partialResult += 1
+            }
+        }
+
+        if chineseCount >= max(3, latinCount * 2) {
+            return .chinese
+        }
+        if latinCount >= max(4, chineseCount * 2) {
+            return .latin
+        }
+        if chineseCount > 0, latinCount > 0 {
+            return .mixed
+        }
+        if localeIdentifier.lowercased().hasPrefix("zh"), chineseCount > 0 {
+            return .chinese
+        }
+        return .other
+    }
+
+    private static func regexMatches(pattern: String, in text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.caseInsensitive]
+        ) else {
+            return []
+        }
+
+        let nsRange = NSRange(text.startIndex..., in: text)
+        return regex.matches(in: text, options: [], range: nsRange).compactMap { match in
+            guard let range = Range(match.range, in: text) else { return nil }
+            return String(text[range])
+        }
+    }
+
+    private static func levenshteinDistance(_ lhs: String, _ rhs: String) -> Int {
+        if lhs == rhs { return 0 }
+        if lhs.isEmpty { return rhs.count }
+        if rhs.isEmpty { return lhs.count }
+
+        let lhsChars = Array(lhs)
+        let rhsChars = Array(rhs)
+        var previous = Array(0...rhsChars.count)
+
+        for (lhsIndex, lhsChar) in lhsChars.enumerated() {
+            var current = Array(repeating: 0, count: rhsChars.count + 1)
+            current[0] = lhsIndex + 1
+
+            for (rhsIndex, rhsChar) in rhsChars.enumerated() {
+                let substitutionCost = lhsChar == rhsChar ? 0 : 1
+                current[rhsIndex + 1] = min(
+                    previous[rhsIndex + 1] + 1,
+                    current[rhsIndex] + 1,
+                    previous[rhsIndex] + substitutionCost
+                )
+            }
+
+            previous = current
+        }
+
+        return previous[rhsChars.count]
     }
 
     static func isSubmitLikeFrontmostAppCommand(_ command: FrontmostAppCommand) -> Bool {
@@ -7184,7 +7448,7 @@ final class SpeechManager: ObservableObject {
             && job.targetBundleID == lastCommittedDictationBundleID
         let samePID = job.targetPID != nil
             && job.targetPID == lastCommittedDictationPID
-        guard sameFingerprint || sameBundle || samePID else { return trimmed }
+        guard sameFingerprint || (sameBundle && samePID) else { return trimmed }
 
         let previous = lastCommittedDictationText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !previous.isEmpty else { return trimmed }

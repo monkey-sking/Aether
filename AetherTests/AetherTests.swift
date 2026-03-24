@@ -356,6 +356,71 @@ final class WakeWordDetectorTests: XCTestCase {
     }
 }
 
+@MainActor
+final class SpeechManagerGuardrailTests: XCTestCase {
+    func testWakeGateBlocksTypingBeforeWake() {
+        XCTAssertFalse(
+            SpeechManager.shouldAllowWakeGatedTyping(
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                isAwake: false,
+                wakeWordDetected: false
+            )
+        )
+    }
+
+    func testWakeGateAllowsTypingAfterWakeDetection() {
+        XCTAssertTrue(
+            SpeechManager.shouldAllowWakeGatedTyping(
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                isAwake: false,
+                wakeWordDetected: true
+            )
+        )
+    }
+
+    func testValidateDictationEnhancementRejectsLanguageDrift() {
+        let result = SpeechManager.validateDictationEnhancement(
+            sourceText: "今天下午开会",
+            candidateText: "meeting this afternoon",
+            localeIdentifier: "zh-CN"
+        )
+
+        XCTAssertEqual(result, .reject("language-drift"))
+    }
+
+    func testValidateDictationEnhancementRejectsProtectedTokenChange() {
+        let result = SpeechManager.validateDictationEnhancement(
+            sourceText: "访问 https://example.com/docs",
+            candidateText: "访问 https://example.com/blog",
+            localeIdentifier: "zh-CN"
+        )
+
+        XCTAssertEqual(result, .reject("protected-token"))
+    }
+
+    func testValidateDictationEnhancementAcceptsPunctuationOnlyCorrection() {
+        let result = SpeechManager.validateDictationEnhancement(
+            sourceText: "你好世界",
+            candidateText: "你好，世界。",
+            localeIdentifier: "zh-CN"
+        )
+
+        XCTAssertEqual(result, .accept("你好，世界。", changed: false))
+    }
+
+    func testValidateDictationEnhancementAcceptsSmallShortTextFix() {
+        let result = SpeechManager.validateDictationEnhancement(
+            sourceText: "打字候",
+            candidateText: "打字后",
+            localeIdentifier: "zh-CN"
+        )
+
+        XCTAssertEqual(result, .accept("打字后", changed: true))
+    }
+}
+
 final class AetherBuildVersionFormatterTests: XCTestCase {
     func testVersionDisplayUsesCompactMinutePrecision() {
         XCTAssertEqual(
