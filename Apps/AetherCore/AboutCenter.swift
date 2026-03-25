@@ -233,8 +233,9 @@ final class AetherLicenseManager: ObservableObject {
                 persistCredentials()
             }
             updateSharedState(from: json)
+            recomputeGateState()
 
-            if !isActivated, let code = returnedLicenseKey, !code.isEmpty {
+            if !gateState.allowsProductAccess, let code = returnedLicenseKey, !code.isEmpty {
                 await verifyCurrentCredentials()
             }
 
