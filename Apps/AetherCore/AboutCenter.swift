@@ -865,6 +865,7 @@ private final class AppcastParser: NSObject, XMLParserDelegate {
 
 struct AboutCenterView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var licenseManager = AetherLicenseManager.shared
     @ObservedObject private var updaterManager = AetherUpdaterManager.shared
 
@@ -972,27 +973,7 @@ struct AboutCenterView: View {
 
     var body: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor)
-
-            GeometryReader { proxy in
-                let accentWidth = max(520, proxy.size.width * 0.72)
-                let accentHeight = max(360, proxy.size.height * 0.48)
-                let accentOffset = min(accentHeight * 0.42, 160)
-
-                RadialGradient(
-                    colors: [
-                        Color(red: 0.20, green: 0.45, blue: 0.92).opacity(0.16),
-                        Color.clear
-                    ],
-                    center: .top,
-                    startRadius: 40,
-                    endRadius: max(accentWidth, accentHeight) * 0.62
-                )
-                .frame(width: accentWidth, height: accentHeight)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .offset(y: -accentOffset)
-            }
-            .allowsHitTesting(false)
+            aboutBackdrop
 
             VStack(spacing: 0) {
                 Spacer(minLength: 34)
@@ -1124,6 +1105,90 @@ struct AboutCenterView: View {
             emailInput = licenseManager.email
             codeInput = licenseManager.licenseKey
         }
+    }
+
+    private var aboutBackdrop: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            let topGlowWidth = max(size.width * 1.35, 980)
+            let topGlowHeight = max(size.height * 0.82, 520)
+            let sideGlowSize = max(size.width * 0.64, 420)
+            let highlightSize = max(size.width * 0.52, 360)
+            let bottomWashWidth = max(size.width * 1.05, 820)
+            let bottomWashHeight = max(size.height * 0.72, 420)
+
+            ZStack {
+                Color(nsColor: .windowBackgroundColor)
+
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.95, green: 0.97, blue: 1.0).opacity(colorScheme == .dark ? 0.06 : 0.95),
+                        Color(nsColor: .windowBackgroundColor)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                RadialGradient(
+                    colors: [
+                        Color(red: 0.44, green: 0.63, blue: 0.98).opacity(colorScheme == .dark ? 0.18 : 0.22),
+                        Color.clear
+                    ],
+                    center: .top,
+                    startRadius: 0,
+                    endRadius: topGlowWidth * 0.42
+                )
+                .frame(width: topGlowWidth, height: topGlowHeight)
+                .position(x: size.width * 0.54, y: size.height * 0.02)
+
+                RadialGradient(
+                    colors: [
+                        Color(red: 0.78, green: 0.67, blue: 1.0).opacity(colorScheme == .dark ? 0.10 : 0.14),
+                        Color.clear
+                    ],
+                    center: .topTrailing,
+                    startRadius: 0,
+                    endRadius: sideGlowSize * 0.56
+                )
+                .frame(width: sideGlowSize, height: sideGlowSize)
+                .position(x: size.width * 0.72, y: size.height * 0.18)
+
+                RadialGradient(
+                    colors: [
+                        Color.white.opacity(colorScheme == .dark ? 0.06 : 0.78),
+                        Color.clear
+                    ],
+                    center: .topLeading,
+                    startRadius: 0,
+                    endRadius: highlightSize * 0.5
+                )
+                .frame(width: highlightSize, height: highlightSize)
+                .position(x: size.width * 0.28, y: size.height * 0.12)
+
+                LinearGradient(
+                    colors: [
+                        Color.clear,
+                        Color(red: 0.97, green: 0.98, blue: 1.0).opacity(colorScheme == .dark ? 0.04 : 0.42)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                RadialGradient(
+                    colors: [
+                        Color(red: 0.89, green: 0.93, blue: 1.0).opacity(colorScheme == .dark ? 0.04 : 0.18),
+                        Color.clear
+                    ],
+                    center: .bottom,
+                    startRadius: 0,
+                    endRadius: bottomWashWidth * 0.46
+                )
+                .frame(width: bottomWashWidth, height: bottomWashHeight)
+                .position(x: size.width * 0.5, y: size.height * 0.94)
+            }
+            .frame(width: size.width, height: size.height)
+        }
+        .allowsHitTesting(false)
     }
 
     private var badgeTint: Color {

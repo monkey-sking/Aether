@@ -415,12 +415,22 @@ struct AetherRootView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var licenseManager = AetherLicenseManager.shared
 
+    private var shouldShowMainView: Bool {
+        switch licenseManager.gateState {
+        case .active, .trialing:
+            return true
+        case .loading:
+            return licenseManager.isActivated || licenseManager.isUsingOfflineGraceAccess
+        case .inactive, .expired, .deviceLimitReached:
+            return false
+        }
+    }
+
     var body: some View {
         Group {
-            switch licenseManager.gateState {
-            case .active, .trialing:
+            if shouldShowMainView {
                 AetherMainView()
-            case .loading, .inactive, .expired, .deviceLimitReached:
+            } else {
                 ActivationGateView()
                     .environmentObject(appState)
             }
