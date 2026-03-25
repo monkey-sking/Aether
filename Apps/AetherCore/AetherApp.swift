@@ -499,7 +499,7 @@ final class VoiceService: ObservableObject {
         }
     }
 
-    var onIntent: ((VoiceIntent, String?, String?, String?, String?, String?, String?) -> Void)? {
+    var onIntent: ((VoiceIntent, String?, String?, String?, String?, String?, String?, String?) -> Void)? {
         get { manager.onIntent }
         set { manager.onIntent = newValue }
     }
@@ -3867,7 +3867,7 @@ class AppState: ObservableObject {
             .assign(to: &$nowPlayingStatus)
 
 
-        voiceService.onIntent = { [weak self] intent, appName, bundleIdentifier, spokenText, originalContent, enhancedContent, diagnostics in
+        voiceService.onIntent = { [weak self] intent, appName, bundleIdentifier, spokenText, originalContent, enhancedContent, diagnostics, wakeFollowUpGroupID in
             guard let self else { return }
             DispatchQueue.main.async {
                 guard !self.isScreenLocked else { return }
@@ -3883,7 +3883,8 @@ class AppState: ObservableObject {
                     spokenText: spokenText,
                     originalContent: originalContent,
                     enhancedContent: enhancedContent,
-                    diagnostics: diagnostics
+                    diagnostics: diagnostics,
+                    wakeFollowUpGroupID: wakeFollowUpGroupID
                 )
             }
         }
@@ -4368,7 +4369,8 @@ class AppState: ObservableObject {
         spokenText: String? = nil,
         originalContent: String? = nil,
         enhancedContent: String? = nil,
-        diagnostics: String? = nil
+        diagnostics: String? = nil,
+        wakeFollowUpGroupID: String? = nil
     ) {
         guard !isIdlePaused else { return }
         func recordControl(_ intent: VoiceIntent, appName: String? = appName, bundleIdentifier: String? = bundleIdentifier) {
@@ -4512,6 +4514,7 @@ class AppState: ObservableObject {
                     spokenText: spokenText,
                     enhancedContent: enhancedContent,
                     diagnostics: diagnostics,
+                    wakeFollowUpGroupID: wakeFollowUpGroupID,
                     appName: appName,
                     bundleIdentifier: bundleIdentifier
                 )
@@ -4522,6 +4525,7 @@ class AppState: ObservableObject {
                     spokenText: spokenText,
                     enhancedContent: enhancedContent,
                     diagnostics: diagnostics,
+                    wakeFollowUpGroupID: wakeFollowUpGroupID,
                     appName: appName,
                     bundleIdentifier: bundleIdentifier
                 )
@@ -4624,27 +4628,55 @@ class AppState: ObservableObject {
         return originalContent
     }
 
+    private func wakeFollowUpLocaleIdentifier(for groupID: String?) -> String? {
+        guard let groupID else { return nil }
+        return voiceUsageHistory.first(where: {
+            $0.wakeGroupID == groupID && $0.kind == .activation
+        })?.localeIdentifier
+    }
+
+    private func sanitizedWakeFollowUpContent(_ raw: String?, wakeGroupID: String?) -> String? {
+        guard let wakeGroupID,
+              let localeIdentifier = wakeFollowUpLocaleIdentifier(for: wakeGroupID) else {
+            return raw
+        }
+        return Self.sanitizedWakeWordUsageContent(
+            raw,
+            localeIdentifier: localeIdentifier,
+            stripsWakeWord: true,
+            overrides: voiceLanguageTermsOverrides
+        ) ?? raw
+    }
+
     private func recordVoiceDictation(
         _ text: String,
         originalContent: String? = nil,
         spokenText: String? = nil,
         enhancedContent: String? = nil,
         diagnostics: String? = nil,
+        wakeFollowUpGroupID: String? = nil,
         appName: String? = nil,
         bundleIdentifier: String? = nil
     ) {
+        let recordedText = sanitizedWakeFollowUpContent(text, wakeGroupID: wakeFollowUpGroupID) ?? text
+        let recordedOriginalContent = sanitizedWakeFollowUpContent(originalContent, wakeGroupID: wakeFollowUpGroupID)
+        let recordedSpokenText = sanitizedWakeFollowUpContent(spokenText, wakeGroupID: wakeFollowUpGroupID)
+        let recordedEnhancedContent = sanitizedWakeFollowUpContent(enhancedContent, wakeGroupID: wakeFollowUpGroupID)
+        let localeIdentifier = wakeFollowUpLocaleIdentifier(for: wakeFollowUpGroupID)
         recordVoiceUsageEvent(
             kind: .dictation,
             action: AppLocalization.isChinese ? "输入" : "Dictation",
-            content: text,
-            originalContent: normalizedDictationOriginalContent(originalContent, committedText: text),
-            spokenText: spokenText,
-            enhancedContent: normalizedVoiceUsageContent(enhancedContent),
-            committedContent: normalizedVoiceUsageContent(text),
+            content: recordedText,
+            originalContent: normalizedDictationOriginalContent(recordedOriginalContent, committedText: recordedText),
+            spokenText: recordedSpokenText,
+            enhancedContent: normalizedVoiceUsageContent(recordedEnhancedContent),
+            committedContent: normalizedVoiceUsageContent(recordedText),
             enhancementStatus: dictationEnhancementStatus(from: diagnostics),
             appName: appName,
             bundleIdentifier: bundleIdentifier,
-            eventCode: dictationEventCode(from: diagnostics)
+            eventCode: dictationEventCode(from: diagnostics),
+            wakeGroupID: wakeFollowUpGroupID,
+            localeIdentifier: localeIdentifier
         )
     }
     
@@ -4654,21 +4686,29 @@ class AppState: ObservableObject {
         spokenText: String? = nil,
         enhancedContent: String? = nil,
         diagnostics: String? = nil,
+        wakeFollowUpGroupID: String? = nil,
         appName: String? = nil,
         bundleIdentifier: String? = nil
     ) {
+        let recordedText = sanitizedWakeFollowUpContent(text, wakeGroupID: wakeFollowUpGroupID) ?? text
+        let recordedOriginalContent = sanitizedWakeFollowUpContent(originalContent, wakeGroupID: wakeFollowUpGroupID)
+        let recordedSpokenText = sanitizedWakeFollowUpContent(spokenText, wakeGroupID: wakeFollowUpGroupID)
+        let recordedEnhancedContent = sanitizedWakeFollowUpContent(enhancedContent, wakeGroupID: wakeFollowUpGroupID)
+        let localeIdentifier = wakeFollowUpLocaleIdentifier(for: wakeFollowUpGroupID)
         recordVoiceUsageEvent(
             kind: .dictation,
             action: AppLocalization.isChinese ? "控制模式下输入" : "Dictation While HUD Control",
-            content: text,
-            originalContent: normalizedDictationOriginalContent(originalContent, committedText: text),
-            spokenText: spokenText,
-            enhancedContent: normalizedVoiceUsageContent(enhancedContent),
-            committedContent: normalizedVoiceUsageContent(text),
+            content: recordedText,
+            originalContent: normalizedDictationOriginalContent(recordedOriginalContent, committedText: recordedText),
+            spokenText: recordedSpokenText,
+            enhancedContent: normalizedVoiceUsageContent(recordedEnhancedContent),
+            committedContent: normalizedVoiceUsageContent(recordedText),
             enhancementStatus: dictationEnhancementStatus(from: diagnostics),
             appName: appName,
             bundleIdentifier: bundleIdentifier,
-            eventCode: dictationEventCode(from: diagnostics)
+            eventCode: dictationEventCode(from: diagnostics),
+            wakeGroupID: wakeFollowUpGroupID,
+            localeIdentifier: localeIdentifier
         )
     }
 
@@ -4783,7 +4823,12 @@ class AppState: ObservableObject {
         recordVoiceUsageEvent(
             kind: .activation,
             action: action,
-            content: transcript,
+            content: Self.sanitizedWakeWordUsageContent(
+                transcript,
+                localeIdentifier: localeIdentifier,
+                stripsWakeWord: true,
+                overrides: voiceLanguageTermsOverrides
+            ),
             appName: nil,
             bundleIdentifier: nil,
             eventCode: eventCode,

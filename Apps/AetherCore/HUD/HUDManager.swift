@@ -202,7 +202,7 @@ enum AXFocusedTypingContextDetector {
         return nil
     }
 
-    private static func stringAttr(_ element: AXUIElement, _ name: CFString) -> String? {
+    fileprivate static func stringAttr(_ element: AXUIElement, _ name: CFString) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name, &value) == .success else { return nil }
         return value as? String
@@ -305,6 +305,53 @@ enum AXFocusedTypingContextDetector {
 final class HUDManager {
     static let shared = HUDManager()
 
+    static func shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: String?) -> Bool {
+        let bundle = (bundleID ?? "").lowercased()
+        return bundle.contains("codex") || bundle.contains("antigravity")
+    }
+
+    static func shouldAllowExplicitTypingReentryAfterFocusChange(
+        sourceFingerprint: String?,
+        sourceRect: CGRect?,
+        currentFingerprint: String?,
+        currentRect: CGRect?,
+        clickPoint: CGPoint?,
+        clickAge: TimeInterval
+    ) -> Bool {
+        guard clickAge < 1.6,
+              let clickPoint,
+              let currentRect else {
+            return false
+        }
+
+        let expandedRect = currentRect.insetBy(dx: -24, dy: -24)
+        guard expandedRect.contains(clickPoint) else { return false }
+
+        if let sourceFingerprint,
+           let currentFingerprint,
+           sourceFingerprint == currentFingerprint {
+            return false
+        }
+
+        if let sourceRect,
+           rectsApproximatelyEqual(sourceRect, currentRect) {
+            return false
+        }
+
+        return true
+    }
+
+    private static func rectsApproximatelyEqual(
+        _ lhs: CGRect,
+        _ rhs: CGRect,
+        tolerance: CGFloat = 14
+    ) -> Bool {
+        abs(lhs.minX - rhs.minX) <= tolerance &&
+            abs(lhs.minY - rhs.minY) <= tolerance &&
+            abs(lhs.width - rhs.width) <= tolerance &&
+            abs(lhs.height - rhs.height) <= tolerance
+    }
+
     private struct HUDPresentationSnapshot {
         let mode: HUDMode
         let message: String
@@ -334,6 +381,8 @@ final class HUDManager {
     struct TypingSuppressionStateSnapshot {
         let requiresExplicitTypingReentry: Bool
         let explicitTypingReentryBundleID: String?
+        let explicitTypingReentrySourceFingerprint: String?
+        let explicitTypingReentrySourceRect: CGRect?
         let typingSuppressedUntil: Date
         let preferredExplicitTypingInputRect: CGRect?
     }
@@ -386,6 +435,8 @@ final class HUDManager {
     private var lastMouseDownBundleID: String?
     private var lastMouseDownHitPreferredInputRect: Bool = false
     private var recentMouseDownDiagnostics: [MouseDownDiagnosticRecord] = []
+    private var explicitTypingReentrySourceFingerprint: String?
+    private var explicitTypingReentrySourceRect: CGRect?
     private var typingSuppressedUntil: Date = .distantPast
     private var requiresExplicitTypingReentry: Bool = false
     private var explicitTypingReentryBundleID: String?
@@ -838,6 +889,8 @@ final class HUDManager {
         let didClearSuppression = requiresExplicitTypingReentry || typingSuppressedUntil > Date()
         requiresExplicitTypingReentry = false
         explicitTypingReentryBundleID = nil
+        explicitTypingReentrySourceFingerprint = nil
+        explicitTypingReentrySourceRect = nil
         if didClearSuppression {
             appendTypingSuppressionDiagnostic(
                 suppressed: false,
@@ -879,6 +932,8 @@ final class HUDManager {
             typingSuppressedUntil = .distantPast
             requiresExplicitTypingReentry = false
             explicitTypingReentryBundleID = nil
+            explicitTypingReentrySourceFingerprint = nil
+            explicitTypingReentrySourceRect = nil
             appendTypingSuppressionDiagnostic(
                 suppressed: false,
                 reason: "mouse-in-input",
@@ -892,6 +947,8 @@ final class HUDManager {
         typingSuppressedUntil = now.addingTimeInterval(0.8)
         requiresExplicitTypingReentry = true
         explicitTypingReentryBundleID = bundleID
+        explicitTypingReentrySourceFingerprint = currentFocusedElementFingerprint()
+        explicitTypingReentrySourceRect = activeInputRect ?? axFocusedElementRectThrottled()
         appendTypingSuppressionDiagnostic(
             suppressed: true,
             reason: "mouse-noninput",
@@ -957,6 +1014,8 @@ final class HUDManager {
         return TypingSuppressionStateSnapshot(
             requiresExplicitTypingReentry: requiresExplicitTypingReentry,
             explicitTypingReentryBundleID: explicitTypingReentryBundleID,
+            explicitTypingReentrySourceFingerprint: explicitTypingReentrySourceFingerprint,
+            explicitTypingReentrySourceRect: explicitTypingReentrySourceRect,
             typingSuppressedUntil: typingSuppressedUntil,
             preferredExplicitTypingInputRect: preferredExplicitTypingInputRect()
         )
@@ -1211,8 +1270,7 @@ final class HUDManager {
     }
 
     private func isExplicitTypingSuppressionApp(bundleID: String?) -> Bool {
-        let b = (bundleID ?? "").lowercased()
-        return b.contains("codex") || b.contains("antigravity")
+        Self.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: bundleID)
     }
 
     private func shouldReleaseExplicitTypingSuppression(
@@ -1236,8 +1294,11 @@ final class HUDManager {
             return false
         }
 
-        if isExplicitTypingSuppressionApp(bundleID: frontBundle) {
-            return now >= typingSuppressedUntil
+        if Self.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: frontBundle) {
+            // Some editors keep the old AX text area "editable" even after the user
+            // clicks outside. For those apps, keep suppression unless the click has
+            // actually moved focus into a different editable input.
+            return shouldAllowExplicitTypingReentryForChangedFocusedInput(now: now)
         }
         return true
     }
@@ -1246,6 +1307,8 @@ final class HUDManager {
         typingSuppressedUntil = .distantPast
         requiresExplicitTypingReentry = false
         explicitTypingReentryBundleID = nil
+        explicitTypingReentrySourceFingerprint = nil
+        explicitTypingReentrySourceRect = nil
         appendTypingSuppressionDiagnostic(
             suppressed: false,
             reason: reason,
@@ -1359,6 +1422,39 @@ final class HUDManager {
             return candidates.min(by: { ($0.width * $0.height) < ($1.width * $1.height) })
         }
         return candidates.first
+    }
+
+    private func currentFocusedTypingInputRectCandidate() -> CGRect? {
+        let frontBundle = currentTypingContextBundleID()
+        var candidates: [CGRect] = []
+        if let r = detector.currentUpdate.inputRect,
+           !isProbablyWholeWindowRect(r),
+           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+            candidates.append(r)
+        }
+        if let r = axFocusedElementRectThrottled(),
+           !isProbablyWholeWindowRect(r),
+           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+            candidates.append(r)
+        }
+        guard !candidates.isEmpty else { return nil }
+        if Self.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: frontBundle) {
+            return candidates.min(by: { ($0.width * $0.height) < ($1.width * $1.height) })
+        }
+        return candidates.first
+    }
+
+    private func shouldAllowExplicitTypingReentryForChangedFocusedInput(now: Date) -> Bool {
+        let currentFingerprint = currentFocusedElementFingerprint()
+        let currentRect = currentFocusedTypingInputRectCandidate()
+        return Self.shouldAllowExplicitTypingReentryAfterFocusChange(
+            sourceFingerprint: explicitTypingReentrySourceFingerprint,
+            sourceRect: explicitTypingReentrySourceRect,
+            currentFingerprint: currentFingerprint,
+            currentRect: currentRect,
+            clickPoint: lastMouseDownPoint,
+            clickAge: now.timeIntervalSince(lastMouseDownAt)
+        )
     }
 
     private func isBrowserLikeBundle(_ bundleID: String?) -> Bool {
@@ -1479,6 +1575,70 @@ final class HUDManager {
             return nil
         }
         return focusedElement as! AXUIElement
+    }
+
+    private func currentFocusedElementFingerprint() -> String? {
+        guard let element = axFocusedElement() else { return nil }
+        return axElementFingerprint(element)
+    }
+
+    private func axElementFingerprint(_ element: AXUIElement) -> String {
+        let role = sanitizeFingerprintComponent(AXFocusedTypingContextDetector.stringAttr(element, kAXRoleAttribute as CFString), fallback: "?")
+        let subrole = sanitizeFingerprintComponent(AXFocusedTypingContextDetector.stringAttr(element, kAXSubroleAttribute as CFString))
+        let identifier = sanitizeFingerprintComponent(AXFocusedTypingContextDetector.stringAttr(element, "AXIdentifier" as CFString))
+        let title = sanitizeFingerprintComponent(AXFocusedTypingContextDetector.stringAttr(element, kAXTitleAttribute as CFString))
+        let placeholder = sanitizeFingerprintComponent(AXFocusedTypingContextDetector.stringAttr(element, "AXPlaceholderValue" as CFString))
+        let position = axCGPointAttribute(element, kAXPositionAttribute as CFString).map {
+            "\(Int($0.x.rounded()))x\(Int($0.y.rounded()))"
+        } ?? "-"
+        let size = axCGSizeAttribute(element, kAXSizeAttribute as CFString).map {
+            "\(Int($0.width.rounded()))x\(Int($0.height.rounded()))"
+        } ?? "-"
+
+        var windowTitle = "-"
+        var windowRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXWindowAttribute as CFString, &windowRef) == .success,
+           let windowRef,
+           CFGetTypeID(windowRef) == AXUIElementGetTypeID() {
+            windowTitle = sanitizeFingerprintComponent(
+                AXFocusedTypingContextDetector.stringAttr(windowRef as! AXUIElement, kAXTitleAttribute as CFString)
+            )
+        }
+
+        return [role, subrole, identifier, title, placeholder, windowTitle, position, size].joined(separator: "|")
+    }
+
+    private func sanitizeFingerprintComponent(_ raw: String?, fallback: String = "-") -> String {
+        guard let raw else { return fallback }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return fallback }
+        return trimmed.replacingOccurrences(of: "|", with: "/")
+    }
+
+    private func axCGPointAttribute(_ element: AXUIElement, _ attr: CFString) -> CGPoint? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attr, &value) == .success,
+              let value,
+              CFGetTypeID(value) == AXValueGetTypeID() else {
+            return nil
+        }
+        let axValue = value as! AXValue
+        guard AXValueGetType(axValue) == .cgPoint else { return nil }
+        var point = CGPoint.zero
+        return AXValueGetValue(axValue, .cgPoint, &point) ? point : nil
+    }
+
+    private func axCGSizeAttribute(_ element: AXUIElement, _ attr: CFString) -> CGSize? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attr, &value) == .success,
+              let value,
+              CFGetTypeID(value) == AXValueGetTypeID() else {
+            return nil
+        }
+        let axValue = value as! AXValue
+        guard AXValueGetType(axValue) == .cgSize else { return nil }
+        var size = CGSize.zero
+        return AXValueGetValue(axValue, .cgSize, &size) ? size : nil
     }
 
     private func axSelectedTextRange(for element: AXUIElement) -> CFRange? {

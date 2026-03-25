@@ -951,17 +951,25 @@ struct AboutCenterView: View {
         ZStack {
             Color(nsColor: .windowBackgroundColor)
 
-            RadialGradient(
-                colors: [
-                    Color(red: 0.20, green: 0.45, blue: 0.92).opacity(0.16),
-                    Color.clear
-                ],
-                center: .top,
-                startRadius: 40,
-                endRadius: 300
-            )
-            .frame(width: 520, height: 360)
-            .offset(y: -140)
+            GeometryReader { proxy in
+                let accentWidth = max(520, proxy.size.width * 0.72)
+                let accentHeight = max(360, proxy.size.height * 0.48)
+                let accentOffset = min(accentHeight * 0.42, 160)
+
+                RadialGradient(
+                    colors: [
+                        Color(red: 0.20, green: 0.45, blue: 0.92).opacity(0.16),
+                        Color.clear
+                    ],
+                    center: .top,
+                    startRadius: 40,
+                    endRadius: max(accentWidth, accentHeight) * 0.62
+                )
+                .frame(width: accentWidth, height: accentHeight)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .offset(y: -accentOffset)
+            }
+            .allowsHitTesting(false)
 
             VStack(spacing: 0) {
                 Spacer(minLength: 34)

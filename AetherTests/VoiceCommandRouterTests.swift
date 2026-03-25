@@ -819,3 +819,42 @@ final class SpeechManagerTypingModeTests: XCTestCase {
         )
     }
 }
+
+final class HUDExplicitTypingSuppressionTests: XCTestCase {
+    func testCodexLikeAppsRequireExplicitClickReentry() {
+        XCTAssertTrue(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: "com.openai.codex"))
+        XCTAssertTrue(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: "com.antigravity.editor"))
+    }
+
+    func testNormalAppsDoNotHoldExplicitTypingSuppressionUntilClickReentry() {
+        XCTAssertFalse(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: "com.google.Chrome"))
+        XCTAssertFalse(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: "com.apple.TextEdit"))
+        XCTAssertFalse(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: nil))
+    }
+
+    func testChangedFocusedInputAllowsSingleClickReentry() {
+        XCTAssertTrue(
+            HUDManager.shouldAllowExplicitTypingReentryAfterFocusChange(
+                sourceFingerprint: "AXTextArea|-|-|-|-|Codex|1154x905|594x40",
+                sourceRect: CGRect(x: 1154, y: 135, width: 594, height: 40),
+                currentFingerprint: "AXTextArea|-|-|-|-|Codex|829x880|269x30",
+                currentRect: CGRect(x: 829, y: 160, width: 269, height: 30),
+                clickPoint: CGPoint(x: 941, y: 173),
+                clickAge: 0.2
+            )
+        )
+    }
+
+    func testStaleFocusedInputDoesNotReleaseSuppression() {
+        XCTAssertFalse(
+            HUDManager.shouldAllowExplicitTypingReentryAfterFocusChange(
+                sourceFingerprint: "AXTextArea|-|-|-|-|Codex|1154x905|594x40",
+                sourceRect: CGRect(x: 1154, y: 135, width: 594, height: 40),
+                currentFingerprint: "AXTextArea|-|-|-|-|Codex|1154x905|594x40",
+                currentRect: CGRect(x: 1154, y: 135, width: 594, height: 40),
+                clickPoint: CGPoint(x: 938, y: 271),
+                clickAge: 0.2
+            )
+        )
+    }
+}

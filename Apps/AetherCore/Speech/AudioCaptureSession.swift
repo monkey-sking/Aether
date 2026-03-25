@@ -206,6 +206,10 @@ final class AudioCaptureSession {
         return ringBuffer
     }
 
+    func clearRingBuffer() {
+        ringBuffer.removeAll()
+    }
+
     func currentBoundInputDeviceID() -> AudioDeviceID {
         guard let engine = audioEngine else { return 0 }
         return currentBoundInputSnapshot(for: engine).currentDeviceID
