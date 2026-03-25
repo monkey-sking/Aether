@@ -209,6 +209,8 @@ final class AetherLicenseManager: ObservableObject {
     func startTrial(email: String, referralCode: String?) async {
         self.email = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         persistCredentials()
+        lastErrorMessage = nil
+        infoMessage = nil
         do {
             var body: [String: Any] = [
                 "email": self.email,
@@ -223,12 +225,32 @@ final class AetherLicenseManager: ObservableObject {
                 body["referralCode"] = referralCode
             }
             let json = try await postJSON(path: "/trial/start", body: body)
-            if let code = json["licenseKey"] as? String {
+            let returnedLicenseKey = (json["licenseKey"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .uppercased()
+            if let code = returnedLicenseKey, !code.isEmpty {
                 licenseKey = code
                 persistCredentials()
             }
             updateSharedState(from: json)
-            infoMessage = AppLocalization.isChinese ? "试用已开通，激活码已发送到邮箱。" : "Trial started. The activation code was sent by email."
+
+            if !isActivated, let code = returnedLicenseKey, !code.isEmpty {
+                await verifyCurrentCredentials()
+            }
+
+            if isActivated {
+                infoMessage = AppLocalization.isChinese
+                    ? "试用已开通，Aether 已自动激活。"
+                    : "Trial started. Aether is now unlocked."
+            } else if returnedLicenseKey != nil {
+                infoMessage = AppLocalization.isChinese
+                    ? "试用已开通，正在同步授权状态。"
+                    : "Trial started. Syncing access now."
+            } else {
+                infoMessage = AppLocalization.isChinese
+                    ? "试用请求已提交，请检查邮箱中的激活码。"
+                    : "Trial requested. Check your email for the activation code."
+            }
         } catch {
             lastErrorMessage = error.localizedDescription
         }

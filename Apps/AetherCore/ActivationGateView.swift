@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ActivationGateView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var licenseManager = AetherLicenseManager.shared
 
@@ -149,11 +150,11 @@ struct ActivationGateView: View {
             TextField(isChinese ? "邮箱" : "Email", text: $emailInput)
                 .textFieldStyle(.roundedBorder)
                 .textContentType(.emailAddress)
-                .controlSize(.large)
+                .controlSize(.regular)
 
             TextField(isChinese ? "邀请码（可选）" : "Referral code (optional)", text: $referralInput)
                 .textFieldStyle(.roundedBorder)
-                .controlSize(.large)
+                .controlSize(.regular)
 
             Button {
                 Task {
@@ -165,7 +166,7 @@ struct ActivationGateView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .controlSize(.regular)
             .disabled(!canStartTrial)
         }
     }
@@ -183,7 +184,7 @@ struct ActivationGateView: View {
 
             TextField(isChinese ? "激活码" : "Activation code", text: $codeInput)
                 .textFieldStyle(.roundedBorder)
-                .controlSize(.large)
+                .controlSize(.regular)
 
             HStack(spacing: 10) {
                 Button(isChinese ? "激活" : "Activate") {
@@ -292,43 +293,13 @@ struct ActivationGateView: View {
     }
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color.accentColor.opacity(0.12),
-                    Color(nsColor: .windowBackgroundColor)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+        GeometryReader { proxy in
+            ScrollView {
+                VStack {
+                    Spacer(minLength: 0)
 
-            VStack(spacing: 20) {
-                GlassCard(padding: 24) {
-                    VStack(alignment: .leading, spacing: 20) {
-                        HStack(alignment: .top, spacing: 18) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(Color.accentColor.opacity(0.14))
-                                    .frame(width: 60, height: 60)
-
-                                Image(systemName: licenseManager.gateState == .loading ? "hourglass" : "lock.shield.fill")
-                                    .font(.system(size: 24, weight: .semibold))
-                                    .foregroundStyle(Color.accentColor)
-                            }
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(titleText)
-                                    .font(.system(size: 28, weight: .bold))
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Text(detailText)
-                                    .font(.body)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-
-                            Spacer()
-
+                    VStack(spacing: 14) {
+                        SettingsPageHero(title: titleText, subtitle: detailText) {
                             Text(statusChipText)
                                 .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 10)
@@ -338,49 +309,88 @@ struct ActivationGateView: View {
                                 .clipShape(Capsule())
                         }
 
-                        if licenseManager.gateState == .loading {
-                            HStack(spacing: 10) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text(isChinese ? "正在刷新授权状态…" : "Refreshing entitlement…")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        if shouldShowTrialSection {
-                            trialSection
-
-                            Divider()
-
-                            HStack(spacing: 6) {
-                                Text(activationPromptText)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                Button(activationToggleText) {
-                                    withAnimation(.easeInOut(duration: 0.18)) {
-                                        showsActivationForm.toggle()
+                        GlassCard(padding: 18) {
+                            VStack(alignment: .leading, spacing: 16) {
+                                if licenseManager.gateState == .loading {
+                                    HStack(spacing: 10) {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                        Text(isChinese ? "正在刷新授权状态…" : "Refreshing entitlement…")
+                                            .font(.callout)
+                                            .foregroundStyle(.secondary)
                                     }
                                 }
-                                .buttonStyle(.link)
+
+                                if shouldShowTrialSection {
+                                    trialSection
+
+                                    Divider()
+
+                                    HStack(spacing: 6) {
+                                        Text(activationPromptText)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                        Button(activationToggleText) {
+                                            withAnimation(.easeInOut(duration: 0.18)) {
+                                                showsActivationForm.toggle()
+                                            }
+                                        }
+                                        .buttonStyle(.link)
+                                    }
+
+                                    if showsActivationForm {
+                                        activationSection
+                                            .transition(.move(edge: .top).combined(with: .opacity))
+                                    }
+                                }
+
+                                feedbackSection
+
+                                if isDeviceLimitReached {
+                                    Divider()
+                                    deviceManagementSection
+                                }
                             }
-
-                            if showsActivationForm {
-                                activationSection
-                                    .transition(.move(edge: .top).combined(with: .opacity))
-                            }
-                        }
-
-                        feedbackSection
-
-                        if isDeviceLimitReached {
-                            Divider()
-                            deviceManagementSection
                         }
                     }
+                    .frame(maxWidth: 760)
+
+                    Spacer(minLength: 0)
                 }
-                .frame(maxWidth: 720)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: proxy.size.height - 1)
+                .padding(.horizontal, 22)
+                .padding(.top, 12)
+                .padding(.bottom, 18)
             }
-            .padding(32)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                ZStack {
+                    Color(nsColor: .windowBackgroundColor)
+
+                    LinearGradient(
+                        colors: [
+                            Color.accentColor.opacity(colorScheme == .dark ? 0.10 : 0.08),
+                            Color.green.opacity(colorScheme == .dark ? 0.06 : 0.05),
+                            Color.clear
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+
+                    RadialGradient(
+                        colors: [
+                            Color.white.opacity(colorScheme == .dark ? 0.08 : 0.85),
+                            Color.clear
+                        ],
+                        center: .topLeading,
+                        startRadius: 24,
+                        endRadius: 360
+                    )
+                    .offset(x: -120, y: -90)
+                }
+                .ignoresSafeArea()
+            }
         }
         .onAppear {
             emailInput = licenseManager.email
