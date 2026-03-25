@@ -841,12 +841,13 @@ final class SpeechManager: ObservableObject {
         routedTranscript: String,
         hasStreamedDictation: Bool
     ) -> Bool {
-        guard !hasStreamedDictation else { return false }
-
         let phraseKey = wakeFollowUpComparisonKey(pendingWakePhrase ?? "")
         guard !phraseKey.isEmpty else { return false }
-
-        return phraseKey == wakeFollowUpComparisonKey(routedTranscript)
+        let transcriptKey = wakeFollowUpComparisonKey(routedTranscript)
+        guard !transcriptKey.isEmpty else { return false }
+        if phraseKey == transcriptKey { return true }
+        guard !hasStreamedDictation else { return false }
+        return false
     }
 
     static func shouldSuppressImmediateWakeFollowUpDuplicate(
@@ -3157,6 +3158,7 @@ final class SpeechManager: ObservableObject {
                 )
                 self.pendingWakeFollowUp = nil
                 self.clearWakeTypingFallback(reason: "wake-follow-up-timeout")
+                self.clearStandbyTypingStateIfNeeded(reason: "wake-follow-up-timeout")
                 self.onWakeAnalyticsSignal?(
                     .empty(
                         groupID: pending.groupID,
@@ -3783,6 +3785,7 @@ final class SpeechManager: ObservableObject {
         // App switches frequently invalidate the previously locked AX target while the wake window is still open.
         // Re-arm against the current focus so the next utterance does not keep routing to a stale element.
         clearWakeTypingFallback(reason: "frontmost-app-changed")
+        clearStandbyTypingStateIfNeeded(reason: "frontmost-app-changed")
         clearRecentWakeFollowUpDictationSuppression(reason: "frontmost-app-changed")
         rearmInputTarget(reason: "frontmost-app-changed")
         reconcileTypingModeAfterFrontmostApplicationChange()
@@ -3806,6 +3809,11 @@ final class SpeechManager: ObservableObject {
         guard recognitionControlMode == .auto else { return }
         guard dictationHandler.screenTypedText.isEmpty else { return }
         guard sessionTypingMode || pendingWakeFollowUp != nil || isUtteranceActive else { return }
+
+        if shouldForceStandbyCommandTypingState() {
+            clearStandbyTypingStateIfNeeded(reason: "frontmost-app-changed-standby")
+            return
+        }
 
         if isTypingRecoveryHoldActive {
             endTypingRecoveryHold(reason: "frontmost-app-changed")
@@ -3898,6 +3906,24 @@ final class SpeechManager: ObservableObject {
         guard wakeTypingFallbackUntil != .distantPast else { return }
         wakeTypingFallbackUntil = .distantPast
         GlobalLogger.speech.info("[TypingMode] cleared wake typing fallback reason=\(reason)")
+    }
+
+    private func shouldForceStandbyCommandTypingState() -> Bool {
+        guard recognitionControlMode == .auto else { return false }
+        guard isAlwaysListeningEnabled, isWakeWordEnabled, !isAwake, !isDirectCommandEnabled else {
+            return false
+        }
+        guard pendingWakeFollowUp == nil else { return false }
+        guard dictationHandler.screenTypedText.isEmpty else { return false }
+        return true
+    }
+
+    private func clearStandbyTypingStateIfNeeded(reason: String) {
+        guard shouldForceStandbyCommandTypingState() else { return }
+        guard sessionTypingMode || isDictating else { return }
+        sessionTypingMode = false
+        isDictating = false
+        GlobalLogger.speech.info("[TypingMode] cleared standby typing state reason=\(reason)")
     }
 
     private func rememberWakeFollowUpDictationMarker(
