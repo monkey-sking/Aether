@@ -7355,7 +7355,7 @@ final class SpeechManager: ObservableObject {
             }
             return insertionContext && (editable || hasSettableValue)
         }
-        if insertionContext && (editable || hasEditableAncestor || hasSettableValue) {
+        if insertionContext && (editable || hasSettableValue) {
             return true
         }
         return editable && insertionContext
