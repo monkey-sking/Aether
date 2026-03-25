@@ -682,8 +682,7 @@ final class SpeechManager: ObservableObject {
         sessionTypingMode: Bool,
         liveTyping: Bool,
         canType: Bool,
-        hasStreamedDictation: Bool,
-        isUtteranceActive: Bool
+        hasStreamedDictation: Bool
     ) -> Bool {
         switch recognitionControlMode {
         case .command:
@@ -692,10 +691,6 @@ final class SpeechManager: ObservableObject {
             return canType
         case .auto:
             guard canType else { return false }
-            // If we are already mid-utterance and previously decided it's typing, stick to it.
-            // This prevents focus blips from hijacking the mode during speech.
-            if isUtteranceActive && sessionTypingMode { return true }
-            
             // Only keep a sticky typing state if this utterance has already injected text.
             // This prevents a stale input-state snapshot from hijacking a visible control-mode utterance.
             return liveTyping || (sessionTypingMode && hasStreamedDictation)
@@ -2342,8 +2337,7 @@ final class SpeechManager: ObservableObject {
             sessionTypingMode: sessionTypingMode,
             liveTyping: liveTyping,
             canType: canType,
-            hasStreamedDictation: hasStreamedDictation,
-            isUtteranceActive: isUtteranceActive
+            hasStreamedDictation: hasStreamedDictation
         )
         let hasAuthoritativeTypingEvidence = hasAuthoritativeTypingEvidence()
         let hasStrongTypingFallback = hasStrongTypingFallbackEvidence(
@@ -3270,8 +3264,7 @@ final class SpeechManager: ObservableObject {
             sessionTypingMode: sessionTypingMode,
             liveTyping: liveTyping,
             canType: wakeTypingAllowed,
-            hasStreamedDictation: hasStreamedDictation,
-            isUtteranceActive: isUtteranceActive
+            hasStreamedDictation: hasStreamedDictation
         )
         let hudState = HUDManager.shared.state
         let hasAuthoritativeTypingEvidence = hasAuthoritativeTypingEvidence()
@@ -3638,6 +3631,7 @@ final class SpeechManager: ObservableObject {
         // App switches frequently invalidate the previously locked AX target while the wake window is still open.
         // Re-arm against the current focus so the next utterance does not keep routing to a stale element.
         rearmInputTarget(reason: "frontmost-app-changed")
+        reconcileTypingModeAfterFrontmostApplicationChange()
         refreshContinuousHUD(isDictating: false)
         ensureRecognitionSessionForVisibleHUD(reason: "frontmost-app-changed")
 
@@ -3652,6 +3646,27 @@ final class SpeechManager: ObservableObject {
                 duration: 1.8
             )
         }
+    }
+
+    private func reconcileTypingModeAfterFrontmostApplicationChange() {
+        guard recognitionControlMode == .auto else { return }
+        guard dictationHandler.screenTypedText.isEmpty else { return }
+        guard sessionTypingMode || pendingWakeFollowUp != nil || isUtteranceActive else { return }
+
+        if isTypingRecoveryHoldActive {
+            endTypingRecoveryHold(reason: "frontmost-app-changed")
+        }
+
+        resetTypingStateCache()
+        let refreshedTypingMode = isTypingMode
+        guard refreshedTypingMode != sessionTypingMode else { return }
+
+        let frontmostBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil"
+        GlobalLogger.speech.info(
+            "[TypingMode] frontmost-app change reconciled \(sessionTypingMode)->\(refreshedTypingMode) pendingWake=\(pendingWakeFollowUp != nil) utteranceActive=\(isUtteranceActive) frontmostBundle=\(frontmostBundle)"
+        )
+        sessionTypingMode = refreshedTypingMode
+        isDictating = refreshedTypingMode && currentVoiceFeatureAvailability().dictationEnabled
     }
 
     private func shouldKeepWakeHUDArmed() -> Bool {
