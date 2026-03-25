@@ -5780,6 +5780,7 @@ final class SpeechManager: ObservableObject {
         let idleTypingEvidence = isDictationOnly ? focusedTypingEvidence : liveTypingEvidence
         let typingHUDEligible = idleTypingEvidence || stickyTypingHUDEligible
         let isContinuousActive = isAlwaysListeningEnabled
+        let isPushToTalkOnlyIdle = !isAlwaysListeningEnabled && !isWakeWordEnabled
         let controlMode = effectiveHUDRecognitionControlMode(
             for: featureAvailability,
             typingEligible: (isContinuousActive || recognitionSession.isRunning || isStopping || isDictating || isPTTHeld)
@@ -5838,6 +5839,13 @@ final class SpeechManager: ObservableObject {
         let isSessionActive = recognitionSession.isRunning || isStopping || effectiveDictating || isPTTHeld
         if !isContinuousActive && !isSessionActive {
             clearHUDOverride()
+            if isPushToTalkOnlyIdle {
+                if HUDManager.shared.isTemporaryHUDActive || HUDManager.shared.state.isLanguageIndicatorVisible {
+                    return
+                }
+                HUDManager.shared.hide()
+                return
+            }
             if realHardware.isEmpty {
                 HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon(), contextIcon: hudContextIcon())
                 return

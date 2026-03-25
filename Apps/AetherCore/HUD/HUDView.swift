@@ -38,7 +38,7 @@ struct HUDView: View {
                     }
 
                 case .dictation:
-                    actionBadge(symbol: "keyboard", tone: .green)
+                    dictationLeadingVisual
                     if trimmedMessage.isEmpty {
                         WaveformView(level: state.audioLevel)
                     } else {
@@ -169,6 +169,14 @@ struct HUDView: View {
         }
     }
 
+    private var dictationLeadingVisual: some View {
+        ZStack {
+            AudioReactiveRingView(level: state.audioLevel)
+            AnimatedHUDBadge(symbol: "text.cursor", tone: .green, animatePulse: false)
+        }
+        .frame(width: 28, height: 28)
+    }
+
     private var feedbackLeadingVisual: some View {
         AnimatedHUDBadge(
             symbol: feedbackSymbol,
@@ -181,7 +189,9 @@ struct HUDView: View {
         let requested = state.inputDeviceIcon.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requested.isEmpty else { return nil }
         guard !isGenericProcessingIcon(requested) else { return nil }
-        return resolvedSymbolName(for: requested)
+        let resolved = resolvedSymbolName(for: requested)
+        guard !isContextDrivenSymbol(resolved) else { return nil }
+        return resolved
     }
 
     private var processingTone: Color {
@@ -193,10 +203,14 @@ struct HUDView: View {
 
     private var feedbackSymbol: String {
         let requested = state.inputDeviceIcon.trimmingCharacters(in: .whitespacesAndNewlines)
-        if requested.isEmpty {
-            return "checkmark.circle.fill"
+        let fallback = fallbackFeedbackSymbol
+        guard !requested.isEmpty else { return fallback }
+
+        let resolved = resolvedSymbolName(for: requested)
+        if isContextDrivenSymbol(resolved) {
+            return fallback
         }
-        return resolvedSymbolName(for: requested)
+        return resolved
     }
 
     private var feedbackTone: Color {
@@ -244,6 +258,21 @@ struct HUDView: View {
         ]
     }
 
+    private var errorFeedbackMessages: Set<String> {
+        [
+            NSLocalizedString("speech.no_matching_command", comment: ""),
+            NSLocalizedString("speech.no_editable_field", comment: ""),
+            NSLocalizedString("speech.no_mic_detected", comment: "")
+        ]
+    }
+
+    private var fallbackFeedbackSymbol: String {
+        if errorFeedbackMessages.contains(trimmedMessage) {
+            return "exclamationmark.triangle.fill"
+        }
+        return "checkmark.circle.fill"
+    }
+
     private func isGenericProcessingIcon(_ icon: String) -> Bool {
         let normalized = icon.lowercased()
         return normalized.hasPrefix("mic")
@@ -251,6 +280,13 @@ struct HUDView: View {
             || normalized.hasPrefix("airpods")
             || normalized == "laptopcomputer"
             || normalized == "headphones"
+    }
+
+    private func isContextDrivenSymbol(_ symbol: String) -> Bool {
+        let normalized = symbol.lowercased()
+        return normalized.contains("keyboard")
+            || normalized.contains("text.cursor")
+            || normalized.hasPrefix("command")
     }
 
     private func hudLabel(_ text: String) -> some View {
