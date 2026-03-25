@@ -3971,7 +3971,6 @@ final class SpeechManager: ObservableObject {
             if isWeChatSpecialModeActive() { return true }
             return reason == "wake-window-open"
                 || reason == "wake-activation"
-                || reason == "frontmost-app-changed"
         }
     }
 
