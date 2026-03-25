@@ -367,7 +367,7 @@ final class VoiceService: ObservableObject {
         }
     }
 
-    var onIntent: ((VoiceIntent, String?, String?, String?, String?, String?) -> Void)? {
+    var onIntent: ((VoiceIntent, String?, String?, String?, String?, String?, String?) -> Void)? {
         get { manager.onIntent }
         set { manager.onIntent = newValue }
     }
@@ -930,6 +930,9 @@ class AppState: ObservableObject {
         var content: String?
         var originalContent: String?
         var spokenText: String?
+        var enhancedContent: String?
+        var committedContent: String?
+        var enhancementStatus: String?
         var eventCode: String?
         var wakeGroupID: String?
         var wakePhrase: String?
@@ -947,6 +950,9 @@ class AppState: ObservableObject {
             content: String? = nil,
             originalContent: String? = nil,
             spokenText: String? = nil,
+            enhancedContent: String? = nil,
+            committedContent: String? = nil,
+            enhancementStatus: String? = nil,
             eventCode: String? = nil,
             wakeGroupID: String? = nil,
             wakePhrase: String? = nil,
@@ -963,6 +969,9 @@ class AppState: ObservableObject {
             self.content = content
             self.originalContent = originalContent
             self.spokenText = spokenText
+            self.enhancedContent = enhancedContent
+            self.committedContent = committedContent
+            self.enhancementStatus = enhancementStatus
             self.eventCode = eventCode
             self.wakeGroupID = wakeGroupID
             self.wakePhrase = wakePhrase
@@ -3709,7 +3718,7 @@ class AppState: ObservableObject {
             .assign(to: &$nowPlayingStatus)
 
 
-        voiceService.onIntent = { [weak self] intent, appName, bundleIdentifier, spokenText, originalContent, diagnostics in
+        voiceService.onIntent = { [weak self] intent, appName, bundleIdentifier, spokenText, originalContent, enhancedContent, diagnostics in
             guard let self else { return }
             DispatchQueue.main.async {
                 guard !self.isScreenLocked else { return }
@@ -3724,6 +3733,7 @@ class AppState: ObservableObject {
                     bundleIdentifier: bundleIdentifier,
                     spokenText: spokenText,
                     originalContent: originalContent,
+                    enhancedContent: enhancedContent,
                     diagnostics: diagnostics
                 )
             }
@@ -4208,6 +4218,7 @@ class AppState: ObservableObject {
         bundleIdentifier: String? = nil,
         spokenText: String? = nil,
         originalContent: String? = nil,
+        enhancedContent: String? = nil,
         diagnostics: String? = nil
     ) {
         guard !isIdlePaused else { return }
@@ -4350,6 +4361,7 @@ class AppState: ObservableObject {
                     text,
                     originalContent: originalContent,
                     spokenText: spokenText,
+                    enhancedContent: enhancedContent,
                     diagnostics: diagnostics,
                     appName: appName,
                     bundleIdentifier: bundleIdentifier
@@ -4359,6 +4371,7 @@ class AppState: ObservableObject {
                     text,
                     originalContent: originalContent,
                     spokenText: spokenText,
+                    enhancedContent: enhancedContent,
                     diagnostics: diagnostics,
                     appName: appName,
                     bundleIdentifier: bundleIdentifier
@@ -4419,6 +4432,14 @@ class AppState: ObservableObject {
         return "dictation.llm.\(value)"
     }
 
+    private func dictationEnhancementStatus(from diagnostics: String?) -> String? {
+        guard let diagnostics,
+              diagnostics.hasPrefix("llm=") else {
+            return nil
+        }
+        return String(diagnostics.dropFirst(4))
+    }
+
     private func normalizedDictationOriginalContent(
         _ originalContent: String?,
         committedText: String
@@ -4436,6 +4457,7 @@ class AppState: ObservableObject {
         _ text: String,
         originalContent: String? = nil,
         spokenText: String? = nil,
+        enhancedContent: String? = nil,
         diagnostics: String? = nil,
         appName: String? = nil,
         bundleIdentifier: String? = nil
@@ -4446,6 +4468,9 @@ class AppState: ObservableObject {
             content: text,
             originalContent: normalizedDictationOriginalContent(originalContent, committedText: text),
             spokenText: spokenText,
+            enhancedContent: normalizedVoiceUsageContent(enhancedContent),
+            committedContent: normalizedVoiceUsageContent(text),
+            enhancementStatus: dictationEnhancementStatus(from: diagnostics),
             appName: appName,
             bundleIdentifier: bundleIdentifier,
             eventCode: dictationEventCode(from: diagnostics)
@@ -4456,6 +4481,7 @@ class AppState: ObservableObject {
         _ text: String,
         originalContent: String? = nil,
         spokenText: String? = nil,
+        enhancedContent: String? = nil,
         diagnostics: String? = nil,
         appName: String? = nil,
         bundleIdentifier: String? = nil
@@ -4466,6 +4492,9 @@ class AppState: ObservableObject {
             content: text,
             originalContent: normalizedDictationOriginalContent(originalContent, committedText: text),
             spokenText: spokenText,
+            enhancedContent: normalizedVoiceUsageContent(enhancedContent),
+            committedContent: normalizedVoiceUsageContent(text),
+            enhancementStatus: dictationEnhancementStatus(from: diagnostics),
             appName: appName,
             bundleIdentifier: bundleIdentifier,
             eventCode: dictationEventCode(from: diagnostics)
@@ -4602,6 +4631,9 @@ class AppState: ObservableObject {
         content: String?,
         originalContent: String? = nil,
         spokenText: String? = nil,
+        enhancedContent: String? = nil,
+        committedContent: String? = nil,
+        enhancementStatus: String? = nil,
         appName: String?,
         bundleIdentifier: String?,
         eventCode: String? = nil,
@@ -4621,6 +4653,9 @@ class AppState: ObservableObject {
             content: normalizedVoiceUsageContent(content),
             originalContent: normalizedVoiceUsageContent(originalContent),
             spokenText: normalizedVoiceUsageContent(spokenText),
+            enhancedContent: normalizedVoiceUsageContent(enhancedContent),
+            committedContent: normalizedVoiceUsageContent(committedContent),
+            enhancementStatus: normalizedVoiceUsageContent(enhancementStatus),
             eventCode: eventCode,
             wakeGroupID: wakeGroupID,
             wakePhrase: Self.normalizedWakePhrase(wakePhrase),

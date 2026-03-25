@@ -64,6 +64,7 @@ struct VoiceLanguageTermsOverrideConfig: Codable, Identifiable, Equatable {
 enum WakeWordMatchMode {
     case strictPrefix
     case retryAwareStandby
+    case awakeFollowUp
 }
 
 struct WakeWordDetectionResult {
@@ -87,7 +88,7 @@ final class WakeWordDetector {
 
     private static let fuzzyWakeDetectionThreshold = 0.88
     private static let retryWakeDetectionThreshold = 0.93
-    private static let retryLeadingNoiseCharacterBudget = 12
+    private static let retryLeadInRawCharacterBudget = 8
     private let stateQueue = DispatchQueue(label: "com.aether.wake-word-detector.state", attributes: .concurrent)
     private var storedOverrides: [VoiceLanguageTermsOverrideConfig] = []
 
@@ -141,24 +142,33 @@ final class WakeWordDetector {
             return WakeWordDetectionResult(wakeDetected: false, payload: text, score: 0, matchedPhrase: nil)
         }
 
-        let strictMatch = Self.bestMatchAcrossPhrases(
-            phrases,
-            in: trimmedLeading,
-            leadingRawDiscardCount: 0
-        )
-        if let strictMatch, strictMatch.score >= Self.fuzzyWakeDetectionThreshold {
-            let payload = String(trimmedLeading.dropFirst(strictMatch.totalConsumedRawCount))
-                .trimmingLeadingWakePayloadSeparators()
-            return WakeWordDetectionResult(
-                wakeDetected: true,
-                payload: payload,
-                score: strictMatch.score,
-                matchedPhrase: strictMatch.phrase
+        let strictMatch: WakePhraseMatch?
+        if matchMode == .awakeFollowUp {
+            strictMatch = nil
+        } else {
+            strictMatch = Self.bestMatchAcrossPhrases(
+                phrases,
+                in: trimmedLeading,
+                leadingRawDiscardCount: 0
             )
+            if let strictMatch, strictMatch.score >= Self.fuzzyWakeDetectionThreshold {
+                let payload = String(trimmedLeading.dropFirst(strictMatch.totalConsumedRawCount))
+                    .trimmingLeadingWakePayloadSeparators()
+                return WakeWordDetectionResult(
+                    wakeDetected: true,
+                    payload: payload,
+                    score: strictMatch.score,
+                    matchedPhrase: strictMatch.phrase
+                )
+            }
         }
 
-        if matchMode == .retryAwareStandby,
-           let retryMatch = Self.bestRetryAwareMatch(phrases: phrases, in: trimmedLeading) {
+        if matchMode == .retryAwareStandby || matchMode == .awakeFollowUp,
+           let retryMatch = Self.bestRetryAwareMatch(
+            phrases: phrases,
+            in: trimmedLeading,
+            localeIdentifier: localeIdentifier
+           ) {
             let payload = String(trimmedLeading.dropFirst(retryMatch.totalConsumedRawCount))
                 .trimmingLeadingWakePayloadSeparators()
             return WakeWordDetectionResult(
@@ -295,18 +305,17 @@ final class WakeWordDetector {
 
     private static func bestRetryAwareMatch(
         phrases: [String],
-        in text: String
+        in text: String,
+        localeIdentifier: String
     ) -> WakePhraseMatch? {
         guard text.count > 1 else { return nil }
 
         var bestRetryMatch: WakePhraseMatch?
-        let maxDiscard = min(text.count - 1, retryLeadingNoiseCharacterBudget)
+        let maxDiscard = min(text.count - 1, retryLeadInRawCharacterBudget)
 
         for discardCount in 1...maxDiscard {
             let skipped = String(text.prefix(discardCount))
-            let normalizedSkipped = normalizeForWakeMatching(skipped)
-            guard !normalizedSkipped.isEmpty,
-                  normalizedSkipped.count <= retryLeadingNoiseCharacterBudget else {
+            guard isRetryLeadInEligible(skipped, localeIdentifier: localeIdentifier) else {
                 continue
             }
 
@@ -340,6 +349,70 @@ final class WakeWordDetector {
         }
 
         return bestRetryMatch
+    }
+
+    private static func isRetryLeadInEligible(
+        _ text: String,
+        localeIdentifier: String
+    ) -> Bool {
+        let normalized = normalizeForWakeMatching(text)
+        guard !normalized.isEmpty else { return false }
+
+        let canonicalLocale = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let maxNormalizedLength: Int
+        switch canonicalLocale {
+        case "zh-CN", "ja-JP", "ko-KR":
+            maxNormalizedLength = 4
+        default:
+            maxNormalizedLength = 6
+        }
+        guard normalized.count <= maxNormalizedLength else {
+            return false
+        }
+
+        let leadInTerms = retryLeadInTerms(for: canonicalLocale)
+            .map(normalizeForWakeMatching)
+            .filter { !$0.isEmpty }
+            .sorted { $0.count > $1.count }
+        guard !leadInTerms.isEmpty else { return false }
+
+        return canComposeRetryLeadIn(normalized, terms: leadInTerms)
+    }
+
+    private static func retryLeadInTerms(for canonicalLocaleIdentifier: String) -> [String] {
+        switch canonicalLocaleIdentifier {
+        case "zh-CN":
+            return ["嗯", "啊", "呃", "诶", "欸", "那个", "就是", "嘿", "喂"]
+        case "ja-JP":
+            return ["えっと", "あの", "えー", "ねえ"]
+        case "ko-KR":
+            return ["음", "어", "저기", "있잖아"]
+        case "fr-FR":
+            return ["euh", "eh", "salut"]
+        case "de-DE":
+            return ["äh", "hm", "hey"]
+        case "es-ES":
+            return ["eh", "oye", "hola"]
+        default:
+            return ["um", "uh", "ah", "er", "hey", "okay", "ok"]
+        }
+    }
+
+    private static func canComposeRetryLeadIn(_ text: String, terms: [String]) -> Bool {
+        guard !text.isEmpty else { return false }
+
+        let characters = Array(text)
+        var reachable = Array(repeating: false, count: characters.count + 1)
+        reachable[0] = true
+
+        for start in 0..<characters.count where reachable[start] {
+            let suffix = String(characters[start...])
+            for term in terms where suffix.hasPrefix(term) {
+                reachable[start + term.count] = true
+            }
+        }
+
+        return reachable[characters.count]
     }
 
     private static func isRetryExactMatch(candidate: String, phrase: String) -> Bool {

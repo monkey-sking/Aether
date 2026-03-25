@@ -4713,6 +4713,12 @@ private struct VoiceUsageEventRow: View {
             return isChinese ? "LLM 已关闭" : "LLM disabled"
         case "skipped-no-typing":
             return isChinese ? "LLM 跳过（非输入场景）" : "LLM skipped (non-typing)"
+        case "skipped-structured-text":
+            return isChinese ? "LLM 跳过（结构化文本）" : "LLM skipped (structured text)"
+        case "skipped-numeric-dense":
+            return isChinese ? "LLM 跳过（数字密集）" : "LLM skipped (numeric dense)"
+        case "skipped-code-like":
+            return isChinese ? "LLM 跳过（代码样式）" : "LLM skipped (code-like)"
         case "provider-unavailable":
             return isChinese ? "LLM 不可用" : "LLM unavailable"
         case "provider-failed":
@@ -4730,6 +4736,21 @@ private struct VoiceUsageEventRow: View {
         default:
             return nil
         }
+    }
+
+    private var dictationCandidateText: String? {
+        guard event.kind == .dictation,
+              let enhanced = event.enhancedContent?.replacingOccurrences(of: "\n", with: " "),
+              !enhanced.isEmpty else {
+            return nil
+        }
+        let committed = event.committedContent ?? event.content ?? ""
+        guard !committed.isEmpty,
+              enhanced != committed.replacingOccurrences(of: "\n", with: " ") else {
+            return nil
+        }
+        let prefix = isChinese ? "候选：" : "Candidate: "
+        return prefix + enhanced
     }
 
     private func copyEvent() {
@@ -4790,6 +4811,13 @@ private struct VoiceUsageEventRow: View {
                             .truncationMode(.tail)
                         if let dictationStatusText {
                             Text(dictationStatusText)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        if let dictationCandidateText {
+                            Text(dictationCandidateText)
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)

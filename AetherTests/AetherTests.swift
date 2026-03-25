@@ -354,6 +354,57 @@ final class WakeWordDetectorTests: XCTestCase {
         XCTAssertTrue(result.wakeDetected)
         XCTAssertEqual(result.payload, "你好")
     }
+
+    func testRetryAwareStandbyModeAllowsWhitelistedLeadInWord() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "那个 幻影 打开设置",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.payload, "打开设置")
+    }
+
+    func testRetryAwareStandbyModeRejectsNonFillerLeadIn() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "测试 幻影 打开设置",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertFalse(result.wakeDetected)
+    }
+
+    func testAwakeFollowUpModeAllowsFillerThenWakeWord() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "嗯，幻影，打开设置",
+            localeIdentifier: "zh-CN",
+            matchMode: .awakeFollowUp
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.payload, "打开设置")
+    }
+
+    func testAwakeFollowUpModeDoesNotConsumeBareWakePrefix() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "幻影，你好",
+            localeIdentifier: "zh-CN",
+            matchMode: .awakeFollowUp
+        )
+
+        XCTAssertFalse(result.wakeDetected)
+        XCTAssertEqual(result.payload, "幻影，你好")
+    }
 }
 
 @MainActor
@@ -378,6 +429,54 @@ final class SpeechManagerGuardrailTests: XCTestCase {
                 wakeWordDetected: true
             )
         )
+    }
+
+    func testWakeMatchModeUsesRetryAwareForAlwaysListeningWakeWordMode() {
+        let mode = SpeechManager.wakeMatchMode(
+            isWakeWordEnabled: true,
+            isDirectCommandEnabled: false,
+            isAlwaysListeningEnabled: true,
+            isAwake: false
+        )
+
+        switch mode {
+        case .retryAwareStandby:
+            XCTAssertTrue(true)
+        case .strictPrefix, .awakeFollowUp:
+            XCTFail("Expected retry-aware wake matching in always-listening wake-word mode")
+        }
+    }
+
+    func testWakeMatchModeUsesAwakeFollowUpInsideWakeWindow() {
+        let mode = SpeechManager.wakeMatchMode(
+            isWakeWordEnabled: true,
+            isDirectCommandEnabled: false,
+            isAlwaysListeningEnabled: true,
+            isAwake: true
+        )
+
+        switch mode {
+        case .awakeFollowUp:
+            XCTAssertTrue(true)
+        case .strictPrefix, .retryAwareStandby:
+            XCTFail("Expected awake-follow-up matching while already awake")
+        }
+    }
+
+    func testWakeMatchModeKeepsStrictPrefixOutsideAlwaysListeningWakeWordMode() {
+        let mode = SpeechManager.wakeMatchMode(
+            isWakeWordEnabled: true,
+            isDirectCommandEnabled: false,
+            isAlwaysListeningEnabled: false,
+            isAwake: false
+        )
+
+        switch mode {
+        case .strictPrefix:
+            XCTAssertTrue(true)
+        case .retryAwareStandby, .awakeFollowUp:
+            XCTFail("Expected strict-prefix matching when always-listening is off")
+        }
     }
 
     func testValidateDictationEnhancementRejectsLanguageDrift() {
@@ -418,6 +517,35 @@ final class SpeechManagerGuardrailTests: XCTestCase {
         )
 
         XCTAssertEqual(result, .accept("打字后", changed: true))
+    }
+
+    func testDictationEnhancementSkipReasonSkipsStructuredText() {
+        XCTAssertEqual(
+            SpeechManager.dictationEnhancementSkipReason(
+                text: "访问 https://example.com/docs",
+                localeIdentifier: "zh-CN"
+            ),
+            "structured-text"
+        )
+    }
+
+    func testDictationEnhancementSkipReasonSkipsCodeLikeText() {
+        XCTAssertEqual(
+            SpeechManager.dictationEnhancementSkipReason(
+                text: "func test() -> Void { return }",
+                localeIdentifier: "en-US"
+            ),
+            "code-like"
+        )
+    }
+
+    func testDictationEnhancementSkipReasonKeepsNaturalSentenceEligible() {
+        XCTAssertNil(
+            SpeechManager.dictationEnhancementSkipReason(
+                text: "我们明天上午十点开会，然后把文档发给我。",
+                localeIdentifier: "zh-CN"
+            )
+        )
     }
 }
 

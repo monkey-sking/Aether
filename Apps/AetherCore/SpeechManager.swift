@@ -209,6 +209,7 @@ final class SpeechManager: ObservableObject {
         let diagnostics: String?
         let spokenText: String?
         let originalContent: String?
+        let enhancedContent: String?
         let routeReason: String
         let commandHUDPreviewMessage: String?
     }
@@ -383,7 +384,7 @@ final class SpeechManager: ObservableObject {
     private let maxTextRewriteSourceCharacters = 12_000
 
     // MARK: - Internal State
-    var onIntent: ((VoiceIntent, String?, String?, String?, String?, String?) -> Void)?
+    var onIntent: ((VoiceIntent, String?, String?, String?, String?, String?, String?) -> Void)?
     var onRecognitionFailure: ((String?, String?, String?, String?) -> Void)?
     var onWakeAnalyticsSignal: ((WakeAnalyticsSignal) -> Void)?
     var onIdlePauseResumeRequest: ((String) -> Void)?
@@ -563,9 +564,14 @@ final class SpeechManager: ObservableObject {
         let groupID: String
         var phrase: String?
         let localeIdentifier: String
+        let createdAt: Date
         var timeoutWorkItem: DispatchWorkItem?
     }
     private var pendingWakeFollowUp: PendingWakeFollowUp?
+    private var lastWakeHUDDiagnosticSignature: String?
+    private var lastWakeHUDDiagnosticAt: Date = .distantPast
+    private var lastWakeArmDiagnosticSignature: String?
+    private var lastWakeArmDiagnosticAt: Date = .distantPast
     private var lastEngineRestartAt: Date = .distantPast
     private var suppressRecognitionFailuresUntil: Date = .distantPast
     private var suppressRecognitionFailuresReason: String?
@@ -751,6 +757,51 @@ final class SpeechManager: ObservableObject {
         }
 
         return .accept(candidate, changed: true)
+    }
+
+    static func dictationEnhancementSkipReason(
+        text: String,
+        localeIdentifier: String
+    ) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "empty" }
+
+        let urlLikePatterns = [
+            #"https?://\S+"#,
+            #"www\.\S+"#,
+            #"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#,
+            #"(?:~?/[\w.\-]+)+(?:\.[A-Za-z0-9]+)?"#
+        ]
+        if urlLikePatterns.contains(where: { !regexMatches(pattern: $0, in: trimmed).isEmpty }) {
+            return "structured-text"
+        }
+
+        let digitCount = trimmed.unicodeScalars.reduce(into: 0) { partialResult, scalar in
+            if CharacterSet.decimalDigits.contains(scalar) {
+                partialResult += 1
+            }
+        }
+        if digitCount >= 4, Double(digitCount) / Double(max(trimmed.count, 1)) >= 0.25 {
+            return "numeric-dense"
+        }
+
+        if isLikelyCodeLikeEnhancementInput(trimmed, localeIdentifier: localeIdentifier) {
+            return "code-like"
+        }
+
+        return nil
+    }
+
+    static func wakeMatchMode(
+        isWakeWordEnabled: Bool,
+        isDirectCommandEnabled: Bool,
+        isAlwaysListeningEnabled: Bool,
+        isAwake: Bool
+    ) -> WakeWordMatchMode {
+        guard isWakeWordEnabled, !isDirectCommandEnabled, isAlwaysListeningEnabled else {
+            return .strictPrefix
+        }
+        return isAwake ? .awakeFollowUp : .retryAwareStandby
     }
 
     static func reconcileTypingContextWithVisibleHUD(
@@ -1769,7 +1820,7 @@ final class SpeechManager: ObservableObject {
         recognitionSession.onPartial = { [weak self] text in self?.handlePartial(text) }
         recognitionSession.onFinal = { [weak self] text in self?.handleFinalResult(text) }
         recognitionSession.onError = { [weak self] error, isRecoverable in self?.handleRecognitionError(error, isRecoverable: isRecoverable) }
-        commandHandler.onIntent = { [weak self] intent in self?.onIntent?(intent, nil, nil, nil, nil, nil) }
+        commandHandler.onIntent = { [weak self] intent in self?.onIntent?(intent, nil, nil, nil, nil, nil, nil) }
 
         HeadMotionManager.shared.$isLookingAtScreen.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] isLooking in
             if isLooking && HeadMotionManager.shared.isTracking && self?.isGazeWakeEnabled == true {
@@ -2221,13 +2272,15 @@ final class SpeechManager: ObservableObject {
         // Wake word detection & stripping
         if isWakeWordEnabled && !isDirectCommandEnabled {
             logWakeWordConfigurationIfNeeded(reason: "partial")
-            let wakeMatchMode: WakeWordMatchMode = (!isAwake && isAlwaysListeningEnabled)
-                ? .retryAwareStandby
-                : .strictPrefix
             let result = wakeWordDetector.process(
                 text,
                 localeIdentifier: activeLocale.identifier,
-                matchMode: wakeMatchMode
+                matchMode: Self.wakeMatchMode(
+                    isWakeWordEnabled: isWakeWordEnabled,
+                    isDirectCommandEnabled: isDirectCommandEnabled,
+                    isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+                    isAwake: isAwake
+                )
             )
             wakeScore = result.score
             matchedWakePhrase = result.matchedPhrase
@@ -2873,6 +2926,126 @@ final class SpeechManager: ObservableObject {
             .appendingPathComponent("Aether", isDirectory: true)
     }
 
+    private func shouldEmitWakeDiagnostic(
+        signature: String,
+        lastSignature: inout String?,
+        lastAt: inout Date,
+        minInterval: TimeInterval
+    ) -> Bool {
+        let now = Date()
+        if lastSignature != signature || now.timeIntervalSince(lastAt) >= minInterval {
+            lastSignature = signature
+            lastAt = now
+            return true
+        }
+        return false
+    }
+
+    private func wakeDiagnosticAgeDescription(since date: Date?) -> String {
+        guard let date else { return "nil" }
+        return String(format: "%.2fs", max(0, Date().timeIntervalSince(date)))
+    }
+
+    private func wakeDiagnosticRemainingDescription(until date: Date) -> String {
+        let remaining = date.timeIntervalSinceNow
+        if remaining <= 0 {
+            return "0.00s"
+        }
+        return String(format: "%.2fs", remaining)
+    }
+
+    private func wakeDiagnosticSnippet(_ text: String, limit: Int = 48) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if trimmed.count <= limit {
+            return trimmed
+        }
+        let end = trimmed.index(trimmed.startIndex, offsetBy: limit)
+        return "\(trimmed[..<end])..."
+    }
+
+    private func wakeHUDStateSnapshot(
+        controlMode: HUDRecognitionControlMode?,
+        typingEligible: Bool?,
+        effectiveDictating: Bool?,
+        isSessionActive: Bool?
+    ) -> String {
+        let hudState = HUDManager.shared.state
+        let wakePhrase = pendingWakeFollowUp?.phrase ?? "nil"
+        return [
+            "hud=\(hudState.mode.rawValue)",
+            "hudControl=\((controlMode ?? hudState.recognitionControlMode).rawValue)",
+            "awake=\(isAwake)",
+            "wakeAge=\(wakeDiagnosticAgeDescription(since: lastWakeTime))",
+            "pendingWake=\(pendingWakeFollowUp != nil)",
+            "pendingWakeAge=\(wakeDiagnosticAgeDescription(since: pendingWakeFollowUp?.createdAt))",
+            "pendingWakePhrase='\(wakePhrase)'",
+            "recognitionRunning=\(recognitionSession.isRunning)",
+            "audioRunning=\(audioCapture.isRunning)",
+            "isStopping=\(isStopping)",
+            "isUtteranceActive=\(isUtteranceActive)",
+            "sessionTypingMode=\(sessionTypingMode)",
+            "focusWait=\(isContinuousDictationWaitingForInputFocus)",
+            "tempHUD=\(HUDManager.shared.isTemporaryHUDActive)",
+            "langIndicator=\(hudState.isLanguageIndicatorVisible)",
+            "typingEligible=\(typingEligible.map(String.init(describing:)) ?? "nil")",
+            "effectiveDictating=\(effectiveDictating.map(String.init(describing:)) ?? "nil")",
+            "sessionActive=\(isSessionActive.map(String.init(describing:)) ?? "nil")",
+            "lastTranscript='\(wakeDiagnosticSnippet(lastTranscript))'",
+            "lastStable='\(wakeDiagnosticSnippet(lastStableText))'"
+        ].joined(separator: " ")
+    }
+
+    private func logWakeHUDStateIfNeeded(
+        reason: String,
+        controlMode: HUDRecognitionControlMode?,
+        typingEligible: Bool?,
+        effectiveDictating: Bool?,
+        isSessionActive: Bool?
+    ) {
+        let snapshot = wakeHUDStateSnapshot(
+            controlMode: controlMode,
+            typingEligible: typingEligible,
+            effectiveDictating: effectiveDictating,
+            isSessionActive: isSessionActive
+        )
+        let signature = "\(reason)|\(snapshot)"
+        guard shouldEmitWakeDiagnostic(
+            signature: signature,
+            lastSignature: &lastWakeHUDDiagnosticSignature,
+            lastAt: &lastWakeHUDDiagnosticAt,
+            minInterval: 1.5
+        ) else {
+            return
+        }
+        GlobalLogger.speech.info("[WakeHUD] reason=\(reason) \(snapshot)")
+    }
+
+    private func logWakeArmStateIfNeeded(reason: String, outcome: String) {
+        let signature = [
+            reason,
+            outcome,
+            String(recognitionSession.isRunning),
+            String(audioCapture.isRunning),
+            String(isStopping),
+            String(pendingEngineRestartWorkItem != nil),
+            wakeDiagnosticRemainingDescription(until: routeRebuildGraceUntil),
+            wakeDiagnosticRemainingDescription(until: continuousRecoveryGraceUntil),
+            wakeDiagnosticRemainingDescription(until: recognitionUnavailableUntil)
+        ].joined(separator: "|")
+        guard shouldEmitWakeDiagnostic(
+            signature: signature,
+            lastSignature: &lastWakeArmDiagnosticSignature,
+            lastAt: &lastWakeArmDiagnosticAt,
+            minInterval: 1.0
+        ) else {
+            return
+        }
+        GlobalLogger.speech.info(
+            "[WakeArm] reason=\(reason) outcome=\(outcome) recognitionRunning=\(recognitionSession.isRunning) audioRunning=\(audioCapture.isRunning) isStopping=\(isStopping) pendingRestart=\(pendingEngineRestartWorkItem != nil) routeGraceRemaining=\(wakeDiagnosticRemainingDescription(until: routeRebuildGraceUntil)) recoveryGraceRemaining=\(wakeDiagnosticRemainingDescription(until: continuousRecoveryGraceUntil)) unavailableRemaining=\(wakeDiagnosticRemainingDescription(until: recognitionUnavailableUntil)) wakeAge=\(wakeDiagnosticAgeDescription(since: lastWakeTime))"
+        )
+    }
+
     private func playWakeSound(reason: String) {
         GlobalLogger.speech.info("[AudioCue] play Tink reason=\(reason)")
         NSSound(named: "Tink")?.play()
@@ -2884,6 +3057,9 @@ final class SpeechManager: ObservableObject {
                 guard let self,
                       let pending = self.pendingWakeFollowUp,
                       pending.groupID == groupID else { return }
+                GlobalLogger.speech.info(
+                    "[WakeFollowUp] timeout group=\(pending.groupID) age=\(self.wakeDiagnosticAgeDescription(since: pending.createdAt)) phrase='\(pending.phrase ?? "nil")' hud=\(HUDManager.shared.state.mode.rawValue) recognitionRunning=\(self.recognitionSession.isRunning) audioRunning=\(self.audioCapture.isRunning) awake=\(self.isAwake) lastTranscript='\(self.wakeDiagnosticSnippet(self.lastTranscript))'"
+                )
                 self.pendingWakeFollowUp = nil
                 self.onWakeAnalyticsSignal?(
                     .empty(
@@ -2906,6 +3082,9 @@ final class SpeechManager: ObservableObject {
             let workItem = makeWakeFollowUpTimeoutWorkItem(groupID: pending.groupID)
             pending.timeoutWorkItem = workItem
             pendingWakeFollowUp = pending
+            GlobalLogger.speech.info(
+                "[WakeFollowUp] extend group=\(pending.groupID) age=\(wakeDiagnosticAgeDescription(since: pending.createdAt)) phrase='\(pending.phrase ?? "nil")' timeout=\(String(format: "%.2fs", alwaysListeningWakeWindowSeconds()))"
+            )
             DispatchQueue.main.asyncAfter(
                 deadline: .now() + alwaysListeningWakeWindowSeconds(),
                 execute: workItem
@@ -2915,6 +3094,9 @@ final class SpeechManager: ObservableObject {
 
         if let pending = pendingWakeFollowUp {
             pending.timeoutWorkItem?.cancel()
+            GlobalLogger.speech.info(
+                "[WakeFollowUp] replacing pending group=\(pending.groupID) age=\(wakeDiagnosticAgeDescription(since: pending.createdAt)) phrase='\(pending.phrase ?? "nil")' reason=new-wake-hit"
+            )
             onWakeAnalyticsSignal?(
                 .empty(
                     groupID: pending.groupID,
@@ -2942,7 +3124,11 @@ final class SpeechManager: ObservableObject {
             groupID: groupID,
             phrase: phraseToStore,
             localeIdentifier: localeIdentifier,
+            createdAt: Date(),
             timeoutWorkItem: workItem
+        )
+        GlobalLogger.speech.info(
+            "[WakeFollowUp] begin group=\(groupID) phrase='\(phraseToStore ?? "nil")' locale=\(localeIdentifier) timeout=\(String(format: "%.2fs", alwaysListeningWakeWindowSeconds())) hudBefore=\(HUDManager.shared.state.mode.rawValue)"
         )
         DispatchQueue.main.asyncAfter(
             deadline: .now() + alwaysListeningWakeWindowSeconds(),
@@ -2964,6 +3150,9 @@ final class SpeechManager: ObservableObject {
 
         pending.timeoutWorkItem?.cancel()
         pendingWakeFollowUp = nil
+        GlobalLogger.speech.info(
+            "[WakeFollowUp] converted group=\(pending.groupID) followUp=\(String(describing: followUp)) age=\(wakeDiagnosticAgeDescription(since: pending.createdAt)) hud=\(HUDManager.shared.state.mode.rawValue) transcript='\(wakeDiagnosticSnippet(transcript))'"
+        )
         onWakeAnalyticsSignal?(
             .converted(
                 groupID: pending.groupID,
@@ -2980,9 +3169,10 @@ final class SpeechManager: ObservableObject {
             GlobalLogger.speech.info("[IdlePause] wake word requested resume reason=\(reason)")
             onIdlePauseResumeRequest?("wake-word-\(reason)")
         }
+        let hudBefore = HUDManager.shared.state.mode
         lastWakeTime = Date()
         GlobalLogger.speech.info(
-            "[WakeWord] activated reason=\(reason) hudBefore=\(String(describing: HUDManager.shared.state.mode)) transcript='\(lastTranscript)'"
+            "[WakeWord] activated reason=\(reason) hudBefore=\(hudBefore.rawValue) recognitionRunning=\(recognitionSession.isRunning) audioRunning=\(audioCapture.isRunning) transcript='\(wakeDiagnosticSnippet(lastTranscript))'"
         )
         playWakeSound(reason: reason)
         if let rearmReason {
@@ -2990,6 +3180,20 @@ final class SpeechManager: ObservableObject {
         }
         clearUnarmedWakePreview()
         refreshContinuousHUD(isDictating: false)
+        let hudAfter = HUDManager.shared.state.mode
+        GlobalLogger.speech.info(
+            "[WakeWord] activation-complete reason=\(reason) hudAfter=\(hudAfter.rawValue) recognitionRunning=\(recognitionSession.isRunning) audioRunning=\(audioCapture.isRunning) pendingWake=\(pendingWakeFollowUp != nil)"
+        )
+        if hudAfter == .hidden {
+            let hudState = HUDManager.shared.state
+            logWakeHUDStateIfNeeded(
+                reason: "hidden-after-activation-\(reason)",
+                controlMode: hudState.recognitionControlMode,
+                typingEligible: nil,
+                effectiveDictating: isDictating,
+                isSessionActive: recognitionSession.isRunning || audioCapture.isRunning || isStopping
+            )
+        }
     }
 
     // MARK: - handleTranscript (unified finalization)
@@ -3022,18 +3226,15 @@ final class SpeechManager: ObservableObject {
             }
         } else if isWakeWordEnabled && !isDirectCommandEnabled {
             logWakeWordConfigurationIfNeeded(reason: "final-always-listening")
-            let wakeMatchMode: WakeWordMatchMode
-            if isAwake {
-                wakeMatchMode = .strictPrefix
-            } else if isAlwaysListeningEnabled {
-                wakeMatchMode = .retryAwareStandby
-            } else {
-                wakeMatchMode = .strictPrefix
-            }
             let wakeResult = wakeWordDetector.process(
                 rawTrimmed,
                 localeIdentifier: activeLocale.identifier,
-                matchMode: wakeMatchMode
+                matchMode: Self.wakeMatchMode(
+                    isWakeWordEnabled: isWakeWordEnabled,
+                    isDirectCommandEnabled: isDirectCommandEnabled,
+                    isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+                    isAwake: isAwake
+                )
             )
             wakeScore = wakeResult.score
             matchedWakePhrase = wakeResult.matchedPhrase
@@ -3477,15 +3678,38 @@ final class SpeechManager: ObservableObject {
 
     private func ensureRecognitionSessionForVisibleHUD(reason: String) {
         guard shouldKeepWakeHUDArmed() else { return }
-        guard !recognitionSession.isRunning, !isStopping else { return }
-        guard pendingEngineRestartWorkItem == nil else { return }
+        guard !recognitionSession.isRunning, !isStopping else {
+            logWakeArmStateIfNeeded(reason: reason, outcome: "skip-already-running-or-stopping")
+            return
+        }
+        guard pendingEngineRestartWorkItem == nil else {
+            logWakeArmStateIfNeeded(reason: reason, outcome: "blocked-pending-engine-restart")
+            return
+        }
 
         let now = Date()
         guard now >= routeRebuildGraceUntil,
               now >= continuousRecoveryGraceUntil,
-              now >= recognitionUnavailableUntil else { return }
+              now >= recognitionUnavailableUntil else {
+            var blockers: [String] = []
+            if now < routeRebuildGraceUntil {
+                blockers.append("routeGrace=\(wakeDiagnosticRemainingDescription(until: routeRebuildGraceUntil))")
+            }
+            if now < continuousRecoveryGraceUntil {
+                blockers.append("recoveryGrace=\(wakeDiagnosticRemainingDescription(until: continuousRecoveryGraceUntil))")
+            }
+            if now < recognitionUnavailableUntil {
+                blockers.append("recognizerUnavailable=\(wakeDiagnosticRemainingDescription(until: recognitionUnavailableUntil))")
+            }
+            logWakeArmStateIfNeeded(
+                reason: reason,
+                outcome: "blocked-\(blockers.joined(separator: ","))"
+            )
+            return
+        }
 
         GlobalLogger.speech.info("[ASR Session] rearm visible HUD reason=\(reason) awake=\(isAwake) direct=\(isDirectCommandEnabled)")
+        logWakeArmStateIfNeeded(reason: reason, outcome: "schedule-continuous-recovery")
         scheduleContinuousRecovery(delay: 0.05)
     }
 
@@ -3532,7 +3756,7 @@ final class SpeechManager: ObservableObject {
 
         if case .dictation(let text) = job.intent {
             let sourceText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let passthroughResult = { (diagnostics: String) in
+            func passthroughResult(_ diagnostics: String, enhancedContent: String? = nil) -> ProcessedJob {
                 ProcessedJob(
                     seq: job.seq,
                     intent: .dictation(text),
@@ -3551,6 +3775,7 @@ final class SpeechManager: ObservableObject {
                     diagnostics: diagnostics,
                     spokenText: job.spokenText,
                     originalContent: sourceText,
+                    enhancedContent: enhancedContent,
                     routeReason: job.routeReason,
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
@@ -3561,6 +3786,12 @@ final class SpeechManager: ObservableObject {
             }
             guard job.sessionTypingMode else {
                 return passthroughResult("llm=skipped-no-typing")
+            }
+            if let skipReason = Self.dictationEnhancementSkipReason(
+                text: text,
+                localeIdentifier: job.localeIdentifier
+            ) {
+                return passthroughResult("llm=skipped-\(skipReason)")
             }
             guard let llmProvider = contextualLLMProvider(bundleIDs: llmBundleIDs) else {
                 logDictationEnhancementFailure(
@@ -3598,6 +3829,7 @@ final class SpeechManager: ObservableObject {
                         diagnostics: changed ? "llm=applied" : "llm=unchanged",
                         spokenText: job.spokenText,
                         originalContent: sourceText,
+                        enhancedContent: finalText,
                         routeReason: job.routeReason,
                         commandHUDPreviewMessage: job.commandHUDPreviewMessage
                     )
@@ -3605,7 +3837,7 @@ final class SpeechManager: ObservableObject {
                     GlobalLogger.speech.info(
                         "[DictationLLM] rejected phase=process reason=\(reason) \(llmProviderDiagnosticsContext(utteranceID: job.utteranceID, typing: job.sessionTypingMode, targetPID: job.targetPID, bundleID: job.targetBundleID, sourceCount: text.count))"
                     )
-                    return passthroughResult("llm=rejected-\(reason)")
+                    return passthroughResult("llm=rejected-\(reason)", enhancedContent: enhanced.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
             } catch {
                 logDictationEnhancementFailure(
@@ -3647,6 +3879,7 @@ final class SpeechManager: ObservableObject {
                     diagnostics: "rewrite=\(failureReason.rawValue)",
                     spokenText: job.spokenText,
                     originalContent: nil,
+                    enhancedContent: nil,
                     routeReason: job.routeReason,
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
@@ -3683,6 +3916,7 @@ final class SpeechManager: ObservableObject {
                     diagnostics: "rewrite=llm-unavailable",
                     spokenText: job.spokenText,
                     originalContent: nil,
+                    enhancedContent: nil,
                     routeReason: job.routeReason,
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
@@ -3717,6 +3951,7 @@ final class SpeechManager: ObservableObject {
                     diagnostics: "rewrite=missing-source",
                     spokenText: job.spokenText,
                     originalContent: nil,
+                    enhancedContent: nil,
                     routeReason: job.routeReason,
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
@@ -3743,6 +3978,7 @@ final class SpeechManager: ObservableObject {
                     diagnostics: "rewrite=ok",
                     spokenText: job.spokenText,
                     originalContent: nil,
+                    enhancedContent: rewritten.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? sourceText : rewritten,
                     routeReason: job.routeReason,
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
@@ -3777,6 +4013,7 @@ final class SpeechManager: ObservableObject {
                     diagnostics: "rewrite=provider-failed",
                     spokenText: job.spokenText,
                     originalContent: nil,
+                    enhancedContent: nil,
                     routeReason: job.routeReason,
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
@@ -3791,6 +4028,7 @@ final class SpeechManager: ObservableObject {
                             verificationSnapshot: job.verificationSnapshot, holdsTextRewriteBarrier: job.holdsTextRewriteBarrier,
                             diagnostics: nil, spokenText: job.spokenText,
                             originalContent: nil,
+                            enhancedContent: nil,
                             routeReason: job.routeReason, commandHUDPreviewMessage: job.commandHUDPreviewMessage)
     }
 
@@ -3862,12 +4100,12 @@ final class SpeechManager: ObservableObject {
         case .undo:
             injector.undoPasteIfRecent()
             status = NSLocalizedString("speech.undo", comment: "")
-            onIntent?(.undo, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+            onIntent?(.undo, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
             clearHandledCommandPreview()
         case .paste:
             AutomationOutputs.shared.pasteFromClipboard()
             status = "Pasted (Cmd+V)"
-            onIntent?(.paste, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+            onIntent?(.paste, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
             clearHandledCommandPreview()
         case .clearInput:
             let selectAll = HotkeyBinding(keyCode: kVK_ANSI_A, modifiers: CGEventFlags.maskCommand.rawValue)
@@ -3875,13 +4113,13 @@ final class SpeechManager: ObservableObject {
             AutomationOutputs.shared.pressShortcut(selectAll, targetPID: injectionPID)
             AutomationOutputs.shared.backspace(count: 1, targetPID: injectionPID)
             status = NSLocalizedString("speech.done", comment: "")
-            onIntent?(.clearInput, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+            onIntent?(.clearInput, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
             clearHandledCommandPreview()
         case .deleteBackward(let count):
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
             AutomationOutputs.shared.backspace(count: count, targetPID: injectionPID)
             status = NSLocalizedString("speech.done", comment: "")
-            onIntent?(.deleteBackward(count), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+            onIntent?(.deleteBackward(count), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
             clearHandledCommandPreview()
         case .moveCursorHorizontally(let offset):
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
@@ -3893,7 +4131,7 @@ final class SpeechManager: ObservableObject {
                 AutomationOutputs.shared.pressShortcut(binding, targetPID: injectionPID)
             }
             status = NSLocalizedString("speech.done", comment: "")
-            onIntent?(.moveCursorHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+            onIntent?(.moveCursorHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
             clearHandledCommandPreview()
         case .selectHorizontally(let offset):
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
@@ -3905,7 +4143,7 @@ final class SpeechManager: ObservableObject {
                 AutomationOutputs.shared.pressShortcut(binding, targetPID: injectionPID)
             }
             status = NSLocalizedString("speech.done", comment: "")
-            onIntent?(.selectHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+            onIntent?(.selectHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
             clearHandledCommandPreview()
         case .rewriteText(let payload):
             defer {
@@ -4029,7 +4267,7 @@ final class SpeechManager: ObservableObject {
 
             if rewrittenText == sourceText {
                 status = textRewriteSuccessMessage(changed: false)
-                onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+                onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
                 clearHandledCommandPreview()
                 return
             }
@@ -4048,7 +4286,7 @@ final class SpeechManager: ObservableObject {
                 let verification = await self.verifyTextRewriteInjection(rewrittenText, for: job)
                 switch verification {
                 case .success:
-                    self.onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+                    self.onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
                 case .mismatch:
                     self.logTextRewriteFailure(
                         .commitFailed,
@@ -4068,13 +4306,13 @@ final class SpeechManager: ObservableObject {
                     )
                     self.onRecognitionFailure?(rewrittenText, "post-injection-mismatch", usageContext.appName, usageContext.bundleIdentifier)
                 case .unverified:
-                    self.onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+                    self.onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
                 }
             }
             clearHandledCommandPreview()
         case .frontmostAppCommand(let command):
             armPostSubmitDictationSuppressionIfNeeded(for: command, job: job)
-            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
             status = NSLocalizedString("speech.done", comment: "")
             clearHandledCommandPreview()
         case .dictation(let text):
@@ -4152,14 +4390,14 @@ final class SpeechManager: ObservableObject {
                 let verification = await self.verifyDictationInjection(finalText, for: job)
                 switch verification {
                 case .success:
-                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
                 case .mismatch:
                     self.onRecognitionFailure?(finalText, "post-injection-mismatch", usageContext.appName, usageContext.bundleIdentifier)
                 case .unverified:
                     GlobalLogger.speech.info(
                         "[TextPipeline] verification-unverified treating-as-success utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(job.targetBundleID ?? "nil")"
                     )
-                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+                    self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
                 }
             }
             clearHandledCommandPreview()
@@ -4179,9 +4417,9 @@ final class SpeechManager: ObservableObject {
             if shouldSurfaceUnknownHUD {
                 showUnknownCommandHUD(transcript)
             }
-            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
         default:
-            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.diagnostics)
+            onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics)
             status = NSLocalizedString("speech.done", comment: "")
             clearHandledCommandPreview()
         }
@@ -4632,6 +4870,14 @@ final class SpeechManager: ObservableObject {
         default:
             return false
         }
+    }
+
+    private static func isLikelyCodeLikeEnhancementInput(
+        _ text: String,
+        localeIdentifier _: String
+    ) -> Bool {
+        let markers = [".swift", ".js", ".ts", ".tsx", ".py", "--", "⌘", "::", "->", "{", "}"]
+        return markers.contains(where: { text.contains($0) })
     }
 
     private static func scriptBias(for text: String, localeIdentifier: String) -> ScriptBias {
@@ -5159,6 +5405,13 @@ final class SpeechManager: ObservableObject {
         if isWakeGatedStandby {
             clearHUDOverride()
             clearUnarmedWakePreview()
+            logWakeHUDStateIfNeeded(
+                reason: "wake-standby-hidden",
+                controlMode: controlMode,
+                typingEligible: typingHUDEligible,
+                effectiveDictating: effectiveDictating,
+                isSessionActive: recognitionSession.isRunning || isStopping || effectiveDictating || isPTTHeld
+            )
             ensureRecognitionSessionForVisibleHUD(reason: "wake-standby-hidden")
             if HUDManager.shared.isTemporaryHUDActive || HUDManager.shared.state.isLanguageIndicatorVisible {
                 return
@@ -5188,6 +5441,13 @@ final class SpeechManager: ObservableObject {
            !featureAvailability.commandEnabled,
            !focusedTypingEvidence {
             clearHUDOverride()
+            logWakeHUDStateIfNeeded(
+                reason: "dictation-only-without-focus-hidden",
+                controlMode: controlMode,
+                typingEligible: typingHUDEligible,
+                effectiveDictating: effectiveDictating,
+                isSessionActive: recognitionSession.isRunning || isStopping || effectiveDictating || isPTTHeld
+            )
             HUDManager.shared.hide()
             return
         }
@@ -5209,6 +5469,13 @@ final class SpeechManager: ObservableObject {
         if isWakeGated && !isAwake && !isStopping && !effectiveDictating {
             clearHUDOverride()
             clearUnarmedWakePreview()
+            logWakeHUDStateIfNeeded(
+                reason: "wake-gated-hidden-before-mode-selection",
+                controlMode: controlMode,
+                typingEligible: typingHUDEligible,
+                effectiveDictating: effectiveDictating,
+                isSessionActive: isSessionActive
+            )
             HUDManager.shared.hide()
             return
         }
@@ -5571,7 +5838,9 @@ final class SpeechManager: ObservableObject {
                 return true
             }
         }
-        if hasLockedFocusedInputTarget() { return true }
+        if hasLockedFocusedInputTarget() {
+            return liveTypingEvidence || !dictationHandler.screenTypedText.isEmpty
+        }
         if let app = NSWorkspace.shared.frontmostApplication,
            isSystemSearchLikeApplication(app) {
             let hudState = HUDManager.shared.state
@@ -5599,6 +5868,9 @@ final class SpeechManager: ObservableObject {
         }
         if HUDManager.shared.hasRecentExplicitTypingClickReentry() {
             return true
+        }
+        if shouldSuppressFocusedTypingForExplicitNonInputClick() {
+            return false
         }
         let axEvaluation = HUDManager.shared.currentAXTypingEvaluation()
         if axEvaluation.insertionContextAvailable || axEvaluation.editableLikely || axEvaluation.looselyEditableForWeb {
@@ -7103,7 +7375,7 @@ final class SpeechManager: ObservableObject {
         let insertionContext = hasInsertionContext(element)
         let hasEditableAncestor = editableAncestor(for: element) != nil
         let hasSettableValue = valueAttributeIsSettable(element)
-        let isWeirdTypingApp = isWeirdTypingAppBundle(bundleID)
+        let allowsLooseContainerDictation = allowsLooseContainerDictationHeuristics(bundleID)
         let directRoles: Set<String> = [kAXTextFieldRole as String, "AXSearchField", "AXComboBox", "AXHTMLTextInput"]
 
         if directRoles.contains(role) { return true }
@@ -7111,10 +7383,10 @@ final class SpeechManager: ObservableObject {
             return insertionContext || hasEditableAncestor || hasSettableValue
         }
         if role == "AXWebArea" || role == "AXGroup" || role == "AXScrollArea" || role == "AXSplitGroup" || role == "AXStaticText" {
-            if insertionContext && (editable || hasEditableAncestor || hasSettableValue || isWeirdTypingApp) {
+            if allowsLooseContainerDictation && insertionContext && (editable || hasEditableAncestor || hasSettableValue) {
                 return true
             }
-            return editable && insertionContext
+            return insertionContext && (editable || hasSettableValue)
         }
         if insertionContext && (editable || hasEditableAncestor || hasSettableValue) {
             return true
@@ -7363,8 +7635,15 @@ final class SpeechManager: ObservableObject {
             || bundle.contains("codex")
             || bundle.contains("antigravity")
     }
+    static func allowsLooseContainerDictationHeuristicsIdentifier(_ bundleID: String?) -> Bool {
+        let bundle = (bundleID ?? "").lowercased()
+        return bundle.contains("xinwechat") || bundle.contains("wechat")
+    }
     private func isWeirdTypingAppBundle(_ bundleID: String?) -> Bool {
         Self.isWeirdTypingAppBundleIdentifier(bundleID)
+    }
+    private func allowsLooseContainerDictationHeuristics(_ bundleID: String?) -> Bool {
+        Self.allowsLooseContainerDictationHeuristicsIdentifier(bundleID)
     }
     private func isRecentClickFallbackTypingAppBundle(_ bundleID: String?) -> Bool {
         let bundle = (bundleID ?? "").lowercased()
