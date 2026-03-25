@@ -13,6 +13,10 @@ enum AetherBuildVersionFormatter {
         case beta
     }
 
+    static let publicVersionLabelElementName = "aether:publicVersionLabel"
+    static let publicVersionLabelLocalName = "publicVersionLabel"
+    static let publicVersionLabelNamespace = "https://aether.7caifei.com/xml-namespaces/aether"
+
     private static func normalized(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,14 +36,50 @@ enum AetherBuildVersionFormatter {
         }
     }
 
-    static func publicLabel(from downloadURL: String?) -> String? {
+    static func matchesPublicVersionLabelName(_ name: String?) -> Bool {
+        guard let name = normalized(name) else { return false }
+        return name == publicVersionLabelElementName
+            || name == publicVersionLabelLocalName
+            || name.hasSuffix(":\(publicVersionLabelLocalName)")
+    }
+
+    static func explicitPublicLabel(from propertiesDictionary: [AnyHashable: Any]?) -> String? {
+        guard let propertiesDictionary else { return nil }
+
+        if let explicitLabel = normalized(propertiesDictionary[publicVersionLabelElementName] as? String) {
+            return explicitLabel
+        }
+
+        if let explicitLabel = normalized(propertiesDictionary[publicVersionLabelLocalName] as? String) {
+            return explicitLabel
+        }
+
+        for (key, value) in propertiesDictionary {
+            guard matchesPublicVersionLabelName(String(describing: key)),
+                  let explicitLabel = normalized(value as? String) else {
+                continue
+            }
+            return explicitLabel
+        }
+
+        return nil
+    }
+
+    static func publicLabel(
+        from downloadURL: String?,
+        propertiesDictionary: [AnyHashable: Any]? = nil
+    ) -> String? {
+        if let explicitLabel = explicitPublicLabel(from: propertiesDictionary) {
+            return explicitLabel
+        }
+
         guard let downloadURL = normalized(downloadURL) else { return nil }
         let fileName = URL(string: downloadURL)?.lastPathComponent ?? (downloadURL as NSString).lastPathComponent
         guard fileName.hasSuffix(".zip") else { return nil }
         let stem = String(fileName.dropLast(4))
         guard let candidate = stem.split(separator: "_").last else { return nil }
         let label = String(candidate)
-        guard label.first == "b", label.dropFirst().allSatisfy(\.isNumber) else { return nil }
+        guard let prefix = label.first, (prefix == "b" || prefix == "B"), label.dropFirst().allSatisfy(\.isNumber) else { return nil }
         return label
     }
 
@@ -235,6 +275,98 @@ enum AetherBuildVersionFormatter {
                         publicLabel: bundlePublicLabel
                     )
             )
+        }
+    }
+}
+
+struct AetherAppcastFeedEntry: Equatable {
+    var shortVersion: String?
+    var buildVersion: String?
+    var publicLabel: String?
+}
+
+enum AetherAppcastFeedInspector {
+    static func firstRelease(from data: Data) -> AetherAppcastFeedEntry? {
+        parseEntries(from: data).first
+    }
+
+    static func publicLabelsByBuildVersion(from data: Data) -> [String: String] {
+        var labels: [String: String] = [:]
+        for entry in parseEntries(from: data) {
+            guard let buildVersion = entry.buildVersion,
+                  let publicLabel = entry.publicLabel else {
+                continue
+            }
+            labels[buildVersion] = publicLabel
+        }
+        return labels
+    }
+
+    static func parseEntries(from data: Data) -> [AetherAppcastFeedEntry] {
+        let delegate = AetherAppcastFeedXMLParser()
+        let parser = XMLParser(data: data)
+        parser.delegate = delegate
+        parser.parse()
+        return delegate.entries
+    }
+}
+
+private final class AetherAppcastFeedXMLParser: NSObject, XMLParserDelegate {
+    private(set) var entries: [AetherAppcastFeedEntry] = []
+    private var currentText = ""
+    private var currentEntry: AetherAppcastFeedEntry?
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String] = [:]
+    ) {
+        currentText = ""
+
+        if elementName == "item" {
+            currentEntry = AetherAppcastFeedEntry()
+        } else if currentEntry != nil,
+                  elementName == "enclosure",
+                  currentEntry?.publicLabel == nil,
+                  let url = attributeDict["url"] {
+            currentEntry?.publicLabel = AetherBuildVersionFormatter.publicLabel(from: url)
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        currentText += string
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        guard var entry = currentEntry else { return }
+
+        let resolvedElementName = qName ?? elementName
+        let value = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !value.isEmpty {
+            if resolvedElementName == "sparkle:shortVersionString", entry.shortVersion == nil {
+                entry.shortVersion = value
+            } else if resolvedElementName == "sparkle:version", entry.buildVersion == nil {
+                entry.buildVersion = value
+            } else if (
+                AetherBuildVersionFormatter.matchesPublicVersionLabelName(resolvedElementName)
+                    || AetherBuildVersionFormatter.matchesPublicVersionLabelName(elementName)
+            ), entry.publicLabel == nil {
+                entry.publicLabel = value
+            }
+        }
+
+        if elementName == "item" {
+            entries.append(entry)
+            currentEntry = nil
+        } else {
+            currentEntry = entry
         }
     }
 }

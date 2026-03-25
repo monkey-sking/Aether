@@ -612,6 +612,90 @@ final class AetherBuildVersionFormatterTests: XCTestCase {
         XCTAssertEqual(versions.update, "b79")
         XCTAssertEqual(versions.bundle, "b78")
     }
+
+    func testPublicLabelPrefersExplicitAppcastLabelForDeltaUpdates() {
+        XCTAssertEqual(
+            AetherBuildVersionFormatter.publicLabel(
+                from: "https://aether.7caifei.com/aether-beta/Aether20260325094148-20260324213703.delta",
+                propertiesDictionary: [
+                    AetherBuildVersionFormatter.publicVersionLabelElementName: "b86"
+                ]
+            ),
+            "b86"
+        )
+    }
+
+    func testPublicLabelAcceptsArbitraryNamespacePrefixFromSparkleProperties() {
+        XCTAssertEqual(
+            AetherBuildVersionFormatter.publicLabel(
+                from: "https://aether.7caifei.com/aether-beta/Aether20260325130210-20260325105543.delta",
+                propertiesDictionary: [
+                    "ns1:publicVersionLabel": "b88"
+                ]
+            ),
+            "b88"
+        )
+    }
+
+    func testPublicVersionLabelMatchingIgnoresXMLPrefix() {
+        XCTAssertTrue(AetherBuildVersionFormatter.matchesPublicVersionLabelName("aether:publicVersionLabel"))
+        XCTAssertTrue(AetherBuildVersionFormatter.matchesPublicVersionLabelName("ns1:publicVersionLabel"))
+        XCTAssertTrue(AetherBuildVersionFormatter.matchesPublicVersionLabelName("publicVersionLabel"))
+        XCTAssertFalse(AetherBuildVersionFormatter.matchesPublicVersionLabelName("sparkle:version"))
+    }
+
+    func testPublicLabelStillFallsBackToZipName() {
+        XCTAssertEqual(
+            AetherBuildVersionFormatter.publicLabel(
+                from: "https://aether.7caifei.com/aether-beta/Aether_0.1.0_b86.zip"
+            ),
+            "b86"
+        )
+    }
+
+    func testPublicLabelIgnoresTrackingQueryString() {
+        XCTAssertEqual(
+            AetherBuildVersionFormatter.publicLabel(
+                from: "https://auth.aether.7caifei.com/aether-beta/Aether_0.1.0_b86.zip?source=update&channel=beta&version=0.1.0"
+            ),
+            "b86"
+        )
+    }
+
+    func testAppcastFeedInspectorParsesPublicLabelsByBuildVersion() {
+        let xml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0"
+             xmlns:ns1="https://aether.7caifei.com/xml-namespaces/aether"
+             xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <title>Aether</title>
+            <item>
+              <title>0.1.0</title>
+              <sparkle:version>20260325135046</sparkle:version>
+              <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+              <ns1:publicVersionLabel>b89</ns1:publicVersionLabel>
+              <enclosure url="https://auth.aether.7caifei.com/aether-beta/Aether_0.1.0_b89.zip" length="1" type="application/octet-stream" />
+            </item>
+            <item>
+              <title>0.1.0</title>
+              <sparkle:version>20260325130210</sparkle:version>
+              <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+              <ns1:publicVersionLabel>b88</ns1:publicVersionLabel>
+              <enclosure url="https://auth.aether.7caifei.com/aether-beta/Aether_0.1.0_b88.zip" length="1" type="application/octet-stream" />
+            </item>
+          </channel>
+        </rss>
+        """
+
+        XCTAssertEqual(
+            AetherAppcastFeedInspector.publicLabelsByBuildVersion(from: Data(xml.utf8)),
+            [
+                "20260325135046": "b89",
+                "20260325130210": "b88",
+            ]
+        )
+    }
 }
 
 final class OpenAICompatibleProviderCompatibilityTests: XCTestCase {
@@ -797,5 +881,36 @@ final class SpeechManagerOverlapTests: XCTestCase {
     func testSymbolOnlyOverlapUsesThreeCharacters() {
         XCTAssertEqual(SpeechManager.minimumCrossUtteranceOverlapLength(for: "--"), 3)
         XCTAssertEqual(SpeechManager.minimumCrossUtteranceOverlapLength(for: "..."), 3)
+    }
+}
+
+@MainActor
+final class SpeechManagerEmptyFinalFallbackTests: XCTestCase {
+    func testEmptyFinalUsesMeaningfulChinesePartialFallback() {
+        XCTAssertEqual(
+            SpeechManager.fallbackTranscriptForUnexpectedEmptyFinal(
+                finalTranscript: "",
+                lastPartialTranscript: "你在认真地思索一下这个整个链条是什么样的"
+            ),
+            "你在认真地思索一下这个整个链条是什么样的"
+        )
+    }
+
+    func testEmptyFinalIgnoresShortChinesePartial() {
+        XCTAssertNil(
+            SpeechManager.fallbackTranscriptForUnexpectedEmptyFinal(
+                finalTranscript: "",
+                lastPartialTranscript: "你好"
+            )
+        )
+    }
+
+    func testNonEmptyFinalDoesNotUsePartialFallback() {
+        XCTAssertNil(
+            SpeechManager.fallbackTranscriptForUnexpectedEmptyFinal(
+                finalTranscript: "执行发送",
+                lastPartialTranscript: "你在认真地思索一下这个整个链条是什么样的"
+            )
+        )
     }
 }

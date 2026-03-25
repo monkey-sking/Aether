@@ -3,6 +3,33 @@ import SwiftUI
 import Combine
 import Sparkle
 
+enum AetherDownloadSource: String {
+    case manual
+    case update
+}
+
+enum AetherDownloadURLResolver {
+    private static var authBaseURLString: String {
+        Bundle.main.object(forInfoDictionaryKey: "AetherAuthBaseURL") as? String
+            ?? "https://auth.aether.7caifei.com"
+    }
+
+    private static var currentShortVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+
+    static func urlString(for channel: AetherUpdateChannel, source: AetherDownloadSource) -> String? {
+        guard var components = URLComponents(string: authBaseURLString) else { return nil }
+        components.path = channel == .beta ? "/beta/Aether.dmg" : "/download/Aether.dmg"
+        components.queryItems = [
+            URLQueryItem(name: "source", value: source.rawValue),
+            URLQueryItem(name: "channel", value: channel.rawValue),
+            URLQueryItem(name: "version", value: currentShortVersion),
+        ]
+        return components.string
+    }
+}
+
 enum AetherUpdateFeedResolver {
     private static let channelKey = "aether.update.channel"
     private static let explicitChannelKey = "aether.update.channel.explicit"
@@ -47,12 +74,83 @@ enum AetherUpdateFeedResolver {
     }
 
     static func downloadURLString(for channel: AetherUpdateChannel) -> String? {
-        let key = channel == .beta ? "AetherBetaDownloadURL" : "AetherDownloadURL"
-        return Bundle.main.object(forInfoDictionaryKey: key) as? String
+        AetherDownloadURLResolver.urlString(for: channel, source: .update)
+            ?? {
+                let key = channel == .beta ? "AetherBetaDownloadURL" : "AetherDownloadURL"
+                return Bundle.main.object(forInfoDictionaryKey: key) as? String
+            }()
     }
 
     static func currentFeedURLString() -> String {
         feedURLString(for: currentChannel())
+    }
+}
+
+private final class AetherAppcastPublicLabelCache {
+    static let shared = AetherAppcastPublicLabelCache()
+
+    private let stateQueue = DispatchQueue(label: "com.aether.appcast-public-label-cache")
+    private let cacheLifetime: TimeInterval = 30
+    private var labelsByFeedURLString: [String: [String: String]] = [:]
+    private var fetchedAtByFeedURLString: [String: Date] = [:]
+    private var inFlightFeedURLStrings = Set<String>()
+
+    private init() {}
+
+    func publicLabel(forBuildVersion buildVersion: String?, feedURLString: String) -> String? {
+        guard let buildVersion, !buildVersion.isEmpty else { return nil }
+
+        return stateQueue.sync {
+            labelsByFeedURLString[feedURLString]?[buildVersion]
+        }
+    }
+
+    func preload(feedURLString: String, force: Bool = false) async {
+        let normalizedFeedURLString = feedURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedFeedURLString.isEmpty,
+              let feedURL = URL(string: normalizedFeedURLString) else {
+            return
+        }
+
+        guard beginLoad(feedURLString: normalizedFeedURLString, force: force) else {
+            return
+        }
+        defer { endLoad(feedURLString: normalizedFeedURLString) }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: feedURL)
+            let labels = AetherAppcastFeedInspector.publicLabelsByBuildVersion(from: data)
+
+            stateQueue.sync {
+                labelsByFeedURLString[normalizedFeedURLString] = labels
+                fetchedAtByFeedURLString[normalizedFeedURLString] = Date()
+            }
+        } catch {
+            // Keep the previous cache if the feed refresh fails.
+        }
+    }
+
+    private func beginLoad(feedURLString: String, force: Bool) -> Bool {
+        stateQueue.sync {
+            if inFlightFeedURLStrings.contains(feedURLString) {
+                return false
+            }
+
+            if !force,
+               let fetchedAt = fetchedAtByFeedURLString[feedURLString],
+               Date().timeIntervalSince(fetchedAt) < cacheLifetime {
+                return false
+            }
+
+            inFlightFeedURLStrings.insert(feedURLString)
+            return true
+        }
+    }
+
+    private func endLoad(feedURLString: String) {
+        stateQueue.sync {
+            inFlightFeedURLStrings.remove(feedURLString)
+        }
     }
 }
 
@@ -61,7 +159,11 @@ private final class AetherSparkleFeedDelegate: NSObject, SPUUpdaterDelegate {
     static let shared = AetherSparkleFeedDelegate()
 
     func feedURLString(for updater: SPUUpdater) -> String? {
-        AetherUpdateFeedResolver.currentFeedURLString()
+        let feedURLString = AetherUpdateFeedResolver.currentFeedURLString()
+        Task {
+            await AetherAppcastPublicLabelCache.shared.preload(feedURLString: feedURLString)
+        }
+        return feedURLString
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
@@ -84,8 +186,19 @@ private final class AetherSparkleVersionDisplayer: NSObject, SUVersionDisplay {
         Bundle.main.object(forInfoDictionaryKey: "AetherPublicVersionLabel") as? String
     }
 
+    private var currentFeedURLString: String {
+        AetherUpdateFeedResolver.currentFeedURLString()
+    }
+
     private func publicLabel(for item: SUAppcastItem?) -> String? {
-        AetherBuildVersionFormatter.publicLabel(from: item?.fileURL?.absoluteString)
+        guard let item else { return nil }
+        return AetherBuildVersionFormatter.publicLabel(
+            from: item.fileURL?.absoluteString,
+            propertiesDictionary: item.propertiesDictionary
+        ) ?? AetherAppcastPublicLabelCache.shared.publicLabel(
+            forBuildVersion: item.versionString,
+            feedURLString: currentFeedURLString
+        )
     }
 
     func formatUpdateVersion(
@@ -183,9 +296,18 @@ final class AetherSparkleController: ObservableObject {
     }
 
     func checkForUpdates() {
-        HUDManager.shared.hideImmediately()
-        AetherSparkleFocusHelper.bringAppToFront()
-        updaterController.checkForUpdates(nil)
+        let feedURLString = AetherUpdateFeedResolver.currentFeedURLString()
+        Task { [updaterController] in
+            await AetherAppcastPublicLabelCache.shared.preload(
+                feedURLString: feedURLString,
+                force: true
+            )
+            await MainActor.run {
+                HUDManager.shared.hideImmediately()
+                AetherSparkleFocusHelper.bringAppToFront()
+                updaterController.checkForUpdates(nil)
+            }
+        }
     }
 }
 

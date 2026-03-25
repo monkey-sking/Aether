@@ -404,6 +404,8 @@ final class HUDManager {
     private var cancellables = Set<AnyCancellable>()
     private var backgroundFullscreenCheckTimer: Timer?
     private var appNapActivityToken: NSObjectProtocol?
+    private var lastVisibilityDiagnosticAt: Date = .distantPast
+    private var lastVisibilityDiagnosticSignature: String = ""
     
     private init() {
         os_log("HUDManager: init started", log: log, type: .default)
@@ -2242,15 +2244,18 @@ final class HUDManager {
             return
         }
         guard !shouldSuppressHUDForAetherForegroundWindow() else {
+            logHUDVisibilityIfNeeded(reason: "ensure-visible-suppressed-aether-frontmost", panel: panel, force: true)
             panel.orderOut(nil)
             return
         }
         if !panel.isVisible || panel.alphaValue < 0.9 {
+            logHUDVisibilityIfNeeded(reason: "ensure-visible-before-front", panel: panel, force: true)
             panel.alphaValue = 1.0
             panel.orderFront(nil)
+            logHUDVisibilityIfNeeded(reason: "ensure-visible-after-front", panel: panel, force: true)
         }
     }
-    
+
     private func repositionWindow() {
         // [Ghost Keyboard Fix] Accessing mode from state should be main-thread safe enough here
         // If hidden, DO NOT move or update content (prevents "Ghost Keyboard" when fading out)
@@ -2261,8 +2266,10 @@ final class HUDManager {
         }
 
         guard let panel = hudWindow else { return }
+        logHUDVisibilityIfNeeded(reason: "reposition-entry", panel: panel)
 
         if shouldSuppressHUDForAetherForegroundWindow() {
+            logHUDVisibilityIfNeeded(reason: "reposition-suppressed-aether-frontmost", panel: panel, force: true)
             panel.orderOut(nil)
             updateCaretDebugDot(point: nil, enabled: false)
             return
@@ -2270,6 +2277,7 @@ final class HUDManager {
         
         // --- Fullscreen Video Check ---
         if shouldSuppressHUDForFullscreenVideo() {
+            logHUDVisibilityIfNeeded(reason: "reposition-suppressed-fullscreen-video", panel: panel, force: true)
             hideForHiddenCursor()
             updateCaretDebugDot(point: nil, enabled: false)
             return
@@ -2813,6 +2821,7 @@ final class HUDManager {
             if !panel.isVisible && (state.mode != .hidden) {
                 ensureWindowVisible()
             }
+            logHUDVisibilityIfNeeded(reason: "reposition-exit", panel: panel)
 
             // Lightweight file trace for weird UIs (Codex/Antigravity).
             // Only logs when the computed anchor/typing rect or final position changes meaningfully.
@@ -2845,6 +2854,40 @@ final class HUDManager {
                 }
             }
         }
+    }
+
+    private func hudRectSummary(_ rect: CGRect?) -> String {
+        guard let rect else { return "nil" }
+        return "\(Int(rect.origin.x)),\(Int(rect.origin.y)),\(Int(rect.size.width))x\(Int(rect.size.height))"
+    }
+
+    private func hudAlphaSummary(_ alpha: CGFloat) -> String {
+        String(format: "%.2f", alpha)
+    }
+
+    private func logHUDVisibilityIfNeeded(reason: String, panel: NSPanel, force: Bool = false) {
+        let now = Date()
+        let screenName = panel.screen?.localizedName ?? "nil"
+        let screenFrame = hudRectSummary(panel.screen?.visibleFrame)
+        let frame = hudRectSummary(panel.frame)
+        let alpha = hudAlphaSummary(panel.alphaValue)
+        let occlusionVisible = panel.occlusionState.contains(.visible) ? 1 : 0
+        let activeSpace = panel.isOnActiveSpace ? 1 : 0
+        let signature =
+            "reason=\(reason) mode=\(state.mode.rawValue) visible=\(panel.isVisible ? 1 : 0) alpha=\(alpha) " +
+            "occlusionVisible=\(occlusionVisible) activeSpace=\(activeSpace) level=\(panel.level.rawValue) " +
+            "typing=\(state.isTypingContext ? 1 : 0) ignoresMouse=\(panel.ignoresMouseEvents ? 1 : 0) " +
+            "frame=\(frame) screen=\(screenName) screenFrame=\(screenFrame)"
+
+        if !force,
+           signature == lastVisibilityDiagnosticSignature,
+           now.timeIntervalSince(lastVisibilityDiagnosticAt) < 1.0 {
+            return
+        }
+
+        lastVisibilityDiagnosticSignature = signature
+        lastVisibilityDiagnosticAt = now
+        os_log("[HUDVisibility] %{public}@", log: log, type: .default, signature)
     }
     
     // --- Fullscreen Video Logic ---

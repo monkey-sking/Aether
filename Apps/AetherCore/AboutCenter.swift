@@ -778,10 +778,10 @@ final class AetherUpdaterManager: ObservableObject {
     }
 
     func openLatestDownload() {
-        // Sparkle feeds may point to versioned ZIP archives intended for auto-update.
-        // For manual downloads, prefer the app's configured DMG URL (or page) instead.
-        let target = (Bundle.main.object(forInfoDictionaryKey: "AetherDownloadPageURL") as? String)
-            ?? AetherUpdateFeedResolver.downloadURLString(for: channel)
+        // Sparkle feeds point to ZIP or delta archives for auto-update.
+        // Manual fallback downloads should use the tracked DMG gateway instead.
+        let target = AetherDownloadURLResolver.urlString(for: channel, source: .manual)
+            ?? (Bundle.main.object(forInfoDictionaryKey: "AetherDownloadPageURL") as? String)
         if let target, let url = URL(string: target) { NSWorkspace.shared.open(url) }
     }
 
@@ -822,10 +822,16 @@ private final class AppcastParser: NSObject, XMLParserDelegate {
         guard seenItem else { return }
         let value = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
         if value.isEmpty { return }
-        if elementName == "sparkle:shortVersionString", shortVersion == nil {
+        let resolvedElementName = qName ?? elementName
+        if resolvedElementName == "sparkle:shortVersionString", shortVersion == nil {
             shortVersion = value
-        } else if elementName == "sparkle:version", buildVersion == nil {
+        } else if resolvedElementName == "sparkle:version", buildVersion == nil {
             buildVersion = value
+        } else if (
+            AetherBuildVersionFormatter.matchesPublicVersionLabelName(resolvedElementName)
+                || AetherBuildVersionFormatter.matchesPublicVersionLabelName(elementName)
+        ), publicLabel == nil {
+            publicLabel = value
         }
     }
 

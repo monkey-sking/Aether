@@ -60,6 +60,18 @@ NOTARY_PROFILE=AetherNotary \
 - `.build/release/Aether_Installer.dmg`
 - `.build/release/Aether.zip`
 
+如果这次发布还要同步官网下载与 Sparkle appcast，发布前先确认：
+
+- `Apps/` 当前版本号已是最终值。App 内更新链接里的 `version=` 取自 `CFBundleShortVersionString` / `MARKETING_VERSION`。
+- `Website/src/data/downloads.ts` 里的 `CURRENT_DOWNLOAD_VERSIONS.stable` / `beta` 已同步成这次发布要上报给后台的短版本号。
+- 后台 tracking gateway 已支持以下下载路径，而不只是 DMG：
+  - `/download/Aether.dmg`
+  - `/beta/Aether.dmg`
+  - `/aether/*.zip`
+  - `/aether-beta/*.zip`
+  - `/aether/*.delta`
+  - `/aether-beta/*.delta`
+
 如果这次发布还要同步官网下载与 Sparkle appcast，再执行：
 
 ```bash
@@ -68,9 +80,19 @@ PUBLISH_SPARKLE=1 SPARKLE_CHANNEL=stable NOTARY_PROFILE=AetherNotary ./Scripts/R
 
 如需发布 Beta 通道，把 `SPARKLE_CHANNEL` 改为 `beta`。
 
-这一步会把 DMG 复制到 `Website/public/download/` 或 `Website/public/beta/`，并重写对应的 `appcast.xml`。
+这一步会把 DMG 复制到 `Website/public/download/` 或 `Website/public/beta/`。
 同时会把 Sparkle 更新用的版本化 ZIP 复制到 `Website/public/aether/` 或 `Website/public/aether-beta/`，
 并用 Sparkle 的 `generate_appcast` 生成 `appcast.xml` 和 delta 更新文件（`.delta`）。
+
+发布脚本会自动做两类 URL 处理：
+
+- 官网手动下载链接走 tracking gateway：
+  - `https://auth.aether.7caifei.com/download/Aether.dmg?source=manual&channel=stable&version=<短版本号>`
+  - `https://auth.aether.7caifei.com/beta/Aether.dmg?source=manual&channel=beta&version=<短版本号>`
+- appcast 里的主 enclosure 与 delta enclosure 统一改成 tracking gateway，并带：
+  - `source=update`
+  - `channel=stable|beta`
+  - `version=<该 item 的 shortVersionString>`
 
 ## 3.1 常用发布命令
 
@@ -118,6 +140,11 @@ SKIP_NOTARIZE=1 ./Scripts/ReleaseForUsers.sh
 ### 3.1.2 部署官网（Website 仓库）
 
 如果 `PUBLISH_SPARKLE=1`，脚本会修改 `Website/public/` 下的静态文件（DMG、版本化 ZIP、appcast、delta）。
+提交 `Website/` 之前建议先做两项检查：
+
+- 确认 `Website/public/aether/appcast.xml` 或 `Website/public/aether-beta/appcast.xml` 里的所有 `enclosure url=` 都已经是 `https://auth.aether.7caifei.com/...`，并带 `source=update`、`channel=`、`version=` 参数。
+- 确认 `Website/src/data/downloads.ts` 中的 `CURRENT_DOWNLOAD_VERSIONS` 仍然和这次发布版本一致，否则官网手动下载会把错误版本号打到后台。
+
 随后需要在 `Website/` 仓库提交并 push，触发站点部署：
 
 ```bash

@@ -10,7 +10,7 @@ MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV/cf+qTr/UdDcmJGNOFdSxMIz7ed
 tBZdSCkYGeR+5gE1FE0Yg2jqeOGAsC4vSTEh45bnhPDKHFiQ7MPeIpuNMg==
 -----END PUBLIC KEY-----</string>
 	<key>AetherBetaDownloadURL</key>
-	<string>https://auth.aether.7caifei.com/beta/Aether.dmg?source=update&amp;channel=beta</string>
+	<string>https://auth.aether.7caifei.com/beta/Aether.dmg?source=update&amp;channel=beta&amp;version=$(MARKETING_VERSION)</string>
 	<key>AetherBetaFeedURL</key>
 	<string>https://aether.7caifei.com/aether-beta/appcast.xml</string>
 	<key>AetherChangelogURL</key>
@@ -18,7 +18,7 @@ tBZdSCkYGeR+5gE1FE0Yg2jqeOGAsC4vSTEh45bnhPDKHFiQ7MPeIpuNMg==
 	<key>AetherDownloadPageURL</key>
 	<string>https://aether.7caifei.com/download</string>
 	<key>AetherDownloadURL</key>
-	<string>https://auth.aether.7caifei.com/download/Aether.dmg?source=update&amp;channel=stable</string>
+	<string>https://auth.aether.7caifei.com/download/Aether.dmg?source=update&amp;channel=stable&amp;version=$(MARKETING_VERSION)</string>
 	<key>AetherStableFeedURL</key>
 	<string>https://aether.7caifei.com/aether/appcast.xml</string>
 	<key>SUFeedURL</key>

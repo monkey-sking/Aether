@@ -19,6 +19,7 @@ WEBSITE_ROOT="${WEBSITE_ROOT:-${DEFAULT_WEBSITE_ROOT}}"
 APP_PATH="${APP_PATH:-${DEFAULT_APP_PATH}}"
 DMG_PATH="${DMG_PATH:-${DEFAULT_DMG_PATH}}"
 ZIP_PATH="${ZIP_PATH:-${DEFAULT_ZIP_PATH}}"
+TRACKING_GATEWAY_BASE="${TRACKING_GATEWAY_BASE:-https://auth.aether.7caifei.com}"
 CHANNEL=""
 SHORT_VERSION=""
 BUILD_VERSION=""
@@ -144,12 +145,12 @@ case "$CHANNEL" in
   stable)
     DMG_DEST_DIR="${WEBSITE_ROOT}/public/download"
     UPDATE_DIR="${WEBSITE_ROOT}/public/aether"
-    DOWNLOAD_URL_PREFIX="https://aether.7caifei.com/aether/"
+    DOWNLOAD_URL_PREFIX="${TRACKING_GATEWAY_BASE}/aether/"
     ;;
   beta)
     DMG_DEST_DIR="${WEBSITE_ROOT}/public/beta"
     UPDATE_DIR="${WEBSITE_ROOT}/public/aether-beta"
-    DOWNLOAD_URL_PREFIX="https://aether.7caifei.com/aether-beta/"
+    DOWNLOAD_URL_PREFIX="${TRACKING_GATEWAY_BASE}/aether-beta/"
     ;;
 esac
 
@@ -241,6 +242,7 @@ log "Generating appcast + deltas in: ${UPDATE_DIR}"
 python3 - "$LEGACY_FEED_PATH" "$UPDATE_DIR" <<'PY'
 import os
 import sys
+from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -265,7 +267,7 @@ for item in channel.findall("item"):
         continue
     for enc in list(deltas.findall("enclosure")):
         url = enc.get("url") or ""
-        name = os.path.basename(url)
+        name = os.path.basename(urlparse(url).path or url)
         if not name:
             continue
         if not (update_dir / name).exists():
@@ -274,6 +276,147 @@ for item in channel.findall("item"):
     if not list(deltas.findall("enclosure")):
         item.remove(deltas)
         changed = True
+
+if changed:
+    tree.write(feed_path, encoding="utf-8", xml_declaration=True)
+PY
+
+python3 - "$LEGACY_FEED_PATH" <<'PY'
+import os
+import re
+import sys
+from urllib.parse import urlparse
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+sparkle_ns = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+aether_ns = "https://aether.7caifei.com/xml-namespaces/aether"
+ET.register_namespace("sparkle", sparkle_ns)
+ET.register_namespace("aether", aether_ns)
+
+feed_path = Path(sys.argv[1])
+tree = ET.parse(feed_path)
+root = tree.getroot()
+
+channel = root.find("channel")
+if channel is None:
+    sys.exit(0)
+
+label_tag = f"{{{aether_ns}}}publicVersionLabel"
+version_tag = f"{{{sparkle_ns}}}version"
+short_version_tag = f"{{{sparkle_ns}}}shortVersionString"
+changed = False
+
+def fallback_public_label(raw):
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) == 14:
+        return f"{digits[4:8]}-{digits[8:14]}"
+    if len(digits) == 12:
+        return f"{digits[2:6]}-{digits[6:12]}"
+    return None
+
+def extract_public_label(url, build_version):
+    name = os.path.basename(urlparse(url).path or url)
+    if name.lower().endswith(".zip"):
+        stem = name[:-4]
+        candidate = stem.split("_")[-1]
+        if re.fullmatch(r"[bB]\d+", candidate):
+            return candidate
+    return fallback_public_label(build_version)
+
+for item in channel.findall("item"):
+    enclosure = item.find("enclosure")
+    if enclosure is None:
+        continue
+
+    build_version = item.findtext(version_tag, default="")
+    label = extract_public_label(enclosure.get("url") or "", build_version)
+    if not label:
+        continue
+
+    existing = item.find(label_tag)
+    if existing is not None:
+        if (existing.text or "") != label:
+            existing.text = label
+            changed = True
+        continue
+
+    element = ET.Element(label_tag)
+    element.text = label
+
+    anchor = item.find(short_version_tag)
+    if anchor is None:
+        anchor = item.find(version_tag)
+    if anchor is not None:
+        children = list(item)
+        item.insert(children.index(anchor) + 1, element)
+    else:
+        item.insert(0, element)
+    changed = True
+
+if changed:
+    tree.write(feed_path, encoding="utf-8", xml_declaration=True)
+PY
+
+python3 - "$LEGACY_FEED_PATH" "$TRACKING_GATEWAY_BASE" "$CHANNEL" "$SHORT_VERSION" <<'PY'
+import sys
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+sparkle_ns = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+ET.register_namespace("sparkle", sparkle_ns)
+
+feed_path = Path(sys.argv[1])
+tracking_origin = sys.argv[2].rstrip("/")
+channel = sys.argv[3]
+fallback_short_version = sys.argv[4]
+
+tree = ET.parse(feed_path)
+root = tree.getroot()
+channel_node = root.find("channel")
+if channel_node is None:
+    sys.exit(0)
+
+short_version_tag = f"{{{sparkle_ns}}}shortVersionString"
+changed = False
+
+def tracked_url(raw_url: str, version: str) -> str:
+    parsed = urlparse(raw_url)
+    origin = urlparse(tracking_origin)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query["source"] = "update"
+    query["channel"] = channel
+    query["version"] = version
+    return urlunparse((
+        origin.scheme,
+        origin.netloc,
+        parsed.path,
+        "",
+        urlencode(query),
+        "",
+    ))
+
+for item in channel_node.findall("item"):
+    short_version = item.findtext(short_version_tag, default=fallback_short_version).strip() or fallback_short_version
+
+    main_enclosure = item.find("enclosure")
+    if main_enclosure is not None:
+        raw_url = main_enclosure.get("url") or ""
+        rewritten = tracked_url(raw_url, short_version)
+        if rewritten != raw_url:
+            main_enclosure.set("url", rewritten)
+            changed = True
+
+    deltas = item.find(f"{{{sparkle_ns}}}deltas")
+    if deltas is None:
+        continue
+    for enclosure in deltas.findall("enclosure"):
+        raw_url = enclosure.get("url") or ""
+        rewritten = tracked_url(raw_url, short_version)
+        if rewritten != raw_url:
+            enclosure.set("url", rewritten)
+            changed = True
 
 if changed:
     tree.write(feed_path, encoding="utf-8", xml_declaration=True)

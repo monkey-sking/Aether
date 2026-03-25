@@ -571,8 +571,7 @@ final class SpeechManagerTypingModeTests: XCTestCase {
             sessionTypingMode: true,
             liveTyping: false,
             canType: true,
-            hasStreamedDictation: false,
-            isUtteranceActive: false
+            hasStreamedDictation: false
         )
 
         XCTAssertFalse(resolved)
@@ -584,8 +583,7 @@ final class SpeechManagerTypingModeTests: XCTestCase {
             sessionTypingMode: true,
             liveTyping: false,
             canType: true,
-            hasStreamedDictation: true,
-            isUtteranceActive: false
+            hasStreamedDictation: true
         )
 
         XCTAssertTrue(resolved)
@@ -597,11 +595,84 @@ final class SpeechManagerTypingModeTests: XCTestCase {
             sessionTypingMode: false,
             liveTyping: true,
             canType: true,
-            hasStreamedDictation: false,
-            isUtteranceActive: false
+            hasStreamedDictation: false
         )
 
         XCTAssertTrue(resolved)
+    }
+
+    func testWakeTypingFallbackRestoresTypingDuringWakeFollowUp() {
+        XCTAssertTrue(
+            SpeechManager.shouldUseWakeTypingFallback(
+                recognitionControlMode: .auto,
+                dictationEnabled: true,
+                liveTyping: false,
+                pendingWakeFollowUp: true,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: true,
+                fallbackWindowActive: true,
+                typingSuppressed: false
+            )
+        )
+    }
+
+    func testWakeTypingFallbackDoesNotOverrideWithoutPendingWakeFollowUp() {
+        XCTAssertFalse(
+            SpeechManager.shouldUseWakeTypingFallback(
+                recognitionControlMode: .auto,
+                dictationEnabled: true,
+                liveTyping: false,
+                pendingWakeFollowUp: false,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: true,
+                fallbackWindowActive: true,
+                typingSuppressed: false
+            )
+        )
+    }
+
+    func testWakeTypingFallbackDoesNotOverrideSuppressedTypingContext() {
+        XCTAssertFalse(
+            SpeechManager.shouldUseWakeTypingFallback(
+                recognitionControlMode: .auto,
+                dictationEnabled: true,
+                liveTyping: false,
+                pendingWakeFollowUp: true,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: true,
+                fallbackWindowActive: true,
+                typingSuppressed: true
+            )
+        )
+    }
+
+    func testWakeFollowUpEchoSuppressionDropsTranscriptMatchingPendingWakePhrase() {
+        XCTAssertTrue(
+            SpeechManager.shouldSuppressWakeFollowUpEcho(
+                pendingWakePhrase: "你好",
+                routedTranscript: "你好",
+                hasStreamedDictation: false
+            )
+        )
+    }
+
+    func testWakeFollowUpEchoSuppressionKeepsTranscriptAfterStreamingStarts() {
+        XCTAssertFalse(
+            SpeechManager.shouldSuppressWakeFollowUpEcho(
+                pendingWakePhrase: "你好",
+                routedTranscript: "你好",
+                hasStreamedDictation: true
+            )
+        )
+    }
+
+    func testImmediateWakeFollowUpDuplicateSuppressionIgnoresSentencePunctuation() {
+        XCTAssertTrue(
+            SpeechManager.shouldSuppressImmediateWakeFollowUpDuplicate(
+                previousText: "你好。",
+                currentText: "你好"
+            )
+        )
     }
 
     func testAutoModeReconciliationKeepsComputedTypingWhenTrue() {
