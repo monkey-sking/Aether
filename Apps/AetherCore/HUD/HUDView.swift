@@ -12,76 +12,68 @@ struct HUDView: View {
                     EmptyView()
 
                 case .standby:
-                    Circle()
-                        .fill(Color.green.opacity(0.8))
-                        .frame(width: 8, height: 8)
-                        .shadow(radius: 2)
+                    StandbyDotView()
                     if state.isLanguageIndicatorVisible {
                         languageToggle(showDivider: true)
                     }
 
                 case .listening:
-                    micIcon
-                    Text(state.message.isEmpty ? LocalizedStringKey("speech.listening") : LocalizedStringKey(state.message))
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-                        .fixedSize()
+                    listeningLeadingVisual
+                    if !trimmedMessage.isEmpty {
+                        hudLabel(trimmedMessage)
+                    }
                     contextIcon
                     if state.isLanguageIndicatorVisible {
                         languageToggle(showDivider: true)
                     }
 
                 case .command:
-                    if state.message.isEmpty {
-                        micIcon
-                        contextIcon
-                        if state.isLanguageIndicatorVisible {
-                            languageToggle(showDivider: true)
-                        }
-                    } else {
-                        micIcon
-                        Text(state.message)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.white)
-                            .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-                            .fixedSize()
-                        contextIcon
-                        if state.isLanguageIndicatorVisible {
-                            languageToggle(showDivider: true)
-                        }
+                    listeningLeadingVisual
+                    if !trimmedMessage.isEmpty {
+                        hudLabel(trimmedMessage)
+                    }
+                    contextIcon
+                    if state.isLanguageIndicatorVisible {
+                        languageToggle(showDivider: true)
                     }
 
                 case .dictation:
-                    micIcon
-                    WaveformView(level: state.audioLevel)
+                    actionBadge(symbol: "keyboard", tone: .green)
+                    if trimmedMessage.isEmpty {
+                        WaveformView(level: state.audioLevel)
+                    } else {
+                        hudLabel(trimmedMessage)
+                    }
                     contextIcon
                     if state.isLanguageIndicatorVisible {
                         languageToggle(showDivider: true)
                     }
 
                 case .dragging:
-                    micIcon
-                    Text(LocalizedStringKey("speech.dragging"))
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-                        .fixedSize()
+                    actionBadge(symbol: "hand.draw.fill", tone: .white)
+                    hudLabel(NSLocalizedString("speech.dragging", comment: ""))
                     contextIcon
                     if state.isLanguageIndicatorVisible {
                         languageToggle(showDivider: true)
                     }
 
                 case .processing:
-                    micIcon
-                    Text(LocalizedStringKey("speech.recognizing"))
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-                        .fixedSize()
+                    processingLeadingVisual
+                    if !trimmedMessage.isEmpty {
+                        hudLabel(trimmedMessage)
+                    }
                     contextIcon
                     if state.isLanguageIndicatorVisible {
                         languageToggle(showDivider: true)
+                    }
+
+                case .feedback:
+                    feedbackLeadingVisual
+                    if shouldShowFeedbackText {
+                        hudLabel(trimmedMessage)
+                    }
+                    if state.isLanguageIndicatorVisible {
+                        languageToggle(showDivider: shouldShowFeedbackText)
                     }
                 }
             }
@@ -131,6 +123,10 @@ struct HUDView: View {
 
     // MARK: - Reusable Components
 
+    private var trimmedMessage: String {
+        state.message.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var micIcon: some View {
         ZStack {
             if state.isMicProgressVisible && (state.mode == .listening || state.mode == .command || state.mode == .dictation) {
@@ -154,6 +150,119 @@ struct HUDView: View {
                 .shadow(radius: 1)
         }
         .frame(width: 22, height: 22)
+    }
+
+    private var listeningLeadingVisual: some View {
+        ZStack {
+            AudioReactiveRingView(level: state.audioLevel)
+            micIcon
+        }
+        .frame(width: 28, height: 28)
+    }
+
+    private var processingLeadingVisual: some View {
+        HStack(spacing: 6) {
+            if let symbol = processingAccentSymbol {
+                actionBadge(symbol: symbol, tone: processingTone)
+            }
+            ProcessingDotsView(tone: processingTone)
+        }
+    }
+
+    private var feedbackLeadingVisual: some View {
+        AnimatedHUDBadge(
+            symbol: feedbackSymbol,
+            tone: feedbackTone,
+            animatePulse: true
+        )
+    }
+
+    private var processingAccentSymbol: String? {
+        let requested = state.inputDeviceIcon.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !requested.isEmpty else { return nil }
+        guard !isGenericProcessingIcon(requested) else { return nil }
+        return resolvedSymbolName(for: requested)
+    }
+
+    private var processingTone: Color {
+        guard let symbol = processingAccentSymbol else { return .white.opacity(0.92) }
+        if symbol.contains("wand") { return .mint }
+        if symbol.contains("keyboard") || symbol.contains("text.cursor") { return .green }
+        return .white.opacity(0.92)
+    }
+
+    private var feedbackSymbol: String {
+        let requested = state.inputDeviceIcon.trimmingCharacters(in: .whitespacesAndNewlines)
+        if requested.isEmpty {
+            return "checkmark.circle.fill"
+        }
+        return resolvedSymbolName(for: requested)
+    }
+
+    private var feedbackTone: Color {
+        if compactFeedbackMessages.contains(trimmedMessage) || feedbackSymbol.contains("checkmark") {
+            return .green
+        }
+        if feedbackSymbol.contains("xmark") || feedbackSymbol.contains("slash") {
+            return .red
+        }
+        if feedbackSymbol.contains("exclamationmark") || feedbackSymbol.contains("pause") {
+            return .orange
+        }
+        if feedbackSymbol.contains("wand") {
+            return .mint
+        }
+        if feedbackSymbol.contains("keyboard") || feedbackSymbol.contains("text.cursor") {
+            return .green
+        }
+        if feedbackSymbol.contains("command") {
+            return .cyan
+        }
+        if trimmedMessage.isEmpty {
+            return .green
+        }
+        return .white
+    }
+
+    private var shouldShowFeedbackText: Bool {
+        guard !trimmedMessage.isEmpty else { return false }
+        return !compactFeedbackMessages.contains(trimmedMessage)
+    }
+
+    private var compactFeedbackMessages: Set<String> {
+        [
+            NSLocalizedString("speech.done", comment: ""),
+            NSLocalizedString("speech.typed", comment: ""),
+            NSLocalizedString("speech.pasted", comment: ""),
+            NSLocalizedString("speech.pasted_cmdv", comment: ""),
+            NSLocalizedString("speech.undo", comment: ""),
+            NSLocalizedString("speech.undo_done", comment: ""),
+            "Full-text rewrite complete",
+            "Checked. No rewrite needed",
+            "已完成全文纠错优化",
+            "已检查，原文无需修改"
+        ]
+    }
+
+    private func isGenericProcessingIcon(_ icon: String) -> Bool {
+        let normalized = icon.lowercased()
+        return normalized.hasPrefix("mic")
+            || normalized.hasPrefix("airpod")
+            || normalized.hasPrefix("airpods")
+            || normalized == "laptopcomputer"
+            || normalized == "headphones"
+    }
+
+    private func hudLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundColor(.white)
+            .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+            .fixedSize()
+    }
+
+    private func actionBadge(symbol: String, tone: Color) -> some View {
+        AnimatedHUDBadge(symbol: symbol, tone: tone, animatePulse: false)
     }
     
     // MARK: - Helper Types
@@ -362,6 +471,96 @@ private struct GestureTrailView: View {
         let x = 10 + point.x * max(size.width - 20, 1)
         let y = 10 + point.y * max(size.height - 20, 1)
         return CGPoint(x: x, y: y)
+    }
+}
+
+private struct StandbyDotView: View {
+    @State private var isBreathing = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.green.opacity(0.88))
+            .frame(width: 8, height: 8)
+            .scaleEffect(isBreathing ? 1.18 : 0.92)
+            .opacity(isBreathing ? 0.95 : 0.74)
+            .shadow(color: .green.opacity(0.45), radius: 4)
+            .animation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true), value: isBreathing)
+            .onAppear { isBreathing = true }
+    }
+}
+
+private struct AudioReactiveRingView: View {
+    let level: CGFloat
+
+    var body: some View {
+        let clamped = max(0.12, min(level, 1.0))
+        Circle()
+            .stroke(Color.green.opacity(0.42), lineWidth: 1.6)
+            .frame(width: 24 + clamped * 8, height: 24 + clamped * 8)
+            .animation(.easeOut(duration: 0.14), value: clamped)
+    }
+}
+
+private struct ProcessingDotsView: View {
+    let tone: Color
+    @State private var activeIndex = 0
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(tone.opacity(activeIndex == index ? 0.95 : 0.42))
+                    .frame(width: activeIndex == index ? 5.5 : 4.5, height: activeIndex == index ? 5.5 : 4.5)
+            }
+        }
+        .frame(width: 24, height: 14)
+        .animation(.easeInOut(duration: 0.18), value: activeIndex)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 220_000_000)
+                await MainActor.run {
+                    activeIndex = (activeIndex + 1) % 3
+                }
+            }
+        }
+    }
+}
+
+private struct AnimatedHUDBadge: View {
+    let symbol: String
+    let tone: Color
+    let animatePulse: Bool
+    @State private var pulseVisible = false
+
+    var body: some View {
+        ZStack {
+            if animatePulse {
+                Circle()
+                    .stroke(tone.opacity(0.45), lineWidth: 1.5)
+                    .frame(width: 28, height: 28)
+                    .scaleEffect(pulseVisible ? 1.55 : 1.05)
+                    .opacity(pulseVisible ? 0.0 : 0.88)
+                    .animation(.easeOut(duration: 0.55).repeatForever(autoreverses: false), value: pulseVisible)
+            }
+
+            Circle()
+                .fill(tone.opacity(0.18))
+                .frame(width: 24, height: 24)
+
+            Circle()
+                .stroke(tone.opacity(0.38), lineWidth: 1.1)
+                .frame(width: 24, height: 24)
+
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+                .shadow(radius: 1)
+        }
+        .frame(width: 28, height: 28)
+        .onAppear {
+            guard animatePulse else { return }
+            pulseVisible = true
+        }
     }
 }
 

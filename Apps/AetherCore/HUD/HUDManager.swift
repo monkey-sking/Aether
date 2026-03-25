@@ -487,7 +487,7 @@ final class HUDManager {
             if hudMode == .dictation {
                 return true
             }
-            if hudMode == .processing {
+            if hudMode == .processing || hudMode == .feedback {
                 return previousTypingContext
             }
             return inferredTypingContext
@@ -637,7 +637,7 @@ final class HUDManager {
             cancelHide()
             requestReposition(immediate: true)
             ensureWindowVisible()
-        case .listening, .command, .dictation, .dragging, .processing:
+        case .listening, .command, .dictation, .dragging, .processing, .feedback:
             // Keep temporary HUD hide timer alive when refreshes are semantic no-ops.
             // Otherwise short toasts can become "always visible" under periodic updates.
             if !isNoopVisibleRefresh {
@@ -699,7 +699,7 @@ final class HUDManager {
             controlMode = lastPersistentSnapshot == nil ? recognitionControlMode : fallbackControlMode
         }
         update(
-            mode: .command,
+            mode: .feedback,
             message: message,
             language: language ?? state.language,
             recognitionControlMode: controlMode,
@@ -813,7 +813,7 @@ final class HUDManager {
 
     func suggestedTemporaryDuration(for message: String) -> TimeInterval {
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return 1.0 }
+        if trimmed.isEmpty { return 0.75 }
 
         let base: TimeInterval = 1.0
         let maxDuration: TimeInterval = 3.8

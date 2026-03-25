@@ -134,8 +134,8 @@
 "menu.stop_pointer_fmt %@" = "停止头控 (%@)";
 
 /* Speech Status */
-"speech.listening" = "待命中...";
-"speech.recognizing" = "识别中";
+"speech.listening" = "我在听";
+"speech.recognizing" = "正在处理";
 "speech.waiting_command" = "等待命令…";
 "speech.waiting_wakeword" = "等待唤醒词…";
 "speech.idle" = "空闲";
@@ -147,11 +147,11 @@
 "speech.done" = "完成";
 
 /* HUD 提示与错误 */
-"speech.no_matching_command" = "没听懂命令";
+"speech.no_matching_command" = "没听清，请再说一次";
 "speech.voice_input_disabled" = "语音输入已关闭";
 "speech.voice_control_disabled" = "语音控制已关闭";
 "speech.app_paused_idle" = "App 已因空闲暂停，移动鼠标后恢复";
-"speech.no_editable_field" = "没找到输入框";
+"speech.no_editable_field" = "这里不能输入";
 "speech.undo_done" = "已撤销";
 "speech.pasted_cmdv" = "已粘贴 (Cmd+V)";
 "speech.bilingual_switch_unsupported" = "先切到双语模式";

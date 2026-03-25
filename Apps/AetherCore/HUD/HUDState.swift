@@ -9,6 +9,7 @@ enum HUDMode: String {
     case dictation   // Typing mode (Waveform)
     case dragging    // Pointer drag is active
     case processing  // ⋯ Trailing audio capture
+    case feedback    // Temporary result / alert pulse
 }
 
 enum HUDRecognitionControlMode: String {

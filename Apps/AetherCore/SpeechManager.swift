@@ -591,6 +591,7 @@ final class SpeechManager: ObservableObject {
     private var customAppShortcutRules: [CustomAppShortcutRule] = []
     private let engineRestartDebounce: TimeInterval = 0.55
     private let engineRestartMinInterval: TimeInterval = 1.5
+    private let voiceActivityWithoutPartialRecoveryThreshold: TimeInterval = 1.8
     private var continuousRecoveryGraceUntil: Date = .distantPast
     private var routeRebuildGraceUntil: Date = .distantPast
     private var recognitionStartupGraceUntil: Date = .distantPast
@@ -637,6 +638,7 @@ final class SpeechManager: ObservableObject {
     private var voiceActivityWithoutPartialSince: Date?
     private var lastVoiceActivityDiagnosticAt: Date = .distantPast
     private var lastVoiceWithoutPartialDiagnosticAt: Date = .distantPast
+    private var lastVoiceWithoutPartialRecoveryAt: Date = .distantPast
     private var lastAdaptiveTextCount: Int = 0
     private var lastAdaptiveSampleAt: Date = .distantPast
     private var deferredAudioStopWorkItem: DispatchWorkItem?
@@ -2261,6 +2263,7 @@ final class SpeechManager: ObservableObject {
         didRecordFirstPartialForSession = false
         voiceActivityWithoutPartialSince = nil
         lastVoiceWithoutPartialDiagnosticAt = .distantPast
+        lastVoiceWithoutPartialRecoveryAt = .distantPast
         lastAdaptiveTextCount = 0
         lastAdaptiveSampleAt = .distantPast
         metrics.sessions += 1
@@ -3316,6 +3319,7 @@ final class SpeechManager: ObservableObject {
         }
         armWakeTypingFallback(reason: reason)
         clearUnarmedWakePreview()
+        setHUDOverride(mode: .feedback, message: "", icon: hudInputIcon(), duration: 0.22)
         refreshContinuousHUD(isDictating: false)
         let hudAfter = HUDManager.shared.state.mode
         GlobalLogger.speech.info(
@@ -4902,6 +4906,7 @@ final class SpeechManager: ObservableObject {
         didRecordFirstPartialForSession = true
         voiceActivityWithoutPartialSince = nil
         lastVoiceWithoutPartialDiagnosticAt = .distantPast
+        lastVoiceWithoutPartialRecoveryAt = .distantPast
         resetNoSpeechRecoveryBackoff()
         startupDetectedUsableAudioForSession = true
         cancelStartupInputHealthProbe()
@@ -4941,6 +4946,24 @@ final class SpeechManager: ObservableObject {
         GlobalLogger.speech.info(
             "[ASRStall] reason=voice-active-no-partial age=\(String(format: "%.2fs", age)) rms=\(audioDiagnosticRMSDescription(rms)) recognitionRunning=\(recognitionSession.isRunning) audioRunning=\(audioCapture.isRunning) awake=\(isAwake) utteranceActive=\(isUtteranceActive) session=\(sessionGeneration) sinceSessionStart=\(sinceSessionStart) typing=\(sessionTypingMode) lastTranscript='\(wakeDiagnosticSnippet(lastTranscript))' lastStable='\(wakeDiagnosticSnippet(lastStableText))'"
         )
+        maybeRecoverVoiceActiveNoPartialStall(age: age, now: now, rms: rms)
+    }
+
+    private func maybeRecoverVoiceActiveNoPartialStall(age: TimeInterval, now: Date, rms: Float) {
+        guard age >= voiceActivityWithoutPartialRecoveryThreshold else { return }
+        guard isAlwaysListeningEnabled || isWakeWordEnabled else { return }
+        guard pendingEngineRestartWorkItem == nil else { return }
+        guard now >= routeRebuildGraceUntil,
+              now >= continuousRecoveryGraceUntil,
+              now >= recognitionStartupGraceUntil,
+              now >= recognitionUnavailableUntil else { return }
+        guard now.timeIntervalSince(lastVoiceWithoutPartialRecoveryAt) >= engineRestartMinInterval else { return }
+
+        lastVoiceWithoutPartialRecoveryAt = now
+        GlobalLogger.speech.info(
+            "[ASRStall] scheduling recovery reason=voice-active-no-partial age=\(String(format: "%.2fs", age)) rms=\(audioDiagnosticRMSDescription(rms)) session=\(sessionGeneration) awake=\(isAwake) typing=\(sessionTypingMode)"
+        )
+        scheduleEngineRestart(reason: "voice-active-no-partial-stall", debounce: 0.05)
     }
 
     private func applyAdaptiveEOS(with text: String, at now: Date) {
@@ -5874,7 +5897,8 @@ final class SpeechManager: ObservableObject {
         }
         else if shouldCollapseHandsFreeHUDToStandby { mode = .standby }
         else if shouldShowProcessingDots || shouldShowRecognizingWhileDictating { mode = .processing }
-        else if effectiveDictating || shouldShowIdleAutoDictationHUD { mode = .dictation }
+        else if effectiveDictating { mode = .dictation }
+        else if shouldShowIdleAutoDictationHUD { mode = .listening }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
         else { mode = .listening }
         if message.isEmpty {
