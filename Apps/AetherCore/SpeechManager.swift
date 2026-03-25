@@ -2411,10 +2411,6 @@ final class SpeechManager: ObservableObject {
         }
         if !hasPayload && isUtteranceActive { isUtteranceActive = false }
 
-        if controlMode != .command {
-            syncSessionInputTargetFromCurrentFocus(resetDictationStream: dictationHandler.screenTypedText.isEmpty)
-        }
-
         let lockedFocusedSnapshot = currentFocusedInputSnapshot()
         let lockedTargetMatches = hasLockedFocusedInputTarget(lockedFocusedSnapshot)
         let liveTyping = throttledTypingMode()
@@ -2498,6 +2494,9 @@ final class SpeechManager: ObservableObject {
         }
         sessionTypingMode = resolvedTypingMode
         isDictating = resolvedTypingMode && featureAvailability.dictationEnabled
+        if controlMode != .command, resolvedTypingMode {
+            syncSessionInputTargetFromCurrentFocus(resetDictationStream: dictationHandler.screenTypedText.isEmpty)
+        }
 
         if text.count > 2 && isAwake { lastWakeTime = Date() }
         if (!isStopping || isAlwaysListeningEnabled) { refreshContinuousHUD(isDictating: isDictating) }
@@ -2930,7 +2929,9 @@ final class SpeechManager: ObservableObject {
         if currentlyAwake != wasAwake {
             wasAwake = currentlyAwake; refreshContinuousHUD()
             if currentlyAwake {
-                if isWakeWordEnabled && !isDirectCommandEnabled { rearmInputTarget(reason: "wake-window-open") }
+                if isWakeWordEnabled && !isDirectCommandEnabled {
+                    refreshArmedInputTargetIfNeeded(reason: "wake-window-open")
+                }
                 startMicProgressUI(durationSec: maxRecordingSegmentSeconds(), generation: sessionGeneration)
             } else {
                 // Wake-word standby hides the HUD, but the next wake phrase still
@@ -3157,7 +3158,7 @@ final class SpeechManager: ObservableObject {
                     "[WakeFollowUp] timeout group=\(pending.groupID) age=\(self.wakeDiagnosticAgeDescription(since: pending.createdAt)) phrase='\(pending.phrase ?? "nil")' hud=\(HUDManager.shared.state.mode.rawValue) recognitionRunning=\(self.recognitionSession.isRunning) audioRunning=\(self.audioCapture.isRunning) awake=\(self.isAwake) lastTranscript='\(self.wakeDiagnosticSnippet(self.lastTranscript))'"
                 )
                 self.pendingWakeFollowUp = nil
-                self.clearWakeTypingFallback(reason: "wake-follow-up-timeout")
+                self.clearSessionInputTarget(reason: "wake-follow-up-timeout")
                 self.clearStandbyTypingStateIfNeeded(reason: "wake-follow-up-timeout")
                 self.onWakeAnalyticsSignal?(
                     .empty(
@@ -3278,7 +3279,7 @@ final class SpeechManager: ObservableObject {
         playWakeSound(reason: reason)
         let effectiveRearmReason = rearmReason ?? ((isWakeWordEnabled && !isDirectCommandEnabled) ? "wake-activation" : nil)
         if let effectiveRearmReason {
-            rearmInputTarget(reason: effectiveRearmReason)
+            refreshArmedInputTargetIfNeeded(reason: effectiveRearmReason)
         }
         armWakeTypingFallback(reason: reason)
         clearUnarmedWakePreview()
@@ -3427,6 +3428,9 @@ final class SpeechManager: ObservableObject {
             sessionTypingMode = typingContext
         }
         isDictating = typingContext && featureAvailability.dictationEnabled
+        if controlMode != .command, typingContext {
+            syncSessionInputTargetFromCurrentFocus(resetDictationStream: dictationHandler.screenTypedText.isEmpty)
+        }
         if controlMode == .auto,
            typingContext,
            hudState.recognitionControlMode == .command || !hudState.isTypingContext {
@@ -3784,10 +3788,10 @@ final class SpeechManager: ObservableObject {
 
         // App switches frequently invalidate the previously locked AX target while the wake window is still open.
         // Re-arm against the current focus so the next utterance does not keep routing to a stale element.
-        clearWakeTypingFallback(reason: "frontmost-app-changed")
         clearStandbyTypingStateIfNeeded(reason: "frontmost-app-changed")
+        clearSessionInputTarget(reason: "frontmost-app-changed")
         clearRecentWakeFollowUpDictationSuppression(reason: "frontmost-app-changed")
-        rearmInputTarget(reason: "frontmost-app-changed")
+        refreshArmedInputTargetIfNeeded(reason: "frontmost-app-changed")
         reconcileTypingModeAfterFrontmostApplicationChange()
         refreshContinuousHUD(isDictating: false)
         ensureRecognitionSessionForVisibleHUD(reason: "frontmost-app-changed")
@@ -3877,6 +3881,7 @@ final class SpeechManager: ObservableObject {
     private func refreshArmedInputTargetIfNeeded(reason: String) {
         guard shouldKeepWakeHUDArmed() else { return }
         guard !isUtteranceActive, !isStopping else { return }
+        guard shouldAllowIdleTargetRearm(reason: reason) else { return }
         guard hasAuthoritativeTypingEvidence() else { return }
         guard let snapshot = currentFocusedInputSnapshot() else { return }
 
@@ -3908,6 +3913,23 @@ final class SpeechManager: ObservableObject {
         GlobalLogger.speech.info("[TypingMode] cleared wake typing fallback reason=\(reason)")
     }
 
+    private func clearSessionInputTarget(reason: String) {
+        let hadTarget =
+            sessionTargetPID != nil
+            || sessionTargetBundleID != nil
+            || sessionTargetElementFingerprint != nil
+        let hadWakeFallback = wakeTypingFallbackUntil != .distantPast
+        guard hadTarget || hadWakeFallback else { return }
+
+        sessionTargetPID = nil
+        sessionTargetBundleID = nil
+        sessionTargetElementFingerprint = nil
+        sessionTargetSource = nil
+        didLogSessionTargetMismatch = false
+        wakeTypingFallbackUntil = .distantPast
+        GlobalLogger.speech.info("[TypingTarget] cleared session target reason=\(reason)")
+    }
+
     private func shouldForceStandbyCommandTypingState() -> Bool {
         guard recognitionControlMode == .auto else { return false }
         guard isAlwaysListeningEnabled, isWakeWordEnabled, !isAwake, !isDirectCommandEnabled else {
@@ -3920,10 +3942,36 @@ final class SpeechManager: ObservableObject {
 
     private func clearStandbyTypingStateIfNeeded(reason: String) {
         guard shouldForceStandbyCommandTypingState() else { return }
-        guard sessionTypingMode || isDictating else { return }
+        let hadTypingState = sessionTypingMode || isDictating
+        let hadTarget =
+            sessionTargetPID != nil
+            || sessionTargetBundleID != nil
+            || sessionTargetElementFingerprint != nil
+            || wakeTypingFallbackUntil != .distantPast
+        guard hadTypingState || hadTarget else { return }
         sessionTypingMode = false
         isDictating = false
+        clearSessionInputTarget(reason: reason)
         GlobalLogger.speech.info("[TypingMode] cleared standby typing state reason=\(reason)")
+    }
+
+    private func shouldAllowIdleTargetRearm(reason: String) -> Bool {
+        let availability = currentVoiceFeatureAvailability()
+        switch effectiveRecognitionControlMode(for: availability) {
+        case .dictation:
+            return true
+        case .command:
+            return false
+        case .auto:
+            if pendingWakeFollowUp != nil { return true }
+            if !dictationHandler.screenTypedText.isEmpty { return true }
+            if hasRecentClickTypingFallbackEvidence() { return true }
+            if HUDManager.shared.hasRecentExplicitTypingClickReentry() { return true }
+            if isWeChatSpecialModeActive() { return true }
+            return reason == "wake-window-open"
+                || reason == "wake-activation"
+                || reason == "frontmost-app-changed"
+        }
     }
 
     private func rememberWakeFollowUpDictationMarker(
@@ -4617,6 +4665,7 @@ final class SpeechManager: ObservableObject {
                     "[IntentPipeline] dictation blocked: invalid target utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog)"
                 )
                 onRecognitionFailure?(finalText, "invalid-input-target", usageContext.appName, usageContext.bundleIdentifier)
+                clearSessionInputTarget(reason: "invalid-input-target")
                 status = NSLocalizedString("speech.done", comment: "")
                 showMissingInputTargetHUD()
                 clearHandledCommandPreview()
@@ -6126,7 +6175,6 @@ final class SpeechManager: ObservableObject {
             break
         }
 
-        let frontmostApp = NSWorkspace.shared.frontmostApplication
         let liveTypingEvidence = liveTypingHUDEvidence()
         if isWeChatSpecialModeActive() {
             return true
@@ -6134,16 +6182,11 @@ final class SpeechManager: ObservableObject {
         if hasRecentClickTypingFallbackEvidence() {
             return true
         }
-        if !isSystemSearchLikeApplication(frontmostApp),
-           !sessionTypingMode,
-           !isTypingRecoveryHoldActive,
-           dictationHandler.screenTypedText.isEmpty {
-            return liveTypingEvidence
-        }
-
-        if HUDManager.shared.lastKnownTypingState() { return true }
         if isTypingRecoveryHoldActive {
             return liveTypingEvidence || !dictationHandler.screenTypedText.isEmpty
+        }
+        if !dictationHandler.screenTypedText.isEmpty {
+            return true
         }
         if let app = NSWorkspace.shared.frontmostApplication,
            isSystemSearchLikeApplication(app) {
@@ -6156,7 +6199,7 @@ final class SpeechManager: ObservableObject {
             }
             return currentFocusedInputSnapshot() != nil
         }
-        return HUDManager.shared.currentAXTypingEvaluation().editableLikely
+        return liveTypingEvidence
     }
 
     private func liveTypingHUDEvidence() -> Bool {
@@ -6433,10 +6476,7 @@ final class SpeechManager: ObservableObject {
         if HUDManager.shared.hasRecentExplicitTypingClickReentry() {
             return true
         }
-        let axEvaluation = HUDManager.shared.currentAXTypingEvaluation()
-        return axEvaluation.insertionContextAvailable
-            || axEvaluation.editableLikely
-            || axEvaluation.looselyEditableForWeb
+        return resolveCurrentFocusedInput() != nil
     }
 
     private func beginTypingRecoveryHold(reason: String) {
