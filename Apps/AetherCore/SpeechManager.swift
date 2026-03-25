@@ -2934,6 +2934,7 @@ final class SpeechManager: ObservableObject {
                 }
                 startMicProgressUI(durationSec: maxRecordingSegmentSeconds(), generation: sessionGeneration)
             } else {
+                clearStandbyTypingStateIfNeeded(reason: "wake-window-closed")
                 // Wake-word standby hides the HUD, but the next wake phrase still
                 // depends on the recognizer being re-armed immediately.
                 ensureRecognitionSessionForVisibleHUD(reason: "wake-window-closed")
