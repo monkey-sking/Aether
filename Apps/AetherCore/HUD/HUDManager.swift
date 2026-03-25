@@ -81,6 +81,7 @@ enum AXFocusedTypingContextDetector {
         guard let element = focusedElement() else { return .unavailable }
 
         let role = stringAttr(element, kAXRoleAttribute as CFString) ?? ""
+        let isSemanticControlRole = semanticControlRoles.contains(role)
         let hasEditableAttribute = boolAttr(element, "AXEditable" as CFString) == true
         let hasSettableValue = valueAttributeIsSettable(element)
         let hasEditableAncestor = editableAncestor(for: element) != nil
@@ -93,6 +94,9 @@ enum AXFocusedTypingContextDetector {
         let editableEvidence = hasEditableAttribute || hasSettableValue || hasEditableAncestor
         let insertionContextAvailable = {
             guard hasInsertionContextOnFocus else { return false }
+            if isSemanticControlRole {
+                return hasEditableAttribute || hasSettableValue
+            }
             if containerLikeRoles.contains(role) {
                 if caretRect != nil { return true }
                 return focusedRectLooksLikeInput
@@ -101,6 +105,9 @@ enum AXFocusedTypingContextDetector {
         }()
 
         let editableLikely: Bool = {
+            if isSemanticControlRole {
+                return hasEditableAttribute || hasSettableValue
+            }
             if insertionContextAvailable && editableEvidence {
                 return true
             }
@@ -134,6 +141,7 @@ enum AXFocusedTypingContextDetector {
         }()
 
         let looselyEditableForWeb: Bool = {
+            if isSemanticControlRole { return false }
             if directEditableRoles.contains(role) || role == kAXTextAreaRole as String { return true }
             guard containerLikeRoles.contains(role),
                   focusedRectLooksLikeInput else {
@@ -160,12 +168,15 @@ enum AXFocusedTypingContextDetector {
         "AXHTMLTextInput"
     ]
 
+    private static let semanticControlRoles: Set<String> = [
+        "AXRadioButton",
+        "AXButton"
+    ]
+
     private static let groupLikeRoles: Set<String> = [
         "AXGroup",
         "AXScrollArea",
-        "AXSplitGroup",
-        "AXRadioButton",
-        "AXButton"
+        "AXSplitGroup"
     ]
 
     private static let containerLikeRoles: Set<String> = groupLikeRoles.union([
@@ -365,6 +376,9 @@ final class HUDManager {
     private var mouseAvoidLockOrigin: CGPoint?
     private var lastGoodTypingRect: CGRect?
     private var lastGoodTypingRectAt: Date = .distantPast
+    private var lastExplicitTypingInputRect: CGRect?
+    private var lastExplicitTypingInputRectAt: Date = .distantPast
+    private var lastExplicitTypingInputBundleID: String?
     private var lastInputInteractionPoint: CGPoint?
     private var lastInputInteractionAt: Date = .distantPast
     private var lastMouseDownPoint: CGPoint?
@@ -816,6 +830,9 @@ final class HUDManager {
         lastAXFocusDebugCheckAt = .distantPast
         lastGoodTypingRect = nil
         lastGoodTypingRectAt = .distantPast
+        lastExplicitTypingInputRect = nil
+        lastExplicitTypingInputRectAt = .distantPast
+        lastExplicitTypingInputBundleID = nil
         let didClearSuppression = requiresExplicitTypingReentry || typingSuppressedUntil > Date()
         requiresExplicitTypingReentry = false
         explicitTypingReentryBundleID = nil
@@ -856,6 +873,7 @@ final class HUDManager {
         )
 
         if hitPreferredInputRect {
+            rememberExplicitTypingInputRect(activeInputRect, at: now, bundleID: bundleID)
             typingSuppressedUntil = .distantPast
             requiresExplicitTypingReentry = false
             explicitTypingReentryBundleID = nil
@@ -1325,6 +1343,15 @@ final class HUDManager {
            (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
             candidates.append(r)
         }
+        if candidates.isEmpty,
+           let rememberedRect = lastExplicitTypingInputRect,
+           let rememberedBundle = lastExplicitTypingInputBundleID,
+           rememberedBundle == frontBundle,
+           Date().timeIntervalSince(lastExplicitTypingInputRectAt) < 2.0,
+           !isProbablyWholeWindowRect(rememberedRect),
+           (isTypingBoxSizedRect(rememberedRect) || isWebInputSizedRect(rememberedRect)) {
+            candidates.append(rememberedRect)
+        }
         guard !candidates.isEmpty else { return nil }
         if isExplicitTypingSuppressionApp(bundleID: frontBundle) {
             return candidates.min(by: { ($0.width * $0.height) < ($1.width * $1.height) })
@@ -1706,12 +1733,24 @@ final class HUDManager {
         if let c = candidate, isTypingBoxSizedRect(c), !isProbablyWholeWindowRect(c) {
             lastGoodTypingRect = c
             lastGoodTypingRectAt = now
+            rememberExplicitTypingInputRect(c, at: now, bundleID: currentTypingContextBundleID())
             return c
         }
         if let last = lastGoodTypingRect, now.timeIntervalSince(lastGoodTypingRectAt) < 0.8 {
             return last
         }
         return nil
+    }
+
+    private func rememberExplicitTypingInputRect(_ rect: CGRect?, at now: Date, bundleID: String?) {
+        guard let rect,
+              !isProbablyWholeWindowRect(rect),
+              (isTypingBoxSizedRect(rect) || isWebInputSizedRect(rect)) else {
+            return
+        }
+        lastExplicitTypingInputRect = rect
+        lastExplicitTypingInputRectAt = now
+        lastExplicitTypingInputBundleID = bundleID
     }
 
     private func axFocusedElementRectThrottled() -> CGRect? {
