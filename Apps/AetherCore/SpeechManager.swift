@@ -1431,7 +1431,6 @@ final class SpeechManager: ObservableObject {
             liveTypingEvidence
             || isDictating
             || sessionTypingMode
-            || hasLockedFocusedInputTarget()
             || isTypingRecoveryHoldActive
             || !dictationHandler.screenTypedText.isEmpty
         return effectiveHUDRecognitionControlMode(
@@ -2142,12 +2141,6 @@ final class SpeechManager: ObservableObject {
 
         let predictedTypingMode: Bool = {
             if isWakeWordEnabled && !isAwake && !isDirectCommandEnabled { return false }
-            if recognitionControlMode == .auto,
-               !isTypingMode,
-               isTypingRecoveryHoldActive,
-               sessionTargetPID != nil || sessionTargetBundleID != nil || sessionTargetElementFingerprint != nil {
-                return true
-            }
             return isTypingMode
         }()
         applySpeechProcessingProfile(
@@ -2196,15 +2189,6 @@ final class SpeechManager: ObservableObject {
 
         if isWakeWordEnabled && !isAwake && !isDirectCommandEnabled { sessionTypingMode = false }
         else { sessionTypingMode = isTypingMode }
-        if recognitionControlMode == .auto,
-           !sessionTypingMode,
-           isTypingRecoveryHoldActive,
-           sessionTargetPID != nil || sessionTargetBundleID != nil || sessionTargetElementFingerprint != nil {
-            sessionTypingMode = true
-            GlobalLogger.speech.info(
-                "[TypingMode] preserved dictation context during restart hold reason=\(typingRecoveryHoldReason ?? "unknown")"
-            )
-        }
         isDictating = sessionTypingMode
         let finalProfile = desiredSpeechProcessingProfile(forTypingMode: sessionTypingMode)
         if finalProfile != currentSpeechProcessingProfile {
@@ -3716,6 +3700,7 @@ final class SpeechManager: ObservableObject {
     private func refreshArmedInputTargetIfNeeded(reason: String) {
         guard shouldKeepWakeHUDArmed() else { return }
         guard !isUtteranceActive, !isStopping else { return }
+        guard hasAuthoritativeTypingEvidence() else { return }
         guard let snapshot = currentFocusedInputSnapshot() else { return }
 
         let changed = sessionTargetPID != snapshot.pid
@@ -5358,7 +5343,6 @@ final class SpeechManager: ObservableObject {
         let stickyTypingHUDEligible =
             isDictating
             || sessionTypingMode
-            || hasLockedFocusedInputTarget()
             || isTypingRecoveryHoldActive
             || !dictationHandler.screenTypedText.isEmpty
         let idleTypingEvidence = isDictationOnly ? focusedTypingEvidence : liveTypingEvidence
@@ -5825,20 +5809,12 @@ final class SpeechManager: ObservableObject {
         if !isSystemSearchLikeApplication(frontmostApp),
            !sessionTypingMode,
            !isTypingRecoveryHoldActive,
-           !hasLockedFocusedInputTarget(),
            dictationHandler.screenTypedText.isEmpty {
             return liveTypingEvidence
         }
 
         if HUDManager.shared.lastKnownTypingState() { return true }
         if isTypingRecoveryHoldActive {
-            if hasLockedFocusedInputTarget() { return true }
-            if currentFocusedInputSnapshot() == nil,
-               sessionTargetPID != nil || sessionTargetBundleID != nil || sessionTargetElementFingerprint != nil {
-                return true
-            }
-        }
-        if hasLockedFocusedInputTarget() {
             return liveTypingEvidence || !dictationHandler.screenTypedText.isEmpty
         }
         if let app = NSWorkspace.shared.frontmostApplication,
@@ -5876,7 +5852,7 @@ final class SpeechManager: ObservableObject {
         if axEvaluation.insertionContextAvailable || axEvaluation.editableLikely || axEvaluation.looselyEditableForWeb {
             return true
         }
-        return currentFocusedInputSnapshot() != nil
+        return false
     }
 
     private func focusedTypingHUDEvidence() -> Bool {
@@ -5896,7 +5872,7 @@ final class SpeechManager: ObservableObject {
         if axEvaluation.insertionContextAvailable || axEvaluation.editableLikely || axEvaluation.looselyEditableForWeb {
             return true
         }
-        return currentFocusedInputSnapshot() != nil
+        return false
     }
 
     private func resetUtteranceTrackingForNextPhrase() {
@@ -6106,8 +6082,8 @@ final class SpeechManager: ObservableObject {
     }
 
     private func hasStrongTypingFallbackEvidence(
-        lockedFocusedSnapshot: FocusedInputSnapshot?,
-        lockedTargetMatches: Bool,
+        lockedFocusedSnapshot _: FocusedInputSnapshot?,
+        lockedTargetMatches _: Bool,
         computedTypingContext: Bool,
         hasAuthoritativeTypingEvidence: Bool,
         hasStreamedDictation: Bool
@@ -6115,16 +6091,7 @@ final class SpeechManager: ObservableObject {
         guard recognitionControlMode == .auto, computedTypingContext else {
             return false
         }
-        if hasAuthoritativeTypingEvidence || hasStreamedDictation {
-            return true
-        }
-        guard lockedTargetMatches else {
-            return false
-        }
-        GlobalLogger.speech.info(
-            "[TypingMode] preserving typing context from locked input target pid=\(lockedFocusedSnapshot?.pid ?? 0) bundle=\(lockedFocusedSnapshot?.bundleID ?? "nil")"
-        )
-        return true
+        return hasAuthoritativeTypingEvidence || hasStreamedDictation
     }
 
     private func hasAuthoritativeTypingEvidence() -> Bool {
@@ -6146,7 +6113,7 @@ final class SpeechManager: ObservableObject {
     private func beginTypingRecoveryHold(reason: String) {
         guard recognitionControlMode == .auto else { return }
         guard isAlwaysListeningEnabled || isPTTHeld || recognitionSession.isRunning || isStopping else { return }
-        guard sessionTypingMode || hasLockedFocusedInputTarget() else { return }
+        guard sessionTypingMode || !dictationHandler.screenTypedText.isEmpty else { return }
         typingRecoveryHoldUntil = Date().addingTimeInterval(2.0)
         typingRecoveryHoldReason = reason
         GlobalLogger.speech.info(
