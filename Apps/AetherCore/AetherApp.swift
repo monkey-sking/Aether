@@ -2460,6 +2460,23 @@ class AppState: ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    static func sanitizedWakeWordUsageContent(
+        _ raw: String?,
+        localeIdentifier: String,
+        stripsWakeWord: Bool,
+        overrides: [VoiceLanguageTermsOverrideConfig]
+    ) -> String? {
+        let normalized = normalizedVoiceUsageExcerpt(raw)
+        guard stripsWakeWord, let normalized else { return normalized }
+
+        let detector = WakeWordDetector()
+        detector.overrides = overrides
+        let result = detector.process(normalized, localeIdentifier: localeIdentifier)
+        guard result.wakeDetected else { return normalized }
+
+        return normalizedVoiceUsageExcerpt(result.payload) ?? normalized
+    }
+
     static func classifyUsageInsightsEvent(_ entry: VoiceUsageEvent) -> UsageInsightsEventRecord {
         let recognitionFailed = localizedVoiceUsageAction(
             "voice_usage.failure.recognition_failed",
@@ -4515,10 +4532,21 @@ class AppState: ObservableObject {
                 let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
                 let hudState = HUDManager.shared.state
                 let isControlLike = hudState.recognitionControlMode == .command || !hudState.isTypingContext
+                let localeIdentifier = voiceService.effectiveLocaleIdentifier
                 if !trimmed.isEmpty, !isControlLike {
-                    recordVoiceUnrecognized(trimmed, appName: appName, bundleIdentifier: bundleIdentifier)
+                    recordVoiceUnrecognized(
+                        trimmed,
+                        localeIdentifier: localeIdentifier,
+                        appName: appName,
+                        bundleIdentifier: bundleIdentifier
+                    )
                 } else if !trimmed.isEmpty {
-                    recordVoiceUnknownCommand(trimmed, appName: appName, bundleIdentifier: bundleIdentifier)
+                    recordVoiceUnknownCommand(
+                        trimmed,
+                        localeIdentifier: localeIdentifier,
+                        appName: appName,
+                        bundleIdentifier: bundleIdentifier
+                    )
                 } else {
                     recordControl(intent)
                 }
@@ -4544,13 +4572,24 @@ class AppState: ObservableObject {
         )
     }
 
-    private func recordVoiceUnknownCommand(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
+    private func recordVoiceUnknownCommand(
+        _ text: String,
+        localeIdentifier: String,
+        appName: String? = nil,
+        bundleIdentifier: String? = nil
+    ) {
         recordVoiceUsageEvent(
             kind: .control,
             action: NSLocalizedString("intent.unknown", comment: ""),
-            content: text,
+            content: Self.sanitizedWakeWordUsageContent(
+                text,
+                localeIdentifier: localeIdentifier,
+                stripsWakeWord: voiceActivationMode == .wakeWord || isWakeWordEnabled,
+                overrides: voiceLanguageTermsOverrides
+            ),
             appName: appName,
-            bundleIdentifier: bundleIdentifier
+            bundleIdentifier: bundleIdentifier,
+            localeIdentifier: localeIdentifier
         )
     }
 
@@ -4657,13 +4696,24 @@ class AppState: ObservableObject {
         )
     }
     
-    private func recordVoiceUnrecognized(_ text: String, appName: String? = nil, bundleIdentifier: String? = nil) {
+    private func recordVoiceUnrecognized(
+        _ text: String,
+        localeIdentifier: String,
+        appName: String? = nil,
+        bundleIdentifier: String? = nil
+    ) {
         recordVoiceUsageEvent(
             kind: .dictation,
             action: AppLocalization.isChinese ? "未匹配" : "Unmatched",
-            content: text,
+            content: Self.sanitizedWakeWordUsageContent(
+                text,
+                localeIdentifier: localeIdentifier,
+                stripsWakeWord: voiceActivationMode == .wakeWord || isWakeWordEnabled,
+                overrides: voiceLanguageTermsOverrides
+            ),
             appName: appName,
-            bundleIdentifier: bundleIdentifier
+            bundleIdentifier: bundleIdentifier,
+            localeIdentifier: localeIdentifier
         )
     }
     
@@ -4840,7 +4890,7 @@ class AppState: ObservableObject {
         return (appName ?? fallbackName, bundleIdentifier ?? "unknown.app")
     }
 
-    private func normalizedVoiceUsageContent(_ raw: String?) -> String? {
+    private static func normalizedVoiceUsageExcerpt(_ raw: String?) -> String? {
         guard var text = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
             return nil
         }
@@ -4849,6 +4899,10 @@ class AppState: ObservableObject {
             text = String(text.prefix(280)) + "…"
         }
         return text
+    }
+
+    private func normalizedVoiceUsageContent(_ raw: String?) -> String? {
+        Self.normalizedVoiceUsageExcerpt(raw)
     }
 
     private func shortcutPanelActionTitle(_ base: String) -> String {

@@ -202,6 +202,42 @@ final class AppStateUsageInsightsTests: XCTestCase {
         XCTAssertEqual(record.reasonCode, .dictation)
         XCTAssertFalse(record.isIssue)
     }
+
+    func testSanitizedWakeWordUsageContentStripsLeadingWakeWordInWakeMode() {
+        let result = AppState.sanitizedWakeWordUsageContent(
+            "你好，芝麻开门",
+            localeIdentifier: "zh-CN",
+            stripsWakeWord: true,
+            overrides: [
+                VoiceLanguageTermsOverrideConfig(
+                    localeIdentifier: "zh-CN",
+                    wakeWords: ["你好"],
+                    commandPrefixes: [],
+                    dictationPrefixes: []
+                )
+            ]
+        )
+
+        XCTAssertEqual(result, "芝麻开门")
+    }
+
+    func testSanitizedWakeWordUsageContentKeepsPrefixOutsideWakeMode() {
+        let result = AppState.sanitizedWakeWordUsageContent(
+            "你好，芝麻开门",
+            localeIdentifier: "zh-CN",
+            stripsWakeWord: false,
+            overrides: [
+                VoiceLanguageTermsOverrideConfig(
+                    localeIdentifier: "zh-CN",
+                    wakeWords: ["你好"],
+                    commandPrefixes: [],
+                    dictationPrefixes: []
+                )
+            ]
+        )
+
+        XCTAssertEqual(result, "你好，芝麻开门")
+    }
 }
 
 @MainActor

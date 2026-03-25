@@ -397,6 +397,17 @@ private struct StandardWindowConfigurator: NSViewRepresentable {
             accessory.layoutAttribute = .left
             window.addTitlebarAccessoryViewController(accessory)
         }
+        refreshChromeLayout(for: window)
+    }
+
+    private static func refreshChromeLayout(for window: NSWindow) {
+        DispatchQueue.main.async {
+            window.toolbar?.validateVisibleItems()
+            window.contentView?.superview?.needsLayout = true
+            window.contentView?.superview?.layoutSubtreeIfNeeded()
+            window.contentView?.needsLayout = true
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
     }
 }
 
@@ -404,7 +415,7 @@ private final class MainWindowToolbarDelegate: NSObject, NSToolbarDelegate {
     static let shared = MainWindowToolbarDelegate()
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, .flexibleSpace]
+        [.sidebarTrackingSeparator, .flexibleSpace]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
