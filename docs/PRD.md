@@ -1,5 +1,9 @@
 # **Project "Aether" 全感知协同交互系统需求文档 (PRD) v1.2**
 
+> 文档状态：`Historical`
+> 说明：这是 Aether 的早期多设备愿景与研究型 PRD，保留背景价值，但不代表当前已实现范围。
+> 当前现状请先看：`README.md`、`user_guide.md`、`PENDING_ACCEPTANCE.md`、`VOICE_LEXICON_RULES.md`。
+
 ## **1\. 项目愿景 (Vision)**
 
 构建一个以 macOS 为核心的分布式感知计算网络。通过聚合 Apple 全家桶（iPhone, iPad, Watch, AirPods, Vision Pro, HomePod, Siri Remote）的底层传感器数据，利用端侧 AI 意图识别和微秒级同步协议，消除物理输入设备的界限，实现全场景无感交互。

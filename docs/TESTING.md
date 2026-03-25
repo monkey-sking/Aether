@@ -1,53 +1,38 @@
 # Aether Testing / Acceptance Checklist
 
+> 文档状态：`Current`
+> 适用范围：本地开发机上的功能验证与回归。例行开发优先验证语音、HUD、头势、快捷键、权限与激活链路。
+> 说明：打包、签名、公证、安装替换属于单独的发布流程，不是默认开发验证路径。当前文本注入相关输出也不要默认按“DriverKit 键盘路径已完成”理解。
+
 This doc is for local testing on a development machine. System Extension + DriverKit requires correct code signing and explicit user approval in System Settings.
-For public release packaging and notarization, see `docs/RELEASE_DISTRIBUTION.md`.
+For public release packaging, notarization, or installation into `/Applications`, see `docs/RELEASE_DISTRIBUTION.md`.
 
 ## Where the build artifacts are
 
-- Release `.app`: `/Volumes/SSD/Projects/Aether/.build/release/Aether.app`
-- Installer DMG: `/Volumes/SSD/Projects/Aether/.build/release/Aether_Installer.dmg`
-- Debug `.app` (Xcode output): `/Volumes/SSD/Projects/Aether/.derivedData/Build/Products/Debug/Aether.app`
+- Release `.app`: `/Volumes/SSD/Projects/Aether/Apps/.build/release/Aether.app`
+- Installer DMG: `/Volumes/SSD/Projects/Aether/Apps/.build/release/Aether_Installer.dmg`
+- Debug `.app` (Xcode DerivedData output): path depends on local Xcode settings and is not fixed in this repo
 
 Note: typing `Aether.app` in Terminal will not launch it. Use `open /path/to/Aether.app`.
 If Finder shows a blank icon for the release build, run:
-`/Volumes/SSD/Projects/Aether/Scripts/PrepareAppBundle.sh /Volumes/SSD/Projects/Aether/.build/release/Aether.app`
+`/Volumes/SSD/Projects/Aether/Apps/Scripts/PrepareAppBundle.sh /Volumes/SSD/Projects/Aether/Apps/.build/release/Aether.app`
 
-## Build (recommended)
+## Build (local verification)
 
 1. Open `Aether.xcodeproj` in Xcode.
 2. In `Apps/AetherCore` target, set `Signing & Capabilities` to your Team (Automatic).
 3. Build a Release app into `.build/release`:
 
 ```bash
-cd /Volumes/SSD/Projects/Aether
+cd /Volumes/SSD/Projects/Aether/Apps
 ./Scripts/BuildRelease.sh Release
 open ./.build/release/Aether.app
-```
-
-## Build for end users (Developer ID distribution)
-
-Use this path when you want a package for non-development users:
-
-```bash
-cd /Volumes/SSD/Projects/Aether
-SKIP_NOTARIZE=1 ./Scripts/ReleaseForUsers.sh
-```
-
-If notarization is configured in keychain:
-
-```bash
-cd /Volumes/SSD/Projects/Aether
-NOTARY_PROFILE=YourNotaryProfile ./Scripts/ReleaseForUsers.sh
 ```
 
 ## First run: permissions and system extension
 
 Important: macOS requires the host app to live in `/Applications` to activate a System Extension.
-If you're running from Xcode/DerivedData or a mounted DMG volume, activation will fail.
-
-To install the latest built app into `/Applications`:
-`/Volumes/SSD/Projects/Aether/Scripts/InstallToApplications.sh`
+If you're running from Xcode/DerivedData or a mounted DMG volume, activation will fail. In normal development work, stop here and switch to the dedicated release/install workflow instead of installing over an existing app from this checklist.
 
 1. **Accessibility**
    - In Aether window, click `Fix Accessibility` and grant it.
@@ -58,6 +43,7 @@ To install the latest built app into `/Applications`:
 4. **System Extension (DriverKit)**
    - Click `Activate Perception` (or menu bar `Activate Driver`).
    - If it shows `Needs User Approval`, open `System Settings -> Privacy & Security` and allow the extension.
+   - If the current conversation is not the dedicated release/install flow, do not use this doc as an instruction to replace an existing installed app.
 
 Expected after approval:
 - UI `Virtual HID` becomes `Ready` (not `Idle`).
@@ -75,12 +61,12 @@ Expected after approval:
 1. Toggle `Dwell Click`.
 2. Hold cursor still: triggers a left click after dwell threshold.
 
-### Voice (PTT and always listening)
+### Voice (PTT and Hands-Free)
 1. Hold push-to-talk hotkey (default shown in UI) and speak:
    - "click" / "点击"
    - "recenter" / "校准"
    - "undo" / "撤销"
-2. Toggle `Always Listening`:
+2. Toggle `Hands-Free`:
    - Say wake phrase then command (UI shows the wake phrase).
 3. Dictation injection:
    - Focus a text field (Notes, TextEdit, browser input).

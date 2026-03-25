@@ -60,7 +60,7 @@ HUD 图标展示遵循“**佩戴感知优先**”原则，以消除系统音频
 ### 1. 触发器定义
 *   **PTT (Push-To-Talk)**：手动物理按键触发。
 *   **Wake Word ("Hey Aether")**：被动监听触发，需要引擎常驻。
-*   **Always Listening (常驻监听)**：主动持续监听，无唤醒词模式，需要引擎常驻。
+*   **Hands-Free / 免提（常驻监听）**：主动持续监听，无唤醒词模式，需要引擎常驻。
 
 ### 2. HUD 状态映射逻辑
 | 触发器组合状态 | 引擎状态 | HUD 初始视觉状态 | 隐身/退出逻辑 |
@@ -90,6 +90,6 @@ HUD 右侧的语言按钮具备“母语记忆”功能：
 ---
 
 ## 六、 维护路径
-* **硬件监听与图标逻辑**：[SpeechManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/SpeechManager.swift)
+* **硬件监听与图标逻辑**：[SpeechManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/SpeechManager.swift)
 * **佩戴探测快轨**：`AirPodsDetector` 内部类 (@ SpeechManager.swift)
-* **视图层渲染**：[HUDView.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HUD/HUDView.swift)
+* **视图层渲染**：[HUDView.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HUD/HUDView.swift)

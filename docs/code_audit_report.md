@@ -44,19 +44,19 @@ AirPods attitude → 归一化(yaw/pitch) → 平滑滤波 → 绝对坐标 → 
 ### ✅ 已实现
 | 功能 | 文件 | 状态 |
 |------|------|------|
-| 头部追踪 → 光标移动 | [HeadMotionManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HeadMotionManager.swift) | ✅ |
-| 左键点击（AirPods 捏合/语音/悬停） | 同上 + [AutomationOutput.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/AutomationOutput.swift) | ✅ |
+| 头部追踪 → 光标移动 | [HeadMotionManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HeadMotionManager.swift) | ✅ |
+| 左键点击（AirPods 捏合/语音/悬停） | 同上 + [AutomationOutput.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/AutomationOutput.swift) | ✅ |
 | 右键点击（AirPods 双击/语音） | 同上 | ✅ |
 | 双击（AirPods 三连按/语音） | 同上 | ✅ |
-| Dwell Click（悬停点击） | [HeadMotionManager.swift#L443-L470](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HeadMotionManager.swift#L443-L470) | ✅ |
-| 注意力检测（视线离开暂停） | [HeadMotionManager.swift#L331-L360](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HeadMotionManager.swift#L331-L360) | ✅ |
-| 动态范围校准 | [HeadMotionManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HeadMotionManager.swift) | ✅ |
-| DriverKit HID 输出 | [DriverClient.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/DriverClient.swift) | ✅ |
-| CGEvent Fallback | [AutomationOutput.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/AutomationOutput.swift) | ✅ |
-| 连接超时检测 | [HeadMotionManager.swift#L257](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HeadMotionManager.swift#L257) | ✅ |
-| Connection Lock（防切换） | [ConnectionLockService.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/ConnectionLockService.swift) | ✅ |
-| 快捷键（切换追踪/连接锁/PTT） | [HotkeyManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HotkeyManager.swift) + [HeadMotionManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HeadMotionManager.swift) | ✅ |
-| 快捷键 HUD 反馈 | [HotkeyFeedbackHUD.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HotkeyFeedbackHUD.swift) | ✅ |
+| Dwell Click（悬停点击） | [HeadMotionManager.swift#L443-L470](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HeadMotionManager.swift#L443-L470) | ✅ |
+| 注意力检测（视线离开暂停） | [HeadMotionManager.swift#L331-L360](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HeadMotionManager.swift#L331-L360) | ✅ |
+| 动态范围校准 | [HeadMotionManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HeadMotionManager.swift) | ✅ |
+| DriverKit HID 输出 | [DriverClient.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/DriverClient.swift) | ✅ |
+| CGEvent Fallback | [AutomationOutput.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/AutomationOutput.swift) | ✅ |
+| 连接超时检测 | [HeadMotionManager.swift#L257](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HeadMotionManager.swift#L257) | ✅ |
+| Connection Lock（防切换） | [ConnectionLockService.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/ConnectionLockService.swift) | ✅ |
+| 快捷键（切换追踪/连接锁/PTT） | [HotkeyManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HotkeyManager.swift) + [HeadMotionManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HeadMotionManager.swift) | ✅ |
+| 快捷键 HUD 反馈 | [HotkeyFeedbackHUD.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HotkeyFeedbackHUD.swift) | ✅ |
 
 ### ❌ 未实现 / 缺失
 | 功能 | 说明 | 优先级 |
@@ -115,7 +115,7 @@ Microphone → SFSpeechRecognizer → transcript → VoiceCommandRouter.route() 
 
 **1. `toggleTracking` 快捷键的"启动"分支不可靠**
 
-[HeadMotionManager.swift#L517-L528](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HeadMotionManager.swift#L517-L528)
+[HeadMotionManager.swift#L517-L528](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HeadMotionManager.swift#L517-L528)
 
 Event Tap 回调在 **后台线程** 执行，但 `startTracking()` 内部操作 `CMMotionManager` 需要主线程。现在的代码用了 `DispatchQueue.main.async`，这是正确的。但 `startTracking()` 调用 `motionManager.startDeviceMotionUpdates(to: .main)`，如果 AirPods 不在线，会直接返回（因为 `isDeviceMotionAvailable` 为 false）。
 
@@ -123,13 +123,13 @@ Event Tap 回调在 **后台线程** 执行，但 `startTracking()` 内部操作
 
 **2. `DwellOverlay` 创建时机问题**
 
-[HeadMotionManager.swift#L177](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HeadMotionManager.swift#L177)
+[HeadMotionManager.swift#L177](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HeadMotionManager.swift#L177)
 
 `DwellOverlayWindow()` 在 motion callback 闭包内的 `isCalibrated` 初次为 true 时创建。如果 `startTracking()` 被调用但第一帧数据来之前就停止了，`dwellOverlay` 将始终为 `nil`，后续不会创建。
 
 **3. 断线检测不完整**
 
-[HeadMotionManager.swift#L257](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HeadMotionManager.swift#L257)
+[HeadMotionManager.swift#L257](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HeadMotionManager.swift#L257)
 
 只有 `handleConnectionTimeout()`（5 秒后仍无数据）和监控定时器。**没有蓝牙路由变化的主动监听**。如果 AirPods 在追踪过程中被系统切换到其他设备，追踪会停留在最后位置直到 watchdog 超时。
 
@@ -137,19 +137,19 @@ Event Tap 回调在 **后台线程** 执行，但 `startTracking()` 内部操作
 
 **4. `VoiceCommandRouter` 缺少滚动/拖拽指令**
 
-[SpeechManager.swift#L22-L73](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/SpeechManager.swift#L22-L73)
+[SpeechManager.swift#L22-L73](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/SpeechManager.swift#L22-L73)
 
 `VoiceIntent` enum 和 `VoiceCommandRouter.route()` 完全没有 scroll、drag、drop 相关 case。这是 Phase 1.5 TODO 的核心缺失。
 
 **5. 连接锁定不感知追踪状态**
 
-[ConnectionLockService.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/ConnectionLockService.swift)
+[ConnectionLockService.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/ConnectionLockService.swift)
 
 Connection Lock 使用 `AVAudioRoutingArbiter`，但没有与 `HeadMotionManager.isTracking` 联动。启动追踪时不会自动锁定，停止时也不会自动解锁。
 
 **6. `PreferredAutomationOutput.moveCursor` 坐标系不一致**
 
-[AutomationOutput.swift#L129-L151](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/AutomationOutput.swift#L129-L151)
+[AutomationOutput.swift#L129-L151](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/AutomationOutput.swift#L129-L151)
 
 `DriverAutomationOutput.moveCursor(to:)` 使用相对增量（dx/dy），而 `CoreGraphicsAutomationOutput.moveCursor(to:desktopMaxY:)` 使用绝对坐标。当从 Driver 切换到 CGEvent fallback 时，`driver.resetRelativeOrigin(to: point)` 同步了起点，但从 CGEvent 切换到 Driver 时（如 Driver 延迟加载），可能会出现一帧跳变。
 

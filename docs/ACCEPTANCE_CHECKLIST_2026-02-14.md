@@ -39,7 +39,7 @@
 ## 7. 语音重启节流与 HUD 卡顿（2026-02-15）
 - [ ] 构建确认：`xcodebuild -scheme Aether -project Aether.xcodeproj -configuration Debug build`
 - [ ] 期望结果：`BUILD SUCCEEDED`
-- [ ] 开启 `Always Listening`，保持 3-5 分钟并正常说话/停顿交替
+- [ ] 开启 `Hands-Free / 免提`，保持 3-5 分钟并正常说话/停顿交替
 - [ ] 期望结果：HUD 无明显“冻结后突跳”，响应比修复前平滑
 - [ ] 在系统设置里切换默认输入设备（内建麦克风 <-> AirPods）至少 5 次
 - [ ] 期望结果：不会因为频繁设备切换导致语音引擎连续重启抖动

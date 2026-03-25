@@ -1,5 +1,9 @@
 # **Project "Aether" Phase 1 实施清单 (TODO)**
 
+> 文档状态：`Historical`
+> 说明：这是早期 Phase 1 清单，保留项目起始阶段的实现背景，不再作为当前主待办。
+> 当前近期规划请先看 `Phase1.5_TODO.md`。
+
 **里程碑目标**：感知觉醒 (The Awakening) - 建立 macOS 虚拟 HID 通路与 AirPods 基础姿态控制。
 
 ## **1. 工程脚手架搭建 (Foundation) [100%]**

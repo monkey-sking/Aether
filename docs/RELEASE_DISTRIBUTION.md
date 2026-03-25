@@ -1,5 +1,9 @@
 # Aether 发布与公证指南
 
+> 文档状态：`Current`
+> 适用范围：正式发布、签名、公证和分发，仅用于发布链路。
+> 说明：日常功能开发与本地回归不要默认执行本文档中的步骤。
+
 本文用于生成“普通用户可安装”的正式发布包（Developer ID 签名 + Notarization + Staple）。
 
 ## 1. 前置条件
@@ -173,8 +177,8 @@ SKIP_NOTARIZE=1 ./Scripts/ReleaseForUsers.sh
 ## 5. 验签命令（发布后）
 
 ```bash
-APP="/Volumes/SSD/Projects/Aether/.build/release/Aether.app"
-DMG="/Volumes/SSD/Projects/Aether/.build/release/Aether_Installer.dmg"
+APP="/Volumes/SSD/Projects/Aether/Apps/.build/release/Aether.app"
+DMG="/Volumes/SSD/Projects/Aether/Apps/.build/release/Aether_Installer.dmg"
 
 codesign --verify --deep --strict --verbose=2 "$APP"
 spctl -a -t exec -vv "$APP"

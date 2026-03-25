@@ -1,5 +1,8 @@
 # Activation Gating TODO
 
+> 文档状态：`Planned`
+> 说明：这是激活门禁的专项规划文档，描述目标态和实施任务，不代表当前产品已经完全 gated。
+
 ## Goal
 Make Aether require a valid activation or trial before the core product can be used.
 
@@ -173,4 +176,3 @@ Exit criteria:
 2. Runtime feature gating
 3. Recovery UX polish
 4. State mapping cleanup
-

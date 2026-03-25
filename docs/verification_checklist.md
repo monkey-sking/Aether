@@ -1,5 +1,8 @@
 # Aether 验收清单 (Verification Checklist)
 
+> 文档状态：`Historical`
+> 说明：这是较早的验收快照，当前验收口径已转到 `PENDING_ACCEPTANCE.md` 与 `TESTING.md`。
+
 > 请勾选以下项目以确认功能正常。
 
 ## 0. 安装与权限 (Installation & Setup)
