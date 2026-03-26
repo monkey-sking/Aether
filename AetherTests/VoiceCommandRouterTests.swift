@@ -912,6 +912,14 @@ final class HUDExplicitTypingSuppressionTests: XCTestCase {
         XCTAssertTrue(SpeechManager.isWeirdTypingAppBundleIdentifier("org.telegram.desktop"))
     }
 
+    func testWebInputGeometryHeuristicsStayScopedToBrowserLikeAndKnownWeirdApps() {
+        XCTAssertTrue(HUDManager.shouldUseWebInputSizedRectHeuristics(bundleID: "com.google.Chrome"))
+        XCTAssertTrue(HUDManager.shouldUseWebInputSizedRectHeuristics(bundleID: "ru.keepcoder.Telegram"))
+        XCTAssertTrue(HUDManager.shouldUseWebInputSizedRectHeuristics(bundleID: "com.tencent.xinWeChat"))
+        XCTAssertFalse(HUDManager.shouldUseWebInputSizedRectHeuristics(bundleID: "com.apple.TextEdit"))
+        XCTAssertFalse(HUDManager.shouldUseWebInputSizedRectHeuristics(bundleID: "com.apple.Music"))
+    }
+
     func testCodexLikeAppsRequireExplicitClickReentry() {
         XCTAssertTrue(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: "com.openai.codex"))
         XCTAssertTrue(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: "com.antigravity.editor"))

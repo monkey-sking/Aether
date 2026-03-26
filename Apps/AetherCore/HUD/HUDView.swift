@@ -164,12 +164,14 @@ struct HUDView: View {
     }
 
     private var micIcon: some View {
-        ZStack {
+        let requestedIcon = state.inputDeviceIcon
+        let resolvedSymbol = resolvedSymbolName(for: requestedIcon)
+        return ZStack {
             ZStack {
                 if state.isMicProgressVisible && (state.mode == .listening || state.mode == .command || state.mode == .dictation) {
                     Circle()
                         .stroke(Color.white.opacity(0.22), lineWidth: 2)
-                        .frame(width: 22, height: 22)
+                        .frame(width: micProgressDiameter, height: micProgressDiameter)
                     Circle()
                         .trim(from: 0, to: state.micProgress)
                         .stroke(
@@ -177,26 +179,25 @@ struct HUDView: View {
                             style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
                         )
                         .rotationEffect(.degrees(-90))
-                        .frame(width: 22, height: 22)
+                        .frame(width: micProgressDiameter, height: micProgressDiameter)
                 }
 
-                let requestedIcon = state.inputDeviceIcon
-                Image(systemName: resolvedSymbolName(for: requestedIcon))
+                Image(systemName: resolvedSymbol)
                     .foregroundColor(.white)
-                    .font(.system(size: 14))
+                    .font(.system(size: listeningDeviceSymbolFontSize))
                     .shadow(radius: 1)
             }
         }
-        .frame(width: 22, height: 22)
+        .frame(width: listeningDeviceFrameSize, height: listeningDeviceFrameSize)
         .overlay(alignment: .topLeading) {
             if let healthStyle = deviceHealthStyle {
-                DeviceHealthBadge(style: healthStyle)
+                DeviceHealthBadge(style: healthStyle, size: overlayBadgeDiameter)
                     .offset(x: overlayBadgeTopOffset, y: overlayBadgeTopOffset)
             }
         }
         .overlay(alignment: .bottomTrailing) {
             if let symbol = modeIndicatorSymbol {
-                ModeIndicatorBadge(symbol: symbol)
+                ModeIndicatorBadge(symbol: symbol, size: overlayBadgeDiameter)
                     .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
             }
         }
@@ -215,18 +216,21 @@ struct HUDView: View {
             AnimatedHUDBadge(
                 symbol: currentInputDeviceSymbol,
                 tone: .white.opacity(0.92),
-                animatePulse: false
+                animatePulse: false,
+                circleDiameter: deviceBadgeCircleDiameter,
+                frameDiameter: deviceBadgeFrameDiameter,
+                symbolFontSize: stageDeviceSymbolFontSize
             )
         }
         .overlay(alignment: .topLeading) {
             if let healthStyle = deviceHealthStyle {
-                DeviceHealthBadge(style: healthStyle)
+                DeviceHealthBadge(style: healthStyle, size: overlayBadgeDiameter)
                     .offset(x: overlayBadgeTopOffset, y: overlayBadgeTopOffset)
             }
         }
         .overlay(alignment: .bottomTrailing) {
             if let symbol = modeIndicatorSymbol {
-                ModeIndicatorBadge(symbol: symbol)
+                ModeIndicatorBadge(symbol: symbol, size: overlayBadgeDiameter)
                     .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
             }
         }
@@ -244,17 +248,21 @@ struct HUDView: View {
                 AnimatedHUDBadge(
                     symbol: currentInputDeviceSymbol,
                     tone: .white.opacity(0.92),
-                    animatePulse: false
+                    animatePulse: false,
+                    circleDiameter: deviceBadgeCircleDiameter,
+                    frameDiameter: deviceBadgeFrameDiameter,
+                    symbolFontSize: stageDeviceSymbolFontSize
                 )
                 if let healthStyle = deviceHealthStyle {
-                    DeviceHealthBadge(style: healthStyle)
+                    DeviceHealthBadge(style: healthStyle, size: overlayBadgeDiameter)
                         .offset(x: overlayBadgeTopOffset, y: overlayBadgeTopOffset)
                 }
                 if let feedbackOutcomeSymbol {
                     OutcomeOverlayBadge(
                         symbol: feedbackOutcomeSymbol,
                         tone: feedbackTone,
-                        style: feedbackBadgeStyle
+                        style: feedbackBadgeStyle,
+                        size: overlayBadgeDiameter
                     )
                         .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
                 }
@@ -280,15 +288,48 @@ struct HUDView: View {
     }
 
     private var overlayBadgeTopOffset: CGFloat {
-        -4
+        -3.5
     }
 
     private var overlayBadgeBottomOffset: CGFloat {
-        5
+        4.5
+    }
+
+    private var overlayBadgeDiameter: CGFloat {
+        13
     }
 
     private var hudContainerCornerRadius: CGFloat {
         state.mode == .standby ? 16 : 24
+    }
+
+    private var usesWideDeviceGlyph: Bool {
+        let symbol = currentInputDeviceSymbol
+        return symbol.contains("airpod") || symbol.contains("airpods") || symbol.contains("headphones")
+    }
+
+    private var listeningDeviceFrameSize: CGFloat {
+        usesWideDeviceGlyph ? 24 : 22
+    }
+
+    private var micProgressDiameter: CGFloat {
+        usesWideDeviceGlyph ? 24 : 22
+    }
+
+    private var listeningDeviceSymbolFontSize: CGFloat {
+        usesWideDeviceGlyph ? 15.5 : 14
+    }
+
+    private var deviceBadgeCircleDiameter: CGFloat {
+        usesWideDeviceGlyph ? 25 : 24
+    }
+
+    private var deviceBadgeFrameDiameter: CGFloat {
+        usesWideDeviceGlyph ? 30 : 28
+    }
+
+    private var stageDeviceSymbolFontSize: CGFloat {
+        usesWideDeviceGlyph ? 14.4 : 13
     }
 
     private var modeIndicatorSymbol: String? {
@@ -416,10 +457,10 @@ struct HUDView: View {
             NSLocalizedString("speech.pasted_cmdv", comment: ""),
             NSLocalizedString("speech.undo", comment: ""),
             NSLocalizedString("speech.undo_done", comment: ""),
-            "Full-text rewrite complete",
-            "Checked. No rewrite needed",
-            "已完成全文纠错优化",
-            "已检查，原文无需修改"
+            "Rewrite done",
+            "No changes",
+            "优化完成",
+            "无需修改"
         ]
     }
 
@@ -442,13 +483,14 @@ struct HUDView: View {
             NSLocalizedString("speech.playback_leak.detected", comment: ""),
             NSLocalizedString("speech.playback_leak.suppression_active", comment: ""),
             AppLocalization.isChinese ? "正在优化全文，请稍候" : "A full-text rewrite is already running. Please wait.",
-            AppLocalization.isChinese ? "耳机麦不可用，已切到 Mac 麦克风" : "Switched to Mac microphone"
+            AppLocalization.isChinese ? "已切到 Mac 麦" : "Switched to Mac mic"
         ]
     }
 
     private var infoFeedbackMessages: Set<String> {
         [
-            AppLocalization.isChinese ? "耳机已断开" : "Headset disconnected"
+            AppLocalization.isChinese ? "耳机已断开" : "Headset disconnected",
+            AppLocalization.isChinese ? "耳机已连接" : "Headset connected"
         ]
     }
 
@@ -458,10 +500,11 @@ struct HUDView: View {
             return message.contains("不可用")
                 || message.contains("请稍候")
                 || message.contains("干扰")
+                || message.contains("Mac 麦")
         }
         return lowercased.contains("please wait")
             || lowercased.contains("interference")
-            || lowercased.contains("switched to mac microphone")
+            || lowercased.contains("switched to mac mic")
     }
 
     private func looksLikeErrorFeedback(_ message: String) -> Bool {
@@ -518,7 +561,18 @@ struct HUDView: View {
             .font(.system(size: 14, weight: .semibold))
             .foregroundColor(.white)
             .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-            .fixedSize()
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .minimumScaleFactor(0.92)
+            .frame(maxWidth: hudLabelMaxWidth, alignment: .leading)
+            .layoutPriority(1)
+    }
+
+    private var hudLabelMaxWidth: CGFloat {
+        var width: CGFloat = state.mode == .feedback ? 188 : 176
+        if hasVisibleContextIcon { width -= 20 }
+        if state.isLanguageIndicatorVisible { width -= 24 }
+        return max(width, 96)
     }
 
     private func actionBadge(symbol: String, tone: Color) -> some View {
@@ -947,14 +1001,33 @@ private struct AnimatedHUDBadge: View {
     let symbol: String
     let tone: Color
     let animatePulse: Bool
+    let circleDiameter: CGFloat
+    let frameDiameter: CGFloat
+    let symbolFontSize: CGFloat
     @State private var pulseVisible = false
+
+    init(
+        symbol: String,
+        tone: Color,
+        animatePulse: Bool,
+        circleDiameter: CGFloat = 24,
+        frameDiameter: CGFloat = 28,
+        symbolFontSize: CGFloat = 13
+    ) {
+        self.symbol = symbol
+        self.tone = tone
+        self.animatePulse = animatePulse
+        self.circleDiameter = circleDiameter
+        self.frameDiameter = frameDiameter
+        self.symbolFontSize = symbolFontSize
+    }
 
     var body: some View {
         ZStack {
             if animatePulse {
                 Circle()
                     .stroke(tone.opacity(0.45), lineWidth: 1.5)
-                    .frame(width: 28, height: 28)
+                    .frame(width: frameDiameter, height: frameDiameter)
                     .scaleEffect(pulseVisible ? 1.55 : 1.05)
                     .opacity(pulseVisible ? 0.0 : 0.88)
                     .animation(.easeOut(duration: 0.55).repeatForever(autoreverses: false), value: pulseVisible)
@@ -962,18 +1035,18 @@ private struct AnimatedHUDBadge: View {
 
             Circle()
                 .fill(tone.opacity(0.18))
-                .frame(width: 24, height: 24)
+                .frame(width: circleDiameter, height: circleDiameter)
 
             Circle()
                 .stroke(tone.opacity(0.38), lineWidth: 1.1)
-                .frame(width: 24, height: 24)
+                .frame(width: circleDiameter, height: circleDiameter)
 
             Image(systemName: symbol)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: symbolFontSize, weight: .semibold))
                 .foregroundColor(.white)
                 .shadow(radius: 1)
         }
-        .frame(width: 28, height: 28)
+        .frame(width: frameDiameter, height: frameDiameter)
         .onAppear {
             guard animatePulse else { return }
             pulseVisible = true
@@ -992,17 +1065,18 @@ private struct OutcomeOverlayBadge: View {
     let symbol: String
     let tone: Color
     let style: Style
+    let size: CGFloat
 
     var body: some View {
         ZStack {
             Circle()
                 .fill(backgroundColor)
-                .frame(width: 14, height: 14)
+                .frame(width: size, height: size)
             Circle()
                 .stroke(borderColor, lineWidth: 1)
-                .frame(width: 14, height: 14)
+                .frame(width: size, height: size)
             Image(systemName: symbol)
-                .font(.system(size: 7.5, weight: .bold))
+                .font(.system(size: size * 0.54, weight: .bold))
                 .foregroundColor(symbolColor)
         }
         .shadow(color: shadowColor, radius: style == .positive ? 4 : 0)
@@ -1051,15 +1125,16 @@ private struct OutcomeOverlayBadge: View {
 
 private struct ModeIndicatorBadge: View {
     let symbol: String
+    let size: CGFloat
 
     var body: some View {
         ZStack {
             Circle()
                 .fill(Color.white.opacity(0.14))
-                .frame(width: 14, height: 14)
+                .frame(width: size, height: size)
             Circle()
                 .stroke(Color.white.opacity(0.16), lineWidth: 1)
-                .frame(width: 14, height: 14)
+                .frame(width: size, height: size)
             Image(systemName: symbol)
                 .font(.system(size: modeFontSize, weight: .semibold))
                 .foregroundColor(.white.opacity(0.92))
@@ -1069,17 +1144,18 @@ private struct ModeIndicatorBadge: View {
     private var modeFontSize: CGFloat {
         switch symbol {
         case "command":
-            return 7.2
+            return size * 0.51
         case "character.cursor.ibeam":
-            return 6.6
+            return size * 0.47
         default:
-            return 7.2
+            return size * 0.51
         }
     }
 }
 
 private struct DeviceHealthBadge: View {
     let style: HUDView.DeviceHealthBadgeStyle
+    let size: CGFloat
     @State private var pulse = false
 
     var body: some View {
@@ -1087,36 +1163,36 @@ private struct DeviceHealthBadge: View {
             if style == .limited {
                 Circle()
                     .stroke(tone.opacity(0.34), lineWidth: 1)
-                    .frame(width: 14, height: 14)
+                    .frame(width: size, height: size)
                     .scaleEffect(pulse ? 1.45 : 1.0)
                     .opacity(pulse ? 0.0 : 0.75)
             }
 
             Circle()
                 .fill(backgroundColor)
-                .frame(width: 14, height: 14)
+                .frame(width: size, height: size)
 
             switch style {
             case .warning:
                 Circle()
                     .stroke(borderColor, lineWidth: 1)
-                    .frame(width: 14, height: 14)
+                    .frame(width: size, height: size)
                 Circle()
                     .fill(tone)
-                    .frame(width: 5.5, height: 5.5)
+                    .frame(width: size * 0.4, height: size * 0.4)
             case .limited:
                 Circle()
                     .stroke(borderColor, lineWidth: 1)
-                    .frame(width: 14, height: 14)
+                    .frame(width: size, height: size)
                 RoundedRectangle(cornerRadius: 1, style: .continuous)
                     .fill(tone)
-                    .frame(width: 6.5, height: 2)
+                    .frame(width: size * 0.46, height: max(2, size * 0.15))
             case .error:
                 Circle()
                     .stroke(borderColor, lineWidth: 1)
-                    .frame(width: 14, height: 14)
+                    .frame(width: size, height: size)
                 Image(systemName: "xmark")
-                    .font(.system(size: 6.5, weight: .bold))
+                    .font(.system(size: size * 0.47, weight: .bold))
                     .foregroundColor(tone)
             }
         }

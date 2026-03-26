@@ -142,12 +142,12 @@
 "speech.unavailable" = "语音不可用";
 "speech.error" = "识别错误";
 "speech.pasted" = "已粘贴";
-"speech.typed" = "上屏";
+"speech.typed" = "已输入";
 "speech.undo" = "撤销";
 "speech.done" = "完成";
 
 /* HUD 提示与错误 */
-"speech.no_matching_command" = "没听清，请再说一次";
+"speech.no_matching_command" = "没听清，请重试";
 "speech.voice_input_disabled" = "语音输入已关闭";
 "speech.voice_control_disabled" = "语音控制已关闭";
 "speech.app_paused_idle" = "App 已因空闲暂停，移动鼠标后恢复";

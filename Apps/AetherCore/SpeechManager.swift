@@ -1478,7 +1478,7 @@ final class SpeechManager: ObservableObject {
                 "[AudioRoute] startup health probe fallback selectedInputID=\(self.selectedInputDeviceID) effectiveInputID=\(effectiveInputID) effectiveInputName=\(self.currentResolvedInputDeviceName) boundInputID=\(boundInputID) boundInputName=\(boundInputName) latestRMS=\(self.latestVoiceRMS) fallbackID=\(fallbackID) fallbackName=\(fallbackName)"
             )
             HUDManager.shared.showTemporary(
-                message: AppLocalization.isChinese ? "耳机麦不可用，已切到 Mac 麦克风" : "Switched to Mac microphone",
+                message: AppLocalization.isChinese ? "已切到 Mac 麦" : "Switched to Mac mic",
                 icon: self.hudInputIcon(),
                 duration: 1.2
             )
@@ -1818,16 +1818,11 @@ final class SpeechManager: ObservableObject {
         let hud = HUDManager.shared
         guard hud.state.mode == .hidden || hud.state.mode == .standby else { return }
 
-        let trimmedName = deviceName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallbackName = AppLocalization.isChinese ? "当前音频设备" : "Current audio device"
-        let displayName = trimmedName.isEmpty
-            ? fallbackName
-            : Self.compactHUDSnippet(trimmedName, maxEnglishCharacters: 22, maxNonEnglishCharacters: 10)
         let message: String
         if !previousHeadsetLike && isHeadsetLike {
             message = AppLocalization.isChinese
-                ? "已连接\(displayName)"
-                : "Connected: \(displayName)"
+                ? "耳机已连接"
+                : "Headset connected"
         } else if previousHeadsetLike && !isHeadsetLike {
             message = AppLocalization.isChinese
                 ? "耳机已断开"
@@ -1843,13 +1838,11 @@ final class SpeechManager: ObservableObject {
             case .none:
                 AppLocalization.isChinese ? "耳机" : "Headset"
             }
-            message = AppLocalization.isChinese
-                ? "已切到\(sideLabel)"
-                : "Switched to \(sideLabel)"
+            message = sideLabel
         } else {
             message = AppLocalization.isChinese
-                ? "已切到\(displayName)"
-                : "Switched: \(displayName)"
+                ? (isHeadsetLike ? "已切到耳机" : "已切到麦克风")
+                : (isHeadsetLike ? "Switched to headset" : "Switched to mic")
         }
         hud.showTemporary(
             message: message,
@@ -5102,7 +5095,7 @@ final class SpeechManager: ObservableObject {
                     job.routeReason == "forced-command-no-match"
                 )
             if shouldSurfaceUnknownHUD {
-                showUnknownCommandHUD(transcript)
+                showUnknownCommandHUD()
             }
             onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
         default:
@@ -5182,26 +5175,10 @@ final class SpeechManager: ObservableObject {
         job.targetSource == .recentClickFallback
     }
 
-    private func showUnknownCommandHUD(_ transcript: String) {
-        let suggestions = commandRouter
-            .suggestedCommandPhrases(
-                for: transcript,
-                localeIdentifier: activeLocale.identifier,
-                limit: 3
-            )
-            .map {
-                Self.compactHUDSnippet(
-                    $0,
-                    maxEnglishCharacters: 18,
-                    maxNonEnglishCharacters: 8
-                )
-            }
+    private func showUnknownCommandHUD() {
         let baseMessage = NSLocalizedString("speech.no_matching_command", comment: "")
-        let message = suggestions.isEmpty
-            ? baseMessage
-            : "\(baseMessage) · \(suggestions.joined(separator: " / "))"
         HUDManager.shared.showTemporary(
-            message: message,
+            message: baseMessage,
             recognitionControlMode: .command,
             icon: hudInputIcon(),
         )
@@ -7891,9 +7868,9 @@ final class SpeechManager: ObservableObject {
 
     private func textRewriteSuccessMessage(changed: Bool) -> String {
         if AppLocalization.isChinese {
-            return changed ? "已完成全文纠错优化" : "已检查，原文无需修改"
+            return changed ? "优化完成" : "无需修改"
         }
-        return changed ? "Full-text rewrite complete" : "Checked. No rewrite needed"
+        return changed ? "Rewrite done" : "No changes"
     }
 
     private enum TextRewriteCommitMode: String {

@@ -86,9 +86,11 @@ enum AXFocusedTypingContextDetector {
         let hasSettableValue = valueAttributeIsSettable(element)
         let hasEditableAncestor = editableAncestor(for: element) != nil
         let hasInsertionContextOnFocus = hasInsertionContext(element)
+        let allowWebInputSizedRects = HUDManager.shouldUseWebInputSizedRectHeuristics(bundleID: frontmostBundleID)
         let focusedRectLooksLikeInput = {
             guard let focusedRect, !isWholeWindowRect(focusedRect) else { return false }
-            return isTypingBoxSizedRect(focusedRect) || isWebInputSizedRect(focusedRect)
+            if isTypingBoxSizedRect(focusedRect) { return true }
+            return allowWebInputSizedRects && isWebInputSizedRect(focusedRect)
         }()
         let hasStrongInsertionEvidenceOnFocus = hasInsertionContextOnFocus && (caretRect != nil || focusedRectLooksLikeInput)
         let editableEvidence = hasEditableAttribute || hasSettableValue || hasEditableAncestor
@@ -294,6 +296,28 @@ enum AXFocusedTypingContextDetector {
     }
 
     private static func isWeirdWebTypingApp(bundleID: String?) -> Bool {
+        HUDManager.isWeirdWebTypingAppBundleIdentifier(bundleID)
+    }
+
+}
+
+final class HUDManager {
+    static let shared = HUDManager()
+
+    static func isBrowserLikeBundleIdentifier(_ bundleID: String?) -> Bool {
+        let bundleID = (bundleID ?? "").lowercased()
+        guard !bundleID.isEmpty else { return false }
+        return bundleID.contains("safari")
+            || bundleID.contains("chrome")
+            || bundleID.contains("chromium")
+            || bundleID.contains("brave")
+            || bundleID.contains("arc")
+            || bundleID.contains("firefox")
+            || bundleID.contains("edge")
+            || bundleID.contains("kagi")
+    }
+
+    static func isWeirdWebTypingAppBundleIdentifier(_ bundleID: String?) -> Bool {
         let bundle = (bundleID ?? "").lowercased()
         return bundle.contains("codex")
             || bundle.contains("antigravity")
@@ -302,10 +326,9 @@ enum AXFocusedTypingContextDetector {
             || bundle.contains("wechat")
     }
 
-}
-
-final class HUDManager {
-    static let shared = HUDManager()
+    static func shouldUseWebInputSizedRectHeuristics(bundleID: String?) -> Bool {
+        isBrowserLikeBundleIdentifier(bundleID) || isWeirdWebTypingAppBundleIdentifier(bundleID)
+    }
 
     static func shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: String?) -> Bool {
         let bundle = (bundleID ?? "").lowercased()
@@ -853,22 +876,122 @@ final class HUDManager {
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return 0.75 }
 
+        if compactSuccessToastMessages.contains(trimmed) {
+            return 0.85
+        }
+        if warningToastMessages.contains(trimmed) || looksLikeWarningToast(trimmed) {
+            return 1.3
+        }
+        if errorToastMessages.contains(trimmed) || looksLikeErrorToast(trimmed) {
+            return 1.6
+        }
+        if infoToastMessages.contains(trimmed) || looksLikeInfoToast(trimmed) {
+            return 1.0
+        }
+
         let base: TimeInterval = 1.0
-        let maxDuration: TimeInterval = 3.8
+        let maxDuration: TimeInterval = 2.2
 
         // Heuristic: if any ASCII letters present, treat as English-ish; otherwise Chinese-ish.
         let isEnglishLike = trimmed.unicodeScalars.contains { $0.isASCII && CharacterSet.letters.contains($0) }
         if isEnglishLike {
             let words = trimmed.split { $0.isWhitespace || $0.isNewline }.count
             let extraWords = max(0, words - 3)
-            let duration = base + (Double(extraWords) / 3.0) // ~180 wpm
+            let duration = base + (Double(extraWords) * 0.12)
             return min(max(duration, base), maxDuration)
         } else {
             let chars = trimmed.count
             let extraChars = max(0, chars - 6)
-            let duration = base + (Double(extraChars) / 4.0) // ~240 chars/min
+            let duration = base + (Double(extraChars) * 0.05)
             return min(max(duration, base), maxDuration)
         }
+    }
+
+    private var compactSuccessToastMessages: Set<String> {
+        [
+            NSLocalizedString("speech.done", comment: ""),
+            NSLocalizedString("speech.typed", comment: ""),
+            NSLocalizedString("speech.pasted", comment: ""),
+            NSLocalizedString("speech.pasted_cmdv", comment: ""),
+            NSLocalizedString("speech.undo", comment: ""),
+            NSLocalizedString("speech.undo_done", comment: ""),
+            "Rewrite done",
+            "No changes",
+            "优化完成",
+            "无需修改"
+        ]
+    }
+
+    private var warningToastMessages: Set<String> {
+        [
+            NSLocalizedString("speech.playback_leak.detected", comment: ""),
+            NSLocalizedString("speech.playback_leak.suppression_active", comment: ""),
+            AppLocalization.isChinese ? "正在优化全文，请稍候" : "A full-text rewrite is already running. Please wait.",
+            AppLocalization.isChinese ? "已切到 Mac 麦" : "Switched to Mac mic"
+        ]
+    }
+
+    private var errorToastMessages: Set<String> {
+        [
+            NSLocalizedString("speech.no_matching_command", comment: ""),
+            NSLocalizedString("speech.no_editable_field", comment: ""),
+            NSLocalizedString("speech.no_mic_detected", comment: ""),
+            NSLocalizedString("speech.need_mic_permission", comment: ""),
+            NSLocalizedString("speech.need_recognition_permission", comment: ""),
+            NSLocalizedString("speech.voice_input_disabled", comment: ""),
+            NSLocalizedString("speech.voice_control_disabled", comment: ""),
+            AppLocalization.isChinese ? "没完成" : "Didn't finish"
+        ]
+    }
+
+    private var infoToastMessages: Set<String> {
+        [
+            AppLocalization.isChinese ? "耳机已连接" : "Headset connected",
+            AppLocalization.isChinese ? "耳机已断开" : "Headset disconnected",
+            AppLocalization.isChinese ? "已切到耳机" : "Switched to headset",
+            AppLocalization.isChinese ? "左耳" : "Left",
+            AppLocalization.isChinese ? "右耳" : "Right",
+            AppLocalization.isChinese ? "双耳" : "Both"
+        ]
+    }
+
+    private func looksLikeWarningToast(_ message: String) -> Bool {
+        let lowercased = message.lowercased()
+        if AppLocalization.isChinese {
+            return message.contains("请稍候")
+                || message.contains("Mac 麦")
+                || message.contains("不可用")
+                || message.contains("干扰")
+        }
+        return lowercased.contains("please wait")
+            || lowercased.contains("switched to mac mic")
+            || lowercased.contains("unavailable")
+            || lowercased.contains("interference")
+    }
+
+    private func looksLikeErrorToast(_ message: String) -> Bool {
+        let lowercased = message.lowercased()
+        if AppLocalization.isChinese {
+            return message.contains("失败")
+                || message.contains("失效")
+                || message.contains("不支持")
+                || message.contains("没找到")
+                || message.contains("关闭")
+        }
+        return lowercased.contains("failed")
+            || lowercased.contains("not support")
+            || lowercased.contains("not found")
+            || lowercased.contains("turned off")
+    }
+
+    private func looksLikeInfoToast(_ message: String) -> Bool {
+        let lowercased = message.lowercased()
+        if AppLocalization.isChinese {
+            return message.contains("已连接")
+                || message.contains("已切到")
+        }
+        return lowercased.contains("connected")
+            || lowercased.hasPrefix("switched to ")
     }
 
     func notifyPointerMoved() {
@@ -1212,7 +1335,8 @@ final class HUDManager {
         if let r = axFocusedElementRectThrottled(),
            !isProbablyWholeWindowRect(r) {
             let insertionAvailable = axEvaluation.insertionContextAvailable
-            if insertionAvailable, (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+            if insertionAvailable,
+               (isTypingBoxSizedRect(r) || (Self.shouldUseWebInputSizedRectHeuristics(bundleID: frontBundle) && isWebInputSizedRect(r))) {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
                 return true
@@ -1223,7 +1347,7 @@ final class HUDManager {
                     explicitTypingReentryBundleID = nil
                     return true
                 }
-                if isWeirdWebTypingApp(bundleID: frontBundle), isWebInputSizedRect(r) {
+                if Self.shouldUseWebInputSizedRectHeuristics(bundleID: frontBundle), isWebInputSizedRect(r) {
                     requiresExplicitTypingReentry = false
                     explicitTypingReentryBundleID = nil
                     return true
@@ -1262,14 +1386,14 @@ final class HUDManager {
         if let r = axFocusedElementRectThrottled(),
            !isProbablyWholeWindowRect(r) {
             if axEvaluation.insertionContextAvailable,
-               (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+               (isTypingBoxSizedRect(r) || (Self.shouldUseWebInputSizedRectHeuristics(bundleID: frontBundle) && isWebInputSizedRect(r))) {
                 return true
             }
             if axEvaluation.editableLikely {
                 if isTypingBoxSizedRect(r) {
                     return true
                 }
-                if isWeirdWebTypingApp(bundleID: frontBundle), isWebInputSizedRect(r) {
+                if Self.shouldUseWebInputSizedRectHeuristics(bundleID: frontBundle), isWebInputSizedRect(r) {
                     return true
                 }
             }
@@ -1313,13 +1437,7 @@ final class HUDManager {
     }
 
     private func isWeirdWebTypingApp(bundleID: String?) -> Bool {
-        let b = (bundleID ?? "").lowercased()
-        if b.contains("codex") { return true }
-        if b.contains("antigravity") { return true }
-        if b.contains("telegram") { return true }
-        if b.contains("xinwechat") { return true }
-        if b.contains("wechat") { return true }
-        return false
+        Self.isWeirdWebTypingAppBundleIdentifier(bundleID)
     }
 
     private func isExplicitTypingSuppressionApp(bundleID: String?) -> Bool {
@@ -1458,14 +1576,12 @@ final class HUDManager {
         )
         var candidates: [CGRect] = []
         if let r = detector.currentUpdate.inputRect,
-           !isProbablyWholeWindowRect(r),
-           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+           isTypingGeometryCandidateRect(r, bundleID: frontBundle),
            allowLooseGeometryCandidates || detector.currentUpdate.caretRect != nil || detector.recentCaretRect() != nil {
             candidates.append(r)
         }
         if let r = axFocusedElementRectThrottled(),
-           !isProbablyWholeWindowRect(r),
-           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+           isTypingGeometryCandidateRect(r, bundleID: frontBundle),
            allowLooseGeometryCandidates {
             candidates.append(r)
         }
@@ -1474,8 +1590,7 @@ final class HUDManager {
            let rememberedBundle = lastExplicitTypingInputBundleID,
            rememberedBundle == frontBundle,
            Date().timeIntervalSince(lastExplicitTypingInputRectAt) < 2.0,
-           !isProbablyWholeWindowRect(rememberedRect),
-           (isTypingBoxSizedRect(rememberedRect) || isWebInputSizedRect(rememberedRect)) {
+           isTypingGeometryCandidateRect(rememberedRect, bundleID: rememberedBundle) {
             candidates.append(rememberedRect)
         }
         guard !candidates.isEmpty else { return nil }
@@ -1495,14 +1610,12 @@ final class HUDManager {
         )
         var candidates: [CGRect] = []
         if let r = detector.currentUpdate.inputRect,
-           !isProbablyWholeWindowRect(r),
-           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+           isTypingGeometryCandidateRect(r, bundleID: frontBundle),
            allowLooseGeometryCandidates || detector.currentUpdate.caretRect != nil || detector.recentCaretRect() != nil {
             candidates.append(r)
         }
         if let r = axFocusedElementRectThrottled(),
-           !isProbablyWholeWindowRect(r),
-           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+           isTypingGeometryCandidateRect(r, bundleID: frontBundle),
            allowLooseGeometryCandidates {
             candidates.append(r)
         }
@@ -1539,16 +1652,7 @@ final class HUDManager {
     }
 
     private func isBrowserLikeBundle(_ bundleID: String?) -> Bool {
-        let bundleID = (bundleID ?? "").lowercased()
-        guard !bundleID.isEmpty else { return false }
-        return bundleID.contains("safari")
-            || bundleID.contains("chrome")
-            || bundleID.contains("chromium")
-            || bundleID.contains("brave")
-            || bundleID.contains("arc")
-            || bundleID.contains("firefox")
-            || bundleID.contains("edge")
-            || bundleID.contains("kagi")
+        Self.isBrowserLikeBundleIdentifier(bundleID)
     }
 
     private func isAXFocusedElementInsertionContextAvailable() -> Bool {
@@ -1987,13 +2091,18 @@ final class HUDManager {
 
     private func rememberExplicitTypingInputRect(_ rect: CGRect?, at now: Date, bundleID: String?) {
         guard let rect,
-              !isProbablyWholeWindowRect(rect),
-              (isTypingBoxSizedRect(rect) || isWebInputSizedRect(rect)) else {
+              isTypingGeometryCandidateRect(rect, bundleID: bundleID) else {
             return
         }
         lastExplicitTypingInputRect = rect
         lastExplicitTypingInputRectAt = now
         lastExplicitTypingInputBundleID = bundleID
+    }
+
+    private func isTypingGeometryCandidateRect(_ rect: CGRect, bundleID: String?) -> Bool {
+        guard !isProbablyWholeWindowRect(rect) else { return false }
+        if isTypingBoxSizedRect(rect) { return true }
+        return Self.shouldUseWebInputSizedRectHeuristics(bundleID: bundleID) && isWebInputSizedRect(rect)
     }
 
     private func axFocusedElementRectThrottled() -> CGRect? {

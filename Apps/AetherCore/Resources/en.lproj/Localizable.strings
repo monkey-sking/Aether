@@ -469,14 +469,14 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "speech.need_mic_permission" = "Allow Microphone first";
 "speech.need_recognition_permission" = "Allow Speech Recognition first";
 "speech.no_editable_field" = "Can't type here";
-"speech.no_matching_command" = "Didn't catch that. Try again.";
+"speech.no_matching_command" = "Didn't catch that";
 "speech.voice_input_disabled" = "Voice input is off";
 "speech.voice_control_disabled" = "Voice control is off";
 "speech.app_paused_idle" = "App is paused after mouse idle. Move the mouse to resume";
 "speech.no_mic_detected" = "No Microphone Detected";
 "speech.pasted" = "Pasted";
 "speech.pasted_cmdv" = "Pasted (Cmd+V)";
-"speech.typed" = "Typed";
+"speech.typed" = "Inserted";
 "speech.unavailable" = "Speech Unavailable";
 "speech.undo" = "Undo";
 "speech.undo_done" = "Undone";
