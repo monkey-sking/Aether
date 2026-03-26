@@ -383,7 +383,7 @@ final class KeyRecorderNSView: NSView {
             sawNonModifierKeyAfterPendingModifier = true
             
             // Filter bare escape
-            let activeMods = flags.intersection([.maskControl, .maskAlternate, .maskShift, .maskCommand])
+            let activeMods = flags.intersection([.maskControl, .maskAlternate, .maskShift, .maskCommand, .maskSecondaryFn])
             let isCaps = flags.contains(.maskAlphaShift) // rough check
             
             if keyCode == kVK_Escape && activeMods.isEmpty && !isCaps {
@@ -410,7 +410,7 @@ final class KeyRecorderNSView: NSView {
 
         // Bare Escape (no modifiers) cancels recording.
         // Escape WITH modifiers (e.g. Ctrl+Esc) is allowed as a hotkey.
-        let stdMods: NSEvent.ModifierFlags = [.control, .option, .shift, .command]
+        let stdMods: NSEvent.ModifierFlags = [.control, .option, .shift, .command, .function]
         let hasStdMod = !event.modifierFlags.intersection(stdMods).isEmpty
         let isCapsHeld = CGEventSource.keyState(.hidSystemState, key: 57)
         if keyCode == kVK_Escape && !hasStdMod && !isCapsHeld {
@@ -424,7 +424,7 @@ final class KeyRecorderNSView: NSView {
         // This ensures the user learns they must hold the key to trigger the hotkey later.
         
         // Exclude .capsLock from mask so we don't pick up the toggle state
-        let modifierMask: NSEvent.ModifierFlags = [.control, .option, .shift, .command]
+        let modifierMask: NSEvent.ModifierFlags = [.control, .option, .shift, .command, .function]
         let activeModifiers = event.modifierFlags.intersection(modifierMask)
         
         // check physical caps lock
@@ -441,6 +441,7 @@ final class KeyRecorderNSView: NSView {
         if activeModifiers.contains(.option)   { cgFlags |= CGEventFlags.maskAlternate.rawValue }
         if activeModifiers.contains(.shift)    { cgFlags |= CGEventFlags.maskShift.rawValue }
         if activeModifiers.contains(.command)  { cgFlags |= CGEventFlags.maskCommand.rawValue }
+        if activeModifiers.contains(.function) { cgFlags |= CGEventFlags.maskSecondaryFn.rawValue }
         
         // Use strict physical state for Caps Lock flag
         if isCapsLockDown {
@@ -483,7 +484,7 @@ final class KeyRecorderNSView: NSView {
             return
         }
 
-        let activeFlags = flags.intersection([.maskControl, .maskAlternate, .maskShift, .maskCommand, .maskAlphaShift])
+        let activeFlags = flags.intersection([.maskControl, .maskAlternate, .maskShift, .maskCommand, .maskAlphaShift, .maskSecondaryFn])
         let isModifierDown = Self.isModifierKeyDown(eventKeyCode: keyCode, flags: activeFlags)
 
         if isModifierDown {
@@ -508,11 +509,12 @@ final class KeyRecorderNSView: NSView {
 
     private func cgFlags(from flags: NSEvent.ModifierFlags, includePhysicalCapsLock: Bool) -> CGEventFlags {
         var cgFlags: CGEventFlags = []
-        let activeModifiers = flags.intersection([.control, .option, .shift, .command])
+        let activeModifiers = flags.intersection([.control, .option, .shift, .command, .function])
         if activeModifiers.contains(.control) { cgFlags.insert(.maskControl) }
         if activeModifiers.contains(.option) { cgFlags.insert(.maskAlternate) }
         if activeModifiers.contains(.shift) { cgFlags.insert(.maskShift) }
         if activeModifiers.contains(.command) { cgFlags.insert(.maskCommand) }
+        if activeModifiers.contains(.function) { cgFlags.insert(.maskSecondaryFn) }
         if includePhysicalCapsLock && CGEventSource.keyState(.hidSystemState, key: 57) {
             cgFlags.insert(.maskAlphaShift)
         }
@@ -531,6 +533,8 @@ final class KeyRecorderNSView: NSView {
             return flags.contains(.maskCommand)
         case Int(kVK_CapsLock):
             return flags.contains(.maskAlphaShift)
+        case Int(kVK_Function):
+            return flags.contains(.maskSecondaryFn)
         default:
             return false
         }

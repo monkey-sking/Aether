@@ -191,7 +191,7 @@ struct HUDView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if shouldShowModeIndicator, let symbol = modeIndicatorSymbol {
+            if let symbol = modeIndicatorSymbol {
                 ModeIndicatorBadge(symbol: symbol)
                     .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
             }
@@ -221,7 +221,7 @@ struct HUDView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if shouldShowModeIndicator, let symbol = modeIndicatorSymbol {
+            if let symbol = modeIndicatorSymbol {
                 ModeIndicatorBadge(symbol: symbol)
                     .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
             }
@@ -273,11 +273,6 @@ struct HUDView: View {
 
     private var currentInputDeviceSymbol: String {
         resolvedSymbolName(for: state.inputDeviceIcon)
-    }
-
-    private var shouldShowModeIndicator: Bool {
-        let symbol = currentInputDeviceSymbol
-        return !symbol.contains("airpod") && !symbol.contains("airpods")
     }
 
     private var overlayBadgeTopOffset: CGFloat {

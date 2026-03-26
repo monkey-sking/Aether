@@ -84,7 +84,7 @@ struct InputSettingsView: View {
     @State private var editingCustomRuleID: String?
     @State private var newlyInsertedCustomRuleID: String?
     @State private var editingAppLaunchAliasID: String?
-    @State private var newlyInsertedAppLaunchAliasID: String?
+    @State private var editingNewAppLaunchAliasRule: CustomAppLaunchAliasRule?
     @State private var commandLocaleID: String = ""
     @State private var lexiconTransferStatus: String?
     @State private var basicLexiconSectionExpanded = true
@@ -1043,17 +1043,15 @@ struct InputSettingsView: View {
                             onAddCurrent: {
                                 let bundleID = mergedFrontmostSnapshot?.bundleIdentifier
                                     ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-                                appState.addCustomAppLaunchAlias(prefilling: bundleID)
-                                newlyInsertedAppLaunchAliasID = appState.customAppLaunchAliasRules.first?.id
-                                editingAppLaunchAliasID = appState.customAppLaunchAliasRules.first?.id
+                                editingAppLaunchAliasID = nil
+                                editingNewAppLaunchAliasRule = appState.makeCustomAppLaunchAliasDraft(prefilling: bundleID)
                             },
                             onAddEmpty: {
-                                appState.addCustomAppLaunchAlias()
-                                newlyInsertedAppLaunchAliasID = appState.customAppLaunchAliasRules.first?.id
-                                editingAppLaunchAliasID = appState.customAppLaunchAliasRules.first?.id
+                                editingAppLaunchAliasID = nil
+                                editingNewAppLaunchAliasRule = appState.makeCustomAppLaunchAliasDraft()
                             },
                             onEdit: { ruleID in
-                                newlyInsertedAppLaunchAliasID = nil
+                                editingNewAppLaunchAliasRule = nil
                                 editingAppLaunchAliasID = ruleID
                             },
                             onDelete: { ruleID in
@@ -1080,14 +1078,19 @@ struct InputSettingsView: View {
             _ = frontmostAppCommandCatalog.refresh(force: true)
         }
         .sheet(isPresented: Binding(
-            get: { editingGroupID != nil || editingCustomRuleID != nil || editingAppLaunchAliasID != nil },
+            get: {
+                editingGroupID != nil
+                    || editingCustomRuleID != nil
+                    || editingAppLaunchAliasID != nil
+                    || editingNewAppLaunchAliasRule != nil
+            },
             set: {
                 if !$0 {
                     editingGroupID = nil
                     editingCustomRuleID = nil
                     newlyInsertedCustomRuleID = nil
                     editingAppLaunchAliasID = nil
-                    newlyInsertedAppLaunchAliasID = nil
+                    editingNewAppLaunchAliasRule = nil
                 }
             }
         )) {
@@ -1116,6 +1119,19 @@ struct InputSettingsView: View {
                         editingCustomRuleID = nil
                     }
                 )
+            } else if let draftRule = editingNewAppLaunchAliasRule {
+                CustomAppLaunchAliasRuleEditorSheet(
+                    rule: draftRule,
+                    onSave: { updatedRule in
+                        appState.customAppLaunchAliasRules.insert(updatedRule, at: 0)
+                        editingNewAppLaunchAliasRule = nil
+                        editingAppLaunchAliasID = nil
+                    },
+                    onCancel: {
+                        editingNewAppLaunchAliasRule = nil
+                        editingAppLaunchAliasID = nil
+                    }
+                )
             } else if let id = editingAppLaunchAliasID,
                       let idx = appState.customAppLaunchAliasRules.firstIndex(where: { $0.id == id }) {
                 CustomAppLaunchAliasRuleEditorSheet(
@@ -1124,14 +1140,11 @@ struct InputSettingsView: View {
                         if let saveIndex = appState.customAppLaunchAliasRules.firstIndex(where: { $0.id == id }) {
                             appState.customAppLaunchAliasRules[saveIndex] = updatedRule
                         }
-                        newlyInsertedAppLaunchAliasID = nil
+                        editingNewAppLaunchAliasRule = nil
                         editingAppLaunchAliasID = nil
                     },
                     onCancel: {
-                        if newlyInsertedAppLaunchAliasID == id {
-                            appState.removeCustomAppLaunchAlias(id: id)
-                        }
-                        newlyInsertedAppLaunchAliasID = nil
+                        editingNewAppLaunchAliasRule = nil
                         editingAppLaunchAliasID = nil
                     }
                 )

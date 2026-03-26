@@ -1640,9 +1640,9 @@ final class SpeechManager: ObservableObject {
             if side == .none { return matched.iconName }
             let base = normalizeAirPodsSymbolName(matched.iconName)
             switch side {
-            case .left: return base == "airpods.max" ? "airpods.max" : base == "airpods.pro" ? "airpods.pro.left" : "airpod.gen3.left"
-            case .right: return base == "airpods.max" ? "airpods.max" : base == "airpods.pro" ? "airpods.pro.right" : "airpod.gen3.right"
-            case .both: return base == "airpods.max" ? "airpods.max" : base == "airpods.pro" ? "airpods.pro" : "airpod.gen3"
+            case .left: return base == "airpods.max" ? "airpods.max" : "airpod.left"
+            case .right: return base == "airpods.max" ? "airpods.max" : "airpod.right"
+            case .both: return base == "airpods.max" ? "airpods.max" : base == "airpods.pro" ? "airpods.pro" : "airpods"
             case .none: return matched.iconName
             }
         }
@@ -2238,7 +2238,16 @@ final class SpeechManager: ObservableObject {
             if isAlwaysListeningEnabled || isWakeWordEnabled {
                 if missingVoicePermissionHint() != nil { stopAndFinalize(); stopAudioCapture(); refreshContinuousHUD() }
                 else { startContinuous() }
-            } else { resetHUDTransientState(); refreshContinuousHUD() }
+            } else {
+                resetHUDTransientState()
+                if isPTTHeld {
+                    refreshContinuousHUD()
+                } else {
+                    stopAndFinalize(discardTranscript: true)
+                    stopAudioCapture()
+                    HUDManager.shared.hide()
+                }
+            }
         }
     }
 
@@ -2684,8 +2693,12 @@ final class SpeechManager: ObservableObject {
         finalizationWorkItem?.cancel(); finalizationWorkItem = nil
         eosDetector.noteUtteranceEnded()
         if isStopping {
-            handleTranscript(fallbackTranscript ?? text, utteranceID: activeUtteranceID)
-            if !isAlwaysListeningEnabled { stopAudioCapture(); refreshContinuousHUD() }
+            if isAlwaysListeningEnabled {
+                handleTranscript(fallbackTranscript ?? text, utteranceID: activeUtteranceID)
+                refreshContinuousHUD()
+            } else {
+                completeStoppedOneShotFinalResult(fallbackTranscript ?? text)
+            }
         } else if Self.shouldCommitCompletedOneShotFinalResult(
             isStopping: isStopping,
             isAlwaysListeningEnabled: isAlwaysListeningEnabled,
@@ -2700,6 +2713,25 @@ final class SpeechManager: ObservableObject {
             resetUtteranceTrackingForNextPhrase()
             refreshContinuousHUD(isDictating: false)
         }
+    }
+
+    private func completeStoppedOneShotFinalResult(_ transcript: String) {
+        stopTimer?.invalidate()
+        stopTimer = nil
+
+        let finalTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !finalTranscript.isEmpty {
+            handleTranscript(finalTranscript, utteranceID: activeUtteranceID)
+        }
+
+        resetUtteranceTrackingForNextPhrase()
+        isStopping = false
+        shouldShowProcessingDotsDuringStop = false
+        clearHUDStage()
+        clearHUDOverride()
+        stopMicProgressUI(keepVisible: false)
+        stopAudioCapture()
+        HUDManager.shared.hide()
     }
 
     private func handleCompletedOneShotFinalResult(_ transcript: String) {
@@ -2884,10 +2916,20 @@ final class SpeechManager: ObservableObject {
     @objc private func pttUp() {
         isPTTHeld = false
         guard !isAlwaysListeningEnabled else { return }
-        guard recognitionSession.isRunning else { isStopping = false; HUDManager.shared.hide(); return }
+        guard recognitionSession.isRunning else {
+            isStopping = false
+            shouldShowProcessingDotsDuringStop = false
+            clearHUDStage()
+            stopMicProgressUI(keepVisible: false)
+            HUDManager.shared.hide()
+            return
+        }
         isStopping = true
         shouldShowProcessingDotsDuringStop = shouldUseProcessingDotsForCurrentMode()
-        refreshContinuousHUD()
+        clearHUDStage()
+        clearHUDOverride()
+        stopMicProgressUI(keepVisible: false)
+        HUDManager.shared.hide()
         stopTimer?.invalidate()
         stopTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
             Task { @MainActor in self?.stopAndFinalize() }
@@ -7213,6 +7255,16 @@ final class SpeechManager: ObservableObject {
             bundleID: frontBundleID
         )
 
+        if let editableAncestor = editableAncestor(for: focused),
+           makeElementFingerprint(editableAncestor) != makeElementFingerprint(focused) {
+            appendAXElementDiagnostics(
+                &lines,
+                element: editableAncestor,
+                label: "editableAncestor",
+                bundleID: frontBundleID
+            )
+        }
+
         var currentParentRef: CFTypeRef?
         var parentResult = AXUIElementCopyAttributeValue(
             focused,
@@ -7336,14 +7388,18 @@ final class SpeechManager: ObservableObject {
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
             .replacingOccurrences(of: "[\\p{P}\\p{S}]+", with: "", options: .regularExpression)
-        return normalized == "芝麻开门焦点诊断"
-            || normalized == "芝麻开门导出焦点诊断"
-            || normalized == "opensesamefocusdiagnostics"
+        return normalized == "芝麻开门" || normalized == "opensesame"
     }
 
     private func findDictationCandidate(in element: AXUIElement, bundleID: String?, depth: Int = 5) -> AXUIElement? {
         guard depth > 0 else { return nil }
         if isFocusedElementUsableForDictation(element, bundleID: bundleID) { return element }
+
+        if let ancestor = editableAncestor(for: element),
+           makeElementFingerprint(ancestor) != makeElementFingerprint(element),
+           isFocusedElementUsableForDictation(ancestor, bundleID: bundleID) {
+            return ancestor
+        }
 
         var childrenRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
@@ -7402,6 +7458,14 @@ final class SpeechManager: ObservableObject {
         let frontBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
         let effectiveBundleID = bundleID ?? frontBundleID
+
+        if !isFocusedElementUsableForDictation(el, bundleID: effectiveBundleID),
+           let ancestor = editableAncestor(for: el),
+           isFocusedElementUsableForDictation(ancestor, bundleID: effectiveBundleID) {
+            el = ancestor
+            AXUIElementGetPid(el, &pid)
+            guard pid > 0 else { return nil }
+        }
 
         if !isFocusedElementUsableForDictation(el, bundleID: effectiveBundleID) {
             let role = axFocusedRole(el)

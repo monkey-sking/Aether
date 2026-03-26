@@ -36,6 +36,7 @@ struct HotkeyBinding: Codable, Equatable {
         if flags.contains(.maskShift) { parts.append("⇧") }
         if flags.contains(.maskCommand) { parts.append("⌘") }
         if flags.contains(.maskAlphaShift) { parts.append("⇪") }
+        if flags.contains(.maskSecondaryFn) { parts.append("fn") }
 
         var tokens = parts.map { DisplayToken(text: $0, kind: .text) }
 
@@ -65,6 +66,8 @@ struct HotkeyBinding: Codable, Equatable {
             return flags.contains(.maskCommand)
         case kVK_CapsLock:
             return flags.contains(.maskAlphaShift)
+        case kVK_Function:
+            return flags.contains(.maskSecondaryFn)
         default:
             return false
         }
@@ -153,6 +156,7 @@ struct HotkeyBinding: Codable, Equatable {
         case kVK_Option, kVK_RightOption:   return "⌥"
         case kVK_Command, kVK_RightCommand: return "⌘"
         case kVK_CapsLock:                  return "⇪"
+        case kVK_Function:                  return "fn"
         default: return String(format: String(localized: "hotkey.key.unknown_fmt"), code)
         }
     }
@@ -289,7 +293,8 @@ final class HotkeyManager: ObservableObject {
         CGEventFlags.maskAlternate.rawValue |
         CGEventFlags.maskShift.rawValue |
         CGEventFlags.maskCommand.rawValue |
-        CGEventFlags.maskAlphaShift.rawValue
+        CGEventFlags.maskAlphaShift.rawValue |
+        CGEventFlags.maskSecondaryFn.rawValue
     private static let leftShiftKey = Int(kVK_Shift)
     private static let rightShiftKey = Int(kVK_RightShift)
     private static let leftControlKey = Int(kVK_Control)
@@ -298,6 +303,7 @@ final class HotkeyManager: ObservableObject {
     private static let rightOptionKey = Int(kVK_RightOption)
     private static let leftCommandKey = Int(kVK_Command)
     private static let rightCommandKey = Int(kVK_RightCommand)
+    private static let functionKey = Int(kVK_Function)
 
     private init() {
         var needsResave = false
@@ -528,6 +534,9 @@ final class HotkeyManager: ObservableObject {
         if bindingKeyCode == leftCommandKey || bindingKeyCode == rightCommandKey {
             return eventKeyCode == leftCommandKey || eventKeyCode == rightCommandKey
         }
+        if bindingKeyCode == functionKey {
+            return eventKeyCode == functionKey
+        }
         return bindingKeyCode == eventKeyCode
     }
 
@@ -543,6 +552,8 @@ final class HotkeyManager: ObservableObject {
             return flags.contains(.maskCommand)
         case Int(kVK_CapsLock):
             return flags.contains(.maskAlphaShift)
+        case functionKey:
+            return flags.contains(.maskSecondaryFn)
         default:
             return true
         }

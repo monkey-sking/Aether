@@ -2024,7 +2024,8 @@ Recent history relevant to app-launch commands (JSON):
         CGEventFlags.maskAlternate.rawValue |
         CGEventFlags.maskShift.rawValue |
         CGEventFlags.maskCommand.rawValue |
-        CGEventFlags.maskAlphaShift.rawValue
+        CGEventFlags.maskAlphaShift.rawValue |
+        CGEventFlags.maskSecondaryFn.rawValue
 
     private static let defaultPTTModifiers: UInt64 = CGEventFlags.maskAlternate.rawValue
 
@@ -3068,16 +3069,10 @@ Recent history relevant to app-launch commands (JSON):
             .filter { !$0.isEmpty }
     }
 
-    func addCustomAppLaunchAlias(prefilling bundleIdentifier: String? = nil) {
-        let resolvedBundleIdentifier = bundleIdentifier
-            ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-            ?? ""
-        customAppLaunchAliasRules.insert(
-            CustomAppLaunchAliasRule(
-                bundleIdentifier: resolvedBundleIdentifier,
-                aliases: []
-            ),
-            at: 0
+    func makeCustomAppLaunchAliasDraft(prefilling bundleIdentifier: String? = nil) -> CustomAppLaunchAliasRule {
+        CustomAppLaunchAliasRule(
+            bundleIdentifier: bundleIdentifier ?? "",
+            aliases: []
         )
     }
 

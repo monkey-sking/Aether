@@ -52,6 +52,7 @@ final class AudioCaptureSession {
     private var diagnosticsBufferCount: Int = 0
     private var runningSelectedDeviceID: AudioDeviceID = 0
     private var runningSystemManagedRoute: Bool = false
+    private var runningUsesExplicitBoundInput: Bool = false
     private var runningVoiceProcessingProfile: VoiceProcessingProfile = .passthrough
     private let log = GlobalLogger.speech
 
@@ -110,7 +111,7 @@ final class AudioCaptureSession {
         logMicrophoneMode(context: "before-start")
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
-        setInputDevice(for: engine, preferSystemManagedRoute: preferSystemManagedRoute)
+        let usesExplicitBoundInput = setInputDevice(for: engine, preferSystemManagedRoute: preferSystemManagedRoute)
 
         if #available(macOS 10.15, *) {
             let enable = useVoiceProcessing || voiceProcessingProfile.shouldEnableVoiceProcessing || shouldAutoEnableVoiceProcessingIO()
@@ -175,6 +176,7 @@ final class AudioCaptureSession {
         lastBufferAt = Date()
         runningSelectedDeviceID = selectedDeviceID
         runningSystemManagedRoute = preferSystemManagedRoute
+        runningUsesExplicitBoundInput = usesExplicitBoundInput
         runningVoiceProcessingProfile = voiceProcessingProfile
         resetCaptureDiagnostics()
         logRouteSnapshot(context: "after-start")
@@ -199,6 +201,7 @@ final class AudioCaptureSession {
         lastBufferAt = .distantPast
         runningSelectedDeviceID = 0
         runningSystemManagedRoute = false
+        runningUsesExplicitBoundInput = false
         runningVoiceProcessingProfile = .passthrough
         logRouteSnapshot(context: "after-stop")
         logMicrophoneMode(context: "after-stop")
@@ -215,21 +218,17 @@ final class AudioCaptureSession {
     }
 
     func currentBoundInputDeviceID() -> AudioDeviceID {
-        guard let engine = audioEngine else { return 0 }
-        return currentBoundInputSnapshot(for: engine).currentDeviceID
+        guard isRunning else { return 0 }
+        return currentRouteSnapshot().currentDeviceID
     }
 
     func currentBoundInputDeviceName() -> String {
-        guard let engine = audioEngine else { return "" }
-        return currentBoundInputSnapshot(for: engine).currentDeviceName
+        guard isRunning else { return "" }
+        return currentRouteSnapshot().currentDeviceName
     }
 
     func currentDefaultOutputDeviceName() -> String {
-        if let engine = audioEngine {
-            return currentBoundInputSnapshot(for: engine).defaultOutputName
-        }
-        let defaultOutputID = defaultDeviceID(kAudioHardwarePropertyDefaultOutputDevice) ?? 0
-        return deviceName(defaultOutputID)
+        currentRouteSnapshot().defaultOutputName
     }
 
     func isDefaultOutputHeadsetLike() -> Bool {
@@ -306,8 +305,9 @@ final class AudioCaptureSession {
         return isActive
     }
 
-    private func setInputDevice(for engine: AVAudioEngine, preferSystemManagedRoute: Bool) {
-        guard selectedDeviceID != 0 else { return }
+    @discardableResult
+    private func setInputDevice(for engine: AVAudioEngine, preferSystemManagedRoute: Bool) -> Bool {
+        guard selectedDeviceID != 0 else { return false }
         let selectedName = deviceName(selectedDeviceID)
         if preferSystemManagedRoute && shouldUseSystemManagedHeadsetRoute(selectedName: selectedName) {
             os_log(
@@ -317,9 +317,9 @@ final class AudioCaptureSession {
                 selectedDeviceID,
                 selectedName
             )
-            return
+            return false
         }
-        guard let au = engine.inputNode.audioUnit else { return }
+        guard let au = engine.inputNode.audioUnit else { return false }
         var deviceID = selectedDeviceID
         let err = AudioUnitSetProperty(
             au,
@@ -334,10 +334,10 @@ final class AudioCaptureSession {
                 "AudioCaptureSession failed to bind requestedID=\(deviceID) requestedName=\(deviceName(deviceID)) err=\(err)"
             )
             os_log("Failed to set input device %d: err=%d", log: log, type: .error, deviceID, err)
+            return false
         } else {
-            let bound = currentBoundInputSnapshot(for: engine)
             GlobalLogger.speech.info(
-                "AudioCaptureSession selected input device requestedID=\(deviceID) requestedName=\(deviceName(deviceID)) boundID=\(bound.currentDeviceID) boundName=\(bound.currentDeviceName)"
+                "AudioCaptureSession selected input device requestedID=\(deviceID) requestedName=\(deviceName(deviceID)) boundID=\(deviceID) boundName=\(deviceName(deviceID))"
             )
             os_log(
                 "AudioCaptureSession selected input device requestedID=%d requestedName=%{public}@ boundID=%d boundName=%{public}@",
@@ -345,47 +345,35 @@ final class AudioCaptureSession {
                 type: .info,
                 deviceID,
                 deviceName(deviceID),
-                bound.currentDeviceID,
-                bound.currentDeviceName
+                deviceID,
+                deviceName(deviceID)
             )
+            return true
         }
     }
 
-    private func currentBoundInputSnapshot(for engine: AVAudioEngine) -> BoundInputSnapshot {
+    private func currentRouteSnapshot() -> BoundInputSnapshot {
         let defaultInputID = defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice) ?? 0
         let defaultOutputID = defaultDeviceID(kAudioHardwarePropertyDefaultOutputDevice) ?? 0
-        guard let au = engine.inputNode.audioUnit else {
-            return BoundInputSnapshot(
-                currentDeviceID: 0,
-                currentDeviceName: "",
-                defaultInputID: defaultInputID,
-                defaultInputName: deviceName(defaultInputID),
-                defaultOutputID: defaultOutputID,
-                defaultOutputName: deviceName(defaultOutputID)
+        let defaultInputName = deviceName(defaultInputID)
+        let defaultOutputName = deviceName(defaultOutputID)
+        let selectedID = isRunning ? runningSelectedDeviceID : selectedDeviceID
+        let selectedName = deviceName(selectedID)
+        let prefersSystemManagedRoute = isRunning ? runningSystemManagedRoute : preferSystemManagedHeadsetRoute
+        let usesExplicitBoundInput = selectedID != 0
+            && (
+                isRunning
+                    ? runningUsesExplicitBoundInput
+                    : !(prefersSystemManagedRoute && shouldUseSystemManagedHeadsetRoute(selectedName: selectedName))
             )
-        }
-
-        var currentID: AudioDeviceID = 0
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        let status = AudioUnitGetProperty(
-            au,
-            kAudioOutputUnitProperty_CurrentDevice,
-            kAudioUnitScope_Global,
-            0,
-            &currentID,
-            &size
-        )
-        if status != noErr {
-            os_log("AudioCaptureSession failed to read bound input device: err=%d", log: log, type: .error, status)
-            currentID = 0
-        }
+        let currentID = usesExplicitBoundInput ? selectedID : defaultInputID
         return BoundInputSnapshot(
             currentDeviceID: currentID,
-            currentDeviceName: deviceName(currentID),
+            currentDeviceName: usesExplicitBoundInput ? selectedName : defaultInputName,
             defaultInputID: defaultInputID,
-            defaultInputName: deviceName(defaultInputID),
+            defaultInputName: defaultInputName,
             defaultOutputID: defaultOutputID,
-            defaultOutputName: deviceName(defaultOutputID)
+            defaultOutputName: defaultOutputName
         )
     }
 
@@ -565,14 +553,7 @@ final class AudioCaptureSession {
         guard now.timeIntervalSince(diagnosticsLastLogAt) >= 1.0 else { return }
         diagnosticsLastLogAt = now
 
-        let bound = audioEngine.map(currentBoundInputSnapshot(for:)) ?? BoundInputSnapshot(
-            currentDeviceID: 0,
-            currentDeviceName: "",
-            defaultInputID: defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice) ?? 0,
-            defaultInputName: deviceName(defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice) ?? 0),
-            defaultOutputID: defaultDeviceID(kAudioHardwarePropertyDefaultOutputDevice) ?? 0,
-            defaultOutputName: deviceName(defaultDeviceID(kAudioHardwarePropertyDefaultOutputDevice) ?? 0)
-        )
+        let bound = currentRouteSnapshot()
         os_log(
             "AudioCapture diag: selectedID=%d selectedName='%{public}@' boundID=%d boundName='%{public}@' defaultInputID=%d defaultInputName='%{public}@' peakRMS=%.3f activeBuffers=%d/%d sampleRate=%.1f channels=%d",
             log: log,
@@ -593,14 +574,7 @@ final class AudioCaptureSession {
 
     private func logRouteSnapshot(context: String) {
         let selectedID = selectedDeviceID
-        let bound = audioEngine.map(currentBoundInputSnapshot(for:)) ?? BoundInputSnapshot(
-            currentDeviceID: 0,
-            currentDeviceName: "",
-            defaultInputID: defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice) ?? 0,
-            defaultInputName: deviceName(defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice) ?? 0),
-            defaultOutputID: defaultDeviceID(kAudioHardwarePropertyDefaultOutputDevice) ?? 0,
-            defaultOutputName: deviceName(defaultDeviceID(kAudioHardwarePropertyDefaultOutputDevice) ?? 0)
-        )
+        let bound = currentRouteSnapshot()
         os_log(
             "AudioCapture route (%{public}@): selectedID=%d selectedName=%{public}@ boundInputID=%d boundInputName=%{public}@ defaultInputID=%d defaultInputName=%{public}@ defaultOutputID=%d defaultOutputName=%{public}@",
             log: log,
