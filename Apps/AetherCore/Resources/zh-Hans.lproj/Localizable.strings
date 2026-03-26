@@ -232,7 +232,7 @@
 "status.paused" = "已暂停";
 "calibration.normal" = "正常";
 "settings.page.voice.title" = "语音";
-"settings.page.voice.subtitle" = "管理麦克风、唤起方式、听写增强和术语纠错。";
+"settings.page.voice.subtitle" = "管理麦克风、唤起方式、自动听写增强、全文优化和术语纠错。";
 "current_app_controls.open_panel" = "显示面板";
 "settings.page.pointer.title" = "指针";
 "settings.page.pointer.subtitle" = "集中调整头控启停、点击方式与校准状态。";

@@ -396,7 +396,7 @@ Usage summary (total={{SUMMARY_TOTAL}}, dictation={{SUMMARY_DICTATION}}, control
 "settings.page.pointer.title" = "Pointer";
 "settings.page.shortcuts.subtitle" = "Manage Push to Talk, pointer control, and other global shortcuts.";
 "settings.page.shortcuts.title" = "Shortcuts";
-"settings.page.voice.subtitle" = "Manage microphone input, activation mode, dictation enhancement, and terminology rules.";
+"settings.page.voice.subtitle" = "Manage microphone input, activation mode, automatic dictation enhancement, full-text rewrite, and terminology rules.";
 "settings.page.voice.title" = "Voice";
 "settings.section.app_controls.page_title" = "Current App Controls";
 "settings.section.app_controls.subtitle" = "Review shortcuts available for the frontmost app.";

@@ -357,7 +357,7 @@ final class WakeWordDetector {
         let maxNormalizedLength: Int
         switch canonicalLocale {
         case "zh-CN", "ja-JP", "ko-KR":
-            maxNormalizedLength = 4
+            maxNormalizedLength = (canonicalLocale == "zh-CN") ? 6 : 4
         default:
             maxNormalizedLength = 6
         }
@@ -377,7 +377,10 @@ final class WakeWordDetector {
     private static func retryLeadInTerms(for canonicalLocaleIdentifier: String) -> [String] {
         switch canonicalLocaleIdentifier {
         case "zh-CN":
-            return ["嗯", "啊", "呃", "诶", "欸", "那个", "就是", "嘿", "喂"]
+            return [
+                "嗯", "啊", "呃", "诶", "欸", "嘿", "喂",
+                "那个", "就是", "真的", "还有", "然后", "那就", "那么", "请问", "麻烦"
+            ]
         case "ja-JP":
             return ["えっと", "あの", "えー", "ねえ"]
         case "ko-KR":

@@ -1294,8 +1294,8 @@ private struct LLMRewriteSettingsCard: View {
         switch appState.llmConfigurationState {
         case .ready:
             return isChinese
-                ? "全文优化与听写增强已可用，前后文本会记录到 Insights。"
-                : "Rewrite and dictation enhancement are ready, with before/after history in Insights."
+                ? "自动听写增强与全文优化已可用，前后文本会记录到 Insights。"
+                : "Automatic dictation enhancement and full-text rewrite are ready, with before/after history in Insights."
         case .missingAPIKey:
             return isChinese
                 ? "请填写 API Key，密钥会写入 Keychain。"
@@ -1316,26 +1316,48 @@ private struct LLMRewriteSettingsCard: View {
         }
     }
 
-    private var enhancementDescription: String {
+    private var autoDictationEnhancementDescription: String {
         if usesAppleOnDevice {
-            if appState.isLLMEnhancementEnabled {
+            if appState.isAutoDictationEnhancementEnabled {
                 return isChinese
-                    ? "会优先用 Apple 本地模型做听写增强和全文优化，不需要联网。"
-                    : "Uses the Apple on-device model for dictation enhancement and full-text rewrite without network access."
+                    ? "普通听写结束后，会自动整理语句和标点，不需要联网。"
+                    : "After normal dictation ends, sentences and punctuation are cleaned up automatically without network access."
             }
             return isChinese
-                ? "关闭后，不会使用 Apple 本地模型做文本改写优化。"
-                : "When off, the Apple on-device model will not be used for rewrite enhancement."
+                ? "关闭后，普通听写会直接按原文输入。"
+                : "When off, normal dictation is inserted as-is."
         }
 
-        if appState.isLLMEnhancementEnabled {
+        if appState.isAutoDictationEnhancementEnabled {
             return isChinese
-                ? "听写增强和全文优化都会走这里的配置。"
-                : "Used by dictation enhancement and full-text rewrite."
+                ? "普通听写结束后，会自动整理语句和标点。"
+                : "After normal dictation ends, sentences and punctuation are cleaned up automatically."
         }
         return isChinese
-            ? "关闭后，全文纠错优化不会执行。"
-            : "When off, full-text rewrite will not run."
+            ? "关闭后，普通听写会直接按原文输入。"
+            : "When off, normal dictation is inserted as-is."
+    }
+
+    private var fullTextRewriteDescription: String {
+        if usesAppleOnDevice {
+            if appState.isFullTextRewriteEnabled {
+                return isChinese
+                    ? "只有你主动触发“全文优化”时，才会处理当前输入框的整段文字。"
+                    : "Only when you explicitly trigger full-text rewrite will the current field be processed."
+            }
+            return isChinese
+                ? "关闭后，手动全文优化不会执行。"
+                : "When off, manual full-text rewrite will not run."
+        }
+
+        if appState.isFullTextRewriteEnabled {
+            return isChinese
+                ? "只有你主动触发“全文优化”时，才会处理当前输入框的整段文字。"
+                : "Only when you explicitly trigger full-text rewrite will the current field be processed."
+        }
+        return isChinese
+            ? "关闭后，手动全文优化不会执行。"
+            : "When off, manual full-text rewrite will not run."
     }
 
     private var feedbackColor: Color {
@@ -1434,11 +1456,11 @@ private struct LLMRewriteSettingsCard: View {
             Text(
                 usesAppleOnDevice
                     ? (isChinese
-                        ? "更适合低延迟和隐私优先场景。"
-                        : "Best for lower latency and privacy-first rewrite.")
+                        ? "更适合低延迟、隐私优先的自动听写增强和全文优化。"
+                        : "Best for low-latency, privacy-first dictation enhancement and full-text rewrite.")
                     : (isChinese
-                        ? "适合效果优先，使用兼容 OpenAI 的远端服务。"
-                        : "Best for quality-first setups using an OpenAI-compatible remote service.")
+                        ? "适合效果优先，使用兼容 OpenAI 的远端服务处理自动听写增强和全文优化。"
+                        : "Best for quality-first setups using an OpenAI-compatible remote service for dictation enhancement and full-text rewrite.")
             )
             .font(.caption2)
             .foregroundColor(.secondary)
@@ -1467,6 +1489,36 @@ private struct LLMRewriteSettingsCard: View {
             if appState.isLLMConnectionTestRunning || appState.isLLMModelRefreshRunning {
                 ProgressView()
                     .controlSize(.small)
+            }
+        }
+    }
+
+    private var enhancementToggles: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle(isOn: $appState.isAutoDictationEnhancementEnabled) {
+                    Text(isChinese ? "说完后自动整理" : "Clean Up After Speaking")
+                        .font(.body)
+                }
+                .toggleStyle(.switch)
+
+                Text(autoDictationEnhancementDescription)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle(isOn: $appState.isFullTextRewriteEnabled) {
+                    Text(isChinese ? "手动全文优化" : "Manual Full-Text Rewrite")
+                        .font(.body)
+                }
+                .toggleStyle(.switch)
+
+                Text(fullTextRewriteDescription)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -1658,8 +1710,8 @@ private struct LLMRewriteSettingsCard: View {
                                     .font(.body)
                                 Text(
                                     isChinese
-                                        ? "只会影响全文优化和听写增强，不影响测试连接。"
-                                        : "Only affects rewrite and dictation enhancement, not connection tests."
+                                        ? "只会影响自动听写增强和全文优化，不影响测试连接。"
+                                        : "Only affects automatic dictation enhancement and full-text rewrite, not connection tests."
                                 )
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
@@ -1778,8 +1830,8 @@ private struct LLMRewriteSettingsCard: View {
 
                         Text(
                             isChinese
-                                ? "这些选项会拼进全文优化和听写增强里；不知道怎么填时，直接留空就行。"
-                                : "These options are merged into rewrite prompts. Leave them blank if you are unsure."
+                                ? "这些选项会拼进自动听写增强和全文优化里；不知道怎么填时，直接留空就行。"
+                                : "These options are merged into automatic dictation enhancement and full-text rewrite prompts. Leave them blank if you are unsure."
                         )
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -1806,12 +1858,12 @@ private struct LLMRewriteSettingsCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Label(isChinese ? "文本优化服务" : "Text Rewrite Service", systemImage: "wand.and.stars")
+                        Label(isChinese ? "文字优化" : "Text Cleanup", systemImage: "wand.and.stars")
                             .font(.headline)
                         Text(
                             isChinese
-                                ? "用于听写增强和全文优化。当前支持 OpenAI 兼容接口。"
-                                : "Used by dictation enhancement and full-text rewrite. Currently supports OpenAI-compatible services."
+                                ? "用于自动整理听写，或在你主动触发时优化整段文字。"
+                                : "Used to automatically clean up dictation, or optimize a full block of text when you trigger it."
                         )
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -1827,35 +1879,14 @@ private struct LLMRewriteSettingsCard: View {
 
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Toggle(isOn: $appState.isLLMEnhancementEnabled) {
-                                Text(isChinese ? "启用文本改写优化" : "Enable Rewrite Enhancement")
-                                    .font(.body)
-                            }
-                            .toggleStyle(.switch)
-
-                            Text(enhancementDescription)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
+                        enhancementToggles
 
                         Spacer(minLength: 12)
                         actionButtons
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Toggle(isOn: $appState.isLLMEnhancementEnabled) {
-                            Text(isChinese ? "启用文本改写优化" : "Enable Rewrite Enhancement")
-                                .font(.body)
-                        }
-                        .toggleStyle(.switch)
-
-                        Text(enhancementDescription)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
+                        enhancementToggles
                         actionButtons
                     }
                 }
@@ -3713,6 +3744,8 @@ private struct WakeActivationInsightsCard: View {
             || snapshot.dashboard.wakeToDictationCount > 0
             || snapshot.dashboard.wakeToControlCount > 0
             || snapshot.dashboard.wakeMissCount > 0
+            || snapshot.dashboard.wakeFollowUpCount > 0
+            || snapshot.dashboard.wakeLateAfterTimeoutCount > 0
     }
 
     private var hasHistoryData: Bool {
@@ -3773,7 +3806,11 @@ private struct WakeActivationInsightsCard: View {
         case .empty:
             return isChinese ? "空唤醒" : "Empty"
         case .failures:
-            return isChinese ? "失败" : "Failures"
+            return isChinese ? "真正失败" : "True Misses"
+        case .followUp:
+            return isChinese ? "后续语音" : "Follow-up"
+        case .lateAfterTimeout:
+            return isChinese ? "超时后补说" : "Late After Timeout"
         }
     }
 
@@ -3884,9 +3921,21 @@ private struct WakeActivationInsightsCard: View {
                 fillsAvailableWidth: fillsAvailableWidth
             )
             VoiceUsageStatusChip(
-                title: isChinese ? "失败" : "Failures",
+                title: isChinese ? "真正失败" : "True Misses",
                 value: snapshot.dashboard.wakeMissCount.formatted(),
                 tint: .red,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+            VoiceUsageStatusChip(
+                title: isChinese ? "后续语音" : "Follow-up",
+                value: snapshot.dashboard.wakeFollowUpCount.formatted(),
+                tint: .blue,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
+            VoiceUsageStatusChip(
+                title: isChinese ? "超时后补说" : "Late",
+                value: snapshot.dashboard.wakeLateAfterTimeoutCount.formatted(),
+                tint: .orange,
                 fillsAvailableWidth: fillsAvailableWidth
             )
         }
@@ -4662,6 +4711,10 @@ private struct VoiceUsageEventRow: View {
                 return "pause.circle"
             case .wakeMiss:
                 return "exclamationmark.triangle"
+            case .wakeFollowUpContent:
+                return "text.bubble"
+            case .wakeLateAfterTimeout:
+                return "clock.badge.exclamationmark"
             default:
                 return "dot.radiowaves.left.and.right"
             }
@@ -4696,6 +4749,10 @@ private struct VoiceUsageEventRow: View {
                 return .orange
             case .wakeMiss:
                 return .red
+            case .wakeFollowUpContent:
+                return .blue
+            case .wakeLateAfterTimeout:
+                return .orange
             default:
                 return .secondary
             }
@@ -4764,9 +4821,21 @@ private struct VoiceUsageEventRow: View {
                 return isChinese ? "已转入后续动作" : "Converted to follow-up action"
             case "wake.empty":
                 if let phrase, !phrase.isEmpty {
-                    return isChinese ? "匹配词：\(phrase) · 未继续说话" : "Matched phrase: \(phrase) · no follow-up"
+                    return isChinese ? "匹配词：\(phrase) · 唤醒窗口超时，未收到可转换后续" : "Matched phrase: \(phrase) · wake window timed out without a salvaged follow-up"
                 }
-                return isChinese ? "唤醒后未继续说话" : "No follow-up after wake"
+                return isChinese ? "唤醒窗口超时，未收到可转换后续" : "Wake window timed out without a salvaged follow-up"
+            case "wake.followup.content":
+                let heard = event.spokenText?.replacingOccurrences(of: "\n", with: " ")
+                if let heard, !heard.isEmpty {
+                    return isChinese ? "后续语音：\(heard)" : "Follow-up speech: \(heard)"
+                }
+                return isChinese ? "已按唤醒后后续语音处理" : "Handled as follow-up speech after wake"
+            case "wake.followup.late":
+                let heard = event.spokenText?.replacingOccurrences(of: "\n", with: " ")
+                if let heard, !heard.isEmpty {
+                    return isChinese ? "超时后补说：\(heard)" : "Late follow-up after timeout: \(heard)"
+                }
+                return isChinese ? "这句在唤醒窗口超时后到达" : "This utterance arrived after the wake window timed out"
             case let code where code?.hasPrefix("wake.miss.") == true:
                 let detail = event.content?.replacingOccurrences(of: "\n", with: " ")
                 let heard = event.spokenText?.replacingOccurrences(of: "\n", with: " ")

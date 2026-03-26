@@ -188,7 +188,8 @@ final class SpeechManager: ObservableObject {
     // MARK: - Intent Pipeline (unchanged)
     private struct IntentJob: Sendable {
         let seq: Int; let intent: VoiceIntent; let localeIdentifier: String
-        let llmEnhancementEnabled: Bool; let originSessionGeneration: Int; let utteranceID: Int
+        let dictationEnhancementEnabled: Bool; let fullTextRewriteEnabled: Bool
+        let originSessionGeneration: Int; let utteranceID: Int
         let sessionTypingMode: Bool; let streamedTextSnapshot: String; let screenTypedCount: Int
         let targetPID: pid_t?; let targetBundleID: String?; let targetElementFingerprint: String?
         let targetSource: FocusedInputSource?
@@ -340,11 +341,12 @@ final class SpeechManager: ObservableObject {
             UserDefaults.standard.set(false, forKey: "isGazeWakeEnabled")
         }
     }
-    @Published var isLLMEnhancementEnabled: Bool = false {
+    @Published var isAutoDictationEnhancementEnabled: Bool = false {
         didSet {
-            dictationHandler.isLLMEnhancementEnabled = isLLMEnhancementEnabled
+            dictationHandler.isLLMEnhancementEnabled = isAutoDictationEnhancementEnabled
         }
     }
+    @Published var isFullTextRewriteEnabled: Bool = false
     @Published var isDeveloperSpeechProfileEnabled: Bool = UserDefaults.standard.object(
         forKey: "developerSpeechProfileEnabledV1"
     ) as? Bool ?? true {
@@ -382,6 +384,9 @@ final class SpeechManager: ObservableObject {
     private let commandRouter = VoiceCommandRouter()
     private let injector = TextInjector()
     private var lastWakeWordDiagnosticsSignature: String = ""
+    private var lastWakeMissInsightSignature: String?
+    private var lastWakeMissInsightAt: Date = .distantPast
+    private let wakeMissInsightDedupWindow: TimeInterval = 1.5
     private let maxTextRewriteSourceCharacters = 12_000
 
     // MARK: - Internal State
@@ -578,6 +583,14 @@ final class SpeechManager: ObservableObject {
         let createdAt: Date
         var timeoutWorkItem: DispatchWorkItem?
     }
+    private struct RecentExpiredWakeFollowUp {
+        let groupID: String
+        let phrase: String?
+        let localeIdentifier: String
+        let createdAt: Date
+        let expiredAt: Date
+        var finalizeWorkItem: DispatchWorkItem?
+    }
     private struct RecentWakeFollowUpDictationSuppression {
         let groupID: String
         let textKey: String
@@ -587,6 +600,7 @@ final class SpeechManager: ObservableObject {
         let expiresAt: Date
     }
     private var pendingWakeFollowUp: PendingWakeFollowUp?
+    private var recentExpiredWakeFollowUp: RecentExpiredWakeFollowUp?
     private var wakeActivatedDuringCurrentUtterance: Bool = false
     private var lastWakeHUDDiagnosticSignature: String?
     private var lastWakeHUDDiagnosticAt: Date = .distantPast
@@ -629,6 +643,8 @@ final class SpeechManager: ObservableObject {
     private var customAppLaunchAliasRules: [CustomAppLaunchAliasRule] = []
     private var lastCommittedDictationElementFingerprint: String?
     private let wakeFollowUpDuplicateSuppressionWindow: TimeInterval = 1.2
+    private let wakeFollowUpLateFinalGraceWindow: TimeInterval = 1.35
+    private let wakeFollowUpLateFinalActivityWindow: TimeInterval = 1.1
     private var recentWakeFollowUpDictationSuppression: RecentWakeFollowUpDictationSuppression?
     private var wakeFollowUpDictationMarkers: [String: String] = [:]
     private let postSubmitStreamingSuppressionWindow: TimeInterval = 0.8
@@ -2364,7 +2380,7 @@ final class SpeechManager: ObservableObject {
         dictationHandler.reset(targetPID: preferredTypingInjectionTargetPID(sessionTargetPID, bundleID: sessionTargetBundleID))
         dictationHandler.llmProvider = contextualLLMProvider(bundleIDs: currentContextBundleIDs())
         dictationHandler.llmProviderContext = llmProviderDiagnosticsContext()
-        dictationHandler.isLLMEnhancementEnabled = isLLMEnhancementEnabled
+        dictationHandler.isLLMEnhancementEnabled = isAutoDictationEnhancementEnabled
 
         if isWakeWordEnabled && !isAwake && !isDirectCommandEnabled { sessionTypingMode = false }
         else { sessionTypingMode = isTypingMode }
@@ -3112,7 +3128,7 @@ final class SpeechManager: ObservableObject {
         }
         dictationHandler.llmProvider = llmProvider
         dictationHandler.llmProviderContext = llmProviderDiagnosticsContext()
-        dictationHandler.isLLMEnhancementEnabled = isLLMEnhancementEnabled
+        dictationHandler.isLLMEnhancementEnabled = isAutoDictationEnhancementEnabled
     }
 
     func setVoiceLanguageTermsOverrides(_ overrides: [VoiceLanguageTermsOverrideConfig]) {
@@ -3141,7 +3157,11 @@ final class SpeechManager: ObservableObject {
         headsetInputMuteRouter.deactivate()
         isStopping = false; isDictating = false; sessionTypingMode = false; shouldShowProcessingDotsDuringStop = false
         activeUtteranceID = 0
+        recentExpiredWakeFollowUp?.finalizeWorkItem?.cancel()
+        recentExpiredWakeFollowUp = nil
         wakeActivatedDuringCurrentUtterance = false
+        lastWakeMissInsightSignature = nil
+        lastWakeMissInsightAt = .distantPast
         wakeTypingFallbackUntil = .distantPast
         recentWakeFollowUpDictationSuppression = nil
         wakeFollowUpDictationMarkers.removeAll()
@@ -3161,7 +3181,11 @@ final class SpeechManager: ObservableObject {
         clearPendingFinalizeState()
         isStopping = false; isDictating = false; sessionTypingMode = false; shouldShowProcessingDotsDuringStop = false
         activeUtteranceID = 0
+        recentExpiredWakeFollowUp?.finalizeWorkItem?.cancel()
+        recentExpiredWakeFollowUp = nil
         wakeActivatedDuringCurrentUtterance = false
+        lastWakeMissInsightSignature = nil
+        lastWakeMissInsightAt = .distantPast
         wakeTypingFallbackUntil = .distantPast
         recentWakeFollowUpDictationSuppression = nil
         wakeFollowUpDictationMarkers.removeAll()
@@ -3507,18 +3531,75 @@ final class SpeechManager: ObservableObject {
             "[WakeWordResult] phase=\(phase) result=\(result) reason=\(reason) awake=\(isAwake) alwaysListening=\(isAlwaysListeningEnabled) directCommand=\(isDirectCommandEnabled) matchMode=\(wakeDiagnosticMatchModeDescription(matchMode)) score=\(String(format: "%.2f", wakeScore)) threshold=\(wakeDiagnosticThresholdDescription(for: matchMode)) matched=\(matchedWakePhrase ?? "nil")\(occurrenceDetails) raw='\(rawSnippet)'\(payloadDetails)"
         )
 
-        let shouldEmitWakeMiss = !wakeDetected && phase.hasPrefix("final") && (wakeScore > 0 || phraseOccurrence != nil)
+        let candidatePhrase = matchedWakePhrase ?? phraseOccurrence?.phrase
+        let shouldEmitWakeMiss = !wakeDetected && shouldEmitWakeMissToInsights(
+            phase: phase,
+            reason: failureReason,
+            candidatePhrase: candidatePhrase,
+            wakeScore: wakeScore,
+            phraseOccurrence: phraseOccurrence,
+            transcript: rawSnippet
+        )
         if shouldEmitWakeMiss {
             onWakeAnalyticsSignal?(
                 .miss(
                     phase: phase,
                     reason: failureReason,
-                    phrase: matchedWakePhrase ?? phraseOccurrence?.phrase,
+                    phrase: candidatePhrase,
                     localeIdentifier: activeLocale.identifier,
                     transcript: rawSnippet
                 )
             )
         }
+    }
+
+    private func shouldEmitWakeMissToInsights(
+        phase: String,
+        reason: WakeAnalyticsFailureReason,
+        candidatePhrase: String?,
+        wakeScore: Double,
+        phraseOccurrence: (phrase: String, offset: Int, leadingContext: String)?,
+        transcript: String
+    ) -> Bool {
+        let isDiagnosableMiss = wakeScore > 0 || phraseOccurrence != nil
+        guard isDiagnosableMiss else { return false }
+
+        let shouldSurfaceInInsights: Bool
+        if phase.hasPrefix("final") {
+            shouldSurfaceInInsights = !(phase == "final-awake" && reason == .noPhraseMatch)
+        } else if phase.hasPrefix("partial") {
+            switch reason {
+            case .belowThreshold, .phraseNotAtPrefix, .prefixRejected:
+                shouldSurfaceInInsights = true
+            case .noPhraseMatch:
+                shouldSurfaceInInsights = false
+            }
+        } else {
+            shouldSurfaceInInsights = false
+        }
+        guard shouldSurfaceInInsights else { return false }
+
+        let normalizedLeadIn = phraseOccurrence.map {
+            wakeDiagnosticNormalizeForMatching($0.leadingContext)
+        } ?? ""
+        let leadingSignature = normalizedLeadIn.isEmpty
+            ? String(wakeDiagnosticNormalizeForMatching(transcript).prefix(12))
+            : String(normalizedLeadIn.prefix(12))
+        let signature = [
+            reason.rawValue,
+            candidatePhrase ?? "nil",
+            leadingSignature
+        ].joined(separator: "|")
+        let now = Date()
+
+        if lastWakeMissInsightSignature == signature,
+           now.timeIntervalSince(lastWakeMissInsightAt) < wakeMissInsightDedupWindow {
+            return false
+        }
+
+        lastWakeMissInsightSignature = signature
+        lastWakeMissInsightAt = now
+        return true
     }
 
     private func wakeHUDStateSnapshot(
@@ -3608,24 +3689,129 @@ final class SpeechManager: ObservableObject {
         NSSound(named: "Tink")?.play()
     }
 
+    private func shouldHoldWakeFollowUpForLateFinal(at now: Date) -> Bool {
+        if isUtteranceActive {
+            return true
+        }
+        if !lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        if let lastChangeAt,
+           now.timeIntervalSince(lastChangeAt) <= wakeFollowUpLateFinalActivityWindow {
+            return true
+        }
+        if let voiceActivityWithoutPartialSince,
+           now.timeIntervalSince(voiceActivityWithoutPartialSince) <= wakeFollowUpLateFinalActivityWindow {
+            return true
+        }
+        return false
+    }
+
+    private func finalizeWakeFollowUpAsEmpty(
+        groupID: String,
+        phrase: String?,
+        localeIdentifier: String,
+        createdAt: Date,
+        reason: String
+    ) {
+        if let recentExpiredWakeFollowUp,
+           recentExpiredWakeFollowUp.groupID == groupID {
+            recentExpiredWakeFollowUp.finalizeWorkItem?.cancel()
+            self.recentExpiredWakeFollowUp = nil
+        }
+        GlobalLogger.speech.info(
+            "[WakeFollowUp] timeout-finalized group=\(groupID) reason=\(reason) age=\(wakeDiagnosticAgeDescription(since: createdAt)) phrase='\(phrase ?? "nil")' hud=\(HUDManager.shared.state.mode.rawValue) recognitionRunning=\(recognitionSession.isRunning) audioRunning=\(audioCapture.isRunning) awake=\(isAwake) lastTranscript='\(wakeDiagnosticSnippet(lastTranscript))'"
+        )
+        clearSessionInputTarget(reason: "wake-follow-up-timeout")
+        clearStandbyTypingStateIfNeeded(reason: "wake-follow-up-timeout")
+        onWakeAnalyticsSignal?(
+            .empty(
+                groupID: groupID,
+                phrase: phrase,
+                localeIdentifier: localeIdentifier
+            )
+        )
+    }
+
+    private func armRecentExpiredWakeFollowUpGrace(
+        from pending: PendingWakeFollowUp,
+        expiredAt: Date
+    ) {
+        recentExpiredWakeFollowUp?.finalizeWorkItem?.cancel()
+
+        let finalizeWorkItem = DispatchWorkItem { [weak self] in
+            DispatchQueue.main.async {
+                guard let self,
+                      let recentExpiredWakeFollowUp = self.recentExpiredWakeFollowUp,
+                      recentExpiredWakeFollowUp.groupID == pending.groupID else { return }
+                self.finalizeWakeFollowUpAsEmpty(
+                    groupID: recentExpiredWakeFollowUp.groupID,
+                    phrase: recentExpiredWakeFollowUp.phrase,
+                    localeIdentifier: recentExpiredWakeFollowUp.localeIdentifier,
+                    createdAt: recentExpiredWakeFollowUp.createdAt,
+                    reason: "late-final-grace-expired"
+                )
+            }
+        }
+
+        recentExpiredWakeFollowUp = RecentExpiredWakeFollowUp(
+            groupID: pending.groupID,
+            phrase: pending.phrase,
+            localeIdentifier: pending.localeIdentifier,
+            createdAt: pending.createdAt,
+            expiredAt: expiredAt,
+            finalizeWorkItem: finalizeWorkItem
+        )
+        GlobalLogger.speech.info(
+            "[WakeFollowUp] timeout-grace group=\(pending.groupID) age=\(wakeDiagnosticAgeDescription(since: pending.createdAt)) grace=\(String(format: "%.2fs", wakeFollowUpLateFinalGraceWindow)) phrase='\(pending.phrase ?? "nil")' utteranceActive=\(isUtteranceActive) lastTranscript='\(wakeDiagnosticSnippet(lastTranscript))'"
+        )
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + wakeFollowUpLateFinalGraceWindow,
+            execute: finalizeWorkItem
+        )
+    }
+
+    private func consumeRecentExpiredWakeFollowUpIfNeeded() -> PendingWakeFollowUp? {
+        guard let recentExpiredWakeFollowUp else { return nil }
+        recentExpiredWakeFollowUp.finalizeWorkItem?.cancel()
+        self.recentExpiredWakeFollowUp = nil
+        GlobalLogger.speech.info(
+            "[WakeFollowUp] recovered-late-final group=\(recentExpiredWakeFollowUp.groupID) age=\(wakeDiagnosticAgeDescription(since: recentExpiredWakeFollowUp.createdAt)) graceAge=\(wakeDiagnosticAgeDescription(since: recentExpiredWakeFollowUp.expiredAt)) phrase='\(recentExpiredWakeFollowUp.phrase ?? "nil")'"
+        )
+        return PendingWakeFollowUp(
+            groupID: recentExpiredWakeFollowUp.groupID,
+            phrase: recentExpiredWakeFollowUp.phrase,
+            localeIdentifier: recentExpiredWakeFollowUp.localeIdentifier,
+            createdAt: recentExpiredWakeFollowUp.createdAt,
+            timeoutWorkItem: nil
+        )
+    }
+
+    private var hasRecentExpiredWakeFollowUpGrace: Bool {
+        recentExpiredWakeFollowUp != nil
+    }
+
     private func makeWakeFollowUpTimeoutWorkItem(groupID: String) -> DispatchWorkItem {
         DispatchWorkItem { [weak self] in
             DispatchQueue.main.async {
                 guard let self,
                       let pending = self.pendingWakeFollowUp,
                       pending.groupID == groupID else { return }
+                let now = Date()
                 GlobalLogger.speech.info(
                     "[WakeFollowUp] timeout group=\(pending.groupID) age=\(self.wakeDiagnosticAgeDescription(since: pending.createdAt)) phrase='\(pending.phrase ?? "nil")' hud=\(HUDManager.shared.state.mode.rawValue) recognitionRunning=\(self.recognitionSession.isRunning) audioRunning=\(self.audioCapture.isRunning) awake=\(self.isAwake) lastTranscript='\(self.wakeDiagnosticSnippet(self.lastTranscript))'"
                 )
                 self.pendingWakeFollowUp = nil
-                self.clearSessionInputTarget(reason: "wake-follow-up-timeout")
-                self.clearStandbyTypingStateIfNeeded(reason: "wake-follow-up-timeout")
-                self.onWakeAnalyticsSignal?(
-                    .empty(
-                        groupID: pending.groupID,
-                        phrase: pending.phrase,
-                        localeIdentifier: pending.localeIdentifier
-                    )
+                if self.shouldHoldWakeFollowUpForLateFinal(at: now) {
+                    self.armRecentExpiredWakeFollowUpGrace(from: pending, expiredAt: now)
+                    return
+                }
+                self.finalizeWakeFollowUpAsEmpty(
+                    groupID: pending.groupID,
+                    phrase: pending.phrase,
+                    localeIdentifier: pending.localeIdentifier,
+                    createdAt: pending.createdAt,
+                    reason: "primary-timeout"
                 )
             }
         }
@@ -3633,6 +3819,8 @@ final class SpeechManager: ObservableObject {
 
     private func beginPendingWakeFollowUp(phrase: String?, allowReuseExisting: Bool = false) {
         let normalizedPhrase = phrase?.trimmingCharacters(in: .whitespacesAndNewlines)
+        recentExpiredWakeFollowUp?.finalizeWorkItem?.cancel()
+        recentExpiredWakeFollowUp = nil
         if allowReuseExisting, var pending = pendingWakeFollowUp {
             pending.timeoutWorkItem?.cancel()
             if pending.phrase == nil, normalizedPhrase?.isEmpty == false {
@@ -3697,7 +3885,14 @@ final class SpeechManager: ObservableObject {
 
     @discardableResult
     private func completePendingWakeFollowUpIfNeeded(intent: VoiceIntent, transcript: String) -> PendingWakeFollowUp? {
-        guard let pending = pendingWakeFollowUp else { return nil }
+        let pending: PendingWakeFollowUp
+        if let activePendingWakeFollowUp = pendingWakeFollowUp {
+            pending = activePendingWakeFollowUp
+        } else if let lateFinalPendingWakeFollowUp = consumeRecentExpiredWakeFollowUpIfNeeded() {
+            pending = lateFinalPendingWakeFollowUp
+        } else {
+            return nil
+        }
 
         let followUp: WakeAnalyticsFollowUpKind
         switch intent {
@@ -3779,6 +3974,8 @@ final class SpeechManager: ObservableObject {
         var wakeWordDetected = false
         var wakeScore: Double = 0
         var matchedWakePhrase: String?
+        let wakeFollowUpGraceActive = hasRecentExpiredWakeFollowUpGrace
+        let wakeRoutingActive = isAwake || pendingWakeFollowUp != nil || wakeFollowUpGraceActive
 
         if isDirectCommandEnabled {
             logWakeWordConfigurationIfNeeded(reason: "final-direct-command")
@@ -3807,7 +4004,7 @@ final class SpeechManager: ObservableObject {
                 isWakeWordEnabled: isWakeWordEnabled,
                 isDirectCommandEnabled: isDirectCommandEnabled,
                 isAlwaysListeningEnabled: isAlwaysListeningEnabled,
-                isAwake: isAwake
+                isAwake: wakeRoutingActive
             )
             let wakeResult = wakeWordDetector.process(
                 rawTrimmed,
@@ -3817,7 +4014,7 @@ final class SpeechManager: ObservableObject {
             wakeScore = wakeResult.score
             matchedWakePhrase = wakeResult.matchedPhrase
             logWakeEvaluationIfNeeded(
-                phase: isAwake ? "final-awake" : "final-sleeping",
+                phase: wakeRoutingActive ? "final-awake" : "final-sleeping",
                 rawText: rawTrimmed,
                 matchMode: matchMode,
                 wakeDetected: wakeResult.wakeDetected,
@@ -3825,7 +4022,7 @@ final class SpeechManager: ObservableObject {
                 matchedWakePhrase: matchedWakePhrase,
                 payload: wakeResult.wakeDetected ? wakeResult.payload : nil
             )
-            if isAwake {
+            if wakeRoutingActive {
                 if wakeResult.wakeDetected {
                     textToRoute = wakeResult.payload
                     wakeWordDetected = true
@@ -3862,7 +4059,7 @@ final class SpeechManager: ObservableObject {
         let wakeTypingAllowed = Self.shouldAllowWakeGatedTyping(
             isWakeWordEnabled: isWakeWordEnabled,
             isDirectCommandEnabled: isDirectCommandEnabled,
-            isAwake: isAwake,
+            isAwake: wakeRoutingActive,
             wakeWordDetected: wakeWordDetected
         )
         let computedTypingContext = Self.resolvedUtteranceTypingMode(
@@ -4144,7 +4341,9 @@ final class SpeechManager: ObservableObject {
         if holdsTextRewriteBarrier {
             beginTextRewriteHUDActivity()
         }
-        let job = IntentJob(seq: -1, intent: hydratedIntent, localeIdentifier: localeID, llmEnhancementEnabled: isLLMEnhancementEnabled,
+        let job = IntentJob(seq: -1, intent: hydratedIntent, localeIdentifier: localeID,
+                            dictationEnhancementEnabled: isAutoDictationEnhancementEnabled,
+                            fullTextRewriteEnabled: isFullTextRewriteEnabled,
                             originSessionGeneration: originSessionGeneration, utteranceID: utteranceID, sessionTypingMode: typingContext,
                             streamedTextSnapshot: dictationHandler.screenTypedText, screenTypedCount: dictationHandler.screenTypedText.count,
                             targetPID: pid, targetBundleID: bid, targetElementFingerprint: fp, targetSource: source, verificationSnapshot: verificationSnapshot,
@@ -4157,7 +4356,9 @@ final class SpeechManager: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             let seq = await self.intentPipeline.allocateSeq()
-            let seeded = IntentJob(seq: seq, intent: job.intent, localeIdentifier: job.localeIdentifier, llmEnhancementEnabled: job.llmEnhancementEnabled,
+            let seeded = IntentJob(seq: seq, intent: job.intent, localeIdentifier: job.localeIdentifier,
+                                   dictationEnhancementEnabled: job.dictationEnhancementEnabled,
+                                   fullTextRewriteEnabled: job.fullTextRewriteEnabled,
                                    originSessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID, sessionTypingMode: job.sessionTypingMode,
                                    streamedTextSnapshot: job.streamedTextSnapshot, screenTypedCount: job.screenTypedCount,
                                    targetPID: job.targetPID, targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
@@ -4416,6 +4617,7 @@ final class SpeechManager: ObservableObject {
             return false
         }
         guard pendingWakeFollowUp == nil else { return false }
+        guard recentExpiredWakeFollowUp == nil else { return false }
         guard dictationHandler.screenTypedText.isEmpty else { return false }
         return true
     }
@@ -4593,7 +4795,7 @@ final class SpeechManager: ObservableObject {
                 )
             }
 
-            guard job.llmEnhancementEnabled else {
+            guard job.dictationEnhancementEnabled else {
                 return passthroughResult("llm=disabled")
             }
             guard job.sessionTypingMode else {
@@ -4696,7 +4898,7 @@ final class SpeechManager: ObservableObject {
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
             }
-            guard job.llmEnhancementEnabled,
+            guard job.fullTextRewriteEnabled,
                   let llmProvider = contextualLLMProvider(bundleIDs: llmBundleIDs) else {
                 payload.failureReason = .llmUnavailable
                 logTextRewriteFailure(
@@ -4708,7 +4910,7 @@ final class SpeechManager: ObservableObject {
                     bundleID: job.targetBundleID,
                     payload: payload,
                     sourceCount: payload.sourceText?.count,
-                    note: job.llmEnhancementEnabled ? "provider-unavailable" : "enhancement-disabled"
+                    note: job.fullTextRewriteEnabled ? "provider-unavailable" : "rewrite-disabled"
                 )
                 return ProcessedJob(
                     seq: job.seq,
@@ -6993,7 +7195,11 @@ final class SpeechManager: ObservableObject {
 
     private func resetUtteranceTrackingForNextPhrase() {
         activeUtteranceID = 0
+        recentExpiredWakeFollowUp?.finalizeWorkItem?.cancel()
+        recentExpiredWakeFollowUp = nil
         wakeActivatedDuringCurrentUtterance = false
+        lastWakeMissInsightSignature = nil
+        lastWakeMissInsightAt = .distantPast
         isUtteranceActive = false
         isDictating = false
         sessionTypingMode = false
@@ -7982,7 +8188,7 @@ final class SpeechManager: ObservableObject {
     }
 
     private func localizedLLMRewriteUnavailableMessage(isChinese: Bool) -> String {
-        guard isLLMEnhancementEnabled else {
+        guard isFullTextRewriteEnabled else {
             return isChinese ? "文本优化未开启" : "Text rewrite is turned off"
         }
 
@@ -8016,7 +8222,8 @@ final class SpeechManager: ObservableObject {
             "source=\(llmServiceSource.logValue)",
             "locale=\(effectiveLocaleIdentifier)",
             "configured=\(llmProviderConfig != nil)",
-            "enhancementEnabled=\(isLLMEnhancementEnabled)"
+            "dictationEnhancementEnabled=\(isAutoDictationEnhancementEnabled)",
+            "fullTextRewriteEnabled=\(isFullTextRewriteEnabled)"
         ]
 
         if llmServiceSource == .appleOnDevice {

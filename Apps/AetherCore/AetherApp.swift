@@ -701,8 +701,12 @@ final class VoiceService: ObservableObject {
     }
 
 
-    func setLLMEnhancementEnabled(_ enabled: Bool) {
-        manager.isLLMEnhancementEnabled = enabled
+    func setAutoDictationEnhancementEnabled(_ enabled: Bool) {
+        manager.isAutoDictationEnhancementEnabled = enabled
+    }
+
+    func setFullTextRewriteEnabled(_ enabled: Bool) {
+        manager.isFullTextRewriteEnabled = enabled
     }
 
     func setLLMProviderConfiguration(
@@ -1015,6 +1019,9 @@ class AppState: ObservableObject {
     static let llmProviderSourceStorageKey = "llmProvider.source"
     static let llmEndpointStorageKey = "llmProvider.endpoint"
     static let llmModelStorageKey = "llmProvider.model"
+    static let autoDictationEnhancementStorageKey = "isAutoDictationEnhancementEnabled"
+    static let fullTextRewriteStorageKey = "isFullTextRewriteEnabled"
+    private static let legacyLLMEnhancementStorageKey = "isLLMEnhancementEnabled"
     private static let llmKeychainService = defaultBundleIdentifier + ".llm"
     private static let llmKeychainAccount = "api-key"
     private static let asrExpertProfileStorageKey = "asrExpertProfileV1"
@@ -1340,6 +1347,8 @@ class AppState: ObservableObject {
         case wakeToDictation
         case wakeToControl
         case wakeMiss
+        case wakeFollowUpContent
+        case wakeLateAfterTimeout
         case other
     }
 
@@ -1405,6 +1414,8 @@ class AppState: ObservableObject {
         case conversions
         case empty
         case failures
+        case followUp
+        case lateAfterTimeout
 
         var id: String { rawValue }
     }
@@ -1415,6 +1426,8 @@ class AppState: ObservableObject {
         let wakeToDictationCount: Int
         let wakeToControlCount: Int
         let wakeMissCount: Int
+        let wakeFollowUpCount: Int
+        let wakeLateAfterTimeoutCount: Int
         let conversionRate: Double
         let retainedHistoryCount: Int
     }
@@ -1461,6 +1474,7 @@ class AppState: ObservableObject {
     private static let voiceUsageHistoryEnabledStorageKey = "voiceUsageHistoryEnabledV1"
     private static let voiceUsageHistoryStorageKey = "voiceUsageHistoryV1"
     private static let voiceUsageHistoryLimitStorageKey = "voiceUsageHistoryLimitV1"
+    private static let wakeLateFollowUpWindowSeconds: TimeInterval = 2.0
     private static let voiceUsageSummaryStorageKey = "voiceUsageSummaryV1"
     private static let voiceUsageAppSummariesStorageKey = "voiceUsageAppSummariesV1"
     private static let customAppShortcutRulesStorageKey = "customAppShortcutRulesV1"
@@ -2602,6 +2616,10 @@ Recent history relevant to app-launch commands (JSON):
                 return record.reasonCode == .wakeEmpty
             case .failures:
                 return record.reasonCode == .wakeMiss
+            case .followUp:
+                return record.reasonCode == .wakeFollowUpContent
+            case .lateAfterTimeout:
+                return record.reasonCode == .wakeLateAfterTimeout
             }
         }
 
@@ -2644,6 +2662,16 @@ Recent history relevant to app-launch commands (JSON):
                 partialResult += 1
             }
         }
+        let wakeFollowUpCount = activationRecords.reduce(into: 0) { partialResult, record in
+            if record.reasonCode == .wakeFollowUpContent {
+                partialResult += 1
+            }
+        }
+        let wakeLateAfterTimeoutCount = activationRecords.reduce(into: 0) { partialResult, record in
+            if record.reasonCode == .wakeLateAfterTimeout {
+                partialResult += 1
+            }
+        }
         let conversionRate = wakeHitCount > 0 ? Double(conversionCount) / Double(wakeHitCount) : 0
 
         return WakeInsightsSnapshot(
@@ -2653,6 +2681,8 @@ Recent history relevant to app-launch commands (JSON):
                 wakeToDictationCount: summary.wakeToDictationCount,
                 wakeToControlCount: summary.wakeToControlCount,
                 wakeMissCount: wakeMissCount,
+                wakeFollowUpCount: wakeFollowUpCount,
+                wakeLateAfterTimeoutCount: wakeLateAfterTimeoutCount,
                 conversionRate: conversionRate,
                 retainedHistoryCount: activationRecords.count
             ),
@@ -2765,6 +2795,10 @@ Recent history relevant to app-launch commands (JSON):
                 reasonCode = .wakeToControl
             case "wake.empty":
                 reasonCode = .wakeEmpty
+            case "wake.followup.content":
+                reasonCode = .wakeFollowUpContent
+            case "wake.followup.late":
+                reasonCode = .wakeLateAfterTimeout
             case let code where code?.hasPrefix("wake.miss.") == true:
                 reasonCode = .wakeMiss
             default:
@@ -3877,10 +3911,39 @@ Recent history relevant to app-launch commands (JSON):
             UserDefaults.standard.set(clamped, forKey: "alwaysListeningWakeWindowSeconds")
         }
     }
-    @Published var isLLMEnhancementEnabled: Bool = UserDefaults.standard.bool(forKey: "isLLMEnhancementEnabled") {
+    @Published var isAutoDictationEnhancementEnabled: Bool = {
+        if UserDefaults.standard.object(forKey: AppState.autoDictationEnhancementStorageKey) != nil {
+            return UserDefaults.standard.bool(forKey: AppState.autoDictationEnhancementStorageKey)
+        }
+        if UserDefaults.standard.object(forKey: AppState.legacyLLMEnhancementStorageKey) != nil {
+            return UserDefaults.standard.bool(forKey: AppState.legacyLLMEnhancementStorageKey)
+        }
+        return false
+    }() {
         didSet {
-            UserDefaults.standard.set(isLLMEnhancementEnabled, forKey: "isLLMEnhancementEnabled")
-            voiceService.setLLMEnhancementEnabled(isLLMEnhancementEnabled)
+            UserDefaults.standard.set(
+                isAutoDictationEnhancementEnabled,
+                forKey: Self.autoDictationEnhancementStorageKey
+            )
+            voiceService.setAutoDictationEnhancementEnabled(isAutoDictationEnhancementEnabled)
+        }
+    }
+
+    @Published var isFullTextRewriteEnabled: Bool = {
+        if UserDefaults.standard.object(forKey: AppState.fullTextRewriteStorageKey) != nil {
+            return UserDefaults.standard.bool(forKey: AppState.fullTextRewriteStorageKey)
+        }
+        if UserDefaults.standard.object(forKey: AppState.legacyLLMEnhancementStorageKey) != nil {
+            return UserDefaults.standard.bool(forKey: AppState.legacyLLMEnhancementStorageKey)
+        }
+        return false
+    }() {
+        didSet {
+            UserDefaults.standard.set(
+                isFullTextRewriteEnabled,
+                forKey: Self.fullTextRewriteStorageKey
+            )
+            voiceService.setFullTextRewriteEnabled(isFullTextRewriteEnabled)
         }
     }
 
@@ -4145,7 +4208,8 @@ Recent history relevant to app-launch commands (JSON):
             self.handleHeadsetAutoEnable(source: "startup")
         }
         
-        voiceService.setLLMEnhancementEnabled(self.isLLMEnhancementEnabled)
+        voiceService.setAutoDictationEnhancementEnabled(self.isAutoDictationEnhancementEnabled)
+        voiceService.setFullTextRewriteEnabled(self.isFullTextRewriteEnabled)
         syncLLMProviderConfiguration()
         voiceService.setDeveloperSpeechProfileEnabled(self.isDeveloperSpeechProfileEnabled)
         voiceService.setVoiceCommandOverrides(self.voiceCommandOverrides)
@@ -5226,6 +5290,36 @@ Recent history relevant to app-launch commands (JSON):
         )
     }
 
+    private enum WakeMissDisposition {
+        case trueMiss
+        case followUpContent
+        case lateAfterTimeout
+    }
+
+    private func wakeMissDisposition(
+        phase: String,
+        reason: WakeAnalyticsFailureReason,
+        localeIdentifier: String
+    ) -> WakeMissDisposition {
+        guard reason == .noPhraseMatch, phase == "final-awake" else {
+            return .trueMiss
+        }
+
+        guard let latestWakeEmpty = voiceUsageHistory.first(where: { event in
+            event.kind == .activation
+                && event.eventCode == "wake.empty"
+                && (event.localeIdentifier == nil || event.localeIdentifier == localeIdentifier)
+        }) else {
+            return .followUpContent
+        }
+
+        let elapsed = Date().timeIntervalSince(latestWakeEmpty.timestamp)
+        if elapsed >= 0, elapsed <= Self.wakeLateFollowUpWindowSeconds {
+            return .lateAfterTimeout
+        }
+        return .followUpContent
+    }
+
     private func recordWakeMiss(
         phase: String,
         reason: WakeAnalyticsFailureReason,
@@ -5233,53 +5327,77 @@ Recent history relevant to app-launch commands (JSON):
         localeIdentifier: String,
         transcript: String?
     ) {
-        _ = phase
+        let disposition = wakeMissDisposition(
+            phase: phase,
+            reason: reason,
+            localeIdentifier: localeIdentifier
+        )
+
+        let action: String
+        let eventCode: String
         let detail: String
-        switch reason {
-        case .belowThreshold:
-            if let phrase, !phrase.isEmpty {
-                detail = AppLocalization.isChinese
-                    ? "候选词“\(phrase)”接近唤醒词，但分数未过阈值"
-                    : "Candidate '\(phrase)' was close, but stayed below the wake threshold"
-            } else {
-                detail = AppLocalization.isChinese
-                    ? "检测到接近唤醒词的候选，但分数未过阈值"
-                    : "Detected a near wake candidate, but it stayed below the threshold"
-            }
-        case .phraseNotAtPrefix:
-            if let phrase, !phrase.isEmpty {
-                detail = AppLocalization.isChinese
-                    ? "检测到“\(phrase)”但不在句首"
-                    : "Detected '\(phrase)', but it was not at the start of the utterance"
-            } else {
-                detail = AppLocalization.isChinese
-                    ? "检测到唤醒词，但不在句首"
-                    : "Detected a wake phrase, but it was not at the start of the utterance"
-            }
-        case .prefixRejected:
-            if let phrase, !phrase.isEmpty {
-                detail = AppLocalization.isChinese
-                    ? "句首候选词“\(phrase)”未通过唤醒规则"
-                    : "Leading candidate '\(phrase)' did not pass the wake matching rules"
-            } else {
-                detail = AppLocalization.isChinese
-                    ? "句首候选词未通过唤醒规则"
-                    : "The leading candidate did not pass the wake matching rules"
-            }
-        case .noPhraseMatch:
+        switch disposition {
+        case .lateAfterTimeout:
+            action = AppLocalization.isChinese ? "超时后补说" : "Late Follow-up"
+            eventCode = "wake.followup.late"
             detail = AppLocalization.isChinese
-                ? "未检测到可用唤醒词"
-                : "No usable wake phrase was detected"
+                ? "唤醒窗口已结束，这句在超时后到达"
+                : "The wake window had already ended before this follow-up arrived"
+        case .followUpContent:
+            action = AppLocalization.isChinese ? "后续语音" : "Follow-up Speech"
+            eventCode = "wake.followup.content"
+            detail = AppLocalization.isChinese
+                ? "这句是唤醒后的后续语音，不是新的唤醒失败"
+                : "This was follow-up speech after wake, not a new wake failure"
+        case .trueMiss:
+            action = AppLocalization.isChinese ? "唤醒失败" : "Wake Miss"
+            eventCode = "wake.miss.\(reason.rawValue)"
+            switch reason {
+            case .belowThreshold:
+                if let phrase, !phrase.isEmpty {
+                    detail = AppLocalization.isChinese
+                        ? "候选词“\(phrase)”接近唤醒词，但分数未过阈值"
+                        : "Candidate '\(phrase)' was close, but stayed below the wake threshold"
+                } else {
+                    detail = AppLocalization.isChinese
+                        ? "检测到接近唤醒词的候选，但分数未过阈值"
+                        : "Detected a near wake candidate, but it stayed below the threshold"
+                }
+            case .phraseNotAtPrefix:
+                if let phrase, !phrase.isEmpty {
+                    detail = AppLocalization.isChinese
+                        ? "检测到“\(phrase)”但不在句首"
+                        : "Detected '\(phrase)', but it was not at the start of the utterance"
+                } else {
+                    detail = AppLocalization.isChinese
+                        ? "检测到唤醒词，但不在句首"
+                        : "Detected a wake phrase, but it was not at the start of the utterance"
+                }
+            case .prefixRejected:
+                if let phrase, !phrase.isEmpty {
+                    detail = AppLocalization.isChinese
+                        ? "句首候选词“\(phrase)”未通过唤醒规则"
+                        : "Leading candidate '\(phrase)' did not pass the wake matching rules"
+                } else {
+                    detail = AppLocalization.isChinese
+                        ? "句首候选词未通过唤醒规则"
+                        : "The leading candidate did not pass the wake matching rules"
+                }
+            case .noPhraseMatch:
+                detail = AppLocalization.isChinese
+                    ? "未检测到可用唤醒词"
+                    : "No usable wake phrase was detected"
+            }
         }
 
         recordVoiceUsageEvent(
             kind: .activation,
-            action: AppLocalization.isChinese ? "唤醒失败" : "Wake Miss",
+            action: action,
             content: detail,
             spokenText: transcript,
             appName: nil,
             bundleIdentifier: nil,
-            eventCode: "wake.miss.\(reason.rawValue)",
+            eventCode: eventCode,
             wakePhrase: phrase,
             localeIdentifier: localeIdentifier
         )
