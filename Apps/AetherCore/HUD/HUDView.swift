@@ -189,30 +189,17 @@ struct HUDView: View {
             }
         }
         .frame(width: listeningDeviceFrameSize, height: listeningDeviceFrameSize)
-        .overlay(alignment: .topLeading) {
-            if let healthStyle = deviceHealthStyle {
-                DeviceHealthBadge(style: healthStyle, size: overlayBadgeDiameter)
-                    .offset(x: overlayBadgeTopOffset, y: overlayBadgeTopOffset)
-            }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if let symbol = modeIndicatorSymbol {
-                ModeIndicatorBadge(symbol: symbol, size: overlayBadgeDiameter)
-                    .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
-            }
-        }
     }
 
     private var listeningLeadingVisual: some View {
-        ZStack {
+        decoratedDeviceLeadingVisual {
             AudioReactiveRingView(level: state.audioLevel)
             micIcon
         }
-        .frame(width: 28, height: 28)
     }
 
     private var stageLeadingVisual: some View {
-        ZStack {
+        decoratedDeviceLeadingVisual {
             AnimatedHUDBadge(
                 symbol: currentInputDeviceSymbol,
                 tone: .white.opacity(0.92),
@@ -221,18 +208,6 @@ struct HUDView: View {
                 frameDiameter: deviceBadgeFrameDiameter,
                 symbolFontSize: stageDeviceSymbolFontSize
             )
-        }
-        .overlay(alignment: .topLeading) {
-            if let healthStyle = deviceHealthStyle {
-                DeviceHealthBadge(style: healthStyle, size: overlayBadgeDiameter)
-                    .offset(x: overlayBadgeTopOffset, y: overlayBadgeTopOffset)
-            }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if let symbol = modeIndicatorSymbol {
-                ModeIndicatorBadge(symbol: symbol, size: overlayBadgeDiameter)
-                    .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
-            }
         }
     }
 
@@ -244,7 +219,11 @@ struct HUDView: View {
     private var feedbackLeadingVisual: some View {
         switch feedbackLeadingStrategy {
         case .device:
-            ZStack {
+            decoratedDeviceLeadingVisual(
+                outcomeSymbol: feedbackOutcomeSymbol,
+                outcomeTone: feedbackTone,
+                outcomeStyle: feedbackBadgeStyle
+            ) {
                 AnimatedHUDBadge(
                     symbol: currentInputDeviceSymbol,
                     tone: .white.opacity(0.92),
@@ -253,19 +232,6 @@ struct HUDView: View {
                     frameDiameter: deviceBadgeFrameDiameter,
                     symbolFontSize: stageDeviceSymbolFontSize
                 )
-                if let healthStyle = deviceHealthStyle {
-                    DeviceHealthBadge(style: healthStyle, size: overlayBadgeDiameter)
-                        .offset(x: overlayBadgeTopOffset, y: overlayBadgeTopOffset)
-                }
-                if let feedbackOutcomeSymbol {
-                    OutcomeOverlayBadge(
-                        symbol: feedbackOutcomeSymbol,
-                        tone: feedbackTone,
-                        style: feedbackBadgeStyle,
-                        size: overlayBadgeDiameter
-                    )
-                        .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
-                }
             }
         case .wakeSuccess:
             semanticLeadingVisual(symbol: "waveform", tone: .green)
@@ -288,15 +254,19 @@ struct HUDView: View {
     }
 
     private var overlayBadgeTopOffset: CGFloat {
-        -3.5
+        1.5
     }
 
     private var overlayBadgeBottomOffset: CGFloat {
-        4.5
+        -1.5
     }
 
     private var overlayBadgeDiameter: CGFloat {
         13
+    }
+
+    private var leadingVisualFrameDiameter: CGFloat {
+        30
     }
 
     private var hudContainerCornerRadius: CGFloat {
@@ -325,11 +295,44 @@ struct HUDView: View {
     }
 
     private var deviceBadgeFrameDiameter: CGFloat {
-        usesWideDeviceGlyph ? 30 : 28
+        leadingVisualFrameDiameter
     }
 
     private var stageDeviceSymbolFontSize: CGFloat {
         usesWideDeviceGlyph ? 14.4 : 13
+    }
+
+    @ViewBuilder
+    private func decoratedDeviceLeadingVisual<Content: View>(
+        outcomeSymbol: String? = nil,
+        outcomeTone: Color = .white,
+        outcomeStyle: OutcomeOverlayBadge.Style = .neutral,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ZStack {
+            content()
+        }
+        .frame(width: leadingVisualFrameDiameter, height: leadingVisualFrameDiameter)
+        .overlay(alignment: .topLeading) {
+            if let healthStyle = deviceHealthStyle {
+                DeviceHealthBadge(style: healthStyle, size: overlayBadgeDiameter)
+                    .offset(x: overlayBadgeTopOffset, y: overlayBadgeTopOffset)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if let outcomeSymbol {
+                OutcomeOverlayBadge(
+                    symbol: outcomeSymbol,
+                    tone: outcomeTone,
+                    style: outcomeStyle,
+                    size: overlayBadgeDiameter
+                )
+                .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
+            } else if let symbol = modeIndicatorSymbol {
+                ModeIndicatorBadge(symbol: symbol, size: overlayBadgeDiameter)
+                    .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
+            }
+        }
     }
 
     private var modeIndicatorSymbol: String? {
@@ -482,8 +485,8 @@ struct HUDView: View {
         [
             NSLocalizedString("speech.playback_leak.detected", comment: ""),
             NSLocalizedString("speech.playback_leak.suppression_active", comment: ""),
-            AppLocalization.isChinese ? "正在优化全文，请稍候" : "A full-text rewrite is already running. Please wait.",
-            AppLocalization.isChinese ? "已切到 Mac 麦" : "Switched to Mac mic"
+            AppLocalization.isChinese ? "正在优化，请稍候" : "Optimizing. Please wait.",
+            AppLocalization.isChinese ? "已切到Mac麦" : "Switched to Mac mic"
         ]
     }
 
@@ -500,7 +503,7 @@ struct HUDView: View {
             return message.contains("不可用")
                 || message.contains("请稍候")
                 || message.contains("干扰")
-                || message.contains("Mac 麦")
+                || message.contains("Mac麦")
         }
         return lowercased.contains("please wait")
             || lowercased.contains("interference")
@@ -569,7 +572,7 @@ struct HUDView: View {
     }
 
     private var hudLabelMaxWidth: CGFloat {
-        var width: CGFloat = state.mode == .feedback ? 188 : 176
+        var width: CGFloat = state.mode == .feedback ? 204 : 192
         if hasVisibleContextIcon { width -= 20 }
         if state.isLanguageIndicatorVisible { width -= 24 }
         return max(width, 96)
@@ -867,26 +870,42 @@ private struct TextOrganizingView: View {
     @State private var activeIndex = 0
 
     var body: some View {
-        HStack(spacing: 4) {
+        VStack(alignment: .leading, spacing: 3.5) {
             ForEach(0..<3, id: \.self) { index in
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(Color.white.opacity(activeIndex == index ? 0.9 : 0.35))
+                    .fill(activeIndex == index ? Color.white.opacity(0.92) : Color.white.opacity(0.36))
                     .frame(
-                        width: activeIndex == index ? 17 : 13,
-                        height: activeIndex == index ? 4.5 : 3.5
+                        width: lineWidth(for: index),
+                        height: activeIndex == index ? 4 : 3
                     )
+                    .overlay(alignment: .trailing) {
+                        if activeIndex == index {
+                            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                                .fill(Color.green.opacity(0.85))
+                                .frame(width: 7, height: 2.5)
+                                .padding(.trailing, 1.5)
+                        }
+                    }
             }
         }
-        .frame(height: 16)
-        .animation(.easeInOut(duration: 0.18), value: activeIndex)
+        .frame(width: 32, height: 18, alignment: .leading)
+        .animation(.easeInOut(duration: 0.2), value: activeIndex)
         .task {
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 220_000_000)
+                try? await Task.sleep(nanoseconds: 260_000_000)
                 await MainActor.run {
                     activeIndex = (activeIndex + 1) % 3
                 }
             }
         }
+    }
+
+    private func lineWidth(for index: Int) -> CGFloat {
+        let baseWidths: [CGFloat] = [30, 22, 27]
+        if activeIndex == index {
+            return baseWidths[index] + 2
+        }
+        return baseWidths[index]
     }
 }
 

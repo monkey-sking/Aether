@@ -926,8 +926,8 @@ final class HUDManager {
         [
             NSLocalizedString("speech.playback_leak.detected", comment: ""),
             NSLocalizedString("speech.playback_leak.suppression_active", comment: ""),
-            AppLocalization.isChinese ? "正在优化全文，请稍候" : "A full-text rewrite is already running. Please wait.",
-            AppLocalization.isChinese ? "已切到 Mac 麦" : "Switched to Mac mic"
+            AppLocalization.isChinese ? "正在优化，请稍候" : "Optimizing. Please wait.",
+            AppLocalization.isChinese ? "已切到Mac麦" : "Switched to Mac mic"
         ]
     }
 
@@ -959,7 +959,7 @@ final class HUDManager {
         let lowercased = message.lowercased()
         if AppLocalization.isChinese {
             return message.contains("请稍候")
-                || message.contains("Mac 麦")
+                || message.contains("Mac麦")
                 || message.contains("不可用")
                 || message.contains("干扰")
         }

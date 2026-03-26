@@ -1478,7 +1478,7 @@ final class SpeechManager: ObservableObject {
                 "[AudioRoute] startup health probe fallback selectedInputID=\(self.selectedInputDeviceID) effectiveInputID=\(effectiveInputID) effectiveInputName=\(self.currentResolvedInputDeviceName) boundInputID=\(boundInputID) boundInputName=\(boundInputName) latestRMS=\(self.latestVoiceRMS) fallbackID=\(fallbackID) fallbackName=\(fallbackName)"
             )
             HUDManager.shared.showTemporary(
-                message: AppLocalization.isChinese ? "已切到 Mac 麦" : "Switched to Mac mic",
+                message: AppLocalization.isChinese ? "已切到Mac麦" : "Switched to Mac mic",
                 icon: self.hudInputIcon(),
                 duration: 1.2
             )
@@ -5918,12 +5918,12 @@ final class SpeechManager: ObservableObject {
     private var textRewriteHUDMessage: String {
         if AppLocalization.isChinese {
             return activeTextRewriteHUDCount > 1
-                ? "正在优化全文（\(activeTextRewriteHUDCount)）…"
-                : "正在优化全文…"
+                ? "正在优化（\(activeTextRewriteHUDCount)）"
+                : "正在优化…"
         }
         return activeTextRewriteHUDCount > 1
-            ? "Rewriting text (\(activeTextRewriteHUDCount))..."
-            : "Rewriting text..."
+            ? "Optimizing (\(activeTextRewriteHUDCount))"
+            : "Optimizing..."
     }
 
     private func beginTextRewriteHUDActivity() {
@@ -5979,8 +5979,8 @@ final class SpeechManager: ObservableObject {
 
     private func showTextRewriteBusyHUD() {
         let message = AppLocalization.isChinese
-            ? "正在优化全文，请稍候"
-            : "A full-text rewrite is already running. Please wait."
+            ? "正在优化，请稍候"
+            : "Optimizing. Please wait."
         status = message
         HUDManager.shared.showTemporary(
             message: message,
