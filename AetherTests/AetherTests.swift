@@ -467,7 +467,7 @@ final class WakeWordDetectorTests: XCTestCase {
         XCTAssertEqual(result.payload, "打开设置")
     }
 
-    func testAwakeFollowUpModeDoesNotConsumeBareWakePrefix() {
+    func testAwakeFollowUpModeConsumesDirectWakePrefix() {
         let detector = makeDetector()
 
         let result = detector.process(
@@ -476,8 +476,8 @@ final class WakeWordDetectorTests: XCTestCase {
             matchMode: .awakeFollowUp
         )
 
-        XCTAssertFalse(result.wakeDetected)
-        XCTAssertEqual(result.payload, "幻影，你好")
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.payload, "你好")
     }
 }
 
@@ -551,6 +551,88 @@ final class SpeechManagerGuardrailTests: XCTestCase {
         case .retryAwareStandby, .awakeFollowUp:
             XCTFail("Expected strict-prefix matching when always-listening is off")
         }
+    }
+
+    func testPartialWakeSegmentsOnlyWhenWakePhraseHasNoInlinePayload() {
+        XCTAssertTrue(
+            SpeechManager.shouldSegmentRecognitionAfterPartialWake(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                wakePayload: ""
+            )
+        )
+        XCTAssertFalse(
+            SpeechManager.shouldSegmentRecognitionAfterPartialWake(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                wakePayload: "打开设置"
+            )
+        )
+    }
+
+    func testContinuousStandbyNoBufferStallRecoversWhenWakeStandbySessionGoesSilent() {
+        XCTAssertTrue(
+            SpeechManager.shouldRecoverFromContinuousStandbyNoBufferStall(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                isAwake: false,
+                isStopping: false,
+                isUtteranceActive: false,
+                audioCaptureRunning: true,
+                recognitionRunning: true,
+                pendingEngineRestart: false,
+                bufferAge: 1.81,
+                routeRebuildGraceActive: false,
+                continuousRecoveryGraceActive: false,
+                recognitionStartupGraceActive: false,
+                recognitionUnavailableActive: false
+            )
+        )
+    }
+
+    func testContinuousStandbyNoBufferStallDoesNotRecoverWhileAlreadyAwake() {
+        XCTAssertFalse(
+            SpeechManager.shouldRecoverFromContinuousStandbyNoBufferStall(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                isAwake: true,
+                isStopping: false,
+                isUtteranceActive: false,
+                audioCaptureRunning: true,
+                recognitionRunning: true,
+                pendingEngineRestart: false,
+                bufferAge: 1.81,
+                routeRebuildGraceActive: false,
+                continuousRecoveryGraceActive: false,
+                recognitionStartupGraceActive: false,
+                recognitionUnavailableActive: false
+            )
+        )
+    }
+
+    func testContinuousStandbyNoBufferStallDoesNotRecoverDuringStartupGrace() {
+        XCTAssertFalse(
+            SpeechManager.shouldRecoverFromContinuousStandbyNoBufferStall(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                isAwake: false,
+                isStopping: false,
+                isUtteranceActive: false,
+                audioCaptureRunning: true,
+                recognitionRunning: true,
+                pendingEngineRestart: false,
+                bufferAge: 1.81,
+                routeRebuildGraceActive: false,
+                continuousRecoveryGraceActive: false,
+                recognitionStartupGraceActive: true,
+                recognitionUnavailableActive: false
+            )
+        )
     }
 
     func testValidateDictationEnhancementRejectsLanguageDrift() {

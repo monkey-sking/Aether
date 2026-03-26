@@ -142,25 +142,20 @@ final class WakeWordDetector {
             return WakeWordDetectionResult(wakeDetected: false, payload: text, score: 0, matchedPhrase: nil)
         }
 
-        let strictMatch: WakePhraseMatch?
-        if matchMode == .awakeFollowUp {
-            strictMatch = nil
-        } else {
-            strictMatch = Self.bestMatchAcrossPhrases(
-                phrases,
-                in: trimmedLeading,
-                leadingRawDiscardCount: 0
+        let strictMatch = Self.bestMatchAcrossPhrases(
+            phrases,
+            in: trimmedLeading,
+            leadingRawDiscardCount: 0
+        )
+        if let strictMatch, strictMatch.score >= Self.fuzzyWakeDetectionThreshold {
+            let payload = String(trimmedLeading.dropFirst(strictMatch.totalConsumedRawCount))
+                .trimmingLeadingWakePayloadSeparators()
+            return WakeWordDetectionResult(
+                wakeDetected: true,
+                payload: payload,
+                score: strictMatch.score,
+                matchedPhrase: strictMatch.phrase
             )
-            if let strictMatch, strictMatch.score >= Self.fuzzyWakeDetectionThreshold {
-                let payload = String(trimmedLeading.dropFirst(strictMatch.totalConsumedRawCount))
-                    .trimmingLeadingWakePayloadSeparators()
-                return WakeWordDetectionResult(
-                    wakeDetected: true,
-                    payload: payload,
-                    score: strictMatch.score,
-                    matchedPhrase: strictMatch.phrase
-                )
-            }
         }
 
         if matchMode == .retryAwareStandby || matchMode == .awakeFollowUp,

@@ -798,6 +798,18 @@ final class SpeechManagerTypingModeTests: XCTestCase {
         XCTAssertTrue(resolved)
     }
 
+    func testAutoHUDProcessingClearsPreviousTypingContextWhenCarryoverDisabled() {
+        let resolved = HUDManager.resolvedTypingContext(
+            recognitionControlMode: .auto,
+            inferredTypingContext: false,
+            hudMode: .processing,
+            previousTypingContext: true,
+            allowPreviousTypingContextCarryover: false
+        )
+
+        XCTAssertFalse(resolved)
+    }
+
     func testAutoModeIgnoresAirPodsPostureBiasWithoutTypingContext() {
         let decision = SpeechManager.resolvedRoutingBias(
             recognitionControlMode: .auto,
@@ -898,6 +910,8 @@ final class HUDExplicitTypingSuppressionTests: XCTestCase {
     func testCodexLikeAppsRequireExplicitClickReentry() {
         XCTAssertTrue(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: "com.openai.codex"))
         XCTAssertTrue(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: "com.antigravity.editor"))
+        XCTAssertTrue(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: "ru.keepcoder.Telegram"))
+        XCTAssertTrue(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: "org.telegram.desktop"))
     }
 
     func testNormalAppsDoNotHoldExplicitTypingSuppressionUntilClickReentry() {

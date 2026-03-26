@@ -170,7 +170,8 @@ enum AXFocusedTypingContextDetector {
 
     private static let semanticControlRoles: Set<String> = [
         "AXRadioButton",
-        "AXButton"
+        "AXButton",
+        "AXLink"
     ]
 
     private static let groupLikeRoles: Set<String> = [
@@ -296,6 +297,7 @@ enum AXFocusedTypingContextDetector {
         let bundle = (bundleID ?? "").lowercased()
         return bundle.contains("codex")
             || bundle.contains("antigravity")
+            || bundle.contains("telegram")
             || bundle.contains("xinwechat")
             || bundle.contains("wechat")
     }
@@ -307,7 +309,9 @@ final class HUDManager {
 
     static func shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: String?) -> Bool {
         let bundle = (bundleID ?? "").lowercased()
-        return bundle.contains("codex") || bundle.contains("antigravity")
+        return bundle.contains("codex")
+            || bundle.contains("antigravity")
+            || bundle.contains("telegram")
     }
 
     static func shouldAllowExplicitTypingReentryAfterFocusChange(
@@ -386,6 +390,12 @@ final class HUDManager {
         let explicitTypingReentrySourceRect: CGRect?
         let typingSuppressedUntil: Date
         let preferredExplicitTypingInputRect: CGRect?
+    }
+
+    struct DisplayStateSnapshot {
+        let mode: HUDMode
+        let isTypingContext: Bool
+        let recognitionControlMode: HUDRecognitionControlMode
     }
 
     enum HUDUpdateLifetime {
@@ -477,7 +487,8 @@ final class HUDManager {
         recognitionControlMode: HUDRecognitionControlMode,
         inferredTypingContext: Bool,
         hudMode: HUDMode,
-        previousTypingContext: Bool
+        previousTypingContext: Bool,
+        allowPreviousTypingContextCarryover: Bool = true
     ) -> Bool {
         switch recognitionControlMode {
         case .command:
@@ -492,10 +503,21 @@ final class HUDManager {
                 || hudMode == .processing
                 || hudMode == .checking
                 || hudMode == .feedback {
+                guard allowPreviousTypingContextCarryover else {
+                    return inferredTypingContext
+                }
                 return previousTypingContext
             }
             return inferredTypingContext
         }
+    }
+
+    private func shouldCarryOverPreviousTypingContextForDisplay(frontBundle: String?) -> Bool {
+        let suppressionState = currentTypingSuppressionStateSnapshot()
+        guard suppressionState.requiresExplicitTypingReentry else { return true }
+        guard isExplicitTypingSuppressionApp(bundleID: frontBundle) else { return true }
+        guard let lockedBundle = suppressionState.explicitTypingReentryBundleID else { return false }
+        return lockedBundle != frontBundle
     }
 
     private func startBackgroundFullscreenCheck() {
@@ -576,11 +598,13 @@ final class HUDManager {
         }
         
         let inferredTypingContext = lastKnownTypingState()
+        let frontBundle = currentTypingContextBundleID()
         let effectiveTypingContext = Self.resolvedTypingContext(
             recognitionControlMode: recognitionControlMode,
             inferredTypingContext: inferredTypingContext,
             hudMode: mode,
-            previousTypingContext: state.isTypingContext
+            previousTypingContext: state.isTypingContext,
+            allowPreviousTypingContextCarryover: shouldCarryOverPreviousTypingContextForDisplay(frontBundle: frontBundle)
         )
 
         let isNoopVisibleRefresh =
@@ -1035,6 +1059,20 @@ final class HUDManager {
         )
     }
 
+    func currentDisplayStateSnapshot() -> DisplayStateSnapshot {
+        if !Thread.isMainThread {
+            return DispatchQueue.main.sync {
+                currentDisplayStateSnapshot()
+            }
+        }
+
+        return DisplayStateSnapshot(
+            mode: state.mode,
+            isTypingContext: state.isTypingContext,
+            recognitionControlMode: state.recognitionControlMode
+        )
+    }
+
     private func appendMouseDownDiagnostic(
         timestamp: Date,
         point: CGPoint,
@@ -1278,6 +1316,7 @@ final class HUDManager {
         let b = (bundleID ?? "").lowercased()
         if b.contains("codex") { return true }
         if b.contains("antigravity") { return true }
+        if b.contains("telegram") { return true }
         if b.contains("xinwechat") { return true }
         if b.contains("wechat") { return true }
         return false
@@ -1411,15 +1450,23 @@ final class HUDManager {
 
     private func preferredExplicitTypingInputRect() -> CGRect? {
         let frontBundle = currentTypingContextBundleID()
+        let now = Date()
+        let axEvaluation = axTypingEvaluationThrottled(now: now)
+        let allowLooseGeometryCandidates = shouldAllowLooseTypingRectCandidates(
+            frontBundle: frontBundle,
+            evaluation: axEvaluation
+        )
         var candidates: [CGRect] = []
         if let r = detector.currentUpdate.inputRect,
            !isProbablyWholeWindowRect(r),
-           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+           allowLooseGeometryCandidates || detector.currentUpdate.caretRect != nil || detector.recentCaretRect() != nil {
             candidates.append(r)
         }
         if let r = axFocusedElementRectThrottled(),
            !isProbablyWholeWindowRect(r),
-           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+           allowLooseGeometryCandidates {
             candidates.append(r)
         }
         if candidates.isEmpty,
@@ -1440,15 +1487,23 @@ final class HUDManager {
 
     private func currentFocusedTypingInputRectCandidate() -> CGRect? {
         let frontBundle = currentTypingContextBundleID()
+        let now = Date()
+        let axEvaluation = axTypingEvaluationThrottled(now: now)
+        let allowLooseGeometryCandidates = shouldAllowLooseTypingRectCandidates(
+            frontBundle: frontBundle,
+            evaluation: axEvaluation
+        )
         var candidates: [CGRect] = []
         if let r = detector.currentUpdate.inputRect,
            !isProbablyWholeWindowRect(r),
-           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+           allowLooseGeometryCandidates || detector.currentUpdate.caretRect != nil || detector.recentCaretRect() != nil {
             candidates.append(r)
         }
         if let r = axFocusedElementRectThrottled(),
            !isProbablyWholeWindowRect(r),
-           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)) {
+           (isTypingBoxSizedRect(r) || isWebInputSizedRect(r)),
+           allowLooseGeometryCandidates {
             candidates.append(r)
         }
         guard !candidates.isEmpty else { return nil }
@@ -1456,6 +1511,18 @@ final class HUDManager {
             return candidates.min(by: { ($0.width * $0.height) < ($1.width * $1.height) })
         }
         return candidates.first
+    }
+
+    private func shouldAllowLooseTypingRectCandidates(
+        frontBundle: String?,
+        evaluation: AXFocusedTypingEvaluation
+    ) -> Bool {
+        if !isBrowserLikeBundle(frontBundle) && !isWeirdWebTypingApp(bundleID: frontBundle) {
+            return true
+        }
+        return evaluation.editableLikely
+            || evaluation.insertionContextAvailable
+            || evaluation.looselyEditableForWeb
     }
 
     private func shouldAllowExplicitTypingReentryForChangedFocusedInput(now: Date) -> Bool {

@@ -1634,13 +1634,43 @@ class AppState: ObservableObject {
               let rules = try? JSONDecoder().decode([CustomAppLaunchAliasRule].self, from: data) else {
             return []
         }
-        return rules
+        return normalizeCustomAppLaunchAliasRules(rules)
     }
 
     private static func saveCustomAppLaunchAliasRules(_ rules: [CustomAppLaunchAliasRule]) {
-        if let data = try? JSONEncoder().encode(rules) {
+        let normalized = normalizeCustomAppLaunchAliasRules(rules)
+        if let data = try? JSONEncoder().encode(normalized) {
             UserDefaults.standard.set(data, forKey: customAppLaunchAliasRulesStorageKey)
         }
+    }
+
+    private static func normalizeCustomAppLaunchAliasRules(_ rules: [CustomAppLaunchAliasRule]) -> [CustomAppLaunchAliasRule] {
+        var normalized: [CustomAppLaunchAliasRule] = []
+        var indexByBundle: [String: Int] = [:]
+
+        for rule in rules {
+            let bundleIdentifier = rule.effectiveBundleIdentifier
+            let aliases = rule.effectiveAliases
+            guard !bundleIdentifier.isEmpty, !aliases.isEmpty else { continue }
+
+            let bundleKey = bundleIdentifier.lowercased()
+            if let idx = indexByBundle[bundleKey] {
+                normalized[idx].aliases = VoiceCommandRouter.uniqueAliases(normalized[idx].effectiveAliases + aliases)
+                normalized[idx].isEnabled = normalized[idx].isEnabled || rule.isEnabled
+            } else {
+                normalized.append(
+                    CustomAppLaunchAliasRule(
+                        id: rule.id,
+                        isEnabled: rule.isEnabled,
+                        bundleIdentifier: bundleIdentifier,
+                        aliases: aliases
+                    )
+                )
+                indexByBundle[bundleKey] = normalized.count - 1
+            }
+        }
+
+        return normalized
     }
 
     private static func loadVoiceUsageHistory(limit: Int) -> [VoiceUsageEvent] {
@@ -1741,7 +1771,14 @@ class AppState: ObservableObject {
         min(max(value, minVoiceUsageHistoryLimit), maxVoiceUsageHistoryLimit)
     }
 
+    private struct AppLaunchAliasPromptTarget: Codable {
+        let bundleIdentifier: String
+        let appName: String
+        let aliases: [String]
+    }
+
     private static let aiPromptMaxEventsDefault = 180
+    private static let appLaunchAliasPromptMaxEventsDefault = 120
 
     func buildAetherAIConfigPrompt(maxEvents: Int? = nil) -> String {
         let encoder = JSONEncoder()
@@ -1782,6 +1819,153 @@ class AppState: ObservableObject {
             .replacingOccurrences(of: "{{SUMMARY_CONTROL}}", with: String(summary.controlCount))
             .replacingOccurrences(of: "{{LOCALE}}", with: localeID)
             .replacingOccurrences(of: "{{EXPORTED_AT}}", with: exportedAt)
+    }
+
+    func buildAppLaunchAliasAIPrompt(maxEvents: Int? = nil) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+
+        let normalizedRules = Self.normalizeCustomAppLaunchAliasRules(customAppLaunchAliasRules)
+        let currentRulesJSON = (try? String(
+            data: encoder.encode(CustomAppLaunchAliasRulesBackup(rules: normalizedRules)),
+            encoding: .utf8
+        )) ?? "{}"
+
+        let candidateTargets = AppLaunchResolver.contextualTargets(customRules: normalizedRules, limit: 48)
+            .map {
+                AppLaunchAliasPromptTarget(
+                    bundleIdentifier: $0.bundleIdentifier,
+                    appName: $0.displayName,
+                    aliases: Array(VoiceCommandRouter.uniqueAliases([$0.displayName] + $0.aliases).prefix(8))
+                )
+            }
+        let candidateTargetsJSON = (try? String(data: encoder.encode(candidateTargets), encoding: .utf8)) ?? "[]"
+
+        let resolvedMaxEvents = maxEvents ?? Self.appLaunchAliasPromptMaxEventsDefault
+        let recentEvents = Array(
+            voiceUsageHistory
+                .filter(Self.isRelevantForAppLaunchAliasPrompt)
+                .prefix(resolvedMaxEvents)
+        )
+        let recentEventsJSON = (try? String(data: encoder.encode(recentEvents), encoding: .utf8)) ?? "[]"
+
+        let exportedAt = ISO8601DateFormatter().string(from: Date())
+
+        if AppLocalization.isChinese {
+            return """
+你是 Aether 的 App 打开别名顾问。目标：基于下面的历史与候选 App，生成可直接导入 Aether 的 App 打开别名配置，用于提升“打开 XX / 切到 XX / 启动 XX”这类语音指令的识别成功率。
+
+只输出 JSON（不要 Markdown、不要解释）。JSON 必须严格符合 CustomAppLaunchAliasRulesBackup 格式：
+{
+  "version": 1,
+  "exportedAt": "\(exportedAt)",
+  "rules": [
+    {
+      "id": "chrome-launch-aliases",
+      "isEnabled": true,
+      "bundleIdentifier": "com.google.Chrome",
+      "aliases": ["谷歌浏览器", "谷歌", "chrome"]
+    }
+  ]
+}
+
+说明：
+- 每个 bundleIdentifier 最多输出一条规则。
+- aliases 里放这一个 App 的完整建议别名集合，不要只给增量。
+- 只输出“打开/切到/启动 App”相关别名，不要输出 App 内动作、菜单动作、提交/发送等快捷操作。
+- 优先使用候选可打开 App 列表里的 bundleIdentifier。
+- 如果历史证据不足，不要猜。
+- 如果某个 App 当前已经有别名，而你建议补充更多叫法，请输出该 App 的完整合并后 aliases。
+
+当前 App 打开别名（JSON）：
+\(currentRulesJSON)
+
+候选可打开 App（JSON）：
+\(candidateTargetsJSON)
+
+最近与“打开 App”相关的历史（JSON）：
+\(recentEventsJSON)
+"""
+        }
+
+        return """
+You are an Aether app-launch alias assistant. Goal: based on the history and candidate apps below, generate an app-launch alias config that can be imported directly into Aether to improve recognition for commands like “open X”, “launch X”, and “switch to X”.
+
+Output JSON only (no Markdown, no explanations). JSON must strictly follow the CustomAppLaunchAliasRulesBackup format:
+{
+  "version": 1,
+  "exportedAt": "\(exportedAt)",
+  "rules": [
+    {
+      "id": "chrome-launch-aliases",
+      "isEnabled": true,
+      "bundleIdentifier": "com.google.Chrome",
+      "aliases": ["google chrome", "chrome", "google browser"]
+    }
+  ]
+}
+
+Notes:
+- Output at most one rule per bundleIdentifier.
+- Put the full suggested alias set for that app in aliases, not just incremental additions.
+- Only output aliases for opening or switching to an app. Do not include in-app actions, menu actions, send/submit actions, or shortcuts.
+- Prefer bundleIdentifier values from the candidate app list below.
+- Do not guess when the evidence is weak.
+- If an app already has aliases and you want to add more, output the fully merged alias set for that app.
+
+Current app launch aliases (JSON):
+\(currentRulesJSON)
+
+Candidate launchable apps (JSON):
+\(candidateTargetsJSON)
+
+Recent history relevant to app-launch commands (JSON):
+\(recentEventsJSON)
+"""
+    }
+
+    private static func isRelevantForAppLaunchAliasPrompt(_ event: VoiceUsageEvent) -> Bool {
+        guard event.kind != .activation else { return false }
+        if looksLikeAppLaunchAction(event.action) {
+            return true
+        }
+
+        return [
+            event.content,
+            event.originalContent,
+            event.spokenText,
+            event.committedContent
+        ].contains(where: looksLikeAppLaunchPhrase)
+    }
+
+    private static func looksLikeAppLaunchAction(_ raw: String?) -> Bool {
+        guard let raw else { return false }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        if trimmed.hasPrefix("打开 ") || trimmed.hasPrefix("启动 ") || trimmed.hasPrefix("切到 ") || trimmed.hasPrefix("切换到 ") {
+            return true
+        }
+
+        let lowered = trimmed.lowercased()
+        return lowered.hasPrefix("open ") || lowered.hasPrefix("launch ") || lowered.hasPrefix("switch to ")
+    }
+
+    private static func looksLikeAppLaunchPhrase(_ raw: String?) -> Bool {
+        guard let raw else { return false }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        if trimmed.hasPrefix("打开") || trimmed.hasPrefix("启动") || trimmed.hasPrefix("切到") || trimmed.hasPrefix("切换到") {
+            return true
+        }
+
+        let lowered = trimmed.lowercased()
+        return lowered.hasPrefix("open ")
+            || lowered.hasPrefix("launch ")
+            || lowered.hasPrefix("switch to ")
+            || lowered.hasPrefix("switch ")
     }
 
     enum VoiceActivationMode: String, CaseIterable, Identifiable {
@@ -2303,6 +2487,11 @@ class AppState: ObservableObject {
     }
     @Published var customAppLaunchAliasRules: [CustomAppLaunchAliasRule] = AppState.loadCustomAppLaunchAliasRules() {
         didSet {
+            let normalized = AppState.normalizeCustomAppLaunchAliasRules(customAppLaunchAliasRules)
+            guard normalized == customAppLaunchAliasRules else {
+                customAppLaunchAliasRules = normalized
+                return
+            }
             AppState.saveCustomAppLaunchAliasRules(customAppLaunchAliasRules)
             voiceService.setCustomAppLaunchAliasRules(customAppLaunchAliasRules)
         }
@@ -3233,6 +3422,15 @@ class AppState: ObservableObject {
         }
     }
 
+    func exportAppLaunchAliasAIPrompt() throws {
+        let prompt = buildAppLaunchAliasAIPrompt()
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(prompt, forType: .string) else {
+            throw NSError(domain: "AetherAppLaunchAliasPromptExport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to copy app launch alias prompt to pasteboard."])
+        }
+    }
+
     func copyVoiceUsageHistoryForDiagnostics() throws {
         let summary = voiceUsageSummary
         let localeID = voiceService.effectiveLocaleIdentifier
@@ -3305,7 +3503,8 @@ class AppState: ObservableObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(CustomAppLaunchAliasRulesBackup(rules: customAppLaunchAliasRules))
+        let normalizedRules = Self.normalizeCustomAppLaunchAliasRules(customAppLaunchAliasRules)
+        let data = try encoder.encode(CustomAppLaunchAliasRulesBackup(rules: normalizedRules))
         guard let payload = String(data: data, encoding: .utf8) else {
             throw NSError(domain: "AetherAppLaunchAliasesCopy", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to encode app launch aliases."])
         }
@@ -3349,16 +3548,7 @@ class AppState: ObservableObject {
     }
 
     private func mergeCustomAppLaunchAliasRules(_ incoming: [CustomAppLaunchAliasRule]) {
-        var merged = customAppLaunchAliasRules
-        var keys = Set(merged.map(customAppLaunchAliasRuleSemanticKey(_:)))
-        for rule in incoming {
-            guard rule.isValid else { continue }
-            let key = customAppLaunchAliasRuleSemanticKey(rule)
-            guard !keys.contains(key) else { continue }
-            keys.insert(key)
-            merged.append(rule)
-        }
-        customAppLaunchAliasRules = merged
+        customAppLaunchAliasRules = Self.normalizeCustomAppLaunchAliasRules(customAppLaunchAliasRules + incoming)
     }
 
     private func customAppShortcutRuleSemanticKey(_ rule: CustomAppShortcutRule) -> String {

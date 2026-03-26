@@ -996,6 +996,20 @@ struct InputSettingsView: View {
                     GlassCard {
                         CustomAppLaunchAliasesCard(
                             rules: $appState.customAppLaunchAliasRules,
+                            onCopyAIPrompt: {
+                                do {
+                                    try appState.exportAppLaunchAliasAIPrompt()
+                                    HUDManager.shared.showTemporary(
+                                        message: AppLocalization.isChinese ? "已复制 App AI 提示" : "App AI prompt copied",
+                                        icon: "wand.and.stars"
+                                    )
+                                } catch {
+                                    HUDManager.shared.showTemporary(
+                                        message: AppLocalization.isChinese ? "复制 App AI 提示失败" : "Couldn't copy app AI prompt",
+                                        icon: "xmark.circle.fill"
+                                    )
+                                }
+                            },
                             onCopy: {
                                 do {
                                     try appState.copyCustomAppLaunchAliasRulesToPasteboard()
@@ -5398,6 +5412,7 @@ private struct FixedPopUpOption: Equatable {
 
 private struct CustomAppLaunchAliasesCard: View {
     @Binding var rules: [CustomAppLaunchAliasRule]
+    let onCopyAIPrompt: () -> Void
     let onCopy: () -> Void
     let onPaste: () -> Void
     let onAddCurrent: () -> Void
@@ -5428,6 +5443,9 @@ private struct CustomAppLaunchAliasesCard: View {
                 }
                 Spacer()
                 HStack(spacing: 8) {
+                    Button(isChinese ? "复制 AI 提示" : "Copy AI Prompt", action: onCopyAIPrompt)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     Button(isChinese ? "复制别名" : "Copy Aliases", action: onCopy)
                         .buttonStyle(.bordered)
                         .controlSize(.small)

@@ -585,6 +585,7 @@ final class SpeechManager: ObservableObject {
         let expiresAt: Date
     }
     private var pendingWakeFollowUp: PendingWakeFollowUp?
+    private var wakeActivatedDuringCurrentUtterance: Bool = false
     private var lastWakeHUDDiagnosticSignature: String?
     private var lastWakeHUDDiagnosticAt: Date = .distantPast
     private var lastWakeArmDiagnosticSignature: String?
@@ -823,6 +824,50 @@ final class SpeechManager: ObservableObject {
             return .strictPrefix
         }
         return isAwake ? .awakeFollowUp : .retryAwareStandby
+    }
+
+    static func shouldSegmentRecognitionAfterPartialWake(
+        isAlwaysListeningEnabled: Bool,
+        isWakeWordEnabled: Bool,
+        isDirectCommandEnabled: Bool,
+        wakePayload: String
+    ) -> Bool {
+        guard isAlwaysListeningEnabled, isWakeWordEnabled, !isDirectCommandEnabled else {
+            return false
+        }
+        return wakePayload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func shouldRecoverFromContinuousStandbyNoBufferStall(
+        isAlwaysListeningEnabled: Bool,
+        isWakeWordEnabled: Bool,
+        isDirectCommandEnabled: Bool,
+        isAwake: Bool,
+        isStopping: Bool,
+        isUtteranceActive: Bool,
+        audioCaptureRunning: Bool,
+        recognitionRunning: Bool,
+        pendingEngineRestart: Bool,
+        bufferAge: TimeInterval,
+        routeRebuildGraceActive: Bool,
+        continuousRecoveryGraceActive: Bool,
+        recognitionStartupGraceActive: Bool,
+        recognitionUnavailableActive: Bool
+    ) -> Bool {
+        guard isAlwaysListeningEnabled, isWakeWordEnabled, !isDirectCommandEnabled, !isAwake else {
+            return false
+        }
+        guard !isStopping, !isUtteranceActive else { return false }
+        guard audioCaptureRunning, recognitionRunning else { return false }
+        guard !pendingEngineRestart else { return false }
+        guard !routeRebuildGraceActive,
+              !continuousRecoveryGraceActive,
+              !recognitionStartupGraceActive,
+              !recognitionUnavailableActive else {
+            return false
+        }
+        guard bufferAge.isFinite else { return false }
+        return bufferAge >= 1.8
     }
 
     static func shouldUseWakeTypingFallback(
@@ -2405,10 +2450,20 @@ final class SpeechManager: ObservableObject {
                         reason: "partial-wake-word",
                         rearmReason: (isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled) ? "wake-word" : nil
                     )
-                    segmentRecognitionAfterWakeWord(reason: "partial-wake-word")
-                    return
+                    text = result.payload
+                    if Self.shouldSegmentRecognitionAfterPartialWake(
+                        isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+                        isWakeWordEnabled: isWakeWordEnabled,
+                        isDirectCommandEnabled: isDirectCommandEnabled,
+                        wakePayload: text
+                    ) {
+                        segmentRecognitionAfterWakeWord(reason: "partial-wake-word")
+                        return
+                    }
+                    wakeActivatedDuringCurrentUtterance = true
+                } else {
+                    text = result.payload
                 }
-                text = result.payload
             } else if wakeScore > 0 {
                 GlobalLogger.speech.info(
                     "[WakeWordMiss] phase=partial score=\(String(format: "%.2f", wakeScore)) matched=\(matchedWakePhrase ?? "nil") threshold=\(String(format: "%.2f", WakeWordDetector.diagnosticsThreshold)) raw='\(originalRawText)'"
@@ -2989,6 +3044,7 @@ final class SpeechManager: ObservableObject {
         headsetInputMuteRouter.deactivate()
         isStopping = false; isDictating = false; sessionTypingMode = false; shouldShowProcessingDotsDuringStop = false
         activeUtteranceID = 0
+        wakeActivatedDuringCurrentUtterance = false
         wakeTypingFallbackUntil = .distantPast
         recentWakeFollowUpDictationSuppression = nil
         wakeFollowUpDictationMarkers.removeAll()
@@ -3007,6 +3063,7 @@ final class SpeechManager: ObservableObject {
         headsetInputMuteRouter.deactivate()
         isStopping = false; isDictating = false; sessionTypingMode = false; shouldShowProcessingDotsDuringStop = false
         activeUtteranceID = 0
+        wakeActivatedDuringCurrentUtterance = false
         wakeTypingFallbackUntil = .distantPast
         recentWakeFollowUpDictationSuppression = nil
         wakeFollowUpDictationMarkers.removeAll()
@@ -3088,6 +3145,32 @@ final class SpeechManager: ObservableObject {
                 return
             }
             scheduleContinuousRecovery(delay: 0.12); return
+        }
+
+        let now = Date()
+        let bufferAge = now.timeIntervalSince(audioCapture.lastBufferAt)
+        if Self.shouldRecoverFromContinuousStandbyNoBufferStall(
+            isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+            isWakeWordEnabled: isWakeWordEnabled,
+            isDirectCommandEnabled: isDirectCommandEnabled,
+            isAwake: currentlyAwake,
+            isStopping: isStopping,
+            isUtteranceActive: isUtteranceActive,
+            audioCaptureRunning: audioCapture.isRunning,
+            recognitionRunning: recognitionSession.isRunning,
+            pendingEngineRestart: pendingEngineRestartWorkItem != nil,
+            bufferAge: bufferAge,
+            routeRebuildGraceActive: now < routeRebuildGraceUntil,
+            continuousRecoveryGraceActive: now < continuousRecoveryGraceUntil,
+            recognitionStartupGraceActive: now < recognitionStartupGraceUntil,
+            recognitionUnavailableActive: now < recognitionUnavailableUntil
+        ) {
+            let bufferAgeText = String(format: "%.2fs", bufferAge)
+            GlobalLogger.speech.info(
+                "[ASRStall] scheduling recovery reason=no-audio-buffers age=\(bufferAgeText) recognitionRunning=\(recognitionSession.isRunning) audioRunning=\(audioCapture.isRunning) awake=\(currentlyAwake) utteranceActive=\(isUtteranceActive) selectedInputID=\(selectedInputDeviceID) effectiveInputID=\(effectiveCaptureInputDeviceID()) boundInputID=\(audioCapture.currentBoundInputDeviceID()) input='\(currentResolvedInputDeviceName)'"
+            )
+            scheduleEngineRestart(reason: "audio-buffer-stall", debounce: 0.05)
+            return
         }
 
         // EOSDetector is the single source of truth for utterance boundaries.
@@ -3469,7 +3552,13 @@ final class SpeechManager: ObservableObject {
             wakeScore = wakeResult.score
             matchedWakePhrase = wakeResult.matchedPhrase
             if isAwake {
-                if wakeResult.wakeDetected { textToRoute = wakeResult.payload; wakeWordDetected = true; handleWakeActivation(reason: "always-listening-awake-final-wake") }
+                if wakeResult.wakeDetected {
+                    textToRoute = wakeResult.payload
+                    wakeWordDetected = true
+                    if !wakeActivatedDuringCurrentUtterance {
+                        handleWakeActivation(reason: "always-listening-awake-final-wake")
+                    }
+                }
                 else {
                     if wakeScore > 0 {
                         GlobalLogger.speech.info(
@@ -3479,7 +3568,13 @@ final class SpeechManager: ObservableObject {
                     textToRoute = rawTrimmed
                 }
             } else {
-                if wakeResult.wakeDetected { textToRoute = wakeResult.payload; wakeWordDetected = true; handleWakeActivation(reason: "always-listening-sleeping-final-wake") }
+                if wakeResult.wakeDetected {
+                    textToRoute = wakeResult.payload
+                    wakeWordDetected = true
+                    if !wakeActivatedDuringCurrentUtterance {
+                        handleWakeActivation(reason: "always-listening-sleeping-final-wake")
+                    }
+                }
                 else {
                     if wakeScore > 0 {
                         GlobalLogger.speech.info(
@@ -6386,6 +6481,7 @@ final class SpeechManager: ObservableObject {
         reason == "input-device-selection"
             || reason == "default-input-device-changed"
             || reason == "audio-route-changed"
+            || reason == "audio-buffer-stall"
             || reason.contains("headset")
     }
 
@@ -6393,6 +6489,7 @@ final class SpeechManager: ObservableObject {
         reason == "input-device-selection"
             || reason == "default-input-device-changed"
             || reason == "audio-route-changed"
+            || reason == "audio-buffer-stall"
             || reason.contains("headset")
     }
 
@@ -6653,6 +6750,7 @@ final class SpeechManager: ObservableObject {
 
     private func resetUtteranceTrackingForNextPhrase() {
         activeUtteranceID = 0
+        wakeActivatedDuringCurrentUtterance = false
         isUtteranceActive = false
         isDictating = false
         sessionTypingMode = false
@@ -7020,6 +7118,7 @@ final class SpeechManager: ObservableObject {
         let axTrusted = accessibilityTrustedSnapshot || AXIsProcessTrusted()
         let hudEvaluation = HUDManager.shared.currentAXTypingEvaluation()
         let hudTypingState = HUDManager.shared.lastKnownTypingState()
+        let hudDisplayState = HUDManager.shared.currentDisplayStateSnapshot()
         let hudSuppressionState = HUDManager.shared.currentTypingSuppressionStateSnapshot()
         let snapshot = currentFocusedInputSnapshot()
         let isoFormatter = ISO8601DateFormatter()
@@ -7052,6 +7151,9 @@ final class SpeechManager: ObservableObject {
         } ?? "nil"
         lines.append("speech.currentFocusedInputSnapshot.anchorPoint=\(anchorPointSummary)")
         lines.append("hud.lastKnownTypingState=\(hudTypingState)")
+        lines.append("hud.display.mode=\(hudDisplayState.mode.rawValue)")
+        lines.append("hud.display.isTypingContext=\(hudDisplayState.isTypingContext)")
+        lines.append("hud.display.recognitionControlMode=\(hudDisplayState.recognitionControlMode.rawValue)")
         lines.append("hud.typingExplicitlySuppressed=\(HUDManager.shared.isTypingExplicitlySuppressedForCurrentApp())")
         lines.append("hud.requiresExplicitTypingReentry=\(hudSuppressionState.requiresExplicitTypingReentry)")
         lines.append("hud.explicitTypingReentryBundleID=\(hudSuppressionState.explicitTypingReentryBundleID ?? "nil")")

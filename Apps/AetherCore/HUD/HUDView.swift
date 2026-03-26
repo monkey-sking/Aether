@@ -14,7 +14,7 @@ struct HUDView: View {
                 case .standby:
                     StandbyDotView(health: state.inputDeviceHealth)
                     if state.isLanguageIndicatorVisible {
-                        languageToggle(showDivider: true)
+                        languageToggle(showDivider: false)
                     }
 
                 case .listening:
@@ -22,20 +22,14 @@ struct HUDView: View {
                     if !trimmedMessage.isEmpty {
                         hudLabel(trimmedMessage)
                     }
-                    contextIcon
-                    if state.isLanguageIndicatorVisible {
-                        languageToggle(showDivider: true)
-                    }
+                    trailingAccessories
 
                 case .command:
                     listeningLeadingVisual
                     if !trimmedMessage.isEmpty {
                         hudLabel(trimmedMessage)
                     }
-                    contextIcon
-                    if state.isLanguageIndicatorVisible {
-                        languageToggle(showDivider: true)
-                    }
+                    trailingAccessories
 
                 case .dictation:
                     listeningLeadingVisual
@@ -44,10 +38,7 @@ struct HUDView: View {
                     } else {
                         hudLabel(trimmedMessage)
                     }
-                    contextIcon
-                    if state.isLanguageIndicatorVisible {
-                        languageToggle(showDivider: true)
-                    }
+                    trailingAccessories
 
                 case .organizing:
                     stageLeadingVisual
@@ -56,10 +47,7 @@ struct HUDView: View {
                     } else {
                         hudLabel(trimmedMessage)
                     }
-                    contextIcon
-                    if state.isLanguageIndicatorVisible {
-                        languageToggle(showDivider: true)
-                    }
+                    trailingAccessories
 
                 case .typing:
                     stageLeadingVisual
@@ -68,10 +56,7 @@ struct HUDView: View {
                     } else {
                         hudLabel(trimmedMessage)
                     }
-                    contextIcon
-                    if state.isLanguageIndicatorVisible {
-                        languageToggle(showDivider: true)
-                    }
+                    trailingAccessories
 
                 case .executing:
                     stageLeadingVisual
@@ -80,13 +65,10 @@ struct HUDView: View {
                     } else {
                         hudLabel(trimmedMessage)
                     }
-                    contextIcon
-                    if state.isLanguageIndicatorVisible {
-                        languageToggle(showDivider: true)
-                    }
+                    trailingAccessories
 
                 case .optimizing:
-                    stageLeadingVisual
+                    optimizingLeadingVisual
                     if trimmedMessage.isEmpty {
                         OptimizingPulseView()
                     } else {
@@ -95,10 +77,7 @@ struct HUDView: View {
                             hudLabel(trimmedMessage)
                         }
                     }
-                    contextIcon
-                    if state.isLanguageIndicatorVisible {
-                        languageToggle(showDivider: true)
-                    }
+                    trailingAccessories
 
                 case .checking:
                     stageLeadingVisual
@@ -107,18 +86,12 @@ struct HUDView: View {
                     } else {
                         hudLabel(trimmedMessage)
                     }
-                    contextIcon
-                    if state.isLanguageIndicatorVisible {
-                        languageToggle(showDivider: true)
-                    }
+                    trailingAccessories
 
                 case .dragging:
                     actionBadge(symbol: "hand.draw.fill", tone: .white)
                     hudLabel(NSLocalizedString("speech.dragging", comment: ""))
-                    contextIcon
-                    if state.isLanguageIndicatorVisible {
-                        languageToggle(showDivider: true)
-                    }
+                    trailingAccessories
 
                 case .processing:
                     stageLeadingVisual
@@ -127,10 +100,7 @@ struct HUDView: View {
                     } else {
                         GenericProcessingView()
                     }
-                    contextIcon
-                    if state.isLanguageIndicatorVisible {
-                        languageToggle(showDivider: true)
-                    }
+                    trailingAccessories
 
                 case .feedback:
                     feedbackLeadingVisual
@@ -193,7 +163,7 @@ struct HUDView: View {
     }
 
     private var micIcon: some View {
-        ZStack(alignment: .bottomTrailing) {
+        ZStack {
             ZStack {
                 if state.isMicProgressVisible && (state.mode == .listening || state.mode == .command || state.mode == .dictation) {
                     Circle()
@@ -215,13 +185,20 @@ struct HUDView: View {
                     .font(.system(size: 14))
                     .shadow(radius: 1)
             }
-
-            if let healthStyle = deviceHealthStyle {
-                DeviceHealthBadge(style: healthStyle)
-                    .offset(x: 4, y: 4)
-            }
         }
         .frame(width: 22, height: 22)
+        .overlay(alignment: .topLeading) {
+            if let healthStyle = deviceHealthStyle {
+                DeviceHealthBadge(style: healthStyle)
+                    .offset(x: -4, y: -4)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if let symbol = modeIndicatorSymbol {
+                ModeIndicatorBadge(symbol: symbol)
+                    .offset(x: 5, y: 5)
+            }
+        }
     }
 
     private var listeningLeadingVisual: some View {
@@ -233,39 +210,83 @@ struct HUDView: View {
     }
 
     private var stageLeadingVisual: some View {
-        ZStack(alignment: .bottomTrailing) {
-            AnimatedHUDBadge(
-                symbol: currentInputDeviceSymbol,
-                tone: .white.opacity(0.92),
-                animatePulse: false
-            )
-            if let healthStyle = deviceHealthStyle {
-                DeviceHealthBadge(style: healthStyle)
-                    .offset(x: 4, y: 4)
-            }
-        }
-    }
-
-    private var feedbackLeadingVisual: some View {
         ZStack {
             AnimatedHUDBadge(
                 symbol: currentInputDeviceSymbol,
                 tone: .white.opacity(0.92),
                 animatePulse: false
             )
+        }
+        .overlay(alignment: .topLeading) {
             if let healthStyle = deviceHealthStyle {
                 DeviceHealthBadge(style: healthStyle)
-                    .offset(x: -7, y: -7)
+                    .offset(x: -4, y: -4)
             }
-            if let feedbackOutcomeSymbol {
-                OutcomeOverlayBadge(symbol: feedbackOutcomeSymbol, tone: feedbackTone)
-                    .offset(x: 4, y: 4)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if let symbol = modeIndicatorSymbol {
+                ModeIndicatorBadge(symbol: symbol)
+                    .offset(x: 5, y: 5)
             }
         }
     }
 
+    private var optimizingLeadingVisual: some View {
+        semanticLeadingVisual(symbol: "wand.and.stars", tone: .mint)
+    }
+
+    @ViewBuilder
+    private var feedbackLeadingVisual: some View {
+        switch feedbackLeadingStrategy {
+        case .device:
+            ZStack {
+                AnimatedHUDBadge(
+                    symbol: currentInputDeviceSymbol,
+                    tone: .white.opacity(0.92),
+                    animatePulse: false
+                )
+                if let healthStyle = deviceHealthStyle {
+                    DeviceHealthBadge(style: healthStyle)
+                        .offset(x: -7, y: -7)
+                }
+                if let feedbackOutcomeSymbol {
+                    OutcomeOverlayBadge(
+                        symbol: feedbackOutcomeSymbol,
+                        tone: feedbackTone,
+                        style: feedbackBadgeStyle
+                    )
+                        .offset(x: 4, y: 4)
+                }
+            }
+        case .wakeSuccess:
+            semanticLeadingVisual(symbol: "waveform", tone: .green)
+        case .warning:
+            semanticLeadingVisual(symbol: "exclamationmark.triangle.fill", tone: .orange)
+        case .error:
+            semanticLeadingVisual(symbol: "xmark.circle.fill", tone: .red)
+        }
+    }
+
+    private enum FeedbackLeadingStrategy {
+        case device
+        case wakeSuccess
+        case warning
+        case error
+    }
+
     private var currentInputDeviceSymbol: String {
         resolvedSymbolName(for: state.inputDeviceIcon)
+    }
+
+    private var modeIndicatorSymbol: String? {
+        switch state.recognitionControlMode {
+        case .command:
+            return "command"
+        case .dictation:
+            return "keyboard.fill"
+        case .auto:
+            return state.isTypingContext ? "keyboard.fill" : "command"
+        }
     }
 
     private enum FeedbackKind {
@@ -293,18 +314,32 @@ struct HUDView: View {
         return .info
     }
 
+    private var feedbackLeadingStrategy: FeedbackLeadingStrategy {
+        if trimmedMessage.isEmpty {
+            return .wakeSuccess
+        }
+        switch feedbackKind {
+        case .warning:
+            return .warning
+        case .error:
+            return .error
+        case .neutral, .info, .success:
+            return .device
+        }
+    }
+
     private var feedbackOutcomeSymbol: String? {
         switch feedbackKind {
         case .neutral:
             return nil
         case .info:
-            return "info.circle.fill"
+            return "info"
         case .success:
-            return "checkmark.circle.fill"
+            return "checkmark"
         case .warning:
-            return "exclamationmark.triangle.fill"
+            return "exclamationmark"
         case .error:
-            return "xmark.circle.fill"
+            return "xmark"
         }
     }
 
@@ -320,6 +355,19 @@ struct HUDView: View {
             return .orange
         case .error:
             return .red
+        }
+    }
+
+    private var feedbackBadgeStyle: OutcomeOverlayBadge.Style {
+        switch feedbackKind {
+        case .success:
+            return .positive
+        case .warning:
+            return .warning
+        case .error:
+            return .critical
+        case .info, .neutral:
+            return .neutral
         }
     }
 
@@ -438,6 +486,20 @@ struct HUDView: View {
             || lowercased.hasPrefix("switched to ")
     }
 
+    private func semanticLeadingVisual(symbol: String, tone: Color) -> some View {
+        AnimatedHUDBadge(symbol: symbol, tone: tone.opacity(0.95), animatePulse: false)
+    }
+
+    @ViewBuilder
+    private var trailingAccessories: some View {
+        if hasVisibleContextIcon {
+            contextIcon
+        }
+        if state.isLanguageIndicatorVisible {
+            languageToggle(showDivider: hasVisibleContextIcon)
+        }
+    }
+
     private func hudLabel(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 14, weight: .semibold))
@@ -501,6 +563,11 @@ struct HUDView: View {
         NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
     }
 
+    private var hasVisibleContextIcon: Bool {
+        guard let bundleID = requestedAppBundleID(for: state.contextIcon) else { return false }
+        return isWeChatBundleID(bundleID) || appIcon(for: bundleID) != nil
+    }
+
     private var contextIcon: some View {
         if let bundleID = requestedAppBundleID(for: state.contextIcon),
            isWeChatBundleID(bundleID) {
@@ -538,23 +605,7 @@ struct HUDView: View {
                 .shadow(radius: 1)
             )
         }
-
-        let symbol: String
-        switch state.recognitionControlMode {
-        case .command:
-            symbol = "command"
-        case .dictation:
-            symbol = "keyboard"
-        case .auto:
-            symbol = state.isTypingContext ? "keyboard" : "command"
-        }
-
-        return AnyView(
-            Image(systemName: symbol)
-                .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.8))
-                .shadow(radius: 1)
-        )
+        return AnyView(EmptyView())
     }
 
     private var displayLanguage: String {
@@ -592,15 +643,20 @@ struct HUDView: View {
                 NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
             }) {
                 Text(displayLanguage)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.9))
                     .fixedSize()
-                    .frame(minWidth: 24, alignment: .center)
+                    .frame(minWidth: 22, alignment: .center)
                     .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.white.opacity(0.2))
-                    .cornerRadius(4)
+                    .padding(.vertical, 1.5)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.white.opacity(0.12))
+                    )
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                    )
             }
             .buttonStyle(.plain)
         }
@@ -908,20 +964,87 @@ private struct AnimatedHUDBadge: View {
 }
 
 private struct OutcomeOverlayBadge: View {
+    enum Style {
+        case neutral
+        case positive
+        case warning
+        case critical
+    }
+
     let symbol: String
     let tone: Color
+    let style: Style
 
     var body: some View {
         ZStack {
             Circle()
-                .fill(Color.black.opacity(0.78))
+                .fill(backgroundColor)
                 .frame(width: 14, height: 14)
             Circle()
-                .stroke(tone.opacity(0.8), lineWidth: 1)
+                .stroke(borderColor, lineWidth: 1)
                 .frame(width: 14, height: 14)
             Image(systemName: symbol)
                 .font(.system(size: 7.5, weight: .bold))
-                .foregroundColor(tone)
+                .foregroundColor(symbolColor)
+        }
+        .shadow(color: shadowColor, radius: style == .positive ? 4 : 0)
+    }
+
+    private var backgroundColor: Color {
+        switch style {
+        case .neutral:
+            return Color.white.opacity(0.14)
+        case .positive:
+            return Color.green.opacity(0.28)
+        case .warning:
+            return Color.orange.opacity(0.2)
+        case .critical:
+            return Color.red.opacity(0.2)
+        }
+    }
+
+    private var borderColor: Color {
+        switch style {
+        case .neutral:
+            return Color.white.opacity(0.26)
+        case .positive, .warning, .critical:
+            return tone.opacity(0.82)
+        }
+    }
+
+    private var symbolColor: Color {
+        switch style {
+        case .positive:
+            return .white
+        case .neutral, .warning, .critical:
+            return tone
+        }
+    }
+
+    private var shadowColor: Color {
+        switch style {
+        case .positive:
+            return Color.green.opacity(0.24)
+        case .neutral, .warning, .critical:
+            return .clear
+        }
+    }
+}
+
+private struct ModeIndicatorBadge: View {
+    let symbol: String
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+                .fill(Color.white.opacity(0.14))
+                .frame(width: 14, height: 14)
+            RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                .frame(width: 14, height: 14)
+            Image(systemName: symbol)
+                .font(.system(size: symbol == "command" ? 7.2 : 7.8, weight: .semibold))
+                .foregroundColor(.white.opacity(0.92))
         }
     }
 }
@@ -941,24 +1064,27 @@ private struct DeviceHealthBadge: View {
             }
 
             Circle()
-                .fill(Color.black.opacity(0.82))
+                .fill(backgroundColor)
                 .frame(width: 14, height: 14)
 
             switch style {
             case .warning:
                 Circle()
+                    .stroke(borderColor, lineWidth: 1)
+                    .frame(width: 14, height: 14)
+                Circle()
                     .fill(tone)
                     .frame(width: 5.5, height: 5.5)
             case .limited:
                 Circle()
-                    .stroke(tone.opacity(0.85), lineWidth: 1)
+                    .stroke(borderColor, lineWidth: 1)
                     .frame(width: 14, height: 14)
                 RoundedRectangle(cornerRadius: 1, style: .continuous)
                     .fill(tone)
                     .frame(width: 6.5, height: 2)
             case .error:
                 Circle()
-                    .stroke(tone.opacity(0.85), lineWidth: 1)
+                    .stroke(borderColor, lineWidth: 1)
                     .frame(width: 14, height: 14)
                 Image(systemName: "xmark")
                     .font(.system(size: 6.5, weight: .bold))
@@ -966,6 +1092,7 @@ private struct DeviceHealthBadge: View {
             }
         }
         .frame(width: 14, height: 14)
+        .shadow(color: shadowColor, radius: shadowRadius)
         .onAppear {
             guard style == .limited else { return }
             pulse = true
@@ -986,6 +1113,43 @@ private struct DeviceHealthBadge: View {
             return .orange
         case .error:
             return .red
+        }
+    }
+
+    private var backgroundColor: Color {
+        switch style {
+        case .warning:
+            return Color.yellow.opacity(0.16)
+        case .limited:
+            return Color.orange.opacity(0.18)
+        case .error:
+            return Color.red.opacity(0.18)
+        }
+    }
+
+    private var borderColor: Color {
+        tone.opacity(0.82)
+    }
+
+    private var shadowColor: Color {
+        switch style {
+        case .warning:
+            return Color.yellow.opacity(0.12)
+        case .limited:
+            return Color.orange.opacity(0.18)
+        case .error:
+            return Color.red.opacity(0.14)
+        }
+    }
+
+    private var shadowRadius: CGFloat {
+        switch style {
+        case .warning:
+            return 0
+        case .limited:
+            return 3
+        case .error:
+            return 0
         }
     }
 }

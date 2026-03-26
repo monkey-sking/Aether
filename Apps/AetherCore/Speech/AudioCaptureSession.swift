@@ -37,6 +37,7 @@ final class AudioCaptureSession {
 
     // MARK: - State
     private(set) var isRunning: Bool = false
+    private(set) var lastBufferAt: Date = .distantPast
     private var audioEngine: AVAudioEngine?
     private var ringBuffer: [AVAudioPCMBuffer] = []
     private let ringBufferCapacity = 10
@@ -158,6 +159,7 @@ final class AudioCaptureSession {
 
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                self.lastBufferAt = Date()
                 self.onVoiceActivityChanged?(isActive, rms)
                 self.ringBuffer.append(mono)
                 if self.ringBuffer.count > self.ringBufferCapacity {
@@ -170,6 +172,7 @@ final class AudioCaptureSession {
         try engine.start()
         audioEngine = engine
         isRunning = true
+        lastBufferAt = Date()
         runningSelectedDeviceID = selectedDeviceID
         runningSystemManagedRoute = preferSystemManagedRoute
         runningVoiceProcessingProfile = voiceProcessingProfile
@@ -193,6 +196,7 @@ final class AudioCaptureSession {
         lastLoggedAdaptiveThreshold = -1
         diagnosticsWindowUntil = .distantPast
         isRunning = false
+        lastBufferAt = .distantPast
         runningSelectedDeviceID = 0
         runningSystemManagedRoute = false
         runningVoiceProcessingProfile = .passthrough
