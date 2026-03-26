@@ -907,6 +907,11 @@ final class SpeechManagerTypingModeTests: XCTestCase {
 }
 
 final class HUDExplicitTypingSuppressionTests: XCTestCase {
+    func testSpeechManagerWeirdTypingAppsIncludeTelegram() {
+        XCTAssertTrue(SpeechManager.isWeirdTypingAppBundleIdentifier("ru.keepcoder.Telegram"))
+        XCTAssertTrue(SpeechManager.isWeirdTypingAppBundleIdentifier("org.telegram.desktop"))
+    }
+
     func testCodexLikeAppsRequireExplicitClickReentry() {
         XCTAssertTrue(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: "com.openai.codex"))
         XCTAssertTrue(HUDManager.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: "com.antigravity.editor"))

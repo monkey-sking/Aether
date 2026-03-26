@@ -1640,9 +1640,9 @@ final class SpeechManager: ObservableObject {
             if side == .none { return matched.iconName }
             let base = normalizeAirPodsSymbolName(matched.iconName)
             switch side {
-            case .left: return base == "airpods.max" ? "airpods.max" : "airpod.left"
-            case .right: return base == "airpods.max" ? "airpods.max" : "airpod.right"
-            case .both: return base == "airpods.max" ? "airpods.max" : base == "airpods.pro" ? "airpods.pro" : "airpods"
+            case .left: return base == "airpods.max" ? "airpods.max" : base == "airpods.pro" ? "airpods.pro.left" : "airpod.gen3.left"
+            case .right: return base == "airpods.max" ? "airpods.max" : base == "airpods.pro" ? "airpods.pro.right" : "airpod.gen3.right"
+            case .both: return base == "airpods.max" ? "airpods.max" : base == "airpods.pro" ? "airpods.pro" : "airpod.gen3"
             case .none: return matched.iconName
             }
         }
@@ -8562,6 +8562,7 @@ final class SpeechManager: ObservableObject {
             || bundle.contains("wechat")
             || bundle.contains("codex")
             || bundle.contains("antigravity")
+            || bundle.contains("telegram")
     }
     static func allowsLooseContainerDictationHeuristicsIdentifier(_ bundleID: String?) -> Bool {
         let bundle = (bundleID ?? "").lowercased()

@@ -126,8 +126,12 @@ struct HUDView: View {
         .background(
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+        .clipShape(RoundedRectangle(cornerRadius: hudContainerCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: hudContainerCornerRadius, style: .continuous)
+                .stroke(Color.white.opacity(0.06), lineWidth: 0.8)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
         .overlay(alignment: .topLeading) {
             if state.caretDebugIndicatorVisible {
                 HStack(spacing: 4) {
@@ -281,6 +285,10 @@ struct HUDView: View {
 
     private var overlayBadgeBottomOffset: CGFloat {
         5
+    }
+
+    private var hudContainerCornerRadius: CGFloat {
+        state.mode == .standby ? 16 : 24
     }
 
     private var modeIndicatorSymbol: String? {
@@ -591,10 +599,10 @@ struct HUDView: View {
            let icon = appIcon(for: bundleID) {
             return AnyView(
                 ZStack {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: 7.5, style: .continuous)
                         .fill(Color.white.opacity(0.10))
                         .frame(width: 20, height: 20)
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: 7.5, style: .continuous)
                         .stroke(Color.white.opacity(0.08), lineWidth: 1)
                         .frame(width: 20, height: 20)
                     Image(nsImage: icon)
@@ -605,7 +613,7 @@ struct HUDView: View {
                         .brightness(0.06)
                         .contrast(1.05)
                         .opacity(0.9)
-                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 5.5, style: .continuous))
                 }
                 .shadow(radius: 1)
             )

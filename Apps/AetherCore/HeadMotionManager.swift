@@ -5112,11 +5112,41 @@ class HeadMotionManager: ObservableObject {
             if type == .flagsChanged {
                 if let action = HotkeyManager.shared.matchFlagsChanged(keyCode: keyCode, flags: flags) {
                     switch action {
+                    case .toggleTracking:
+                        guard !manager.isGloballyPausedForIdle else { return Unmanaged.passUnretained(event) }
+                        if manager.isTracking {
+                            GlobalLogger.input.info("Hotkey: Stop Tracking (flagsChanged)")
+                            HUDManager.shared.showTemporary(
+                                message: String(localized: "headset.hud.stop_tracking"),
+                                icon: "stop.fill"
+                            )
+                            DispatchQueue.main.async { manager.stopTracking() }
+                        } else {
+                            GlobalLogger.input.info("Hotkey: Start Tracking (flagsChanged)")
+                            HUDManager.shared.showTemporary(
+                                message: String(localized: "headset.hud.start_tracking"),
+                                icon: "play.fill"
+                            )
+                            DispatchQueue.main.async { manager.startTracking() }
+                        }
+                        return nil
+                    case .toggleInputControlMode:
+                        guard !manager.isGloballyPausedForIdle else { return Unmanaged.passUnretained(event) }
+                        GlobalLogger.input.info("Hotkey: Toggle Input/Control Mode (flagsChanged)")
+                        DispatchQueue.main.async {
+                            manager.toggleRecognitionInputControlMode(source: "keyboard-flagsChanged", persist: true)
+                        }
+                        return nil
                     case .toggleLanguage:
                         guard !manager.isGloballyPausedForIdle else { return Unmanaged.passUnretained(event) }
                         GlobalLogger.input.info("Hotkey: Toggle Language (flagsChanged)")
                         NotificationCenter.default.post(name: Notification.Name("AetherToggleLanguage"), object: nil)
                         return Unmanaged.passUnretained(event)
+                    case .toggleShortcutPanel:
+                        guard !manager.isGloballyPausedForIdle else { return Unmanaged.passUnretained(event) }
+                        GlobalLogger.input.info("Hotkey: Toggle Shortcut Panel (flagsChanged)")
+                        NotificationCenter.default.post(name: .toggleShortcutPanel, object: nil)
+                        return nil
                     case .pushToTalk:
                         guard manager.isPTTEnabled else { return Unmanaged.passUnretained(event) }
                         let source = PTTSource.keyboard(Int(keyCode))
@@ -5125,8 +5155,6 @@ class HeadMotionManager: ObservableObject {
                             manager.beginPTT(from: source, origin: "keyboard-flagsChanged")
                         }
                         return nil
-                    case .toggleTracking, .toggleInputControlMode, .toggleShortcutPanel:
-                        break
                     }
                 }
                 let source = PTTSource.keyboard(Int(keyCode))
