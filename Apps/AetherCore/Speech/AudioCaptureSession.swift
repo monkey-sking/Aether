@@ -208,9 +208,11 @@ final class AudioCaptureSession {
         os_log("AudioCaptureSession stopped.", log: log, type: .info)
     }
 
-    /// Returns buffered audio for pre-buffering new recognition sessions.
+    /// Returns and clears buffered audio for pre-buffering new recognition sessions.
     func drainRingBuffer() -> [AVAudioPCMBuffer] {
-        return ringBuffer
+        let buffered = ringBuffer
+        ringBuffer.removeAll()
+        return buffered
     }
 
     func clearRingBuffer() {

@@ -193,7 +193,11 @@ struct HUDView: View {
 
     private var listeningLeadingVisual: some View {
         decoratedDeviceLeadingVisual {
-            AudioReactiveRingView(level: state.audioLevel)
+            AudioReactiveRingView(
+                level: state.audioLevel,
+                baseDiameter: micProgressDiameter + 3,
+                expansion: usesWideDeviceGlyph ? 9 : 8
+            )
             micIcon
         }
     }
@@ -822,12 +826,17 @@ private struct StandbyDotView: View {
 
 private struct AudioReactiveRingView: View {
     let level: CGFloat
+    let baseDiameter: CGFloat
+    let expansion: CGFloat
 
     var body: some View {
         let clamped = max(0.12, min(level, 1.0))
         Circle()
             .stroke(Color.green.opacity(0.42), lineWidth: 1.6)
-            .frame(width: 24 + clamped * 8, height: 24 + clamped * 8)
+            .frame(
+                width: baseDiameter + clamped * expansion,
+                height: baseDiameter + clamped * expansion
+            )
             .animation(.easeOut(duration: 0.14), value: clamped)
     }
 }

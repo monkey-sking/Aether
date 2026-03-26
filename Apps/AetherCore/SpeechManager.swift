@@ -567,6 +567,8 @@ final class SpeechManager: ObservableObject {
     private var continuousTimer: Timer?
     private var stopTimer: Timer?
     private var finalizationWorkItem: DispatchWorkItem?
+    private var pendingFinalizeKeepHUDVisible: Bool = false
+    private var pendingFinalizeDiscardTranscript: Bool = false
     private var pendingEngineRestartWorkItem: DispatchWorkItem?
     private var continuousRecoveryWorkItem: DispatchWorkItem?
     private struct PendingWakeFollowUp {
@@ -2282,6 +2284,7 @@ final class SpeechManager: ObservableObject {
         audioEnergyObservations.removeAll()
         setPlaybackLeakState(.none)
         cancelDeferredAudioStop()
+        clearPendingFinalizeState()
         isStopping = false
         activeUtteranceID = 0
         resetTypingStateCache()
@@ -2376,17 +2379,18 @@ final class SpeechManager: ObservableObject {
             let contextual = buildDynamicContextualStrings()
             let taskHint = recognitionTaskHint()
             let preferOnDevice = shouldPreferOnDeviceRecognition()
+            let prebuffered = audioCapture.drainRingBuffer()
             try recognitionSession.start(
                 locale: activeLocale,
                 autoPunctuation: isAutoPunctuationEnabled,
                 contextualStrings: contextual,
-                prebuffered: audioCapture.drainRingBuffer(),
+                prebuffered: prebuffered,
                 taskHint: taskHint,
                 preferOnDevice: preferOnDevice
             )
             let selectedDeviceName = availableInputDevices.first(where: { $0.id == effectiveCaptureInputDeviceID() })?.name ?? "system-default"
             GlobalLogger.speech.info(
-                "[ASR Session] start locale=\(activeLocale.identifier) mode=\(recognitionControlMode.rawValue) taskHint=\(String(describing: taskHint)) preferOnDevice=\(preferOnDevice) selectedInputID=\(selectedInputDeviceID) effectiveInputID=\(effectiveCaptureInputDeviceID()) selectedInputName=\(selectedDeviceName) autoPunctuation=\(isAutoPunctuationEnabled) contextualCount=\(contextual.count)"
+                "[ASR Session] start locale=\(activeLocale.identifier) mode=\(recognitionControlMode.rawValue) taskHint=\(String(describing: taskHint)) preferOnDevice=\(preferOnDevice) selectedInputID=\(selectedInputDeviceID) effectiveInputID=\(effectiveCaptureInputDeviceID()) selectedInputName=\(selectedDeviceName) autoPunctuation=\(isAutoPunctuationEnabled) contextualCount=\(contextual.count) prebuffered=\(prebuffered.count)"
             )
             // Headset button / system microphone-control interception is disabled.
             // Keep the router torn down so AirPods presses stay owned by the system.
@@ -2687,8 +2691,10 @@ final class SpeechManager: ObservableObject {
         eosDetector.noteUtteranceEnded()
         if isStopping {
             if isAlwaysListeningEnabled {
-                handleTranscript(fallbackTranscript ?? text, utteranceID: activeUtteranceID)
-                refreshContinuousHUD()
+                completeAlwaysListeningFinalResult(
+                    fallbackTranscript ?? text,
+                    source: "final-callback"
+                )
             } else {
                 completeStoppedOneShotFinalResult(fallbackTranscript ?? text)
             }
@@ -2725,6 +2731,43 @@ final class SpeechManager: ObservableObject {
         stopMicProgressUI(keepVisible: false)
         stopAudioCapture()
         HUDManager.shared.hide()
+    }
+
+    private func clearPendingFinalizeState() {
+        pendingFinalizeKeepHUDVisible = false
+        pendingFinalizeDiscardTranscript = false
+    }
+
+    private func completeAlwaysListeningFinalResult(_ transcript: String, source: String) {
+        let discardTranscript = pendingFinalizeDiscardTranscript
+        let keepHUDVisible = pendingFinalizeKeepHUDVisible
+        let finalTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if discardTranscript {
+            resetHUDTransientState()
+        } else {
+            if !finalTranscript.isEmpty {
+                handleTranscript(finalTranscript, utteranceID: activeUtteranceID)
+            }
+            resetUtteranceTrackingForNextPhrase()
+        }
+
+        audioCapture.clearRingBuffer()
+        isStopping = false
+        shouldShowProcessingDotsDuringStop = false
+        clearPendingFinalizeState()
+
+        GlobalLogger.speech.info(
+            "[ASR Session] complete always-listening final source=\(source) discardTranscript=\(discardTranscript) keepHUDVisible=\(keepHUDVisible) transcriptEmpty=\(finalTranscript.isEmpty) clearedPrebuffer=true"
+        )
+
+        guard !isIdlePauseSuspended else { return }
+        refreshContinuousHUD(isDictating: false)
+        ensureRecognitionSessionForVisibleHUD(
+            reason: keepHUDVisible
+                ? "always-listening-final-\(source)-keep-hud"
+                : "always-listening-final-\(source)"
+        )
     }
 
     private func handleCompletedOneShotFinalResult(_ transcript: String) {
@@ -2938,6 +2981,7 @@ final class SpeechManager: ObservableObject {
             if isAlwaysListeningEnabled { refreshContinuousHUD(isDictating: false) } else { HUDManager.shared.hide() }
         }
         guard recognitionSession.isRunning else {
+            clearPendingFinalizeState()
             resetHUDTransientState()
             if !keepHUDVisible {
                 if isAlwaysListeningEnabled {
@@ -2949,6 +2993,8 @@ final class SpeechManager: ObservableObject {
             ensureRecognitionSessionForVisibleHUD(reason: "finalize-no-active-session")
             return
         }
+        pendingFinalizeKeepHUDVisible = keepHUDVisible
+        pendingFinalizeDiscardTranscript = discardTranscript
         let genToFinalize = sessionGeneration
         let fallbackTranscript = lastTranscript
         recognitionSession.finish()
@@ -2956,6 +3002,13 @@ final class SpeechManager: ObservableObject {
             guard let self, self.sessionGeneration == genToFinalize else { return }
             self.recognitionSession.cancel()
             let textToUse = discardTranscript ? "" : (self.lastTranscript.isEmpty ? fallbackTranscript : self.lastTranscript)
+            if self.isAlwaysListeningEnabled {
+                self.completeAlwaysListeningFinalResult(
+                    textToUse,
+                    source: "finalize-timeout"
+                )
+                return
+            }
             if discardTranscript {
                 self.resetHUDTransientState()
             } else {
@@ -2964,6 +3017,7 @@ final class SpeechManager: ObservableObject {
             }
             self.isStopping = false
             self.shouldShowProcessingDotsDuringStop = false
+            self.clearPendingFinalizeState()
             os_log(
                 "Stop finalize complete: keepHUDVisible=%{public}@ discardTranscript=%{public}@ transcriptEmpty=%{public}@ status=%{public}@",
                 log: self.log,
@@ -3027,6 +3081,7 @@ final class SpeechManager: ObservableObject {
         cancelStartupInputHealthProbe()
         recognitionStartupGraceUntil = .distantPast
         cancelDeferredAudioStop()
+        clearPendingFinalizeState()
         isStopping = false
         eosDetector.stop()
         recognitionSession.cancel()
@@ -3076,6 +3131,7 @@ final class SpeechManager: ObservableObject {
         recognitionSession.cancel()
         eosDetector.stop()
         stopTimer?.invalidate(); stopTimer = nil
+        clearPendingFinalizeState()
         headsetInputMuteRouter.deactivate()
         isStopping = false; isDictating = false; sessionTypingMode = false; shouldShowProcessingDotsDuringStop = false
         activeUtteranceID = 0
@@ -3096,6 +3152,7 @@ final class SpeechManager: ObservableObject {
 
     private func resetHUDTransientState() {
         headsetInputMuteRouter.deactivate()
+        clearPendingFinalizeState()
         isStopping = false; isDictating = false; sessionTypingMode = false; shouldShowProcessingDotsDuringStop = false
         activeUtteranceID = 0
         wakeActivatedDuringCurrentUtterance = false
