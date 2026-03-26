@@ -200,6 +200,374 @@ struct FrontmostAppCommandSnapshot: Equatable, Sendable {
     let commands: [FrontmostAppCommand]
 }
 
+struct AppLaunchTarget: Identifiable, Equatable, Sendable {
+    let bundleIdentifier: String
+    let appName: String
+    let launchPath: String?
+    let aliases: [String]
+
+    var id: String {
+        bundleIdentifier.lowercased()
+    }
+
+    var displayName: String {
+        let trimmed = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? bundleIdentifier : trimmed
+    }
+}
+
+struct CustomAppLaunchAliasRule: Codable, Identifiable, Equatable, Sendable {
+    var id: String
+    var isEnabled: Bool
+    var bundleIdentifier: String
+    var aliases: [String]
+
+    init(
+        id: String = UUID().uuidString,
+        isEnabled: Bool = true,
+        bundleIdentifier: String,
+        aliases: [String] = []
+    ) {
+        self.id = id
+        self.isEnabled = isEnabled
+        self.bundleIdentifier = bundleIdentifier
+        self.aliases = aliases
+    }
+
+    var effectiveBundleIdentifier: String {
+        bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var effectiveAliases: [String] {
+        VoiceCommandRouter.uniqueAliases(
+            aliases.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        )
+    }
+
+    var isValid: Bool {
+        !effectiveBundleIdentifier.isEmpty && !effectiveAliases.isEmpty
+    }
+}
+
+enum AppLaunchResolver {
+    private struct AliasSeed {
+        let bundleIdentifier: String
+        let aliases: [String]
+    }
+
+    private static let catalogQueue = DispatchQueue(label: "com.aether.app-launch-resolver.catalog")
+    private static var cachedInstalledTargets: [AppLaunchTarget] = []
+    private static var lastInstalledScanAt: Date = .distantPast
+    private static let installedCatalogTTL: TimeInterval = 300
+    private static let standardApplicationRoots: [String] = [
+        "/Applications",
+        "/Applications/Utilities",
+        "/System/Applications",
+        "/System/Applications/Utilities",
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true).path
+    ]
+    private static let curatedAliasSeeds: [AliasSeed] = [
+        AliasSeed(bundleIdentifier: "com.apple.Safari", aliases: ["Safari", "苹果浏览器"]),
+        AliasSeed(bundleIdentifier: "com.apple.finder", aliases: ["Finder", "访达"]),
+        AliasSeed(bundleIdentifier: "com.apple.Terminal", aliases: ["Terminal", "终端"]),
+        AliasSeed(bundleIdentifier: "com.apple.dt.Xcode", aliases: ["Xcode"]),
+        AliasSeed(bundleIdentifier: "com.google.Chrome", aliases: ["Chrome", "Google Chrome", "谷歌", "谷歌浏览器", "Chrome 浏览器"]),
+        AliasSeed(bundleIdentifier: "com.microsoft.VSCode", aliases: ["VS Code", "Visual Studio Code", "Code"]),
+        AliasSeed(bundleIdentifier: "com.microsoft.VSCodeInsiders", aliases: ["VS Code Insiders", "Visual Studio Code Insiders", "Code Insiders"]),
+        AliasSeed(bundleIdentifier: "org.mozilla.firefox", aliases: ["Firefox", "火狐"]),
+        AliasSeed(bundleIdentifier: "com.microsoft.edgemac", aliases: ["Edge", "Microsoft Edge"]),
+        AliasSeed(bundleIdentifier: "com.googlecode.iterm2", aliases: ["iTerm", "iTerm2"]),
+        AliasSeed(bundleIdentifier: "com.todesktop.230313mzl4w4u92", aliases: ["Cursor"]),
+        AliasSeed(bundleIdentifier: "com.openai.chat", aliases: ["ChatGPT"]),
+        AliasSeed(bundleIdentifier: "notion.id", aliases: ["Notion"]),
+        AliasSeed(bundleIdentifier: "com.tinyspeck.slackmacgap", aliases: ["Slack"]),
+        AliasSeed(bundleIdentifier: "com.apple.systempreferences", aliases: ["System Settings", "系统设置"])
+    ]
+
+    static func contextualTargets(customRules: [CustomAppLaunchAliasRule] = [], limit: Int = 16) -> [AppLaunchTarget] {
+        let liveTargets = mergeTargets(
+            customTargets(from: customRules) + runningRegularTargets() + curatedInstalledTargets()
+        )
+        guard limit > 0 else { return [] }
+        return Array(liveTargets.prefix(limit))
+    }
+
+    static func resolve(named rawName: String, preferredTargets: [AppLaunchTarget] = []) -> AppLaunchTarget? {
+        let requestedNames = requestedNameCandidates(from: rawName)
+        guard !requestedNames.isEmpty else { return nil }
+
+        let liveTargets = mergeTargets(preferredTargets + runningRegularTargets() + curatedInstalledTargets())
+        if let matched = exactMatch(for: requestedNames, in: liveTargets) {
+            return matched
+        }
+
+        return exactMatch(for: requestedNames, in: installedTargets())
+    }
+
+    private static func exactMatch(for requestedNames: [String], in targets: [AppLaunchTarget]) -> AppLaunchTarget? {
+        guard !targets.isEmpty else { return nil }
+
+        for requestedName in requestedNames {
+            let normalizedQuery = normalizeAlias(requestedName)
+            let normalizedQueryPinyin = normalizeAlias(requestedName.pinyin)
+            guard !normalizedQuery.isEmpty else { continue }
+
+            for target in targets {
+                let aliases = uniqueAliases([target.displayName, target.bundleIdentifier] + target.aliases)
+                let normalizedAliases = aliases.map(normalizeAlias).filter { !$0.isEmpty }
+                if normalizedAliases.contains(normalizedQuery) {
+                    return target
+                }
+
+                guard !normalizedQueryPinyin.isEmpty else { continue }
+                let normalizedPinyinAliases = aliases.map { normalizeAlias($0.pinyin) }.filter { !$0.isEmpty }
+                if normalizedPinyinAliases.contains(normalizedQueryPinyin) {
+                    return target
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func requestedNameCandidates(from raw: String) -> [String] {
+        let trimmed = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingLeadingCommandPrefixIgnorables()
+            .trimmingTrailingCommandAffixIgnorables()
+        guard !trimmed.isEmpty else { return [] }
+
+        let leadingFillers = ["the "]
+        let trailingFillers = [
+            " app", " application", " browser", " editor",
+            " 应用", " 应用程序", " 软件", " 程序", " 浏览器", " 编辑器",
+            "应用", "应用程序", "软件", "程序", "浏览器", "编辑器"
+        ]
+
+        var candidates = [trimmed]
+        var stripped = trimmed
+
+        for filler in leadingFillers {
+            if stripped.lowercased().hasPrefix(filler) {
+                stripped = String(stripped.dropFirst(filler.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        var didTrimSuffix = true
+        while didTrimSuffix, !stripped.isEmpty {
+            didTrimSuffix = false
+            for filler in trailingFillers.sorted(by: { $0.count > $1.count }) {
+                if stripped.lowercased().hasSuffix(filler.lowercased()) {
+                    stripped = String(stripped.dropLast(filler.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    didTrimSuffix = true
+                    break
+                }
+            }
+        }
+
+        if !stripped.isEmpty {
+            candidates.append(stripped)
+        }
+
+        return uniqueAliases(candidates)
+    }
+
+    private static func runningRegularTargets() -> [AppLaunchTarget] {
+        let running = NSWorkspace.shared.runningApplications.compactMap { app -> AppLaunchTarget? in
+            guard app.activationPolicy == .regular,
+                  let bundleIdentifier = app.bundleIdentifier,
+                  !bundleIdentifier.isEmpty else {
+                return nil
+            }
+
+            let launchPath = app.bundleURL?.path ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)?.path
+            let appName = app.localizedName
+                ?? bundleName(atPath: launchPath)
+                ?? bundleIdentifier
+
+            let aliases = uniqueAliases([appName] + curatedAliases(for: bundleIdentifier))
+            return AppLaunchTarget(
+                bundleIdentifier: bundleIdentifier,
+                appName: appName,
+                launchPath: launchPath,
+                aliases: aliases
+            )
+        }
+
+        return mergeTargets(running)
+    }
+
+    private static func curatedInstalledTargets() -> [AppLaunchTarget] {
+        let targets = curatedAliasSeeds.compactMap { seed -> AppLaunchTarget? in
+            guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: seed.bundleIdentifier) else {
+                return nil
+            }
+            return makeTarget(fromAppURL: appURL, preferredName: nil, additionalAliases: seed.aliases)
+        }
+
+        return mergeTargets(targets)
+    }
+
+    private static func customTargets(from rules: [CustomAppLaunchAliasRule]) -> [AppLaunchTarget] {
+        rules.compactMap { rule in
+            guard rule.isEnabled, rule.isValid else { return nil }
+
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: rule.effectiveBundleIdentifier) {
+                return makeTarget(
+                    fromAppURL: appURL,
+                    preferredName: nil,
+                    additionalAliases: rule.effectiveAliases
+                )
+            }
+
+            return AppLaunchTarget(
+                bundleIdentifier: rule.effectiveBundleIdentifier,
+                appName: rule.effectiveBundleIdentifier,
+                launchPath: nil,
+                aliases: uniqueAliases(rule.effectiveAliases)
+            )
+        }
+    }
+
+    private static func installedTargets(forceRefresh: Bool = false) -> [AppLaunchTarget] {
+        let shouldRefresh = catalogQueue.sync {
+            forceRefresh
+                || cachedInstalledTargets.isEmpty
+                || Date().timeIntervalSince(lastInstalledScanAt) > installedCatalogTTL
+        }
+
+        if shouldRefresh {
+            let scanned = scanInstalledTargets()
+            catalogQueue.sync {
+                cachedInstalledTargets = scanned
+                lastInstalledScanAt = Date()
+            }
+        }
+
+        return catalogQueue.sync { cachedInstalledTargets }
+    }
+
+    private static func scanInstalledTargets() -> [AppLaunchTarget] {
+        let fileManager = FileManager.default
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey]
+        var discovered: [AppLaunchTarget] = []
+
+        for rootPath in standardApplicationRoots {
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: rootPath, isDirectory: &isDirectory), isDirectory.boolValue else {
+                continue
+            }
+
+            let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+            guard let enumerator = fileManager.enumerator(
+                at: rootURL,
+                includingPropertiesForKeys: keys,
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else {
+                continue
+            }
+
+            for case let url as URL in enumerator {
+                guard url.pathExtension.lowercased() == "app" else { continue }
+                if let target = makeTarget(fromAppURL: url, preferredName: nil, additionalAliases: []) {
+                    discovered.append(target)
+                }
+            }
+        }
+
+        return mergeTargets(discovered)
+    }
+
+    private static func makeTarget(
+        fromAppURL appURL: URL,
+        preferredName: String?,
+        additionalAliases: [String]
+    ) -> AppLaunchTarget? {
+        guard let bundle = Bundle(url: appURL),
+              let bundleIdentifier = bundle.bundleIdentifier,
+              isRegularApplication(bundle: bundle) else {
+            return nil
+        }
+
+        let bundleName =
+            (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? appURL.deletingPathExtension().lastPathComponent
+
+        let appName = preferredName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? preferredName!.trimmingCharacters(in: .whitespacesAndNewlines)
+            : bundleName
+        let aliases = uniqueAliases([appName, bundleName] + curatedAliases(for: bundleIdentifier) + additionalAliases)
+
+        return AppLaunchTarget(
+            bundleIdentifier: bundleIdentifier,
+            appName: appName,
+            launchPath: appURL.path,
+            aliases: aliases
+        )
+    }
+
+    private static func mergeTargets(_ targets: [AppLaunchTarget]) -> [AppLaunchTarget] {
+        var merged: [String: AppLaunchTarget] = [:]
+        var order: [String] = []
+
+        for target in targets {
+            let key = target.bundleIdentifier.lowercased()
+            if let existing = merged[key] {
+                merged[key] = AppLaunchTarget(
+                    bundleIdentifier: existing.bundleIdentifier,
+                    appName: existing.displayName.count >= target.displayName.count ? existing.displayName : target.displayName,
+                    launchPath: existing.launchPath ?? target.launchPath,
+                    aliases: uniqueAliases(existing.aliases + target.aliases + [existing.displayName, target.displayName])
+                )
+            } else {
+                merged[key] = AppLaunchTarget(
+                    bundleIdentifier: target.bundleIdentifier,
+                    appName: target.displayName,
+                    launchPath: target.launchPath,
+                    aliases: uniqueAliases([target.displayName] + target.aliases)
+                )
+                order.append(key)
+            }
+        }
+
+        return order.compactMap { merged[$0] }
+    }
+
+    private static func bundleName(atPath path: String?) -> String? {
+        guard let path, !path.isEmpty else { return nil }
+        guard let bundle = Bundle(path: path) else { return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent }
+        return (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+    }
+
+    private static func isRegularApplication(bundle: Bundle) -> Bool {
+        let isAgent = bundle.object(forInfoDictionaryKey: "LSUIElement") as? Bool ?? false
+        let isBackgroundOnly = bundle.object(forInfoDictionaryKey: "LSBackgroundOnly") as? Bool ?? false
+        return !isAgent && !isBackgroundOnly
+    }
+
+    private static func curatedAliases(for bundleIdentifier: String) -> [String] {
+        curatedAliasSeeds.first(where: {
+            $0.bundleIdentifier.caseInsensitiveCompare(bundleIdentifier) == .orderedSame
+        })?.aliases ?? []
+    }
+
+    private static func uniqueAliases(_ aliases: [String]) -> [String] {
+        VoiceLexiconSupport.uniqueTerms(aliases)
+    }
+
+    private static func normalizeAlias(_ raw: String) -> String {
+        raw
+            .lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .joined()
+    }
+}
+
 func mergeFrontmostAppCommandSnapshot(
     snapshot: FrontmostAppCommandSnapshot?,
     customRules: [CustomAppShortcutRule],
@@ -657,7 +1025,6 @@ final class FrontmostAppCommandCatalog: ObservableObject {
         if Self.collaborationBundleIdentifiers.contains(bundleIdentifier) {
             templates += collaborationSupplementalCommands(for: bundleIdentifier)
         }
-
         return templates
     }
 
@@ -1373,6 +1740,7 @@ enum VoiceIntent: Equatable {
     case startPointer
     case stopPointer
     case recenter
+    case openApplication(AppLaunchTarget)
     case frontmostAppCommand(FrontmostAppCommand)
     case scroll(Int, Int) // dx, dy
     case scrollToWeb(String) // "top", "bottom"
@@ -1409,6 +1777,11 @@ struct VoiceCommandDecision {
 
 final class VoiceCommandRouter {
     private static let contextualAppCommandLimit = 24
+    private static let contextualAppLaunchLimit = 16
+    private static let appLaunchCommandPrefixes = [
+        "switch to", "back to", "launch", "open",
+        "切换到", "切到", "回到", "启动", "打开"
+    ]
 
     private struct CommandMatch {
         let preset: VoiceCommandPreset
@@ -1438,6 +1811,7 @@ final class VoiceCommandRouter {
         var overrides: [VoiceCommandOverrideConfig] = []
         var languageTermsOverrides: [VoiceLanguageTermsOverrideConfig] = []
         var frontmostAppCommands: [FrontmostAppCommand] = []
+        var appLaunchTargets: [AppLaunchTarget] = []
     }
 
     private let stateQueue = DispatchQueue(label: "com.aether.voice-command-router.state", attributes: .concurrent)
@@ -1466,6 +1840,15 @@ final class VoiceCommandRouter {
         set {
             stateQueue.sync(flags: .barrier) {
                 state.languageTermsOverrides = newValue
+            }
+        }
+    }
+
+    var appLaunchTargets: [AppLaunchTarget] {
+        get { stateQueue.sync { state.appLaunchTargets } }
+        set {
+            stateQueue.sync(flags: .barrier) {
+                state.appLaunchTargets = newValue
             }
         }
     }
@@ -1566,6 +1949,16 @@ final class VoiceCommandRouter {
                 stage: .exact
             ) {
                 return VoiceCommandDecision(intent: match.preset.intent, confidence: match.confidence, reason: match.reason)
+            }
+        }
+
+        for candidate in commandTextCandidates {
+            if let launchMatch = matchAppLaunchCommand(
+                text: candidate,
+                localeIdentifier: localeIdentifier,
+                preferredTargets: currentState.appLaunchTargets
+            ) {
+                return launchMatch
             }
         }
 
@@ -1778,6 +2171,17 @@ final class VoiceCommandRouter {
             }
         }
 
+        for target in currentState.appLaunchTargets.prefix(Self.contextualAppLaunchLimit) {
+            for alias in target.aliases {
+                let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !normalized.isEmpty else { continue }
+                let key = normalized.lowercased()
+                guard !seen.contains(key) else { continue }
+                seen.insert(key)
+                ordered.append(normalized)
+            }
+        }
+
         return ordered
     }
 
@@ -1810,7 +2214,8 @@ final class VoiceCommandRouter {
         let suggestions = suggestedCommandPhraseCandidates(
             localeIdentifier: localeIdentifier,
             overrides: currentState.overrides,
-            frontmostAppCommands: currentState.frontmostAppCommands
+            frontmostAppCommands: currentState.frontmostAppCommands,
+            appLaunchTargets: currentState.appLaunchTargets
         )
 
         return suggestions
@@ -2103,7 +2508,8 @@ final class VoiceCommandRouter {
     private func suggestedCommandPhraseCandidates(
         localeIdentifier: String,
         overrides: [VoiceCommandOverrideConfig],
-        frontmostAppCommands: [FrontmostAppCommand]
+        frontmostAppCommands: [FrontmostAppCommand],
+        appLaunchTargets: [AppLaunchTarget]
     ) -> [SuggestedCommandPhrase] {
         var ordered: [SuggestedCommandPhrase] = []
         var seen = Set<String>()
@@ -2127,6 +2533,14 @@ final class VoiceCommandRouter {
         for command in frontmostAppCommands {
             for alias in command.aliases {
                 appendPhrase(alias, priorityBoost: 40)
+            }
+        }
+
+        let isChinese = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier) == "zh-CN"
+        for target in appLaunchTargets.prefix(Self.contextualAppLaunchLimit) {
+            for alias in target.aliases.prefix(3) {
+                appendPhrase(isChinese ? "打开 \(alias)" : "open \(alias)", priorityBoost: 20)
+                appendPhrase(isChinese ? "切到 \(alias)" : "switch to \(alias)", priorityBoost: 18)
             }
         }
 
@@ -2302,6 +2716,56 @@ final class VoiceCommandRouter {
                     confidence: .high,
                     reason: "rewrite-full-text"
                 )
+            }
+        }
+
+        return nil
+    }
+
+    private func matchAppLaunchCommand(
+        text raw: String,
+        localeIdentifier: String,
+        preferredTargets: [AppLaunchTarget]
+    ) -> VoiceCommandDecision? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let candidates = Self.uniqueAliases([
+            trimmed,
+            sanitizeExplicitCommandPayload(trimmed, localeIdentifier: localeIdentifier)
+        ])
+
+        for candidate in candidates {
+            guard let appName = extractRequestedAppName(from: candidate) else { continue }
+            guard let target = AppLaunchResolver.resolve(named: appName, preferredTargets: preferredTargets) else {
+                continue
+            }
+
+            return VoiceCommandDecision(
+                intent: .openApplication(target),
+                confidence: .high,
+                reason: "open-application-\(target.bundleIdentifier)"
+            )
+        }
+
+        return nil
+    }
+
+    private func extractRequestedAppName(from raw: String) -> String? {
+        let candidate = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingLeadingCommandPrefixIgnorables()
+            .trimmingTrailingCommandAffixIgnorables()
+        guard !candidate.isEmpty else { return nil }
+
+        for prefix in Self.appLaunchCommandPrefixes.sorted(by: { $0.count > $1.count }) {
+            guard candidate.lowercased().hasPrefix(prefix.lowercased()) else { continue }
+            let remainder = String(candidate.dropFirst(prefix.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingLeadingCommandPrefixIgnorables()
+                .trimmingTrailingCommandAffixIgnorables()
+            if !remainder.isEmpty {
+                return remainder
             }
         }
 

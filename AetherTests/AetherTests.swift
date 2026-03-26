@@ -238,6 +238,44 @@ final class AppStateUsageInsightsTests: XCTestCase {
 
         XCTAssertEqual(result, "你好，芝麻开门")
     }
+
+}
+
+@MainActor
+final class SpeechManagerFinalResultTests: XCTestCase {
+    func testCompletedOneShotFinalResultCommitsImmediately() {
+        XCTAssertTrue(
+            SpeechManager.shouldCommitCompletedOneShotFinalResult(
+                isStopping: false,
+                isAlwaysListeningEnabled: false,
+                finalTranscript: "下一页"
+            )
+        )
+    }
+
+    func testCompletedOneShotFinalResultSkipsContinuousOrEmptyStates() {
+        XCTAssertFalse(
+            SpeechManager.shouldCommitCompletedOneShotFinalResult(
+                isStopping: true,
+                isAlwaysListeningEnabled: false,
+                finalTranscript: "下一页"
+            )
+        )
+        XCTAssertFalse(
+            SpeechManager.shouldCommitCompletedOneShotFinalResult(
+                isStopping: false,
+                isAlwaysListeningEnabled: true,
+                finalTranscript: "下一页"
+            )
+        )
+        XCTAssertFalse(
+            SpeechManager.shouldCommitCompletedOneShotFinalResult(
+                isStopping: false,
+                isAlwaysListeningEnabled: false,
+                finalTranscript: "   "
+            )
+        )
+    }
 }
 
 @MainActor

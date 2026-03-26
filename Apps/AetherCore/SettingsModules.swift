@@ -83,6 +83,8 @@ struct InputSettingsView: View {
     @State private var editingGroupID: String?
     @State private var editingCustomRuleID: String?
     @State private var newlyInsertedCustomRuleID: String?
+    @State private var editingAppLaunchAliasID: String?
+    @State private var newlyInsertedAppLaunchAliasID: String?
     @State private var commandLocaleID: String = ""
     @State private var lexiconTransferStatus: String?
     @State private var basicLexiconSectionExpanded = true
@@ -990,6 +992,61 @@ struct InputSettingsView: View {
                             }
                         )
                     }
+
+                    GlassCard {
+                        CustomAppLaunchAliasesCard(
+                            rules: $appState.customAppLaunchAliasRules,
+                            onCopy: {
+                                do {
+                                    try appState.copyCustomAppLaunchAliasRulesToPasteboard()
+                                    HUDManager.shared.showTemporary(
+                                        message: AppLocalization.isChinese ? "已复制 App 别名" : "App aliases copied",
+                                        icon: "doc.on.doc"
+                                    )
+                                } catch {
+                                    HUDManager.shared.showTemporary(
+                                        message: AppLocalization.isChinese ? "复制 App 别名失败" : "Couldn't copy app aliases",
+                                        icon: "xmark.circle.fill"
+                                    )
+                                }
+                            },
+                            onPaste: {
+                                do {
+                                    let imported = try appState.importCustomAppLaunchAliasRulesFromPasteboard()
+                                    HUDManager.shared.showTemporary(
+                                        message: imported
+                                            ? (AppLocalization.isChinese ? "已导入 App 别名" : "App aliases imported")
+                                            : (AppLocalization.isChinese ? "剪贴板里没有可导入的 App 别名" : "No app aliases found on the clipboard"),
+                                        icon: imported ? "tray.and.arrow.down.fill" : "doc.text"
+                                    )
+                                } catch {
+                                    HUDManager.shared.showTemporary(
+                                        message: AppLocalization.isChinese ? "导入 App 别名失败" : "Couldn't import app aliases",
+                                        icon: "xmark.circle.fill"
+                                    )
+                                }
+                            },
+                            onAddCurrent: {
+                                let bundleID = mergedFrontmostSnapshot?.bundleIdentifier
+                                    ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                                appState.addCustomAppLaunchAlias(prefilling: bundleID)
+                                newlyInsertedAppLaunchAliasID = appState.customAppLaunchAliasRules.first?.id
+                                editingAppLaunchAliasID = appState.customAppLaunchAliasRules.first?.id
+                            },
+                            onAddEmpty: {
+                                appState.addCustomAppLaunchAlias()
+                                newlyInsertedAppLaunchAliasID = appState.customAppLaunchAliasRules.first?.id
+                                editingAppLaunchAliasID = appState.customAppLaunchAliasRules.first?.id
+                            },
+                            onEdit: { ruleID in
+                                newlyInsertedAppLaunchAliasID = nil
+                                editingAppLaunchAliasID = ruleID
+                            },
+                            onDelete: { ruleID in
+                                appState.removeCustomAppLaunchAlias(id: ruleID)
+                            }
+                        )
+                    }
                 }
 
                 if section == .insights {
@@ -1009,12 +1066,14 @@ struct InputSettingsView: View {
             _ = frontmostAppCommandCatalog.refresh(force: true)
         }
         .sheet(isPresented: Binding(
-            get: { editingGroupID != nil || editingCustomRuleID != nil },
+            get: { editingGroupID != nil || editingCustomRuleID != nil || editingAppLaunchAliasID != nil },
             set: {
                 if !$0 {
                     editingGroupID = nil
                     editingCustomRuleID = nil
                     newlyInsertedCustomRuleID = nil
+                    editingAppLaunchAliasID = nil
+                    newlyInsertedAppLaunchAliasID = nil
                 }
             }
         )) {
@@ -1041,6 +1100,25 @@ struct InputSettingsView: View {
                         }
                         newlyInsertedCustomRuleID = nil
                         editingCustomRuleID = nil
+                    }
+                )
+            } else if let id = editingAppLaunchAliasID,
+                      let idx = appState.customAppLaunchAliasRules.firstIndex(where: { $0.id == id }) {
+                CustomAppLaunchAliasRuleEditorSheet(
+                    rule: appState.customAppLaunchAliasRules[idx],
+                    onSave: { updatedRule in
+                        if let saveIndex = appState.customAppLaunchAliasRules.firstIndex(where: { $0.id == id }) {
+                            appState.customAppLaunchAliasRules[saveIndex] = updatedRule
+                        }
+                        newlyInsertedAppLaunchAliasID = nil
+                        editingAppLaunchAliasID = nil
+                    },
+                    onCancel: {
+                        if newlyInsertedAppLaunchAliasID == id {
+                            appState.removeCustomAppLaunchAlias(id: id)
+                        }
+                        newlyInsertedAppLaunchAliasID = nil
+                        editingAppLaunchAliasID = nil
                     }
                 )
             } else {
@@ -5316,6 +5394,253 @@ private struct SpeechAppPickerMenu: View {
 private struct FixedPopUpOption: Equatable {
     let id: String
     let title: String
+}
+
+private struct CustomAppLaunchAliasesCard: View {
+    @Binding var rules: [CustomAppLaunchAliasRule]
+    let onCopy: () -> Void
+    let onPaste: () -> Void
+    let onAddCurrent: () -> Void
+    let onAddEmpty: () -> Void
+    let onEdit: (String) -> Void
+    let onDelete: (String) -> Void
+
+    private var isChinese: Bool {
+        AppLocalization.isChinese
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(
+                        isChinese ? "App 打开别名" : "App Launch Aliases",
+                        systemImage: "arrow.up.forward.app"
+                    )
+                    .font(.headline)
+                    Text(
+                        isChinese
+                            ? "给常用 App 补充额外叫法。说“打开 XX / 切到 XX”时，会优先按这里的别名解析。"
+                            : "Add alternate names for your apps. When you say \"open\" or \"switch to\", these aliases are used first."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+                Spacer()
+                HStack(spacing: 8) {
+                    Button(isChinese ? "复制别名" : "Copy Aliases", action: onCopy)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    Button(isChinese ? "粘贴别名" : "Paste Aliases", action: onPaste)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    Menu {
+                        Button(isChinese ? "给当前 App 加别名" : "Add Current App", action: onAddCurrent)
+                        Button(isChinese ? "新增别名" : "Add Alias", action: onAddEmpty)
+                    } label: {
+                        Label(isChinese ? "新增别名" : "Add Alias", systemImage: "plus")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
+            }
+
+            if rules.isEmpty {
+                Text(
+                    isChinese
+                        ? "还没有自定义 App 别名。比如可以给 Chrome 补“谷歌浏览器”，给 VS Code 补“code”。"
+                        : "No custom app aliases yet. For example, add \"Google browser\" for Chrome or \"code\" for VS Code."
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(rules) { rule in
+                        CustomAppLaunchAliasRow(
+                            rule: rule,
+                            onEdit: { onEdit(rule.id) },
+                            onDelete: { onDelete(rule.id) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct CustomAppLaunchAliasRow: View {
+    let rule: CustomAppLaunchAliasRule
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    private var isChinese: Bool {
+        AppLocalization.isChinese
+    }
+
+    private var aliasPreview: String {
+        rule.effectiveAliases.prefix(4).joined(separator: " / ")
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            SpeechAppIcon(bundleID: rule.effectiveBundleIdentifier)
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(SpeechAppMetaStore.name(for: rule.effectiveBundleIdentifier))
+                        .font(.subheadline.weight(.semibold))
+                    if !rule.isEnabled {
+                        Text("OFF")
+                            .font(.caption2.weight(.bold))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Text(rule.effectiveBundleIdentifier)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                if !aliasPreview.isEmpty {
+                    Text(aliasPreview)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer()
+
+            Button(action: onEdit) {
+                Image(systemName: "pencil")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(Text(isChinese ? "编辑别名" : "Edit alias"))
+
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(Text(isChinese ? "删除别名" : "Delete alias"))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(10)
+    }
+}
+
+private struct CustomAppLaunchAliasRuleEditorSheet: View {
+    @State private var draftRule: CustomAppLaunchAliasRule
+    let onSave: (CustomAppLaunchAliasRule) -> Void
+    let onCancel: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    init(
+        rule: CustomAppLaunchAliasRule,
+        onSave: @escaping (CustomAppLaunchAliasRule) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        _draftRule = State(initialValue: rule)
+        self.onSave = onSave
+        self.onCancel = onCancel
+    }
+
+    private var isChinese: Bool {
+        AppLocalization.isChinese
+    }
+
+    private var canSave: Bool {
+        !draftRule.effectiveBundleIdentifier.isEmpty && !draftRule.effectiveAliases.isEmpty
+    }
+
+    private var aliasesBinding: Binding<String> {
+        Binding(
+            get: { draftRule.aliases.joined(separator: ", ") },
+            set: { raw in
+                draftRule.aliases = raw
+                    .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(isChinese ? "编辑 App 打开别名" : "Edit App Launch Alias")
+                    .font(.headline)
+                Spacer()
+                Button(isChinese ? "取消" : "Cancel") {
+                    onCancel()
+                    dismiss()
+                }
+                Button(isChinese ? "完成" : "Done") {
+                    guard canSave else { return }
+                    onSave(draftRule)
+                    dismiss()
+                }
+                .disabled(!canSave)
+            }
+
+            Toggle(isChinese ? "启用这条别名" : "Enable this alias", isOn: $draftRule.isEnabled)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(isChinese ? "目标 App" : "Target App")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    SpeechAppPickerMenu(
+                        existingBundleIds: Set(
+                            draftRule.effectiveBundleIdentifier.isEmpty
+                                ? []
+                                : [draftRule.effectiveBundleIdentifier.lowercased()]
+                        ),
+                        onAdd: { bundleID in
+                            draftRule.bundleIdentifier = bundleID
+                        }
+                    )
+                }
+                HStack(spacing: 10) {
+                    SpeechAppIcon(bundleID: draftRule.effectiveBundleIdentifier)
+                        .frame(width: 28, height: 28)
+                    TextField(
+                        isChinese ? "输入 bundle identifier，例如 com.apple.Safari" : "Enter a bundle identifier, for example com.apple.Safari",
+                        text: $draftRule.bundleIdentifier
+                    )
+                    .textFieldStyle(.roundedBorder)
+                }
+                Text(
+                    draftRule.effectiveBundleIdentifier.isEmpty
+                        ? (isChinese ? "先选择一个 App，或者手动输入 bundle identifier。" : "Choose an app first, or enter its bundle identifier manually.")
+                        : SpeechAppMetaStore.name(for: draftRule.effectiveBundleIdentifier)
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(isChinese ? "语音别名" : "Voice Aliases")
+                    .font(.subheadline.weight(.semibold))
+                Text(
+                    isChinese
+                        ? "用逗号分隔。比如：谷歌, 谷歌浏览器, code"
+                        : "Separate aliases with commas. For example: google browser, chrome, code"
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+                TextField(
+                    isChinese ? "输入别名" : "Enter aliases",
+                    text: aliasesBinding
+                )
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.caption, design: .monospaced))
+            }
+        }
+        .padding(16)
+        .frame(width: 560)
+    }
 }
 
 private struct FixedWidthPopUpMenu: NSViewRepresentable {

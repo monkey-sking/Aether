@@ -78,6 +78,44 @@ final class VoiceCommandRouterTests: XCTestCase {
             )
         )
     }
+
+    func testOpenApplicationCommandMatchesInjectedTarget() {
+        let target = AppLaunchTarget(
+            bundleIdentifier: "com.example.workchat",
+            appName: "Work Chat",
+            launchPath: "/Applications/Work Chat.app",
+            aliases: ["Work Chat", "工作聊天"]
+        )
+        router.appLaunchTargets = [target]
+
+        XCTAssertEqual(
+            router.route(transcript: "打开工作聊天", localeIdentifier: "zh-CN"),
+            .openApplication(target)
+        )
+        XCTAssertEqual(
+            router.route(transcript: "switch to Work Chat", localeIdentifier: "en-US"),
+            .openApplication(target)
+        )
+    }
+
+    func testOpenApplicationCommandStripsGenericAppSuffix() {
+        let target = AppLaunchTarget(
+            bundleIdentifier: "com.example.workchat",
+            appName: "Work Chat",
+            launchPath: "/Applications/Work Chat.app",
+            aliases: ["Work Chat", "工作聊天"]
+        )
+        router.appLaunchTargets = [target]
+
+        XCTAssertEqual(
+            router.route(transcript: "open Work Chat app", localeIdentifier: "en-US"),
+            .openApplication(target)
+        )
+        XCTAssertEqual(
+            router.route(transcript: "打开工作聊天应用", localeIdentifier: "zh-CN"),
+            .openApplication(target)
+        )
+    }
     
     func testScrollingAndDragging() {
         XCTAssertEqual(router.route(transcript: "向上", localeIdentifier: "zh-CN"), .scroll(0, -300))
@@ -221,6 +259,25 @@ final class VoiceCommandRouterTests: XCTestCase {
         XCTAssertEqual(
             router.route(transcript: "command right click", bias: .dictationPreferred, localeIdentifier: "en-US"),
             .clickRight
+        )
+    }
+
+    func testTypingModeOpenApplicationRequiresExplicitCommandPrefix() {
+        let target = AppLaunchTarget(
+            bundleIdentifier: "com.example.workchat",
+            appName: "Work Chat",
+            launchPath: "/Applications/Work Chat.app",
+            aliases: ["Work Chat", "工作聊天"]
+        )
+        router.appLaunchTargets = [target]
+
+        XCTAssertEqual(
+            router.route(transcript: "打开工作聊天", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .dictation("打开工作聊天")
+        )
+        XCTAssertEqual(
+            router.route(transcript: "命令打开工作聊天", bias: .dictationPreferred, localeIdentifier: "zh-CN"),
+            .openApplication(target)
         )
     }
 
@@ -444,6 +501,23 @@ final class SpeechManagerTypingModeTests: XCTestCase {
                 localeIdentifier: "en-US"
             ),
             "File > Close Tab"
+        )
+    }
+
+    func testCommandHUDPreviewMessageUsesOpenApplicationTargetName() {
+        let target = AppLaunchTarget(
+            bundleIdentifier: "com.example.workchat",
+            appName: "Work Chat",
+            launchPath: "/Applications/Work Chat.app",
+            aliases: ["Work Chat", "工作聊天"]
+        )
+
+        XCTAssertEqual(
+            SpeechManager.commandHUDPreviewMessage(
+                for: .openApplication(target),
+                localeIdentifier: "en-US"
+            ),
+            "Work Chat"
         )
     }
 

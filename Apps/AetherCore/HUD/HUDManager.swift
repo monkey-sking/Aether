@@ -358,6 +358,7 @@ final class HUDManager {
         let language: String
         let recognitionControlMode: HUDRecognitionControlMode
         let inputDeviceIcon: String
+        let inputDeviceHealth: HUDInputDeviceHealth
         let contextIcon: String
     }
 
@@ -484,10 +485,13 @@ final class HUDManager {
         case .dictation:
             return true
         case .auto:
-            if hudMode == .dictation {
+            if hudMode == .dictation || hudMode == .typing {
                 return true
             }
-            if hudMode == .processing || hudMode == .feedback {
+            if hudMode == .organizing
+                || hudMode == .processing
+                || hudMode == .checking
+                || hudMode == .feedback {
                 return previousTypingContext
             }
             return inferredTypingContext
@@ -528,6 +532,7 @@ final class HUDManager {
         language: String,
         recognitionControlMode: HUDRecognitionControlMode = .auto,
         inputDeviceIcon: String = "mic.fill",
+        inputDeviceHealth: HUDInputDeviceHealth = .normal,
         contextIcon: String = "",
         lifetime: HUDUpdateLifetime = .persistent
     ) {
@@ -541,6 +546,7 @@ final class HUDManager {
                     language: language,
                     recognitionControlMode: recognitionControlMode,
                     inputDeviceIcon: inputDeviceIcon,
+                    inputDeviceHealth: inputDeviceHealth,
                     contextIcon: contextIcon,
                     lifetime: lifetime
                 )
@@ -562,6 +568,7 @@ final class HUDManager {
                     language: language,
                     recognitionControlMode: recognitionControlMode,
                     inputDeviceIcon: inputDeviceIcon,
+                    inputDeviceHealth: inputDeviceHealth,
                     contextIcon: contextIcon
                 )
             }
@@ -583,6 +590,7 @@ final class HUDManager {
             state.isTypingContext == effectiveTypingContext &&
             state.recognitionControlMode == recognitionControlMode &&
             state.inputDeviceIcon == inputDeviceIcon &&
+            state.inputDeviceHealth == inputDeviceHealth &&
             state.contextIcon == contextIcon
 
         switch lifetime {
@@ -598,6 +606,7 @@ final class HUDManager {
                     language: language,
                     recognitionControlMode: recognitionControlMode,
                     inputDeviceIcon: inputDeviceIcon,
+                    inputDeviceHealth: inputDeviceHealth,
                     contextIcon: contextIcon
                 )
             }
@@ -612,6 +621,7 @@ final class HUDManager {
             isTypingContext: effectiveTypingContext,
             recognitionControlMode: recognitionControlMode,
             inputDeviceIcon: inputDeviceIcon,
+            inputDeviceHealth: inputDeviceHealth,
             contextIcon: contextIcon
         )
         if mode == .hidden {
@@ -637,7 +647,7 @@ final class HUDManager {
             cancelHide()
             requestReposition(immediate: true)
             ensureWindowVisible()
-        case .listening, .command, .dictation, .dragging, .processing, .feedback:
+        case .listening, .command, .dictation, .organizing, .typing, .executing, .optimizing, .checking, .dragging, .processing, .feedback:
             // Keep temporary HUD hide timer alive when refreshes are semantic no-ops.
             // Otherwise short toasts can become "always visible" under periodic updates.
             if !isNoopVisibleRefresh {
@@ -704,6 +714,7 @@ final class HUDManager {
             language: language ?? state.language,
             recognitionControlMode: controlMode,
             inputDeviceIcon: icon ?? state.inputDeviceIcon,
+            inputDeviceHealth: state.inputDeviceHealth,
             contextIcon: state.contextIcon,
             lifetime: .temporary(token)
         )
@@ -738,6 +749,7 @@ final class HUDManager {
                 language: language,
                 recognitionControlMode: recognitionControlMode,
                 inputDeviceIcon: icon,
+                inputDeviceHealth: state.inputDeviceHealth,
                 contextIcon: state.contextIcon,
                 lifetime: .persistent
             )
@@ -749,6 +761,7 @@ final class HUDManager {
                 language: snapshot.language,
                 recognitionControlMode: snapshot.recognitionControlMode,
                 inputDeviceIcon: snapshot.inputDeviceIcon,
+                inputDeviceHealth: snapshot.inputDeviceHealth,
                 contextIcon: snapshot.contextIcon,
                 lifetime: .persistent
             )
@@ -759,7 +772,7 @@ final class HUDManager {
     }
     
     func hide() {
-        update(mode: .hidden, language: state.language, inputDeviceIcon: state.inputDeviceIcon, contextIcon: state.contextIcon)
+        update(mode: .hidden, language: state.language, inputDeviceIcon: state.inputDeviceIcon, inputDeviceHealth: state.inputDeviceHealth, contextIcon: state.contextIcon)
     }
 
     func hideImmediately() {
@@ -790,6 +803,7 @@ final class HUDManager {
                 language: state.language,
                 recognitionControlMode: state.recognitionControlMode,
                 inputDeviceIcon: state.inputDeviceIcon,
+                inputDeviceHealth: state.inputDeviceHealth,
                 contextIcon: state.contextIcon,
                 lifetime: .temporary(token)
             )
@@ -3315,6 +3329,7 @@ final class HUDManager {
                 language: fallback.language,
                 recognitionControlMode: fallback.recognitionControlMode,
                 inputDeviceIcon: fallback.inputDeviceIcon,
+                inputDeviceHealth: fallback.inputDeviceHealth,
                 contextIcon: fallback.contextIcon
             )
             return
@@ -3326,6 +3341,7 @@ final class HUDManager {
             language: state.language,
             recognitionControlMode: state.recognitionControlMode,
             inputDeviceIcon: state.inputDeviceIcon,
+            inputDeviceHealth: state.inputDeviceHealth,
             contextIcon: state.contextIcon
         )
     }

@@ -12,7 +12,7 @@ struct HUDView: View {
                     EmptyView()
 
                 case .standby:
-                    StandbyDotView()
+                    StandbyDotView(health: state.inputDeviceHealth)
                     if state.isLanguageIndicatorVisible {
                         languageToggle(showDivider: true)
                     }
@@ -38,9 +38,72 @@ struct HUDView: View {
                     }
 
                 case .dictation:
-                    dictationLeadingVisual
+                    listeningLeadingVisual
                     if trimmedMessage.isEmpty {
                         WaveformView(level: state.audioLevel)
+                    } else {
+                        hudLabel(trimmedMessage)
+                    }
+                    contextIcon
+                    if state.isLanguageIndicatorVisible {
+                        languageToggle(showDivider: true)
+                    }
+
+                case .organizing:
+                    stageLeadingVisual
+                    if trimmedMessage.isEmpty {
+                        TextOrganizingView()
+                    } else {
+                        hudLabel(trimmedMessage)
+                    }
+                    contextIcon
+                    if state.isLanguageIndicatorVisible {
+                        languageToggle(showDivider: true)
+                    }
+
+                case .typing:
+                    stageLeadingVisual
+                    if trimmedMessage.isEmpty {
+                        TypingProgressView()
+                    } else {
+                        hudLabel(trimmedMessage)
+                    }
+                    contextIcon
+                    if state.isLanguageIndicatorVisible {
+                        languageToggle(showDivider: true)
+                    }
+
+                case .executing:
+                    stageLeadingVisual
+                    if trimmedMessage.isEmpty {
+                        ExecutingPulseView()
+                    } else {
+                        hudLabel(trimmedMessage)
+                    }
+                    contextIcon
+                    if state.isLanguageIndicatorVisible {
+                        languageToggle(showDivider: true)
+                    }
+
+                case .optimizing:
+                    stageLeadingVisual
+                    if trimmedMessage.isEmpty {
+                        OptimizingPulseView()
+                    } else {
+                        HStack(spacing: 8) {
+                            OptimizingPulseView()
+                            hudLabel(trimmedMessage)
+                        }
+                    }
+                    contextIcon
+                    if state.isLanguageIndicatorVisible {
+                        languageToggle(showDivider: true)
+                    }
+
+                case .checking:
+                    stageLeadingVisual
+                    if trimmedMessage.isEmpty {
+                        CheckingProgressView()
                     } else {
                         hudLabel(trimmedMessage)
                     }
@@ -58,9 +121,11 @@ struct HUDView: View {
                     }
 
                 case .processing:
-                    processingLeadingVisual
+                    stageLeadingVisual
                     if !trimmedMessage.isEmpty {
                         hudLabel(trimmedMessage)
+                    } else {
+                        GenericProcessingView()
                     }
                     contextIcon
                     if state.isLanguageIndicatorVisible {
@@ -128,26 +193,33 @@ struct HUDView: View {
     }
 
     private var micIcon: some View {
-        ZStack {
-            if state.isMicProgressVisible && (state.mode == .listening || state.mode == .command || state.mode == .dictation) {
-                Circle()
-                    .stroke(Color.white.opacity(0.22), lineWidth: 2)
-                    .frame(width: 22, height: 22)
-                Circle()
-                    .trim(from: 0, to: state.micProgress)
-                    .stroke(
-                        Color.green.opacity(0.9),
-                        style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: 22, height: 22)
+        ZStack(alignment: .bottomTrailing) {
+            ZStack {
+                if state.isMicProgressVisible && (state.mode == .listening || state.mode == .command || state.mode == .dictation) {
+                    Circle()
+                        .stroke(Color.white.opacity(0.22), lineWidth: 2)
+                        .frame(width: 22, height: 22)
+                    Circle()
+                        .trim(from: 0, to: state.micProgress)
+                        .stroke(
+                            Color.green.opacity(0.9),
+                            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 22, height: 22)
+                }
+
+                let requestedIcon = state.inputDeviceIcon
+                Image(systemName: resolvedSymbolName(for: requestedIcon))
+                    .foregroundColor(.white)
+                    .font(.system(size: 14))
+                    .shadow(radius: 1)
             }
 
-            let requestedIcon = state.inputDeviceIcon
-            Image(systemName: resolvedSymbolName(for: requestedIcon))
-                .foregroundColor(.white)
-                .font(.system(size: 14))
-                .shadow(radius: 1)
+            if let healthStyle = deviceHealthStyle {
+                DeviceHealthBadge(style: healthStyle)
+                    .offset(x: 4, y: 4)
+            }
         }
         .frame(width: 22, height: 22)
     }
@@ -160,87 +232,119 @@ struct HUDView: View {
         .frame(width: 28, height: 28)
     }
 
-    private var processingLeadingVisual: some View {
-        HStack(spacing: 6) {
-            if let symbol = processingAccentSymbol {
-                actionBadge(symbol: symbol, tone: processingTone)
+    private var stageLeadingVisual: some View {
+        ZStack(alignment: .bottomTrailing) {
+            AnimatedHUDBadge(
+                symbol: currentInputDeviceSymbol,
+                tone: .white.opacity(0.92),
+                animatePulse: false
+            )
+            if let healthStyle = deviceHealthStyle {
+                DeviceHealthBadge(style: healthStyle)
+                    .offset(x: 4, y: 4)
             }
-            ProcessingDotsView(tone: processingTone)
         }
-    }
-
-    private var dictationLeadingVisual: some View {
-        ZStack {
-            AudioReactiveRingView(level: state.audioLevel)
-            AnimatedHUDBadge(symbol: "text.cursor", tone: .green, animatePulse: false)
-        }
-        .frame(width: 28, height: 28)
     }
 
     private var feedbackLeadingVisual: some View {
-        AnimatedHUDBadge(
-            symbol: feedbackSymbol,
-            tone: feedbackTone,
-            animatePulse: true
-        )
-    }
-
-    private var processingAccentSymbol: String? {
-        let requested = state.inputDeviceIcon.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !requested.isEmpty else { return nil }
-        guard !isGenericProcessingIcon(requested) else { return nil }
-        let resolved = resolvedSymbolName(for: requested)
-        guard !isContextDrivenSymbol(resolved) else { return nil }
-        return resolved
-    }
-
-    private var processingTone: Color {
-        guard let symbol = processingAccentSymbol else { return .white.opacity(0.92) }
-        if symbol.contains("wand") { return .mint }
-        if symbol.contains("keyboard") || symbol.contains("text.cursor") { return .green }
-        return .white.opacity(0.92)
-    }
-
-    private var feedbackSymbol: String {
-        let requested = state.inputDeviceIcon.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallback = fallbackFeedbackSymbol
-        guard !requested.isEmpty else { return fallback }
-
-        let resolved = resolvedSymbolName(for: requested)
-        if isContextDrivenSymbol(resolved) {
-            return fallback
+        ZStack {
+            AnimatedHUDBadge(
+                symbol: currentInputDeviceSymbol,
+                tone: .white.opacity(0.92),
+                animatePulse: false
+            )
+            if let healthStyle = deviceHealthStyle {
+                DeviceHealthBadge(style: healthStyle)
+                    .offset(x: -7, y: -7)
+            }
+            if let feedbackOutcomeSymbol {
+                OutcomeOverlayBadge(symbol: feedbackOutcomeSymbol, tone: feedbackTone)
+                    .offset(x: 4, y: 4)
+            }
         }
-        return resolved
+    }
+
+    private var currentInputDeviceSymbol: String {
+        resolvedSymbolName(for: state.inputDeviceIcon)
+    }
+
+    private enum FeedbackKind {
+        case neutral
+        case info
+        case success
+        case warning
+        case error
+    }
+
+    private var feedbackKind: FeedbackKind {
+        guard !trimmedMessage.isEmpty else { return .neutral }
+        if compactFeedbackMessages.contains(trimmedMessage) {
+            return .success
+        }
+        if warningFeedbackMessages.contains(trimmedMessage) || looksLikeWarningFeedback(trimmedMessage) {
+            return .warning
+        }
+        if errorFeedbackMessages.contains(trimmedMessage) || looksLikeErrorFeedback(trimmedMessage) {
+            return .error
+        }
+        if infoFeedbackMessages.contains(trimmedMessage) || looksLikeInfoFeedback(trimmedMessage) {
+            return .info
+        }
+        return .info
+    }
+
+    private var feedbackOutcomeSymbol: String? {
+        switch feedbackKind {
+        case .neutral:
+            return nil
+        case .info:
+            return "info.circle.fill"
+        case .success:
+            return "checkmark.circle.fill"
+        case .warning:
+            return "exclamationmark.triangle.fill"
+        case .error:
+            return "xmark.circle.fill"
+        }
     }
 
     private var feedbackTone: Color {
-        if compactFeedbackMessages.contains(trimmedMessage) || feedbackSymbol.contains("checkmark") {
+        switch feedbackKind {
+        case .neutral:
+            return .white
+        case .info:
+            return .white
+        case .success:
             return .green
-        }
-        if feedbackSymbol.contains("xmark") || feedbackSymbol.contains("slash") {
+        case .warning:
+            return .orange
+        case .error:
             return .red
         }
-        if feedbackSymbol.contains("exclamationmark") || feedbackSymbol.contains("pause") {
-            return .orange
-        }
-        if feedbackSymbol.contains("wand") {
-            return .mint
-        }
-        if feedbackSymbol.contains("keyboard") || feedbackSymbol.contains("text.cursor") {
-            return .green
-        }
-        if feedbackSymbol.contains("command") {
-            return .cyan
-        }
-        if trimmedMessage.isEmpty {
-            return .green
-        }
-        return .white
     }
 
     private var shouldShowFeedbackText: Bool {
         guard !trimmedMessage.isEmpty else { return false }
         return !compactFeedbackMessages.contains(trimmedMessage)
+    }
+
+    fileprivate enum DeviceHealthBadgeStyle {
+        case warning
+        case limited
+        case error
+    }
+
+    private var deviceHealthStyle: DeviceHealthBadgeStyle? {
+        switch state.inputDeviceHealth {
+        case .normal:
+            return nil
+        case .warning:
+            return .warning
+        case .limited:
+            return .limited
+        case .error:
+            return .error
+        }
     }
 
     private var compactFeedbackMessages: Set<String> {
@@ -262,31 +366,76 @@ struct HUDView: View {
         [
             NSLocalizedString("speech.no_matching_command", comment: ""),
             NSLocalizedString("speech.no_editable_field", comment: ""),
-            NSLocalizedString("speech.no_mic_detected", comment: "")
+            NSLocalizedString("speech.no_mic_detected", comment: ""),
+            NSLocalizedString("speech.need_mic_permission", comment: ""),
+            NSLocalizedString("speech.need_recognition_permission", comment: ""),
+            NSLocalizedString("speech.voice_input_disabled", comment: ""),
+            NSLocalizedString("speech.voice_control_disabled", comment: ""),
+            "没完成",
+            "Didn't finish"
         ]
     }
 
-    private var fallbackFeedbackSymbol: String {
-        if errorFeedbackMessages.contains(trimmedMessage) {
-            return "exclamationmark.triangle.fill"
+    private var warningFeedbackMessages: Set<String> {
+        [
+            NSLocalizedString("speech.playback_leak.detected", comment: ""),
+            NSLocalizedString("speech.playback_leak.suppression_active", comment: ""),
+            AppLocalization.isChinese ? "正在优化全文，请稍候" : "A full-text rewrite is already running. Please wait.",
+            AppLocalization.isChinese ? "耳机麦不可用，已切到 Mac 麦克风" : "Switched to Mac microphone"
+        ]
+    }
+
+    private var infoFeedbackMessages: Set<String> {
+        [
+            AppLocalization.isChinese ? "耳机已断开" : "Headset disconnected"
+        ]
+    }
+
+    private func looksLikeWarningFeedback(_ message: String) -> Bool {
+        let lowercased = message.lowercased()
+        if AppLocalization.isChinese {
+            return message.contains("不可用")
+                || message.contains("请稍候")
+                || message.contains("干扰")
         }
-        return "checkmark.circle.fill"
+        return lowercased.contains("please wait")
+            || lowercased.contains("interference")
+            || lowercased.contains("switched to mac microphone")
     }
 
-    private func isGenericProcessingIcon(_ icon: String) -> Bool {
-        let normalized = icon.lowercased()
-        return normalized.hasPrefix("mic")
-            || normalized.hasPrefix("airpod")
-            || normalized.hasPrefix("airpods")
-            || normalized == "laptopcomputer"
-            || normalized == "headphones"
+    private func looksLikeErrorFeedback(_ message: String) -> Bool {
+        let lowercased = message.lowercased()
+        if AppLocalization.isChinese {
+            return message.contains("失败")
+                || message.contains("失效")
+                || message.contains("不支持")
+                || message.contains("未替换")
+                || message.contains("没找到")
+                || message.contains("为空")
+                || message.contains("过长")
+                || message.contains("关闭")
+        }
+        return lowercased.contains("failed")
+            || lowercased.contains("not support")
+            || lowercased.contains("no editable")
+            || lowercased.contains("not replaced")
+            || lowercased.contains("no longer valid")
+            || lowercased.contains("is off")
+            || lowercased.contains("too long")
+            || lowercased.contains("is empty")
+            || lowercased.contains("not configured")
+            || lowercased.contains("turned off")
     }
 
-    private func isContextDrivenSymbol(_ symbol: String) -> Bool {
-        let normalized = symbol.lowercased()
-        return normalized.contains("keyboard")
-            || normalized.contains("text.cursor")
-            || normalized.hasPrefix("command")
+    private func looksLikeInfoFeedback(_ message: String) -> Bool {
+        let lowercased = message.lowercased()
+        if AppLocalization.isChinese {
+            return message.contains("已连接")
+                || message.contains("已切到")
+        }
+        return lowercased.hasPrefix("connected:")
+            || lowercased.hasPrefix("switched:")
+            || lowercased.hasPrefix("switched to ")
     }
 
     private func hudLabel(_ text: String) -> some View {
@@ -511,17 +660,37 @@ private struct GestureTrailView: View {
 }
 
 private struct StandbyDotView: View {
+    let health: HUDInputDeviceHealth
     @State private var isBreathing = false
 
     var body: some View {
         Circle()
-            .fill(Color.green.opacity(0.88))
+            .fill(dotColor.opacity(0.9))
             .frame(width: 8, height: 8)
-            .scaleEffect(isBreathing ? 1.18 : 0.92)
+            .overlay(
+                Circle()
+                    .stroke(dotColor.opacity(health == .normal ? 0.0 : 0.45), lineWidth: 1.2)
+                    .scaleEffect(isBreathing ? 1.7 : 1.1)
+                    .opacity(health == .normal ? 0.0 : (isBreathing ? 0.0 : 0.9))
+            )
+            .scaleEffect(isBreathing ? 1.16 : 0.94)
             .opacity(isBreathing ? 0.95 : 0.74)
-            .shadow(color: .green.opacity(0.45), radius: 4)
+            .shadow(color: dotColor.opacity(0.38), radius: 4)
             .animation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true), value: isBreathing)
             .onAppear { isBreathing = true }
+    }
+
+    private var dotColor: Color {
+        switch health {
+        case .normal:
+            return .green
+        case .warning:
+            return Color.yellow
+        case .limited:
+            return .orange
+        case .error:
+            return .red
+        }
     }
 }
 
@@ -562,6 +731,144 @@ private struct ProcessingDotsView: View {
     }
 }
 
+private struct GenericProcessingView: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            TextOrganizingView()
+            ProcessingDotsView(tone: .white.opacity(0.88))
+        }
+    }
+}
+
+private struct TextOrganizingView: View {
+    @State private var activeIndex = 0
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Color.white.opacity(activeIndex == index ? 0.9 : 0.35))
+                    .frame(
+                        width: activeIndex == index ? 17 : 13,
+                        height: activeIndex == index ? 4.5 : 3.5
+                    )
+            }
+        }
+        .frame(height: 16)
+        .animation(.easeInOut(duration: 0.18), value: activeIndex)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 220_000_000)
+                await MainActor.run {
+                    activeIndex = (activeIndex + 1) % 3
+                }
+            }
+        }
+    }
+}
+
+private struct TypingProgressView: View {
+    @State private var cursorVisible = true
+
+    var body: some View {
+        HStack(spacing: 5) {
+            HStack(spacing: 4) {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Color.white.opacity(0.7))
+                    .frame(width: 16, height: 4)
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Color.white.opacity(0.45))
+                    .frame(width: 12, height: 4)
+            }
+            Rectangle()
+                .fill(Color.green.opacity(cursorVisible ? 0.92 : 0.28))
+                .frame(width: 2, height: 14)
+                .shadow(color: Color.green.opacity(0.35), radius: 2)
+        }
+        .frame(height: 18)
+        .animation(.easeInOut(duration: 0.18), value: cursorVisible)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 320_000_000)
+                await MainActor.run {
+                    cursorVisible.toggle()
+                }
+            }
+        }
+    }
+}
+
+private struct ExecutingPulseView: View {
+    @State private var offset: CGFloat = -4
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "arrow.right")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.white.opacity(0.92))
+                .offset(x: offset)
+            ForEach(0..<2, id: \.self) { index in
+                Circle()
+                    .fill(Color.white.opacity(index == 0 ? 0.4 : 0.7))
+                    .frame(width: index == 0 ? 4 : 5, height: index == 0 ? 4 : 5)
+                    .offset(x: offset * 0.3)
+            }
+        }
+        .frame(height: 18)
+        .animation(.easeInOut(duration: 0.32).repeatForever(autoreverses: true), value: offset)
+        .onAppear {
+            offset = 4
+        }
+    }
+}
+
+private struct OptimizingPulseView: View {
+    @State private var pulse = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.mint.opacity(0.35), lineWidth: 1.2)
+                .frame(width: 18, height: 18)
+                .scaleEffect(pulse ? 1.25 : 0.92)
+                .opacity(pulse ? 0.15 : 0.85)
+            Image(systemName: "wand.and.stars")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white.opacity(0.92))
+        }
+        .frame(width: 20, height: 20)
+        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: pulse)
+        .onAppear {
+            pulse = true
+        }
+    }
+}
+
+private struct CheckingProgressView: View {
+    @State private var phase = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .trim(from: 0.1, to: 0.78)
+                .stroke(
+                    Color.white.opacity(0.78),
+                    style: StrokeStyle(lineWidth: 1.8, lineCap: .round)
+                )
+                .frame(width: 18, height: 18)
+                .rotationEffect(.degrees(phase ? 320 : 40))
+            Image(systemName: "checkmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.white.opacity(0.9))
+        }
+        .frame(width: 20, height: 20)
+        .animation(.easeInOut(duration: 0.55).repeatForever(autoreverses: false), value: phase)
+        .onAppear {
+            phase = true
+        }
+    }
+}
+
 private struct AnimatedHUDBadge: View {
     let symbol: String
     let tone: Color
@@ -596,6 +903,89 @@ private struct AnimatedHUDBadge: View {
         .onAppear {
             guard animatePulse else { return }
             pulseVisible = true
+        }
+    }
+}
+
+private struct OutcomeOverlayBadge: View {
+    let symbol: String
+    let tone: Color
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.black.opacity(0.78))
+                .frame(width: 14, height: 14)
+            Circle()
+                .stroke(tone.opacity(0.8), lineWidth: 1)
+                .frame(width: 14, height: 14)
+            Image(systemName: symbol)
+                .font(.system(size: 7.5, weight: .bold))
+                .foregroundColor(tone)
+        }
+    }
+}
+
+private struct DeviceHealthBadge: View {
+    let style: HUDView.DeviceHealthBadgeStyle
+    @State private var pulse = false
+
+    var body: some View {
+        ZStack {
+            if style == .limited {
+                Circle()
+                    .stroke(tone.opacity(0.34), lineWidth: 1)
+                    .frame(width: 14, height: 14)
+                    .scaleEffect(pulse ? 1.45 : 1.0)
+                    .opacity(pulse ? 0.0 : 0.75)
+            }
+
+            Circle()
+                .fill(Color.black.opacity(0.82))
+                .frame(width: 14, height: 14)
+
+            switch style {
+            case .warning:
+                Circle()
+                    .fill(tone)
+                    .frame(width: 5.5, height: 5.5)
+            case .limited:
+                Circle()
+                    .stroke(tone.opacity(0.85), lineWidth: 1)
+                    .frame(width: 14, height: 14)
+                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                    .fill(tone)
+                    .frame(width: 6.5, height: 2)
+            case .error:
+                Circle()
+                    .stroke(tone.opacity(0.85), lineWidth: 1)
+                    .frame(width: 14, height: 14)
+                Image(systemName: "xmark")
+                    .font(.system(size: 6.5, weight: .bold))
+                    .foregroundColor(tone)
+            }
+        }
+        .frame(width: 14, height: 14)
+        .onAppear {
+            guard style == .limited else { return }
+            pulse = true
+        }
+        .animation(
+            style == .limited
+                ? .easeInOut(duration: 2.4).repeatForever(autoreverses: false)
+                : .default,
+            value: pulse
+        )
+    }
+
+    private var tone: Color {
+        switch style {
+        case .warning:
+            return Color.yellow
+        case .limited:
+            return .orange
+        case .error:
+            return .red
         }
     }
 }

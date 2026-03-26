@@ -7,6 +7,11 @@ enum HUDMode: String {
     case listening   // Waiting for speech (Mic + "Listening...")
     case command     // Live transcription (Mic + realtime text)
     case dictation   // Typing mode (Waveform)
+    case organizing  // Captured speech is being normalized/refined
+    case typing      // Final text is being injected
+    case executing   // Command/action is being executed
+    case optimizing  // Long-running rewrite/optimization
+    case checking    // Post-apply verification
     case dragging    // Pointer drag is active
     case processing  // ⋯ Trailing audio capture
     case feedback    // Temporary result / alert pulse
@@ -16,6 +21,13 @@ enum HUDRecognitionControlMode: String {
     case auto
     case command
     case dictation
+}
+
+enum HUDInputDeviceHealth: String {
+    case normal
+    case warning
+    case limited
+    case error
 }
 
 final class HUDState: ObservableObject {
@@ -31,6 +43,7 @@ final class HUDState: ObservableObject {
     @Published var isTypingContext: Bool = false
     @Published var recognitionControlMode: HUDRecognitionControlMode = .auto
     @Published var inputDeviceIcon: String = "mic.fill"
+    @Published var inputDeviceHealth: HUDInputDeviceHealth = .normal
     @Published var contextIcon: String = ""
     @Published var isLanguageIndicatorVisible: Bool = false
     // 0...1 progress for current recording segment (visual ring around mic icon).
@@ -50,6 +63,7 @@ final class HUDState: ObservableObject {
         isTypingContext: Bool,
         recognitionControlMode: HUDRecognitionControlMode,
         inputDeviceIcon: String,
+        inputDeviceHealth: HUDInputDeviceHealth,
         contextIcon: String
     ) {
         self.mode = mode
@@ -58,6 +72,7 @@ final class HUDState: ObservableObject {
         self.isTypingContext = isTypingContext
         self.recognitionControlMode = recognitionControlMode
         self.inputDeviceIcon = inputDeviceIcon
+        self.inputDeviceHealth = inputDeviceHealth
         self.contextIcon = contextIcon
     }
 

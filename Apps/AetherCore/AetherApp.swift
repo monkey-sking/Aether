@@ -714,6 +714,10 @@ final class VoiceService: ObservableObject {
         manager.setCustomAppShortcutRules(rules)
     }
 
+    func setCustomAppLaunchAliasRules(_ rules: [CustomAppLaunchAliasRule]) {
+        manager.setCustomAppLaunchAliasRules(rules)
+    }
+
     func syncHUDState() {
         manager.syncHUDState()
     }
@@ -1427,6 +1431,12 @@ class AppState: ObservableObject {
         var rules: [CustomAppShortcutRule]
     }
 
+    struct CustomAppLaunchAliasRulesBackup: Codable {
+        var version: Int = 1
+        var exportedAt: Date = Date()
+        var rules: [CustomAppLaunchAliasRule]
+    }
+
     private static let speechTermGroupsStorageKey = "speechTermGroupsV2"
     private static let developerSpeechProfileEnabledStorageKey = "developerSpeechProfileEnabledV1"
     private static let voiceCommandOverridesStorageKey = "voiceCommandOverridesV1"
@@ -1437,6 +1447,7 @@ class AppState: ObservableObject {
     private static let voiceUsageSummaryStorageKey = "voiceUsageSummaryV1"
     private static let voiceUsageAppSummariesStorageKey = "voiceUsageAppSummariesV1"
     private static let customAppShortcutRulesStorageKey = "customAppShortcutRulesV1"
+    private static let customAppLaunchAliasRulesStorageKey = "customAppLaunchAliasRulesV1"
     private static let defaultVoiceUsageHistoryLimit = 1000
     private static let minVoiceUsageHistoryLimit = 100
     private static let maxVoiceUsageHistoryLimit = 5000
@@ -1615,6 +1626,20 @@ class AppState: ObservableObject {
     private static func saveCustomAppShortcutRules(_ rules: [CustomAppShortcutRule]) {
         if let data = try? JSONEncoder().encode(rules) {
             UserDefaults.standard.set(data, forKey: customAppShortcutRulesStorageKey)
+        }
+    }
+
+    private static func loadCustomAppLaunchAliasRules() -> [CustomAppLaunchAliasRule] {
+        guard let data = UserDefaults.standard.data(forKey: customAppLaunchAliasRulesStorageKey),
+              let rules = try? JSONDecoder().decode([CustomAppLaunchAliasRule].self, from: data) else {
+            return []
+        }
+        return rules
+    }
+
+    private static func saveCustomAppLaunchAliasRules(_ rules: [CustomAppLaunchAliasRule]) {
+        if let data = try? JSONEncoder().encode(rules) {
+            UserDefaults.standard.set(data, forKey: customAppLaunchAliasRulesStorageKey)
         }
     }
 
@@ -2276,6 +2301,12 @@ class AppState: ObservableObject {
             CurrentAppShortcutPanelManager.shared.refreshIfVisible()
         }
     }
+    @Published var customAppLaunchAliasRules: [CustomAppLaunchAliasRule] = AppState.loadCustomAppLaunchAliasRules() {
+        didSet {
+            AppState.saveCustomAppLaunchAliasRules(customAppLaunchAliasRules)
+            voiceService.setCustomAppLaunchAliasRules(customAppLaunchAliasRules)
+        }
+    }
 
     var voiceUsageSummary: VoiceUsageSummary {
         storedVoiceUsageSummary
@@ -2848,6 +2879,23 @@ class AppState: ObservableObject {
             .filter { !$0.isEmpty }
     }
 
+    func addCustomAppLaunchAlias(prefilling bundleIdentifier: String? = nil) {
+        let resolvedBundleIdentifier = bundleIdentifier
+            ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            ?? ""
+        customAppLaunchAliasRules.insert(
+            CustomAppLaunchAliasRule(
+                bundleIdentifier: resolvedBundleIdentifier,
+                aliases: []
+            ),
+            at: 0
+        )
+    }
+
+    func removeCustomAppLaunchAlias(id: String) {
+        customAppLaunchAliasRules.removeAll { $0.id == id }
+    }
+
     func addSpeechTermGroup() {
         speechTermGroups.append(
             SpeechTermGroupConfig(
@@ -3253,6 +3301,41 @@ class AppState: ObservableObject {
         return true
     }
 
+    func copyCustomAppLaunchAliasRulesToPasteboard() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(CustomAppLaunchAliasRulesBackup(rules: customAppLaunchAliasRules))
+        guard let payload = String(data: data, encoding: .utf8) else {
+            throw NSError(domain: "AetherAppLaunchAliasesCopy", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to encode app launch aliases."])
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(payload, forType: .string) else {
+            throw NSError(domain: "AetherAppLaunchAliasesCopy", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to copy app launch aliases to pasteboard."])
+        }
+    }
+
+    func importCustomAppLaunchAliasRulesFromPasteboard() throws -> Bool {
+        let pasteboard = NSPasteboard.general
+        guard let raw = pasteboard.string(forType: .string) else { return false }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let data = Data(trimmed.utf8)
+
+        if let backup = try? decoder.decode(CustomAppLaunchAliasRulesBackup.self, from: data) {
+            mergeCustomAppLaunchAliasRules(backup.rules)
+            return true
+        }
+
+        let rules = try decoder.decode([CustomAppLaunchAliasRule].self, from: data)
+        mergeCustomAppLaunchAliasRules(rules)
+        return true
+    }
+
     private func mergeCustomAppShortcutRules(_ incoming: [CustomAppShortcutRule]) {
         var merged = customAppShortcutRules
         var keys = Set(merged.map(customAppShortcutRuleSemanticKey(_:)))
@@ -3265,12 +3348,32 @@ class AppState: ObservableObject {
         customAppShortcutRules = merged
     }
 
+    private func mergeCustomAppLaunchAliasRules(_ incoming: [CustomAppLaunchAliasRule]) {
+        var merged = customAppLaunchAliasRules
+        var keys = Set(merged.map(customAppLaunchAliasRuleSemanticKey(_:)))
+        for rule in incoming {
+            guard rule.isValid else { continue }
+            let key = customAppLaunchAliasRuleSemanticKey(rule)
+            guard !keys.contains(key) else { continue }
+            keys.insert(key)
+            merged.append(rule)
+        }
+        customAppLaunchAliasRules = merged
+    }
+
     private func customAppShortcutRuleSemanticKey(_ rule: CustomAppShortcutRule) -> String {
         [
             rule.effectiveBundleIdentifiers.map { $0.lowercased() }.sorted().joined(separator: ","),
             rule.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
             String(rule.shortcut.keyCode),
             String(rule.shortcut.modifiers)
+        ].joined(separator: "::")
+    }
+
+    private func customAppLaunchAliasRuleSemanticKey(_ rule: CustomAppLaunchAliasRule) -> String {
+        [
+            rule.effectiveBundleIdentifier.lowercased(),
+            rule.effectiveAliases.map { $0.lowercased() }.sorted().joined(separator: ",")
         ].joined(separator: "::")
     }
 
@@ -3836,6 +3939,7 @@ class AppState: ObservableObject {
         voiceService.setVoiceCommandOverrides(self.voiceCommandOverrides)
         voiceService.setVoiceLanguageTermsOverrides(self.voiceLanguageTermsOverrides)
         voiceService.setCustomAppShortcutRules(self.customAppShortcutRules)
+        voiceService.setCustomAppLaunchAliasRules(self.customAppLaunchAliasRules)
         motionService.setTrackingExecutionEnabled { [weak self] in
             self?.isProductUnlocked ?? false
         }
@@ -4451,6 +4555,14 @@ class AppState: ObservableObject {
             GlobalLogger.lifecycle.info("[VoiceIntent] action=recenter")
             motionService.recenter()
             recordControl(intent)
+        case .openApplication(let target):
+            GlobalLogger.lifecycle.info("[VoiceIntent] action=openApplication app=\(target.displayName) bundle=\(target.bundleIdentifier)")
+            openResolvedApplication(target)
+            recordControl(
+                intent,
+                appName: target.displayName,
+                bundleIdentifier: target.bundleIdentifier
+            )
         case .frontmostAppCommand(let command):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=frontmostAppCommand title=\(command.title) shortcut=\(command.shortcut.displayString) pid=\(command.processIdentifier)")
             let targetPID: pid_t? = command.isGlobalRule ? nil : command.processIdentifier
@@ -4556,6 +4668,48 @@ class AppState: ObservableObject {
                 }
             } else {
                 recordControl(intent)
+            }
+        }
+    }
+
+    private func openResolvedApplication(_ target: AppLaunchTarget) {
+        if let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            $0.activationPolicy == .regular
+                && ($0.bundleIdentifier?.caseInsensitiveCompare(target.bundleIdentifier) == .orderedSame)
+        }) {
+            _ = runningApp.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            return
+        }
+
+        let appURL = target.launchPath
+            .flatMap { path -> URL? in
+                guard !path.isEmpty else { return nil }
+                return URL(fileURLWithPath: path, isDirectory: true)
+            }
+            ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: target.bundleIdentifier)
+
+        guard let appURL else {
+            HUDManager.shared.showTemporary(
+                message: AppLocalization.isChinese
+                    ? "找不到 \(target.displayName)"
+                    : "Couldn't find \(target.displayName)",
+                icon: "xmark.circle.fill"
+            )
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, error in
+            guard let error else { return }
+            DispatchQueue.main.async {
+                GlobalLogger.lifecycle.error("[VoiceIntent] openApplication failed bundle=\(target.bundleIdentifier) error=\(error.localizedDescription)")
+                HUDManager.shared.showTemporary(
+                    message: AppLocalization.isChinese
+                        ? "无法打开 \(target.displayName)"
+                        : "Couldn't open \(target.displayName)",
+                    icon: "xmark.circle.fill"
+                )
             }
         }
     }
@@ -4971,6 +5125,8 @@ class AppState: ObservableObject {
         case .startPointer: return NSLocalizedString("intent.start_pointer", comment: "")
         case .stopPointer: return NSLocalizedString("intent.stop_pointer", comment: "")
         case .recenter: return NSLocalizedString("intent.recenter", comment: "")
+        case .openApplication(let target):
+            return AppLocalization.isChinese ? "打开 \(target.displayName)" : "Open \(target.displayName)"
         case .frontmostAppCommand(let command):
             return "\(command.title) (\(command.shortcut.displayString))"
         case .scroll(_, let dy):

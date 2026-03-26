@@ -312,6 +312,7 @@ final class SpeechManager: ObservableObject {
                             language: self.activeLocale.identifier,
                             recognitionControlMode: self.hudRecognitionControlMode,
                             inputDeviceIcon: self.hudInputIcon(),
+                            inputDeviceHealth: self.hudInputHealth(),
                             contextIcon: self.hudContextIcon()
                         )
                         hud.showTemporaryLanguageIndicator()
@@ -550,6 +551,12 @@ final class SpeechManager: ObservableObject {
     private var hudOverrideMode: HUDMode = .command
     private var hudOverrideMessage: String = ""
     private var hudOverrideIcon: String = "info.circle"
+    private var hudOverrideInputDeviceHealth: HUDInputDeviceHealth = .normal
+    private var activeHUDStageOwner: String?
+    private var activeHUDStageMode: HUDMode?
+    private var activeHUDStageMessage: String = ""
+    private var activeHUDStageControlMode: HUDRecognitionControlMode?
+    private var pendingCheckingHUDWorkItem: DispatchWorkItem?
     private var activeTextRewriteHUDCount: Int = 0
     private var isUtteranceActive: Bool = false
     private var cachedTypingMode: Bool = false
@@ -616,6 +623,7 @@ final class SpeechManager: ObservableObject {
     private var lastCommittedDictationAt: Date = .distantPast
     private var lastCommittedDictationPID: pid_t?
     private var lastCommittedDictationBundleID: String?
+    private var customAppLaunchAliasRules: [CustomAppLaunchAliasRule] = []
     private var lastCommittedDictationElementFingerprint: String?
     private let wakeFollowUpDuplicateSuppressionWindow: TimeInterval = 1.2
     private var recentWakeFollowUpDictationSuppression: RecentWakeFollowUpDictationSuppression?
@@ -1426,7 +1434,7 @@ final class SpeechManager: ObservableObject {
             )
             HUDManager.shared.showTemporary(
                 message: AppLocalization.isChinese ? "耳机麦不可用，已切到 Mac 麦克风" : "Switched to Mac microphone",
-                icon: "mic.badge.xmark",
+                icon: self.hudInputIcon(),
                 duration: 1.2
             )
             self.scheduleEngineRestart(reason: "startup-headset-unavailable", debounce: 0.01)
@@ -1609,6 +1617,34 @@ final class SpeechManager: ObservableObject {
             lastLoggedAirPodSide = side
         }
         return icon
+    }
+
+    private func hudInputHealth() -> HUDInputDeviceHealth {
+        let realHardware = availableInputDevices.filter { $0.id != 0 }
+        if realHardware.isEmpty {
+            return .error
+        }
+        if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
+            return .error
+        }
+        if SFSpeechRecognizer.authorizationStatus() != .authorized {
+            return .limited
+        }
+        if temporaryFallbackInputDeviceID != nil {
+            return .limited
+        }
+        if selectedInputDeviceID != 0,
+           !availableInputDevices.contains(where: { $0.id == selectedInputDeviceID }) {
+            return .warning
+        }
+        switch playbackLeakState {
+        case .none:
+            return .normal
+        case .suspectedPlaybackLeak:
+            return .warning
+        case .speechSuppressionActive:
+            return .limited
+        }
     }
 
     private func hudContextIcon() -> String {
@@ -1885,7 +1921,7 @@ final class SpeechManager: ObservableObject {
                     self.setPlaybackLeakState(.suspectedPlaybackLeak)
                     HUDManager.shared.showTemporary(
                         message: String(localized: "speech.playback_leak.detected"),
-                        icon: "speaker.wave.2.bubble.left.fill",
+                        icon: self.hudInputIcon(),
                         duration: 1.6
                     )
                 }
@@ -2030,7 +2066,7 @@ final class SpeechManager: ObservableObject {
                 message: String(localized: "speech.bilingual_switch_unsupported"),
                 language: activeLocale.identifier,
                 recognitionControlMode: hudRecognitionControlMode,
-                icon: "globe",
+                icon: hudInputIcon(),
             )
             hud.showTemporaryLanguageIndicator()
             return
@@ -2052,6 +2088,7 @@ final class SpeechManager: ObservableObject {
             language: activeLocale.identifier,
             recognitionControlMode: hudRecognitionControlMode,
             inputDeviceIcon: hudInputIcon(),
+            inputDeviceHealth: hudInputHealth(),
             contextIcon: hudContextIcon()
         )
         if recognitionSession.isRunning {
@@ -2081,12 +2118,12 @@ final class SpeechManager: ObservableObject {
         }
     }
 
-    private func missingVoicePermissionHint() -> (message: String, icon: String)? {
+    private func missingVoicePermissionHint() -> (message: String, health: HUDInputDeviceHealth)? {
         if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
-            return (NSLocalizedString("speech.need_mic_permission", comment: ""), "mic.slash.fill")
+            return (NSLocalizedString("speech.need_mic_permission", comment: ""), .error)
         }
         if SFSpeechRecognizer.authorizationStatus() != .authorized {
-            return (NSLocalizedString("speech.need_recognition_permission", comment: ""), "waveform.badge.exclamationmark")
+            return (NSLocalizedString("speech.need_recognition_permission", comment: ""), .limited)
         }
         return nil
     }
@@ -2206,7 +2243,13 @@ final class SpeechManager: ObservableObject {
         recognitionSession.cancel()
 
         if let hint = missingVoicePermissionHint() {
-            setHUDOverride(mode: .command, message: hint.message, icon: hint.icon, duration: nil)
+            setHUDOverride(
+                mode: .feedback,
+                message: hint.message,
+                icon: hudInputIcon(),
+                inputDeviceHealth: hint.health,
+                duration: nil
+            )
             refreshContinuousHUD(); return
         }
 
@@ -2588,6 +2631,12 @@ final class SpeechManager: ObservableObject {
         if isStopping {
             handleTranscript(fallbackTranscript ?? text, utteranceID: activeUtteranceID)
             if !isAlwaysListeningEnabled { stopAudioCapture(); refreshContinuousHUD() }
+        } else if Self.shouldCommitCompletedOneShotFinalResult(
+            isStopping: isStopping,
+            isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+            finalTranscript: normalized
+        ) {
+            handleCompletedOneShotFinalResult(normalized)
         } else if let fallbackTranscript {
             GlobalLogger.speech.info(
                 "[ASR Final] empty-final fallback transcript='\(wakeDiagnosticSnippet(fallbackTranscript))'"
@@ -2595,6 +2644,35 @@ final class SpeechManager: ObservableObject {
             handleTranscript(fallbackTranscript, utteranceID: activeUtteranceID)
             resetUtteranceTrackingForNextPhrase()
             refreshContinuousHUD(isDictating: false)
+        }
+    }
+
+    private func handleCompletedOneShotFinalResult(_ transcript: String) {
+        let finalTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !finalTranscript.isEmpty else { return }
+
+        GlobalLogger.speech.info(
+            "[ASR Final] committing self-ended one-shot transcript='\(wakeDiagnosticSnippet(finalTranscript))' held=\(isPTTHeld)"
+        )
+
+        stopMicProgressUI(keepVisible: isPTTHeld)
+        handleTranscript(finalTranscript, utteranceID: activeUtteranceID)
+        resetUtteranceTrackingForNextPhrase()
+
+        guard isPTTHeld else {
+            stopAudioCapture()
+            HUDManager.shared.hide()
+            return
+        }
+
+        refreshContinuousHUD(isDictating: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self,
+                  self.isPTTHeld,
+                  !self.isStopping,
+                  !self.recognitionSession.isRunning,
+                  !self.isAlwaysListeningEnabled else { return }
+            self.startOnce()
         }
     }
 
@@ -2894,6 +2972,11 @@ final class SpeechManager: ObservableObject {
     func setCustomAppShortcutRules(_ rules: [CustomAppShortcutRule]) {
         customAppShortcutRules = rules
         _ = refreshFrontmostAppCommands(force: true)
+    }
+
+    func setCustomAppLaunchAliasRules(_ rules: [CustomAppLaunchAliasRule]) {
+        customAppLaunchAliasRules = rules
+        commandRouter.appLaunchTargets = AppLaunchResolver.contextualTargets(customRules: rules)
     }
 
     private func cleanup() {
@@ -3319,7 +3402,13 @@ final class SpeechManager: ObservableObject {
         }
         armWakeTypingFallback(reason: reason)
         clearUnarmedWakePreview()
-        setHUDOverride(mode: .feedback, message: "", icon: hudInputIcon(), duration: 0.22)
+        setHUDOverride(
+            mode: .feedback,
+            message: "",
+            icon: hudInputIcon(),
+            inputDeviceHealth: hudInputHealth(),
+            duration: 0.22
+        )
         refreshContinuousHUD(isDictating: false)
         let hudAfter = HUDManager.shared.state.mode
         GlobalLogger.speech.info(
@@ -4105,6 +4194,20 @@ final class SpeechManager: ObservableObject {
     }
 
     private func processIntentJob(_ job: IntentJob) async -> ProcessedJob {
+        let stageOwner = hudStageOwner(for: job)
+        if !job.holdsTextRewriteBarrier {
+            let stageControlMode: HUDRecognitionControlMode = {
+                if isCommandIntent(job.intent) { return .command }
+                if job.sessionTypingMode { return .dictation }
+                return .auto
+            }()
+            setHUDStage(
+                owner: stageOwner,
+                mode: .organizing,
+                controlMode: stageControlMode
+            )
+            status = organizingHUDStatus
+        }
         let llmBundleIDs = VoiceLexiconSupport.uniqueTerms(
             ([job.targetBundleID].compactMap { $0 } + currentContextBundleIDs()).map { $0.lowercased() }
         )
@@ -4394,17 +4497,34 @@ final class SpeechManager: ObservableObject {
             }
             return
         }
+        let phaseOwner = hudStageOwner(for: job)
         let diagnosticsLog = job.diagnostics ?? "nil"
         let usageContext = resolvedUsageAppContext(for: job)
         GlobalLogger.speech.info(
             "[IntentPipeline] apply seq=\(job.seq) utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) intent=\(intentSummary(job.intent)) targetSource=\(job.targetSource?.rawValue ?? "nil") diagnostics=\(diagnosticsLog)"
         )
+        func finishWithFeedback(
+            _ message: String,
+            controlMode: HUDRecognitionControlMode,
+            preserveStageUntilFeedback: Bool = false
+        ) {
+            status = message
+            if !preserveStageUntilFeedback {
+                clearHUDStage(owner: phaseOwner)
+            }
+            clearHandledCommandPreview()
+            HUDManager.shared.showTemporary(
+                message: message,
+                recognitionControlMode: controlMode,
+                icon: hudInputIcon()
+            )
+        }
         if let commandHUDPreviewMessage = job.commandHUDPreviewMessage,
            !commandHUDPreviewMessage.isEmpty {
             HUDManager.shared.showTemporary(
                 message: commandHUDPreviewMessage,
                 recognitionControlMode: .command,
-                icon: "command"
+                icon: hudInputIcon()
             )
         }
         revertStreamedDictationIfNeeded(for: job)
@@ -4422,10 +4542,11 @@ final class SpeechManager: ObservableObject {
                 onRecognitionFailure?(text, analyticsReason, usageContext.appName, usageContext.bundleIdentifier)
             }
             status = feedback.message
+            clearHUDStage(owner: phaseOwner)
             HUDManager.shared.showTemporary(
                 message: feedback.message,
                 recognitionControlMode: .dictation,
-                icon: feedback.icon
+                icon: hudInputIcon()
             )
             clearHandledCommandPreview()
             return
@@ -4443,40 +4564,47 @@ final class SpeechManager: ObservableObject {
             if job.holdsTextRewriteBarrier {
                 endTextRewriteHUDActivity()
             }
+            clearHUDStage(owner: phaseOwner)
             clearHandledCommandPreview()
             HUDManager.shared.showTemporary(
                 message: feedback.message,
                 recognitionControlMode: .command,
-                icon: feedback.icon
+                icon: hudInputIcon()
             )
             return
         }
         switch job.intent {
         case .undo:
+            setHUDStage(owner: phaseOwner, mode: .executing, controlMode: .command)
+            status = executingHUDStatus
             injector.undoPasteIfRecent()
-            status = NSLocalizedString("speech.undo", comment: "")
             onIntent?(.undo, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
-            clearHandledCommandPreview()
+            finishWithFeedback(NSLocalizedString("speech.undo_done", comment: ""), controlMode: .command)
         case .paste:
+            setHUDStage(owner: phaseOwner, mode: .executing, controlMode: .command)
+            status = executingHUDStatus
             AutomationOutputs.shared.pasteFromClipboard()
-            status = "Pasted (Cmd+V)"
             onIntent?(.paste, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
-            clearHandledCommandPreview()
+            finishWithFeedback(NSLocalizedString("speech.pasted_cmdv", comment: ""), controlMode: .command)
         case .clearInput:
+            setHUDStage(owner: phaseOwner, mode: .executing, controlMode: .command)
+            status = executingHUDStatus
             let selectAll = HotkeyBinding(keyCode: kVK_ANSI_A, modifiers: CGEventFlags.maskCommand.rawValue)
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
             AutomationOutputs.shared.pressShortcut(selectAll, targetPID: injectionPID)
             AutomationOutputs.shared.backspace(count: 1, targetPID: injectionPID)
-            status = NSLocalizedString("speech.done", comment: "")
             onIntent?(.clearInput, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
-            clearHandledCommandPreview()
+            finishWithFeedback(NSLocalizedString("speech.done", comment: ""), controlMode: .command)
         case .deleteBackward(let count):
+            setHUDStage(owner: phaseOwner, mode: .executing, controlMode: .command)
+            status = executingHUDStatus
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
             AutomationOutputs.shared.backspace(count: count, targetPID: injectionPID)
-            status = NSLocalizedString("speech.done", comment: "")
             onIntent?(.deleteBackward(count), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
-            clearHandledCommandPreview()
+            finishWithFeedback(NSLocalizedString("speech.done", comment: ""), controlMode: .command)
         case .moveCursorHorizontally(let offset):
+            setHUDStage(owner: phaseOwner, mode: .executing, controlMode: .command)
+            status = executingHUDStatus
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
             let binding = HotkeyBinding(
                 keyCode: offset >= 0 ? kVK_RightArrow : kVK_LeftArrow,
@@ -4485,10 +4613,11 @@ final class SpeechManager: ObservableObject {
             for _ in 0..<min(abs(offset), 200) {
                 AutomationOutputs.shared.pressShortcut(binding, targetPID: injectionPID)
             }
-            status = NSLocalizedString("speech.done", comment: "")
             onIntent?(.moveCursorHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
-            clearHandledCommandPreview()
+            finishWithFeedback(NSLocalizedString("speech.done", comment: ""), controlMode: .command)
         case .selectHorizontally(let offset):
+            setHUDStage(owner: phaseOwner, mode: .executing, controlMode: .command)
+            status = executingHUDStatus
             let injectionPID = preferredTypingInjectionTargetPID(job.targetPID, bundleID: job.targetBundleID)
             let binding = HotkeyBinding(
                 keyCode: offset >= 0 ? kVK_RightArrow : kVK_LeftArrow,
@@ -4497,9 +4626,8 @@ final class SpeechManager: ObservableObject {
             for _ in 0..<min(abs(offset), 200) {
                 AutomationOutputs.shared.pressShortcut(binding, targetPID: injectionPID)
             }
-            status = NSLocalizedString("speech.done", comment: "")
             onIntent?(.selectHorizontally(offset), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
-            clearHandledCommandPreview()
+            finishWithFeedback(NSLocalizedString("speech.done", comment: ""), controlMode: .command)
         case .rewriteText(let payload):
             defer {
                 if job.holdsTextRewriteBarrier {
@@ -4518,10 +4646,11 @@ final class SpeechManager: ObservableObject {
                     note: "missing-source-text"
                 )
                 status = textRewriteFailureMessage(payload.failureReason ?? .unsupportedTarget)
+                clearHUDStage(owner: phaseOwner)
                 HUDManager.shared.showTemporary(
                     message: status,
                     recognitionControlMode: .command,
-                    icon: "wand.and.stars"
+                    icon: hudInputIcon()
                 )
                 clearHandledCommandPreview()
                 return
@@ -4539,10 +4668,11 @@ final class SpeechManager: ObservableObject {
                     sourceCount: sourceText.count
                 )
                 status = textRewriteFailureMessage(failureReason)
+                clearHUDStage(owner: phaseOwner)
                 HUDManager.shared.showTemporary(
                     message: status,
                     recognitionControlMode: .command,
-                    icon: "wand.and.stars"
+                    icon: hudInputIcon()
                 )
                 clearHandledCommandPreview()
                 return
@@ -4561,10 +4691,11 @@ final class SpeechManager: ObservableObject {
                     note: "missing-result-text"
                 )
                 status = textRewriteFailureMessage(.providerFailed)
+                clearHUDStage(owner: phaseOwner)
                 HUDManager.shared.showTemporary(
                     message: status,
                     recognitionControlMode: .command,
-                    icon: "wand.and.stars"
+                    icon: hudInputIcon()
                 )
                 clearHandledCommandPreview()
                 return
@@ -4582,10 +4713,11 @@ final class SpeechManager: ObservableObject {
                     sourceCount: sourceText.count
                 )
                 status = textRewriteFailureMessage(.inputInvalid)
+                clearHUDStage(owner: phaseOwner)
                 HUDManager.shared.showTemporary(
                     message: status,
                     recognitionControlMode: .command,
-                    icon: "wand.and.stars"
+                    icon: hudInputIcon()
                 )
                 clearHandledCommandPreview()
                 return
@@ -4603,10 +4735,11 @@ final class SpeechManager: ObservableObject {
                     sourceCount: sourceText.count
                 )
                 status = textRewriteFailureMessage(.focusChanged)
+                clearHUDStage(owner: phaseOwner)
                 HUDManager.shared.showTemporary(
                     message: status,
                     recognitionControlMode: .command,
-                    icon: "wand.and.stars"
+                    icon: hudInputIcon()
                 )
                 clearHandledCommandPreview()
                 return
@@ -4621,12 +4754,13 @@ final class SpeechManager: ObservableObject {
             )
 
             if rewrittenText == sourceText {
-                status = textRewriteSuccessMessage(changed: false)
                 onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
-                clearHandledCommandPreview()
+                finishWithFeedback(textRewriteSuccessMessage(changed: false), controlMode: .command)
                 return
             }
 
+            setHUDStage(owner: phaseOwner, mode: .typing, controlMode: .dictation)
+            status = typingHUDStatus
             let commitMode = commitTextRewriteResult(
                 rewrittenText,
                 for: job
@@ -4635,13 +4769,23 @@ final class SpeechManager: ObservableObject {
                 "[TextRewrite] commit mode=\(commitMode.rawValue) utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(job.targetBundleID ?? "nil")"
             )
             status = textRewriteSuccessMessage(changed: true)
+            scheduleCheckingHUDStage(owner: phaseOwner, controlMode: .command)
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 let verification = await self.verifyTextRewriteInjection(rewrittenText, for: job)
+                self.cancelPendingCheckingHUDStage()
                 switch verification {
                 case .success:
                     self.onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
+                    self.status = self.textRewriteSuccessMessage(changed: true)
+                    self.clearHUDStage(owner: phaseOwner)
+                    self.clearHandledCommandPreview()
+                    HUDManager.shared.showTemporary(
+                        message: self.status,
+                        recognitionControlMode: .command,
+                        icon: self.hudInputIcon()
+                    )
                 case .mismatch:
                     self.logTextRewriteFailure(
                         .commitFailed,
@@ -4654,22 +4798,33 @@ final class SpeechManager: ObservableObject {
                         sourceCount: sourceText.count,
                         note: "post-injection-mismatch"
                     )
+                    self.status = self.textRewriteFailureMessage(.commitFailed)
                     HUDManager.shared.showTemporary(
-                        message: self.textRewriteFailureMessage(.commitFailed),
+                        message: self.status,
                         recognitionControlMode: .command,
-                        icon: "xmark.circle.fill"
+                        icon: self.hudInputIcon()
                     )
+                    self.clearHUDStage(owner: phaseOwner)
+                    self.clearHandledCommandPreview()
                     self.onRecognitionFailure?(rewrittenText, "post-injection-mismatch", usageContext.appName, usageContext.bundleIdentifier)
                 case .unverified:
                     self.onIntent?(.rewriteText(completedPayload), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
+                    self.status = self.textRewriteSuccessMessage(changed: true)
+                    self.clearHUDStage(owner: phaseOwner)
+                    self.clearHandledCommandPreview()
+                    HUDManager.shared.showTemporary(
+                        message: self.status,
+                        recognitionControlMode: .command,
+                        icon: self.hudInputIcon()
+                    )
                 }
             }
-            clearHandledCommandPreview()
         case .frontmostAppCommand(let command):
+            setHUDStage(owner: phaseOwner, mode: .executing, controlMode: .command)
+            status = executingHUDStatus
             armPostSubmitDictationSuppressionIfNeeded(for: command, job: job)
             onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
-            status = NSLocalizedString("speech.done", comment: "")
-            clearHandledCommandPreview()
+            finishWithFeedback(NSLocalizedString("speech.done", comment: ""), controlMode: .command)
         case .dictation(let text):
             let wakeFollowUpGroupID = consumeWakeFollowUpDictationMarker(
                 sessionGeneration: job.originSessionGeneration,
@@ -4703,10 +4858,13 @@ final class SpeechManager: ObservableObject {
                 onRecognitionFailure?(finalText, "invalid-input-target", usageContext.appName, usageContext.bundleIdentifier)
                 clearSessionInputTarget(reason: "invalid-input-target")
                 status = NSLocalizedString("speech.done", comment: "")
+                clearHUDStage(owner: phaseOwner)
                 showMissingInputTargetHUD()
                 clearHandledCommandPreview()
                 return
             }
+            setHUDStage(owner: phaseOwner, mode: .typing, controlMode: .dictation)
+            status = typingHUDStatus
             let hasStreamed = job.screenTypedCount > 0 || !job.streamedTextSnapshot.isEmpty
             let targetBundleLog = job.targetBundleID ?? "nil"
             if shouldUsePasteFallback(for: job) {
@@ -4714,7 +4872,6 @@ final class SpeechManager: ObservableObject {
                     "[TextPipeline] paste-fallback utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) textCount=\(finalText.count)"
                 )
                 injector.paste(finalText)
-                status = NSLocalizedString("speech.pasted_cmdv", comment: "")
             } else if job.sessionTypingMode || hasStreamed {
                 // Use DictationHandler's diff-based correction instead of old TypingFinalizationPlanner
                 // The handler already applied corrections during streaming; final sync is done here
@@ -4740,37 +4897,65 @@ final class SpeechManager: ObservableObject {
                     if toDelete > 0 { injector.deleteBackward(count: toDelete, targetPID: job.targetPID) }
                     if !toType.isEmpty { injector.type(toType, targetPID: job.targetPID) }
                 }
-                status = NSLocalizedString("speech.typed", comment: "")
             } else {
                 GlobalLogger.speech.info(
                     "[TextPipeline] direct-type utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) textCount=\(finalText.count)"
                 )
                 injector.type(finalText, targetPID: job.targetPID)
-                status = NSLocalizedString("speech.typed", comment: "")
             }
+            let completionStatus = shouldUsePasteFallback(for: job)
+                ? NSLocalizedString("speech.pasted_cmdv", comment: "")
+                : NSLocalizedString("speech.typed", comment: "")
+            status = completionStatus
             rememberCommittedDictation(finalText, for: job)
             armRecentWakeFollowUpDictationSuppressionIfNeeded(finalText, for: job, groupID: wakeFollowUpGroupID)
+            scheduleCheckingHUDStage(owner: phaseOwner, controlMode: .dictation)
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 let verification = await self.verifyDictationInjection(finalText, for: job)
+                self.cancelPendingCheckingHUDStage()
                 switch verification {
                 case .success:
                     self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, wakeFollowUpGroupID)
+                    self.status = completionStatus
+                    self.clearHUDStage(owner: phaseOwner)
+                    self.clearHandledCommandPreview()
+                    HUDManager.shared.showTemporary(
+                        message: completionStatus,
+                        recognitionControlMode: .dictation,
+                        icon: self.hudInputIcon()
+                    )
                 case .mismatch:
+                    self.status = self.genericIncompleteHUDMessage
+                    self.clearHUDStage(owner: phaseOwner)
+                    self.clearHandledCommandPreview()
+                    HUDManager.shared.showTemporary(
+                        message: self.status,
+                        recognitionControlMode: .dictation,
+                        icon: self.hudInputIcon()
+                    )
                     self.onRecognitionFailure?(finalText, "post-injection-mismatch", usageContext.appName, usageContext.bundleIdentifier)
                 case .unverified:
                     GlobalLogger.speech.info(
                         "[TextPipeline] verification-unverified treating-as-success utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(job.targetBundleID ?? "nil")"
                     )
                     self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, wakeFollowUpGroupID)
+                    self.status = completionStatus
+                    self.clearHUDStage(owner: phaseOwner)
+                    self.clearHandledCommandPreview()
+                    HUDManager.shared.showTemporary(
+                        message: completionStatus,
+                        recognitionControlMode: .dictation,
+                        icon: self.hudInputIcon()
+                    )
                 }
             }
-            clearHandledCommandPreview()
         case .unknown(let transcript):
             GlobalLogger.router.info(
                 "[IntentPipeline] unknown utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) transcript='\(transcript)'"
             )
             status = NSLocalizedString("speech.no_matching_command", comment: "")
+            clearHUDStage(owner: phaseOwner)
             clearHandledCommandPreview()
             let commandEnabled = isCommandExecutionEnabled?() ?? true
             let shouldSurfaceUnknownHUD =
@@ -4784,9 +4969,10 @@ final class SpeechManager: ObservableObject {
             }
             onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
         default:
+            setHUDStage(owner: phaseOwner, mode: .executing, controlMode: .command)
+            status = executingHUDStatus
             onIntent?(job.intent, usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, nil)
-            status = NSLocalizedString("speech.done", comment: "")
-            clearHandledCommandPreview()
+            finishWithFeedback(NSLocalizedString("speech.done", comment: ""), controlMode: .command)
         }
     }
 
@@ -4847,7 +5033,7 @@ final class SpeechManager: ObservableObject {
         HUDManager.shared.showTemporary(
             message: NSLocalizedString("speech.no_editable_field", comment: ""),
             recognitionControlMode: .command,
-            icon: "keyboard.badge.exclamationmark",
+            icon: hudInputIcon(),
         )
     }
 
@@ -4880,7 +5066,7 @@ final class SpeechManager: ObservableObject {
         HUDManager.shared.showTemporary(
             message: message,
             recognitionControlMode: .command,
-            icon: "xmark.circle.fill",
+            icon: hudInputIcon(),
         )
     }
 
@@ -5138,6 +5324,8 @@ final class SpeechManager: ObservableObject {
             label = VoiceCommandPreset.stopPointer.title(locale: locale)
         case .recenter:
             label = VoiceCommandPreset.recenter.title(locale: locale)
+        case .openApplication(let target):
+            label = target.displayName
         case .scroll(_, let dy):
             label = dy < 0
                 ? VoiceCommandPreset.scrollUp.title(locale: locale)
@@ -5462,6 +5650,8 @@ final class SpeechManager: ObservableObject {
         case .startPointer: return "startPointer"
         case .stopPointer: return "stopPointer"
         case .recenter: return "recenter"
+        case .openApplication(let target):
+            return "openApplication(\(target.displayName):\(target.bundleIdentifier))"
         case .scroll(let dx, let dy): return "scroll(\(dx),\(dy))"
         case .scrollToWeb(let edge): return "scrollToWeb(\(edge))"
         case .dragStart: return "dragStart"
@@ -5550,6 +5740,7 @@ final class SpeechManager: ObservableObject {
         staticSeeds.forEach(add)
         wakeWordDetector.contextualStrings(for: activeLocale.identifier).forEach(add)
         _ = refreshFrontmostAppCommands()
+        commandRouter.appLaunchTargets = AppLaunchResolver.contextualTargets(customRules: customAppLaunchAliasRules)
         commandRouter.contextualStrings(for: activeLocale.identifier).forEach(add)
 
         let frontApp = NSWorkspace.shared.frontmostApplication
@@ -5624,12 +5815,28 @@ final class SpeechManager: ObservableObject {
     private func beginTextRewriteHUDActivity() {
         activeTextRewriteHUDCount += 1
         status = textRewriteHUDMessage
-        refreshContinuousHUD(isDictating: false)
+        setHUDStage(
+            owner: "rewrite-global",
+            mode: .optimizing,
+            message: textRewriteHUDMessage,
+            controlMode: .command
+        )
     }
 
     private func endTextRewriteHUDActivity() {
         activeTextRewriteHUDCount = max(0, activeTextRewriteHUDCount - 1)
-        refreshContinuousHUD(isDictating: false)
+        if activeTextRewriteHUDCount > 0 {
+            setHUDStage(
+                owner: "rewrite-global",
+                mode: .optimizing,
+                message: textRewriteHUDMessage,
+                controlMode: .command
+            )
+        } else if activeHUDStageOwner == "rewrite-global" {
+            clearHUDStage(owner: "rewrite-global")
+        } else {
+            refreshContinuousHUD(isDictating: false)
+        }
     }
 
     private func shouldHoldTextRewriteBarrier(for intent: VoiceIntent) -> Bool {
@@ -5648,6 +5855,7 @@ final class SpeechManager: ObservableObject {
              .deleteBackward,
              .moveCursorHorizontally,
              .selectHorizontally,
+             .openApplication,
              .frontmostAppCommand:
             return true
         default:
@@ -5663,7 +5871,7 @@ final class SpeechManager: ObservableObject {
         HUDManager.shared.showTemporary(
             message: message,
             recognitionControlMode: .command,
-            icon: "wand.and.stars",
+            icon: hudInputIcon(),
             duration: 1.2
         )
     }
@@ -5750,13 +5958,105 @@ final class SpeechManager: ObservableObject {
         postSubmitDictationSuppression = nil
     }
 
+    private func hudStageOwner(for job: IntentJob) -> String {
+        "job:\(job.originSessionGeneration)#\(job.utteranceID)"
+    }
+
+    private func hudStageOwner(for job: ProcessedJob) -> String {
+        "job:\(job.originSessionGeneration)#\(job.utteranceID)"
+    }
+
+    private var organizingHUDStatus: String {
+        AppLocalization.isChinese ? "整理中" : "Organizing"
+    }
+
+    private var typingHUDStatus: String {
+        AppLocalization.isChinese ? "正在输入" : "Typing"
+    }
+
+    private var executingHUDStatus: String {
+        AppLocalization.isChinese ? "正在执行" : "Executing"
+    }
+
+    private var checkingHUDStatus: String {
+        AppLocalization.isChinese ? "校验中" : "Checking"
+    }
+
+    private var genericIncompleteHUDMessage: String {
+        AppLocalization.isChinese ? "没完成" : "Didn't finish"
+    }
+
+    private func cancelPendingCheckingHUDStage() {
+        pendingCheckingHUDWorkItem?.cancel()
+        pendingCheckingHUDWorkItem = nil
+    }
+
+    private func setHUDStage(
+        owner: String,
+        mode: HUDMode,
+        message: String = "",
+        controlMode: HUDRecognitionControlMode? = nil
+    ) {
+        if mode != .checking {
+            cancelPendingCheckingHUDStage()
+        }
+        activeHUDStageOwner = owner
+        activeHUDStageMode = mode
+        activeHUDStageMessage = message
+        activeHUDStageControlMode = controlMode
+        refreshContinuousHUD(isDictating: false)
+    }
+
+    private func clearHUDStage(owner: String? = nil) {
+        if let owner, activeHUDStageOwner != owner {
+            return
+        }
+        cancelPendingCheckingHUDStage()
+        activeHUDStageOwner = nil
+        activeHUDStageMode = nil
+        activeHUDStageMessage = ""
+        activeHUDStageControlMode = nil
+        refreshContinuousHUD(isDictating: false)
+    }
+
+    private func scheduleCheckingHUDStage(
+        owner: String,
+        controlMode: HUDRecognitionControlMode,
+        message: String = ""
+    ) {
+        cancelPendingCheckingHUDStage()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.activeHUDStageOwner == owner else { return }
+            self.activeHUDStageMode = .checking
+            self.activeHUDStageMessage = message
+            self.activeHUDStageControlMode = controlMode
+            self.refreshContinuousHUD(isDictating: false)
+        }
+        pendingCheckingHUDWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.36, execute: workItem)
+    }
+
     // MARK: - HUD Management
-    private func setHUDOverride(mode: HUDMode, message: String, icon: String, duration: TimeInterval?) {
+    private func setHUDOverride(
+        mode: HUDMode,
+        message: String,
+        icon: String,
+        inputDeviceHealth: HUDInputDeviceHealth,
+        duration: TimeInterval?
+    ) {
         let resolvedDuration = duration ?? HUDManager.shared.suggestedTemporaryDuration(for: message)
-        hudOverrideMode = mode; hudOverrideMessage = message; hudOverrideIcon = icon
+        hudOverrideMode = mode
+        hudOverrideMessage = message
+        hudOverrideIcon = icon
+        hudOverrideInputDeviceHealth = inputDeviceHealth
         hudOverrideUntil = Date().addingTimeInterval(max(0.2, resolvedDuration))
     }
-    private func clearHUDOverride() { hudOverrideUntil = .distantPast; hudOverrideMessage = ""; hudOverrideIcon = "info.circle" }
+    private func clearHUDOverride() {
+        hudOverrideUntil = .distantPast
+        hudOverrideMessage = ""
+        hudOverrideIcon = "info.circle"
+        hudOverrideInputDeviceHealth = .normal
+    }
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
         if isIdlePauseSuspended {
@@ -5802,22 +6102,41 @@ final class SpeechManager: ObservableObject {
         let shouldShowIdleCommandHUD =
             featureAvailability.commandEnabled
             && !featureAvailability.dictationEnabled
-        if activeTextRewriteHUDCount > 0 {
+        if !isStopping && Date() < hudOverrideUntil {
             HUDManager.shared.update(
-                mode: .processing,
-                message: textRewriteHUDMessage,
+                mode: hudOverrideMode,
+                message: hudOverrideMessage,
                 language: activeLocale.identifier,
                 recognitionControlMode: controlMode,
-                inputDeviceIcon: "wand.and.stars",
+                inputDeviceIcon: hudOverrideIcon,
+                inputDeviceHealth: hudOverrideInputDeviceHealth,
                 contextIcon: hudContextIcon()
             )
             return
         }
-        if !isStopping && Date() < hudOverrideUntil {
-            HUDManager.shared.update(mode: hudOverrideMode, message: hudOverrideMessage, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudOverrideIcon, contextIcon: hudContextIcon()); return
-        }
         if (isAlwaysListeningEnabled || isWakeWordEnabled), let hint = missingVoicePermissionHint() {
-            HUDManager.shared.update(mode: .command, message: hint.message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hint.icon, contextIcon: hudContextIcon()); return
+            HUDManager.shared.update(
+                mode: .feedback,
+                message: hint.message,
+                language: activeLocale.identifier,
+                recognitionControlMode: controlMode,
+                inputDeviceIcon: hudInputIcon(),
+                inputDeviceHealth: hint.health,
+                contextIcon: hudContextIcon()
+            )
+            return
+        }
+        if let activeStageMode = activeHUDStageMode {
+            HUDManager.shared.update(
+                mode: activeStageMode,
+                message: activeHUDStageMessage,
+                language: activeLocale.identifier,
+                recognitionControlMode: activeHUDStageControlMode ?? controlMode,
+                inputDeviceIcon: hudInputIcon(),
+                inputDeviceHealth: hudInputHealth(),
+                contextIcon: hudContextIcon()
+            )
+            return
         }
         if isWakeGatedStandby {
             clearHUDOverride()
@@ -5847,11 +6166,15 @@ final class SpeechManager: ObservableObject {
                 return
             }
             if realHardware.isEmpty {
-                HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon(), contextIcon: hudContextIcon())
-                return
-            }
-            if shouldShowIdleDictationHUD || shouldShowIdleCommandHUD {
-                HUDManager.shared.update(mode: .command, message: "", language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon(), contextIcon: hudContextIcon())
+                HUDManager.shared.update(
+                    mode: .feedback,
+                    message: NSLocalizedString("speech.no_mic_detected", comment: ""),
+                    language: activeLocale.identifier,
+                    recognitionControlMode: controlMode,
+                    inputDeviceIcon: hudInputIcon(),
+                    inputDeviceHealth: .error,
+                    contextIcon: hudContextIcon()
+                )
                 return
             }
             // Keep the HUD visible briefly if a temporary toast or language indicator is active.
@@ -5877,7 +6200,16 @@ final class SpeechManager: ObservableObject {
         }
 
         if realHardware.isEmpty {
-            HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon(), contextIcon: hudContextIcon()); return
+            HUDManager.shared.update(
+                mode: .feedback,
+                message: NSLocalizedString("speech.no_mic_detected", comment: ""),
+                language: activeLocale.identifier,
+                recognitionControlMode: controlMode,
+                inputDeviceIcon: hudInputIcon(),
+                inputDeviceHealth: .error,
+                contextIcon: hudContextIcon()
+            )
+            return
         }
 
         let mode: HUDMode; var message = ""
@@ -5904,7 +6236,7 @@ final class SpeechManager: ObservableObject {
             return
         }
         else if shouldCollapseHandsFreeHUDToStandby { mode = .standby }
-        else if shouldShowProcessingDots || shouldShowRecognizingWhileDictating { mode = .processing }
+        else if shouldShowProcessingDots || shouldShowRecognizingWhileDictating { mode = .organizing }
         else if effectiveDictating { mode = .dictation }
         else if shouldShowIdleAutoDictationHUD { mode = .listening }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
@@ -5921,7 +6253,7 @@ final class SpeechManager: ObservableObject {
                 break
             }
         }
-        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon(), contextIcon: hudContextIcon())
+        HUDManager.shared.update(mode: mode, message: message, language: activeLocale.identifier, recognitionControlMode: controlMode, inputDeviceIcon: hudInputIcon(), inputDeviceHealth: hudInputHealth(), contextIcon: hudContextIcon())
     }
 
     private func shouldUseProcessingDotsForCurrentMode() -> Bool {
@@ -5936,7 +6268,15 @@ final class SpeechManager: ObservableObject {
     }
 
     private func showPTTUnavailableHUD() {
-        HUDManager.shared.update(mode: .listening, message: NSLocalizedString("speech.no_mic_detected", comment: ""), language: activeLocale.identifier, recognitionControlMode: hudRecognitionControlMode, inputDeviceIcon: hudInputIcon(), contextIcon: hudContextIcon())
+        HUDManager.shared.update(
+            mode: .feedback,
+            message: NSLocalizedString("speech.no_mic_detected", comment: ""),
+            language: activeLocale.identifier,
+            recognitionControlMode: hudRecognitionControlMode,
+            inputDeviceIcon: hudInputIcon(),
+            inputDeviceHealth: .error,
+            contextIcon: hudContextIcon()
+        )
     }
 
     // MARK: - Mic Progress Ring
@@ -6211,6 +6551,7 @@ final class SpeechManager: ObservableObject {
                     language: hud.state.language,
                     recognitionControlMode: self.hudRecognitionControlMode,
                     inputDeviceIcon: self.hudInputIcon(),
+                    inputDeviceHealth: self.hudInputHealth(),
                     contextIcon: self.hudContextIcon()
                 )
                 let active = self.audioCapture.isRunning || self.recognitionSession.isRunning || self.isAlwaysListeningEnabled
@@ -8215,6 +8556,16 @@ final class SpeechManager: ObservableObject {
         }
         return candidate
     }
+
+    static func shouldCommitCompletedOneShotFinalResult(
+        isStopping: Bool,
+        isAlwaysListeningEnabled: Bool,
+        finalTranscript: String
+    ) -> Bool {
+        guard !isStopping, !isAlwaysListeningEnabled else { return false }
+        return !finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func rememberCommittedDictation(_ text: String, for job: ProcessedJob) {
         clearPostSubmitDictationSuppression()
         lastCommittedDictationText = text
