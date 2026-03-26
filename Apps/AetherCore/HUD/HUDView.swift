@@ -70,12 +70,9 @@ struct HUDView: View {
                 case .optimizing:
                     optimizingLeadingVisual
                     if trimmedMessage.isEmpty {
-                        OptimizingPulseView()
+                        OptimizingProgressView()
                     } else {
-                        HStack(spacing: 8) {
-                            OptimizingPulseView()
-                            hudLabel(trimmedMessage)
-                        }
+                        hudLabel(trimmedMessage)
                     }
                     trailingAccessories
 
@@ -195,8 +192,8 @@ struct HUDView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if let symbol = modeIndicatorSymbol {
-                ModeIndicatorBadge(symbol: symbol)
-                    .offset(x: 5, y: 5)
+                ModeIndicatorBadge(symbol: symbol, compact: prefersCompactModeIndicator)
+                    .offset(x: prefersCompactModeIndicator ? 6 : 5, y: prefersCompactModeIndicator ? 6 : 5)
             }
         }
     }
@@ -225,8 +222,8 @@ struct HUDView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if let symbol = modeIndicatorSymbol {
-                ModeIndicatorBadge(symbol: symbol)
-                    .offset(x: 5, y: 5)
+                ModeIndicatorBadge(symbol: symbol, compact: prefersCompactModeIndicator)
+                    .offset(x: prefersCompactModeIndicator ? 6 : 5, y: prefersCompactModeIndicator ? 6 : 5)
             }
         }
     }
@@ -278,14 +275,19 @@ struct HUDView: View {
         resolvedSymbolName(for: state.inputDeviceIcon)
     }
 
+    private var prefersCompactModeIndicator: Bool {
+        let symbol = currentInputDeviceSymbol
+        return symbol.contains("airpod") || symbol.contains("airpods")
+    }
+
     private var modeIndicatorSymbol: String? {
         switch state.recognitionControlMode {
         case .command:
             return "command"
         case .dictation:
-            return "keyboard.fill"
+            return "character.cursor.ibeam"
         case .auto:
-            return state.isTypingContext ? "keyboard.fill" : "command"
+            return state.isTypingContext ? "character.cursor.ibeam" : "command"
         }
     }
 
@@ -878,24 +880,29 @@ private struct ExecutingPulseView: View {
     }
 }
 
-private struct OptimizingPulseView: View {
-    @State private var pulse = false
+private struct OptimizingProgressView: View {
+    @State private var activeIndex = 0
 
     var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.mint.opacity(0.35), lineWidth: 1.2)
-                .frame(width: 18, height: 18)
-                .scaleEffect(pulse ? 1.25 : 0.92)
-                .opacity(pulse ? 0.15 : 0.85)
-            Image(systemName: "wand.and.stars")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.white.opacity(0.92))
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Color.mint.opacity(activeIndex == index ? 0.95 : 0.35))
+                    .frame(
+                        width: activeIndex == index ? 15 : 11,
+                        height: activeIndex == index ? 4.5 : 3.5
+                    )
+            }
         }
-        .frame(width: 20, height: 20)
-        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: pulse)
-        .onAppear {
-            pulse = true
+        .frame(height: 16)
+        .animation(.easeInOut(duration: 0.18), value: activeIndex)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 220_000_000)
+                await MainActor.run {
+                    activeIndex = (activeIndex + 1) % 3
+                }
+            }
         }
     }
 }
@@ -1033,18 +1040,34 @@ private struct OutcomeOverlayBadge: View {
 
 private struct ModeIndicatorBadge: View {
     let symbol: String
+    let compact: Bool
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+            Circle()
                 .fill(Color.white.opacity(0.14))
-                .frame(width: 14, height: 14)
-            RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+                .frame(width: badgeSize, height: badgeSize)
+            Circle()
                 .stroke(Color.white.opacity(0.16), lineWidth: 1)
-                .frame(width: 14, height: 14)
+                .frame(width: badgeSize, height: badgeSize)
             Image(systemName: symbol)
-                .font(.system(size: symbol == "command" ? 7.2 : 7.8, weight: .semibold))
+                .font(.system(size: modeFontSize, weight: .semibold))
                 .foregroundColor(.white.opacity(0.92))
+        }
+    }
+
+    private var badgeSize: CGFloat {
+        compact ? 12 : 14
+    }
+
+    private var modeFontSize: CGFloat {
+        switch symbol {
+        case "command":
+            return compact ? 6.4 : 7.2
+        case "character.cursor.ibeam":
+            return compact ? 5.9 : 6.6
+        default:
+            return compact ? 6.4 : 7.2
         }
     }
 }
