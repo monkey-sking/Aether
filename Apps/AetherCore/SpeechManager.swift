@@ -3819,6 +3819,12 @@ final class SpeechManager: ObservableObject {
             recentExpiredWakeFollowUp.finalizeWorkItem?.cancel()
             self.recentExpiredWakeFollowUp = nil
         }
+        if lastWakeTime != nil {
+            lastWakeTime = nil
+            GlobalLogger.speech.info(
+                "[WakeWord] closed wake window reason=\(reason) group=\(groupID)"
+            )
+        }
         GlobalLogger.speech.info(
             "[WakeFollowUp] timeout-finalized group=\(groupID) reason=\(reason) age=\(wakeDiagnosticAgeDescription(since: createdAt)) phrase='\(phrase ?? "nil")' hud=\(HUDManager.shared.state.mode.rawValue) recognitionRunning=\(recognitionSession.isRunning) audioRunning=\(audioCapture.isRunning) awake=\(isAwake) lastTranscript='\(wakeDiagnosticSnippet(lastTranscript))'"
         )
