@@ -635,6 +635,16 @@ final class SpeechManagerGuardrailTests: XCTestCase {
         )
     }
 
+    func testHiddenFocusedInputDiagnosticsCommandDoesNotUseBareZhimaKaimen() {
+        XCTAssertFalse(SpeechManager.isHiddenFocusedInputDiagnosticsCommand("芝麻开门"))
+        XCTAssertFalse(SpeechManager.isHiddenFocusedInputDiagnosticsCommand("open sesame"))
+    }
+
+    func testHiddenFocusedInputDiagnosticsCommandRequiresExplicitDiagnosticsPhrase() {
+        XCTAssertTrue(SpeechManager.isHiddenFocusedInputDiagnosticsCommand("芝麻开门焦点诊断"))
+        XCTAssertTrue(SpeechManager.isHiddenFocusedInputDiagnosticsCommand("open sesame focus diagnostics"))
+    }
+
     func testValidateDictationEnhancementRejectsLanguageDrift() {
         let result = SpeechManager.validateDictationEnhancement(
             sourceText: "今天下午开会",

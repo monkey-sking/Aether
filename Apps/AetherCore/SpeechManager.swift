@@ -3705,7 +3705,7 @@ final class SpeechManager: ObservableObject {
             return
         }
 
-        if isHiddenFocusedInputDiagnosticsCommand(textToRoute) {
+        if Self.isHiddenFocusedInputDiagnosticsCommand(textToRoute) {
             GlobalLogger.router.info("[Route] hidden focused-input diagnostics command matched transcript='\(textToRoute)'")
             NotificationCenter.default.post(name: .exportFocusedInputDiagnostics, object: nil)
             clearHUDOverride()
@@ -7331,12 +7331,14 @@ final class SpeechManager: ObservableObject {
         return String(text.prefix(limit)) + "..."
     }
 
-    private func isHiddenFocusedInputDiagnosticsCommand(_ text: String) -> Bool {
+    static func isHiddenFocusedInputDiagnosticsCommand(_ text: String) -> Bool {
         let normalized = text
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
             .replacingOccurrences(of: "[\\p{P}\\p{S}]+", with: "", options: .regularExpression)
-        return normalized == "芝麻开门" || normalized == "opensesame"
+        return normalized == "芝麻开门焦点诊断"
+            || normalized == "芝麻开门导出焦点诊断"
+            || normalized == "opensesamefocusdiagnostics"
     }
 
     private func findDictationCandidate(in element: AXUIElement, bundleID: String?, depth: Int = 5) -> AXUIElement? {
