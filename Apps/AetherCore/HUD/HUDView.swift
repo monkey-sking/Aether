@@ -254,15 +254,15 @@ struct HUDView: View {
     }
 
     private var overlayBadgeTopOffset: CGFloat {
-        1.5
+        1.0
     }
 
     private var overlayBadgeBottomOffset: CGFloat {
-        -1.5
+        -1.0
     }
 
     private var overlayBadgeDiameter: CGFloat {
-        12
+        13.5
     }
 
     private var leadingVisualFrameDiameter: CGFloat {
@@ -279,19 +279,19 @@ struct HUDView: View {
     }
 
     private var listeningDeviceFrameSize: CGFloat {
-        usesWideDeviceGlyph ? 26 : 24
+        usesWideDeviceGlyph ? 28 : 26
     }
 
     private var micProgressDiameter: CGFloat {
-        usesWideDeviceGlyph ? 26 : 24
+        usesWideDeviceGlyph ? 28 : 26
     }
 
     private var listeningDeviceSymbolFontSize: CGFloat {
-        usesWideDeviceGlyph ? 16.5 : 15
+        usesWideDeviceGlyph ? 18 : 16.5
     }
 
     private var deviceBadgeCircleDiameter: CGFloat {
-        usesWideDeviceGlyph ? 26 : 25
+        usesWideDeviceGlyph ? 28 : 27
     }
 
     private var deviceBadgeFrameDiameter: CGFloat {
@@ -299,7 +299,7 @@ struct HUDView: View {
     }
 
     private var stageDeviceSymbolFontSize: CGFloat {
-        usesWideDeviceGlyph ? 14.4 : 13
+        usesWideDeviceGlyph ? 15.5 : 14
     }
 
     @ViewBuilder

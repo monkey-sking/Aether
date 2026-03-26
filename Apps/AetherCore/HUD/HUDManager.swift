@@ -1450,6 +1450,13 @@ final class HUDManager {
         evaluation: AXFocusedTypingEvaluation
     ) -> Bool {
         guard requiresExplicitTypingReentry else { return false }
+        if Self.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: frontBundle) {
+            // For editor-like surfaces such as Codex, a stale AX container can look
+            // "editable" again a moment after a non-input click. Keep suppression
+            // latched until the user explicitly clicks back into an input or leaves
+            // the app, instead of auto-releasing on AX evidence alone.
+            return false
+        }
         guard hasStrongAXTypingEvidence(
             now: now,
             frontBundle: frontBundle,
@@ -1463,13 +1470,6 @@ final class HUDManager {
             evaluation: evaluation
         ) else {
             return false
-        }
-
-        if Self.shouldHoldExplicitTypingSuppressionUntilClickReentry(bundleID: frontBundle) {
-            // Some editors keep the old AX text area "editable" even after the user
-            // clicks outside. For those apps, keep suppression unless the click has
-            // actually moved focus into a different editable input.
-            return shouldAllowExplicitTypingReentryForChangedFocusedInput(now: now)
         }
         return true
     }
