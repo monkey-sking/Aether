@@ -398,9 +398,15 @@ final class SpeechManager: ObservableObject {
     var isCommandExecutionEnabled: (() -> Bool)?
     var isAppIdlePaused: (() -> Bool)?
     private var isIdlePauseSuspended: Bool = false
-    var llmProvider: LLMProvider?
-    private var llmProviderConfig: LLMProviderConfiguration?
-    private var llmServiceSource: LLMServiceSource = .openAICompatible
+    private enum LLMUsage {
+        case dictationEnhancement
+        case fullTextRewrite
+    }
+
+    private var dictationLLMProviderConfig: LLMProviderConfiguration?
+    private var rewriteLLMProviderConfig: LLMProviderConfiguration?
+    private var dictationLLMServiceSource: LLMServiceSource = .openAICompatible
+    private var rewriteLLMServiceSource: LLMServiceSource = .openAICompatible
     private let speechLocaleStorageKey = "speechLocaleIdentifier"
     private let speechLanguageModeStorageKey = "speechLanguageMode"
     private let speechPrimaryLocaleStorageKey = "speechPrimaryLocaleIdentifier"
@@ -606,6 +612,7 @@ final class SpeechManager: ObservableObject {
     private var lastWakeHUDDiagnosticAt: Date = .distantPast
     private var lastWakeArmDiagnosticSignature: String?
     private var lastWakeArmDiagnosticAt: Date = .distantPast
+    private var lastStandbyWakeMissSegmentationAt: Date = .distantPast
     private var lastEngineRestartAt: Date = .distantPast
     private var suppressRecognitionFailuresUntil: Date = .distantPast
     private var suppressRecognitionFailuresReason: String?
@@ -645,6 +652,7 @@ final class SpeechManager: ObservableObject {
     private let wakeFollowUpDuplicateSuppressionWindow: TimeInterval = 1.2
     private let wakeFollowUpLateFinalGraceWindow: TimeInterval = 1.35
     private let wakeFollowUpLateFinalActivityWindow: TimeInterval = 1.1
+    private let standbyWakeMissSegmentationDebounce: TimeInterval = 0.85
     private var recentWakeFollowUpDictationSuppression: RecentWakeFollowUpDictationSuppression?
     private var wakeFollowUpDictationMarkers: [String: String] = [:]
     private let postSubmitStreamingSuppressionWindow: TimeInterval = 0.8
@@ -1886,11 +1894,11 @@ final class SpeechManager: ObservableObject {
     init() {
         self.dictationHandler = DictationHandler(injector: injector)
         if let provider = OpenAICompatibleProvider.makeFromEnvironment() {
-            self.llmProvider = provider
-            self.llmProviderConfig = .openAICompatible(provider.resolvedConfig)
-        } else {
-            self.llmProvider = nil
-            self.llmProviderConfig = nil
+            let resolved = LLMProviderConfiguration.openAICompatible(provider.resolvedConfig)
+            self.dictationLLMProviderConfig = resolved
+            self.rewriteLLMProviderConfig = resolved
+            self.dictationLLMServiceSource = .openAICompatible
+            self.rewriteLLMServiceSource = .openAICompatible
         }
         headsetInputMuteRouter.deactivate()
         self.dictationHandler.onStatusUpdate = { [weak self] _ in
@@ -2378,8 +2386,11 @@ final class SpeechManager: ObservableObject {
         metrics.sessions += 1
         lockSessionInputTarget()
         dictationHandler.reset(targetPID: preferredTypingInjectionTargetPID(sessionTargetPID, bundleID: sessionTargetBundleID))
-        dictationHandler.llmProvider = contextualLLMProvider(bundleIDs: currentContextBundleIDs())
-        dictationHandler.llmProviderContext = llmProviderDiagnosticsContext()
+        dictationHandler.llmProvider = contextualLLMProvider(
+            for: .dictationEnhancement,
+            bundleIDs: currentContextBundleIDs()
+        )
+        dictationHandler.llmProviderContext = llmProviderDiagnosticsContext(for: .dictationEnhancement)
         dictationHandler.isLLMEnhancementEnabled = isAutoDictationEnhancementEnabled
 
         if isWakeWordEnabled && !isAwake && !isDirectCommandEnabled { sessionTypingMode = false }
@@ -2465,6 +2476,10 @@ final class SpeechManager: ObservableObject {
             )
             wakeScore = result.score
             matchedWakePhrase = result.matchedPhrase
+            let wakePhraseOccurrence = wakeDiagnosticPhraseOccurrence(
+                in: originalRawText,
+                localeIdentifier: activeLocale.identifier
+            )
             logWakeEvaluationIfNeeded(
                 phase: "partial",
                 rawText: originalRawText,
@@ -2496,6 +2511,26 @@ final class SpeechManager: ObservableObject {
                 } else {
                     text = result.payload
                 }
+            } else if shouldSegmentRecognitionAfterStandbyWakeMiss(
+                rawText: originalRawText,
+                wakeScore: wakeScore,
+                phraseOccurrence: wakePhraseOccurrence
+            ) {
+                let missReason: String
+                if wakeScore > 0 {
+                    missReason = "below-threshold"
+                } else if let wakePhraseOccurrence, wakePhraseOccurrence.offset > 0 {
+                    missReason = "phrase-not-at-prefix"
+                } else if wakePhraseOccurrence != nil {
+                    missReason = "prefix-rejected"
+                } else {
+                    missReason = "diagnosable-miss"
+                }
+                segmentRecognitionAfterStandbyWakeMiss(
+                    reason: missReason,
+                    rawText: originalRawText
+                )
+                return
             }
         }
 
@@ -2675,6 +2710,67 @@ final class SpeechManager: ObservableObject {
 
         GlobalLogger.speech.info(
             "[WakeWord] segmenting recognition after activation reason=\(reason) session=\(sessionGeneration) utterance=\(activeUtteranceID)"
+        )
+
+        finalizationWorkItem?.cancel()
+        finalizationWorkItem = nil
+        stopTimer?.invalidate()
+        stopTimer = nil
+        eosDetector.stop()
+        recognitionSession.cancel()
+        resetUtteranceTrackingForNextPhrase()
+        audioCapture.clearRingBuffer()
+        nextAllowedStartOnceAt = .distantPast
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.isAlwaysListeningEnabled,
+                  !self.isStopping else { return }
+            self.startOnce()
+        }
+    }
+
+    private func shouldSegmentRecognitionAfterStandbyWakeMiss(
+        rawText: String,
+        wakeScore: Double,
+        phraseOccurrence: (phrase: String, offset: Int, leadingContext: String)?
+    ) -> Bool {
+        guard isAlwaysListeningEnabled,
+              isWakeWordEnabled,
+              !isDirectCommandEnabled,
+              !isAwake,
+              pendingWakeFollowUp == nil,
+              recentExpiredWakeFollowUp == nil else {
+            return false
+        }
+        guard audioCapture.isRunning,
+              recognitionSession.isRunning,
+              !isStopping else {
+            return false
+        }
+        guard wakeScore > 0 || phraseOccurrence != nil else {
+            return false
+        }
+        let now = Date()
+        guard now.timeIntervalSince(lastStandbyWakeMissSegmentationAt) >= standbyWakeMissSegmentationDebounce else {
+            return false
+        }
+        let normalized = wakeDiagnosticNormalizeForMatching(rawText)
+        guard normalized.count >= 2 else { return false }
+        return true
+    }
+
+    private func segmentRecognitionAfterStandbyWakeMiss(reason: String, rawText: String) {
+        guard isAlwaysListeningEnabled,
+              isWakeWordEnabled,
+              !isDirectCommandEnabled,
+              audioCapture.isRunning else {
+            return
+        }
+
+        lastStandbyWakeMissSegmentationAt = Date()
+        GlobalLogger.speech.info(
+            "[WakeWord] segmenting recognition after standby miss reason=\(reason) session=\(sessionGeneration) utterance=\(activeUtteranceID) transcript='\(wakeDiagnosticSnippet(rawText))'"
         )
 
         finalizationWorkItem?.cancel()
@@ -3116,18 +3212,20 @@ final class SpeechManager: ObservableObject {
     }
 
     func setLLMProviderConfiguration(
-        _ config: LLMProviderConfiguration?,
-        source: LLMServiceSource
+        dictationConfig: LLMProviderConfiguration?,
+        dictationSource: LLMServiceSource,
+        rewriteConfig: LLMProviderConfiguration?,
+        rewriteSource: LLMServiceSource
     ) {
-        llmServiceSource = source
-        llmProviderConfig = config
-        if config != nil {
-            llmProvider = contextualLLMProvider(bundleIDs: currentContextBundleIDs())
-        } else {
-            llmProvider = nil
-        }
-        dictationHandler.llmProvider = llmProvider
-        dictationHandler.llmProviderContext = llmProviderDiagnosticsContext()
+        dictationLLMServiceSource = dictationSource
+        rewriteLLMServiceSource = rewriteSource
+        dictationLLMProviderConfig = dictationConfig
+        rewriteLLMProviderConfig = rewriteConfig
+        dictationHandler.llmProvider = contextualLLMProvider(
+            for: .dictationEnhancement,
+            bundleIDs: currentContextBundleIDs()
+        )
+        dictationHandler.llmProviderContext = llmProviderDiagnosticsContext(for: .dictationEnhancement)
         dictationHandler.isLLMEnhancementEnabled = isAutoDictationEnhancementEnabled
     }
 
@@ -3160,6 +3258,7 @@ final class SpeechManager: ObservableObject {
         recentExpiredWakeFollowUp?.finalizeWorkItem?.cancel()
         recentExpiredWakeFollowUp = nil
         wakeActivatedDuringCurrentUtterance = false
+        lastStandbyWakeMissSegmentationAt = .distantPast
         lastWakeMissInsightSignature = nil
         lastWakeMissInsightAt = .distantPast
         wakeTypingFallbackUntil = .distantPast
@@ -3184,6 +3283,7 @@ final class SpeechManager: ObservableObject {
         recentExpiredWakeFollowUp?.finalizeWorkItem?.cancel()
         recentExpiredWakeFollowUp = nil
         wakeActivatedDuringCurrentUtterance = false
+        lastStandbyWakeMissSegmentationAt = .distantPast
         lastWakeMissInsightSignature = nil
         lastWakeMissInsightAt = .distantPast
         wakeTypingFallbackUntil = .distantPast
@@ -4807,7 +4907,10 @@ final class SpeechManager: ObservableObject {
             ) {
                 return passthroughResult("llm=skipped-\(skipReason)")
             }
-            guard let llmProvider = contextualLLMProvider(bundleIDs: llmBundleIDs) else {
+            guard let llmProvider = contextualLLMProvider(
+                for: .dictationEnhancement,
+                bundleIDs: llmBundleIDs
+            ) else {
                 logDictationEnhancementFailure(
                     phase: "process",
                     job: job,
@@ -4849,7 +4952,7 @@ final class SpeechManager: ObservableObject {
                     )
                 case .reject(let reason):
                     GlobalLogger.speech.info(
-                        "[DictationLLM] rejected phase=process reason=\(reason) \(llmProviderDiagnosticsContext(utteranceID: job.utteranceID, typing: job.sessionTypingMode, targetPID: job.targetPID, bundleID: job.targetBundleID, sourceCount: text.count))"
+                        "[DictationLLM] rejected phase=process reason=\(reason) \(llmProviderDiagnosticsContext(for: .dictationEnhancement, utteranceID: job.utteranceID, typing: job.sessionTypingMode, targetPID: job.targetPID, bundleID: job.targetBundleID, sourceCount: text.count))"
                     )
                     return passthroughResult("llm=rejected-\(reason)", enhancedContent: enhanced.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
@@ -4899,7 +5002,10 @@ final class SpeechManager: ObservableObject {
                 )
             }
             guard job.fullTextRewriteEnabled,
-                  let llmProvider = contextualLLMProvider(bundleIDs: llmBundleIDs) else {
+                  let llmProvider = contextualLLMProvider(
+                    for: .fullTextRewrite,
+                    bundleIDs: llmBundleIDs
+                  ) else {
                 payload.failureReason = .llmUnavailable
                 logTextRewriteFailure(
                     .llmUnavailable,
@@ -7198,6 +7304,7 @@ final class SpeechManager: ObservableObject {
         recentExpiredWakeFollowUp?.finalizeWorkItem?.cancel()
         recentExpiredWakeFollowUp = nil
         wakeActivatedDuringCurrentUtterance = false
+        lastStandbyWakeMissSegmentationAt = .distantPast
         lastWakeMissInsightSignature = nil
         lastWakeMissInsightAt = .distantPast
         isUtteranceActive = false
@@ -8192,7 +8299,7 @@ final class SpeechManager: ObservableObject {
             return isChinese ? "文本优化未开启" : "Text rewrite is turned off"
         }
 
-        switch llmServiceSource {
+        switch rewriteLLMServiceSource {
         case .appleOnDevice:
             let availability = AppleOnDeviceLLMProviderFactory.availability(
                 localeIdentifier: effectiveLocaleIdentifier
@@ -8211,6 +8318,7 @@ final class SpeechManager: ObservableObject {
     }
 
     private func llmProviderDiagnosticsContext(
+        for usage: LLMUsage,
         utteranceID: Int? = nil,
         typing: Bool? = nil,
         targetPID: pid_t? = nil,
@@ -8218,15 +8326,27 @@ final class SpeechManager: ObservableObject {
         payload: TextRewriteIntentPayload? = nil,
         sourceCount: Int? = nil
     ) -> String {
+        let source: LLMServiceSource
+        let config: LLMProviderConfiguration?
+        let enabled: Bool
+        switch usage {
+        case .dictationEnhancement:
+            source = dictationLLMServiceSource
+            config = dictationLLMProviderConfig
+            enabled = isAutoDictationEnhancementEnabled
+        case .fullTextRewrite:
+            source = rewriteLLMServiceSource
+            config = rewriteLLMProviderConfig
+            enabled = isFullTextRewriteEnabled
+        }
         var parts: [String] = [
-            "source=\(llmServiceSource.logValue)",
+            "source=\(source.logValue)",
             "locale=\(effectiveLocaleIdentifier)",
-            "configured=\(llmProviderConfig != nil)",
-            "dictationEnhancementEnabled=\(isAutoDictationEnhancementEnabled)",
-            "fullTextRewriteEnabled=\(isFullTextRewriteEnabled)"
+            "configured=\(config != nil)",
+            "enabled=\(enabled)"
         ]
 
-        if llmServiceSource == .appleOnDevice {
+        if source == .appleOnDevice {
             let availability = AppleOnDeviceLLMProviderFactory.availability(
                 localeIdentifier: effectiveLocaleIdentifier
             )
@@ -8270,7 +8390,7 @@ final class SpeechManager: ObservableObject {
         error: Error? = nil,
         note: String? = nil
     ) {
-        var message = "[TextRewrite] failure phase=\(phase) reason=\(reason.rawValue) \(llmProviderDiagnosticsContext(utteranceID: utteranceID, typing: typing, targetPID: targetPID, bundleID: bundleID, payload: payload, sourceCount: sourceCount))"
+        var message = "[TextRewrite] failure phase=\(phase) reason=\(reason.rawValue) \(llmProviderDiagnosticsContext(for: .fullTextRewrite, utteranceID: utteranceID, typing: typing, targetPID: targetPID, bundleID: bundleID, payload: payload, sourceCount: sourceCount))"
         if let note, !note.isEmpty {
             message += " note=\(note)"
         }
@@ -8287,7 +8407,7 @@ final class SpeechManager: ObservableObject {
         error: Error? = nil,
         note: String? = nil
     ) {
-        var message = "[DictationLLM] failure phase=\(phase) \(llmProviderDiagnosticsContext(utteranceID: job.utteranceID, typing: job.sessionTypingMode, targetPID: job.targetPID, bundleID: job.targetBundleID, sourceCount: textCount))"
+        var message = "[DictationLLM] failure phase=\(phase) \(llmProviderDiagnosticsContext(for: .dictationEnhancement, utteranceID: job.utteranceID, typing: job.sessionTypingMode, targetPID: job.targetPID, bundleID: job.targetBundleID, sourceCount: textCount))"
         if let note, !note.isEmpty {
             message += " note=\(note)"
         }
@@ -8802,18 +8922,27 @@ final class SpeechManager: ObservableObject {
         guard !uniqueMappings.isEmpty else { return nil }
         return uniqueMappings.joined(separator: "\n")
     }
-    private func contextualLLMProvider(bundleIDs: [String]? = nil) -> LLMProvider? {
-        if let config = llmProviderConfig {
-            switch config {
-            case .openAICompatible(var effectiveConfig):
-                effectiveConfig.contextualGlossaryText = contextualSpeechGlossaryText(bundleIDs: bundleIDs)
-                return OpenAICompatibleProvider(config: effectiveConfig)
-            case .appleOnDevice(var effectiveConfig):
-                effectiveConfig.contextualGlossaryText = contextualSpeechGlossaryText(bundleIDs: bundleIDs)
-                return AppleOnDeviceLLMProviderFactory.makeProvider(config: effectiveConfig)
-            }
+    private func contextualLLMProvider(
+        for usage: LLMUsage,
+        bundleIDs: [String]? = nil
+    ) -> LLMProvider? {
+        let config: LLMProviderConfiguration?
+        switch usage {
+        case .dictationEnhancement:
+            config = dictationLLMProviderConfig
+        case .fullTextRewrite:
+            config = rewriteLLMProviderConfig
         }
-        return llmProvider
+
+        guard let config else { return nil }
+        switch config {
+        case .openAICompatible(var effectiveConfig):
+            effectiveConfig.contextualGlossaryText = contextualSpeechGlossaryText(bundleIDs: bundleIDs)
+            return OpenAICompatibleProvider(config: effectiveConfig)
+        case .appleOnDevice(var effectiveConfig):
+            effectiveConfig.contextualGlossaryText = contextualSpeechGlossaryText(bundleIDs: bundleIDs)
+            return AppleOnDeviceLLMProviderFactory.makeProvider(config: effectiveConfig)
+        }
     }
     private func normalizeRecognizedText(_ raw: String, scope: SpeechCorrectionScope = .dictation) -> String {
         let corrected = applyContextualSpeechCorrections(raw, scope: scope)

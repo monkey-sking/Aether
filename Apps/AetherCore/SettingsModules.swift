@@ -1245,16 +1245,33 @@ private struct LLMRewriteSettingsCard: View {
         appState.isChineseUI
     }
 
-    private var usesAppleOnDevice: Bool {
-        appState.llmServiceSource == .appleOnDevice
+    private var autoDictationUsesAppleOnDevice: Bool {
+        appState.autoDictationLLMServiceSource == .appleOnDevice
+    }
+
+    private var fullTextRewriteUsesAppleOnDevice: Bool {
+        appState.fullTextRewriteLLMServiceSource == .appleOnDevice
+    }
+
+    private var usesAnyAppleOnDevice: Bool {
+        autoDictationUsesAppleOnDevice || fullTextRewriteUsesAppleOnDevice
+    }
+
+    private var usesAnyOpenAICompatible: Bool {
+        appState.autoDictationLLMServiceSource == .openAICompatible
+            || appState.fullTextRewriteLLMServiceSource == .openAICompatible
+    }
+
+    private var primaryStatusSource: LLMServiceSource {
+        usesAnyOpenAICompatible ? .openAICompatible : .appleOnDevice
     }
 
     private var statusTitle: String {
-        if usesAppleOnDevice {
+        if primaryStatusSource == .appleOnDevice {
             return appState.appleOnDeviceLLMAvailability.statusTitle(isChinese: isChinese)
         }
 
-        switch appState.llmConfigurationState {
+        switch appState.llmConfigurationState(for: .openAICompatible) {
         case .ready:
             return isChinese ? "已就绪" : "Ready"
         case .missingAPIKey:
@@ -1269,11 +1286,11 @@ private struct LLMRewriteSettingsCard: View {
     }
 
     private var statusTint: Color {
-        if usesAppleOnDevice {
+        if primaryStatusSource == .appleOnDevice {
             return appState.appleOnDeviceLLMAvailability == .available ? .green : .orange
         }
 
-        switch appState.llmConfigurationState {
+        switch appState.llmConfigurationState(for: .openAICompatible) {
         case .ready:
             return .green
         case .missingAPIKey, .missingModel, .invalidEndpoint:
@@ -1284,18 +1301,18 @@ private struct LLMRewriteSettingsCard: View {
     }
 
     private var statusDescription: String {
-        if usesAppleOnDevice {
+        if primaryStatusSource == .appleOnDevice {
             return appState.appleOnDeviceLLMAvailability.detail(
                 isChinese: isChinese,
                 localeName: appState.activeSpeechLocaleDisplayName
             )
         }
 
-        switch appState.llmConfigurationState {
+        switch appState.llmConfigurationState(for: .openAICompatible) {
         case .ready:
             return isChinese
-                ? "自动听写增强与全文优化已可用，前后文本会记录到 Insights。"
-                : "Automatic dictation enhancement and full-text rewrite are ready, with before/after history in Insights."
+                ? "选择远端服务的功能会共用下面这套服务配置。"
+                : "Features that use the remote service share the configuration below."
         case .missingAPIKey:
             return isChinese
                 ? "请填写 API Key，密钥会写入 Keychain。"
@@ -1317,7 +1334,7 @@ private struct LLMRewriteSettingsCard: View {
     }
 
     private var autoDictationEnhancementDescription: String {
-        if usesAppleOnDevice {
+        if autoDictationUsesAppleOnDevice {
             if appState.isAutoDictationEnhancementEnabled {
                 return isChinese
                     ? "普通听写结束后，会自动整理语句和标点，不需要联网。"
@@ -1339,7 +1356,7 @@ private struct LLMRewriteSettingsCard: View {
     }
 
     private var fullTextRewriteDescription: String {
-        if usesAppleOnDevice {
+        if fullTextRewriteUsesAppleOnDevice {
             if appState.isFullTextRewriteEnabled {
                 return isChinese
                     ? "只有你主动触发“全文优化”时，才会处理当前输入框的整段文字。"
@@ -1439,13 +1456,16 @@ private struct LLMRewriteSettingsCard: View {
         )
     }
 
-    private var serviceSourcePicker: some View {
+    private func serviceSourcePicker(
+        title: String,
+        selection: Binding<LLMServiceSource>
+    ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(isChinese ? "服务来源" : "Provider")
+            Text(title)
                 .font(.caption.weight(.semibold))
                 .foregroundColor(.secondary)
 
-            Picker("", selection: $appState.llmServiceSource) {
+            Picker("", selection: selection) {
                 Text(isChinese ? "Apple 本地" : "Apple On-Device")
                     .tag(LLMServiceSource.appleOnDevice)
                 Text(isChinese ? "OpenAI 兼容" : "OpenAI-Compatible")
@@ -1454,7 +1474,7 @@ private struct LLMRewriteSettingsCard: View {
             .pickerStyle(.segmented)
 
             Text(
-                usesAppleOnDevice
+                selection.wrappedValue == .appleOnDevice
                     ? (isChinese
                         ? "更适合低延迟、隐私优先的自动听写增强和全文优化。"
                         : "Best for low-latency, privacy-first dictation enhancement and full-text rewrite.")
@@ -1470,14 +1490,14 @@ private struct LLMRewriteSettingsCard: View {
 
     private var actionButtons: some View {
         HStack(spacing: 8) {
-            Button(usesAppleOnDevice ? (isChinese ? "检查本机" : "Check Local Model") : (isChinese ? "测试服务" : "Test Connection")) {
+            Button(usesAnyOpenAICompatible ? (isChinese ? "测试服务" : "Test Connection") : (isChinese ? "检查本机" : "Check Local Model")) {
                 Task { await appState.testLLMProviderConfiguration() }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .disabled(appState.isLLMConnectionTestRunning)
 
-            if !usesAppleOnDevice {
+            if usesAnyOpenAICompatible {
                 Button(isChinese ? "获取模型" : "Fetch Models") {
                     Task { await appState.refreshLLMAvailableModels() }
                 }
@@ -1506,6 +1526,11 @@ private struct LLMRewriteSettingsCard: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                serviceSourcePicker(
+                    title: isChinese ? "自动整理使用" : "Automatic cleanup uses",
+                    selection: $appState.autoDictationLLMServiceSource
+                )
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -1519,6 +1544,11 @@ private struct LLMRewriteSettingsCard: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                serviceSourcePicker(
+                    title: isChinese ? "全文优化使用" : "Full-text rewrite uses",
+                    selection: $appState.fullTextRewriteLLMServiceSource
+                )
             }
         }
     }
@@ -1875,8 +1905,6 @@ private struct LLMRewriteSettingsCard: View {
                     LanguageStatusTag(title: statusTitle, tint: statusTint)
                 }
 
-                serviceSourcePicker
-
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 12) {
                         enhancementToggles
@@ -1891,9 +1919,11 @@ private struct LLMRewriteSettingsCard: View {
                     }
                 }
 
-                if usesAppleOnDevice {
+                if usesAnyAppleOnDevice {
                     appleOnDeviceInfoPanel
-                } else {
+                }
+
+                if usesAnyOpenAICompatible {
                     apiKeyRow
 
                     ViewThatFits(in: .horizontal) {

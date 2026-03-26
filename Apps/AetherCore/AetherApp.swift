@@ -710,10 +710,17 @@ final class VoiceService: ObservableObject {
     }
 
     func setLLMProviderConfiguration(
-        _ config: LLMProviderConfiguration?,
-        source: LLMServiceSource
+        dictationConfig: LLMProviderConfiguration?,
+        dictationSource: LLMServiceSource,
+        rewriteConfig: LLMProviderConfiguration?,
+        rewriteSource: LLMServiceSource
     ) {
-        manager.setLLMProviderConfiguration(config, source: source)
+        manager.setLLMProviderConfiguration(
+            dictationConfig: dictationConfig,
+            dictationSource: dictationSource,
+            rewriteConfig: rewriteConfig,
+            rewriteSource: rewriteSource
+        )
     }
 
     func setDeveloperSpeechProfileEnabled(_ enabled: Bool) {
@@ -1016,7 +1023,9 @@ class AppState: ObservableObject {
     private static let loginWindowBundleIdentifier = "com.apple.loginwindow"
     private static let permissionRecoveryArgumentPrefix = "--permission-recovery="
     private static let defaultBundleIdentifier = "com.7fei.Aether"
-    static let llmProviderSourceStorageKey = "llmProvider.source"
+    static let autoDictationLLMProviderSourceStorageKey = "autoDictationLLMProvider.source"
+    static let fullTextRewriteLLMProviderSourceStorageKey = "fullTextRewriteLLMProvider.source"
+    private static let legacyLLMProviderSourceStorageKey = "llmProvider.source"
     static let llmEndpointStorageKey = "llmProvider.endpoint"
     static let llmModelStorageKey = "llmProvider.model"
     static let autoDictationEnhancementStorageKey = "isAutoDictationEnhancementEnabled"
@@ -3759,10 +3768,16 @@ Recent history relevant to app-launch commands (JSON):
     }
 
     static func defaultLLMServiceSource(
+        storageKey: String,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard
     ) -> LLMServiceSource {
-        if let stored = defaults.string(forKey: llmProviderSourceStorageKey),
+        if let stored = defaults.string(forKey: storageKey),
+           let source = LLMServiceSource(rawValue: stored) {
+            return source
+        }
+
+        if let stored = defaults.string(forKey: legacyLLMProviderSourceStorageKey),
            let source = LLMServiceSource(rawValue: stored) {
             return source
         }
@@ -3797,8 +3812,8 @@ Recent history relevant to app-launch commands (JSON):
         return Locale.current.localizedString(forIdentifier: identifier) ?? identifier
     }
 
-    var llmConfigurationState: LLMConfigurationState {
-        if llmServiceSource == .appleOnDevice {
+    func llmConfigurationState(for source: LLMServiceSource) -> LLMConfigurationState {
+        if source == .appleOnDevice {
             return appleOnDeviceLLMAvailability == .available
                 ? .ready
                 : .appleOnDeviceUnavailable
@@ -3815,7 +3830,7 @@ Recent history relevant to app-launch commands (JSON):
     }
 
     var isLLMProviderConfigured: Bool {
-        llmConfigurationState == .ready
+        llmConfigurationState(for: preferredLLMConfigurationTestSource) == .ready
     }
 
     @Published private(set) var llmAvailableModels: [String] = []
@@ -3823,9 +3838,29 @@ Recent history relevant to app-launch commands (JSON):
     @Published private(set) var isLLMModelRefreshRunning: Bool = false
     @Published var llmConfigurationFeedback: String?
     @Published var llmConfigurationFeedbackKind: LLMConfigurationFeedbackKind = .neutral
-    @Published var llmServiceSource: LLMServiceSource = AppState.defaultLLMServiceSource() {
+    @Published var autoDictationLLMServiceSource: LLMServiceSource = AppState.defaultLLMServiceSource(
+        storageKey: AppState.autoDictationLLMProviderSourceStorageKey
+    ) {
         didSet {
-            UserDefaults.standard.set(llmServiceSource.rawValue, forKey: Self.llmProviderSourceStorageKey)
+            UserDefaults.standard.set(
+                autoDictationLLMServiceSource.rawValue,
+                forKey: Self.autoDictationLLMProviderSourceStorageKey
+            )
+            llmAvailableModels = []
+            llmConfigurationFeedback = nil
+            llmConfigurationFeedbackKind = .neutral
+            syncLLMProviderConfiguration()
+        }
+    }
+
+    @Published var fullTextRewriteLLMServiceSource: LLMServiceSource = AppState.defaultLLMServiceSource(
+        storageKey: AppState.fullTextRewriteLLMProviderSourceStorageKey
+    ) {
+        didSet {
+            UserDefaults.standard.set(
+                fullTextRewriteLLMServiceSource.rawValue,
+                forKey: Self.fullTextRewriteLLMProviderSourceStorageKey
+            )
             llmAvailableModels = []
             llmConfigurationFeedback = nil
             llmConfigurationFeedbackKind = .neutral
@@ -3981,8 +4016,15 @@ Recent history relevant to app-launch commands (JSON):
         licenseManager.isProductUnlocked
     }
 
-    private func makeConfiguredLLMProviderConfiguration() -> LLMProviderConfiguration? {
-        switch llmServiceSource {
+    private var preferredLLMConfigurationTestSource: LLMServiceSource {
+        if autoDictationLLMServiceSource == .openAICompatible || fullTextRewriteLLMServiceSource == .openAICompatible {
+            return .openAICompatible
+        }
+        return .appleOnDevice
+    }
+
+    private func makeConfiguredLLMProviderConfiguration(for source: LLMServiceSource) -> LLMProviderConfiguration? {
+        switch source {
         case .appleOnDevice:
             guard appleOnDeviceLLMAvailability == .available else { return nil }
             return .appleOnDevice(
@@ -4005,8 +4047,8 @@ Recent history relevant to app-launch commands (JSON):
         }
     }
 
-    private func makeConfiguredLLMProvider() -> LLMHealthCheckProvider? {
-        guard let configuration = makeConfiguredLLMProviderConfiguration() else {
+    private func makeConfiguredLLMProvider(for source: LLMServiceSource) -> LLMHealthCheckProvider? {
+        guard let configuration = makeConfiguredLLMProviderConfiguration(for: source) else {
             return nil
         }
 
@@ -4019,9 +4061,6 @@ Recent history relevant to app-launch commands (JSON):
     }
 
     private func makeModelDiscoveryLLMProvider() -> OpenAICompatibleProvider? {
-        guard llmServiceSource == .openAICompatible else {
-            return nil
-        }
         let endpoint = llmEndpointText.trimmingCharacters(in: .whitespacesAndNewlines)
         let apiKey = llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !endpoint.isEmpty,
@@ -4042,15 +4081,18 @@ Recent history relevant to app-launch commands (JSON):
 
     private func syncLLMProviderConfiguration() {
         voiceService.setLLMProviderConfiguration(
-            makeConfiguredLLMProviderConfiguration(),
-            source: llmServiceSource
+            dictationConfig: makeConfiguredLLMProviderConfiguration(for: autoDictationLLMServiceSource),
+            dictationSource: autoDictationLLMServiceSource,
+            rewriteConfig: makeConfiguredLLMProviderConfiguration(for: fullTextRewriteLLMServiceSource),
+            rewriteSource: fullTextRewriteLLMServiceSource
         )
     }
 
     func testLLMProviderConfiguration() async {
-        guard let provider = makeConfiguredLLMProvider() else {
+        let source = preferredLLMConfigurationTestSource
+        guard let provider = makeConfiguredLLMProvider(for: source) else {
             llmConfigurationFeedbackKind = .warning
-            switch llmConfigurationState {
+            switch llmConfigurationState(for: source) {
             case .appleOnDeviceUnavailable:
                 llmConfigurationFeedback = appleOnDeviceLLMAvailability.detail(
                     isChinese: isChineseUI,
@@ -4069,7 +4111,7 @@ Recent history relevant to app-launch commands (JSON):
         }
 
         isLLMConnectionTestRunning = true
-        llmConfigurationFeedback = llmServiceSource == .appleOnDevice
+        llmConfigurationFeedback = source == .appleOnDevice
             ? (isChineseUI ? "正在检查 Apple 本地模型…" : "Checking the Apple on-device model...")
             : (isChineseUI ? "正在测试连接…" : "Testing connection...")
         llmConfigurationFeedbackKind = .neutral
@@ -4077,7 +4119,7 @@ Recent history relevant to app-launch commands (JSON):
 
         do {
             try await provider.testConfiguration()
-            llmConfigurationFeedback = llmServiceSource == .appleOnDevice
+            llmConfigurationFeedback = source == .appleOnDevice
                 ? (isChineseUI ? "Apple 本地模型可用" : "The Apple on-device model is available.")
                 : (isChineseUI ? "连接成功，当前模型可用" : "Connection succeeded. The configured model is available.")
             llmConfigurationFeedbackKind = .success
@@ -4088,7 +4130,7 @@ Recent history relevant to app-launch commands (JSON):
     }
 
     func refreshLLMAvailableModels() async {
-        guard llmServiceSource == .openAICompatible else {
+        guard preferredLLMConfigurationTestSource == .openAICompatible else {
             llmConfigurationFeedbackKind = .neutral
             llmConfigurationFeedback = isChineseUI
                 ? "Apple 本地模式不需要拉取模型列表。"
