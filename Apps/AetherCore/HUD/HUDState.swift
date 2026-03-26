@@ -45,6 +45,7 @@ final class HUDState: ObservableObject {
     @Published var inputDeviceIcon: String = "mic.fill"
     @Published var inputDeviceHealth: HUDInputDeviceHealth = .normal
     @Published var contextIcon: String = ""
+    @Published var isPositionAnimating: Bool = false
     @Published var isLanguageIndicatorVisible: Bool = false
     // 0...1 progress for current recording segment (visual ring around mic icon).
     @Published var micProgress: CGFloat = 0.0

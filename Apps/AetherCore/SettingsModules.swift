@@ -3712,6 +3712,7 @@ private struct WakeActivationInsightsCard: View {
             || snapshot.dashboard.wakeEmptyCount > 0
             || snapshot.dashboard.wakeToDictationCount > 0
             || snapshot.dashboard.wakeToControlCount > 0
+            || snapshot.dashboard.wakeMissCount > 0
     }
 
     private var hasHistoryData: Bool {
@@ -3771,6 +3772,8 @@ private struct WakeActivationInsightsCard: View {
             return isChinese ? "转化" : "Conversions"
         case .empty:
             return isChinese ? "空唤醒" : "Empty"
+        case .failures:
+            return isChinese ? "失败" : "Failures"
         }
     }
 
@@ -3880,6 +3883,12 @@ private struct WakeActivationInsightsCard: View {
                 tint: .orange,
                 fillsAvailableWidth: fillsAvailableWidth
             )
+            VoiceUsageStatusChip(
+                title: isChinese ? "失败" : "Failures",
+                value: snapshot.dashboard.wakeMissCount.formatted(),
+                tint: .red,
+                fillsAvailableWidth: fillsAvailableWidth
+            )
         }
     }
 
@@ -3951,12 +3960,12 @@ private struct WakeActivationInsightsCard: View {
     private var phrasePanel: some View {
         sectionCard {
             VStack(alignment: .leading, spacing: 6) {
-                Text(isChinese ? "唤醒词分布" : "Wake Phrase Distribution")
+                Text(isChinese ? "匹配词分布" : "Matched Phrase Distribution")
                     .font(.subheadline.weight(.semibold))
                 Text(
                     isChinese
-                        ? "看看哪些唤醒词更常被命中，以及它们后续转化情况。"
-                        : "See which wake phrases are hit most often and how they convert."
+                        ? "这里统计的是系统匹配到的候选词，不一定等于你实际说出口的原词。"
+                        : "This counts the matched wake candidates, which may differ from the exact phrase you spoke."
                 )
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -4651,6 +4660,8 @@ private struct VoiceUsageEventRow: View {
                 return "command"
             case .wakeEmpty:
                 return "pause.circle"
+            case .wakeMiss:
+                return "exclamationmark.triangle"
             default:
                 return "dot.radiowaves.left.and.right"
             }
@@ -4683,6 +4694,8 @@ private struct VoiceUsageEventRow: View {
                 return .teal
             case .wakeEmpty:
                 return .orange
+            case .wakeMiss:
+                return .red
             default:
                 return .secondary
             }
@@ -4735,7 +4748,7 @@ private struct VoiceUsageEventRow: View {
             switch event.eventCode {
             case "wake.hit":
                 if let phrase, !phrase.isEmpty {
-                    return isChinese ? "唤醒词：\(phrase)" : "Wake phrase: \(phrase)"
+                    return isChinese ? "匹配词：\(phrase)" : "Matched phrase: \(phrase)"
                 }
                 return isChinese ? "等待后续语音" : "Waiting for follow-up"
             case "wake.to_dictation", "wake.to_control":
@@ -4746,14 +4759,27 @@ private struct VoiceUsageEventRow: View {
                     return isChinese ? "后续：\(followUp)" : "Follow-up: \(followUp)"
                 }
                 if let phrase, !phrase.isEmpty {
-                    return isChinese ? "唤醒词：\(phrase)" : "Wake phrase: \(phrase)"
+                    return isChinese ? "匹配词：\(phrase)" : "Matched phrase: \(phrase)"
                 }
                 return isChinese ? "已转入后续动作" : "Converted to follow-up action"
             case "wake.empty":
                 if let phrase, !phrase.isEmpty {
-                    return isChinese ? "唤醒词：\(phrase) · 未继续说话" : "Wake phrase: \(phrase) · no follow-up"
+                    return isChinese ? "匹配词：\(phrase) · 未继续说话" : "Matched phrase: \(phrase) · no follow-up"
                 }
                 return isChinese ? "唤醒后未继续说话" : "No follow-up after wake"
+            case let code where code?.hasPrefix("wake.miss.") == true:
+                let detail = event.content?.replacingOccurrences(of: "\n", with: " ")
+                let heard = event.spokenText?.replacingOccurrences(of: "\n", with: " ")
+                if let detail, !detail.isEmpty, let heard, !heard.isEmpty {
+                    return isChinese ? "\(detail) · 听到：\(heard)" : "\(detail) · Heard: \(heard)"
+                }
+                if let detail, !detail.isEmpty {
+                    return detail
+                }
+                if let phrase, !phrase.isEmpty {
+                    return isChinese ? "候选词：\(phrase)" : "Candidate: \(phrase)"
+                }
+                return isChinese ? "唤醒未命中" : "Wake miss"
             default:
                 break
             }

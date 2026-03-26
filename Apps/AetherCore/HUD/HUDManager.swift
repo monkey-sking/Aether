@@ -675,6 +675,7 @@ final class HUDManager {
             // Ensure transient indicators don't linger when the HUD is dismissed.
             state.isMicProgressVisible = false
             state.micProgress = 0.0
+            state.isPositionAnimating = false
             state.updateGestureTrail(points: [], status: "", visible: false)
             hideLanguageIndicator()
         }
@@ -827,6 +828,7 @@ final class HUDManager {
         hudWindow?.orderOut(nil)
         caretDebugWindow?.orderOut(nil)
         lastSmoothedWindowOrigin = nil
+        state.isPositionAnimating = false
         mouseAvoidLockOrigin = nil
         mouseAvoidLockUntil = .distantPast
     }
@@ -3145,6 +3147,7 @@ final class HUDManager {
             }
 
             let finalOrigin: CGPoint
+            var isPositionAnimating = false
             if panel.isVisible, panel.alphaValue > 0.01, let prev = lastSmoothedWindowOrigin {
                 let dx = targetPos.x - prev.x
                 let dy = targetPos.y - prev.y
@@ -3152,6 +3155,7 @@ final class HUDManager {
                 if dist < 1 {
                     finalOrigin = targetPos
                 } else {
+                    isPositionAnimating = true
                     // Responsive follow:
                     // - large jumps snap to target to avoid trailing lag
                     // - small movements keep a light smoothing to reduce jitter
@@ -3164,6 +3168,9 @@ final class HUDManager {
                 }
             } else {
                 finalOrigin = targetPos
+            }
+            if state.isPositionAnimating != isPositionAnimating {
+                state.isPositionAnimating = isPositionAnimating
             }
             panel.setFrameOrigin(finalOrigin)
             lastSmoothedWindowOrigin = finalOrigin

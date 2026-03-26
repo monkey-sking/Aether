@@ -2262,6 +2262,9 @@ final class VoiceCommandRouter {
             }
             for alias in normalizedAliases(for: preset, localeIdentifier: localeIdentifier, overrides: overrides)
                 .sorted(by: { $0.count > $1.count }) {
+                guard Self.shouldUseContainsMatch(for: alias) else {
+                    continue
+                }
                 if normalized.contains(alias) {
                     return CommandMatch(preset: preset, confidence: .medium, reason: "contains-\(preset.rawValue)")
                 }
@@ -2303,6 +2306,9 @@ final class VoiceCommandRouter {
 
         for command in frontmostAppCommands.sorted(by: { longestNormalizedAliasLength(for: $0) > longestNormalizedAliasLength(for: $1) }) {
             for alias in normalizedAppAliases(for: command).sorted(by: { $0.count > $1.count }) {
+                guard Self.shouldUseContainsMatch(for: alias) else {
+                    continue
+                }
                 if normalized.contains(alias) {
                     return AppCommandMatch(command: command, confidence: .medium, reason: "app-contains-\(command.id)")
                 }
@@ -2361,6 +2367,12 @@ final class VoiceCommandRouter {
 
     private func longestPinyinAliasLength(for command: FrontmostAppCommand) -> Int {
         pinyinAppAliases(for: command).map(\.count).max() ?? 0
+    }
+
+    // Keep single-token shortcuts available for exact matches, but do not let
+    // them hijack long utterances through fuzzy substring routing.
+    private static func shouldUseContainsMatch(for alias: String) -> Bool {
+        alias.count > 1
     }
 
     private func normalizeMatchString(_ raw: String) -> String {

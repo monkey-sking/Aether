@@ -390,6 +390,13 @@ enum WakeAnalyticsFollowUpKind: String, Codable {
     case control
 }
 
+enum WakeAnalyticsFailureReason: String, Codable {
+    case belowThreshold = "below-threshold"
+    case phraseNotAtPrefix = "phrase-not-at-prefix"
+    case prefixRejected = "prefix-rejected"
+    case noPhraseMatch = "no-phrase-match"
+}
+
 enum WakeAnalyticsSignal {
     case hit(groupID: String, phrase: String?, localeIdentifier: String)
     case converted(
@@ -400,6 +407,13 @@ enum WakeAnalyticsSignal {
         transcript: String?
     )
     case empty(groupID: String, phrase: String?, localeIdentifier: String)
+    case miss(
+        phase: String,
+        reason: WakeAnalyticsFailureReason,
+        phrase: String?,
+        localeIdentifier: String,
+        transcript: String?
+    )
 }
 
 @MainActor
@@ -1325,6 +1339,7 @@ class AppState: ObservableObject {
         case wakeEmpty
         case wakeToDictation
         case wakeToControl
+        case wakeMiss
         case other
     }
 
@@ -1389,6 +1404,7 @@ class AppState: ObservableObject {
         case hits
         case conversions
         case empty
+        case failures
 
         var id: String { rawValue }
     }
@@ -1398,6 +1414,7 @@ class AppState: ObservableObject {
         let wakeEmptyCount: Int
         let wakeToDictationCount: Int
         let wakeToControlCount: Int
+        let wakeMissCount: Int
         let conversionRate: Double
         let retainedHistoryCount: Int
     }
@@ -2583,6 +2600,8 @@ Recent history relevant to app-launch commands (JSON):
                 return record.reasonCode == .wakeToDictation || record.reasonCode == .wakeToControl
             case .empty:
                 return record.reasonCode == .wakeEmpty
+            case .failures:
+                return record.reasonCode == .wakeMiss
             }
         }
 
@@ -2620,6 +2639,11 @@ Recent history relevant to app-launch commands (JSON):
         let summary = voiceUsageSummary
         let wakeHitCount = summary.wakeHitCount
         let conversionCount = summary.wakeToDictationCount + summary.wakeToControlCount
+        let wakeMissCount = activationRecords.reduce(into: 0) { partialResult, record in
+            if record.reasonCode == .wakeMiss {
+                partialResult += 1
+            }
+        }
         let conversionRate = wakeHitCount > 0 ? Double(conversionCount) / Double(wakeHitCount) : 0
 
         return WakeInsightsSnapshot(
@@ -2628,6 +2652,7 @@ Recent history relevant to app-launch commands (JSON):
                 wakeEmptyCount: summary.wakeEmptyCount,
                 wakeToDictationCount: summary.wakeToDictationCount,
                 wakeToControlCount: summary.wakeToControlCount,
+                wakeMissCount: wakeMissCount,
                 conversionRate: conversionRate,
                 retainedHistoryCount: activationRecords.count
             ),
@@ -2740,6 +2765,8 @@ Recent history relevant to app-launch commands (JSON):
                 reasonCode = .wakeToControl
             case "wake.empty":
                 reasonCode = .wakeEmpty
+            case let code where code?.hasPrefix("wake.miss.") == true:
+                reasonCode = .wakeMiss
             default:
                 reasonCode = .other
             }
@@ -4230,6 +4257,14 @@ Recent history relevant to app-launch commands (JSON):
                     )
                 case .empty(let groupID, let phrase, let localeIdentifier):
                     self.recordWakeEmpty(groupID: groupID, phrase: phrase, localeIdentifier: localeIdentifier)
+                case .miss(let phase, let reason, let phrase, let localeIdentifier, let transcript):
+                    self.recordWakeMiss(
+                        phase: phase,
+                        reason: reason,
+                        phrase: phrase,
+                        localeIdentifier: localeIdentifier,
+                        transcript: transcript
+                    )
                 }
             }
         }
@@ -5186,6 +5221,65 @@ Recent history relevant to app-launch commands (JSON):
             bundleIdentifier: nil,
             eventCode: "wake.empty",
             wakeGroupID: groupID,
+            wakePhrase: phrase,
+            localeIdentifier: localeIdentifier
+        )
+    }
+
+    private func recordWakeMiss(
+        phase: String,
+        reason: WakeAnalyticsFailureReason,
+        phrase: String?,
+        localeIdentifier: String,
+        transcript: String?
+    ) {
+        _ = phase
+        let detail: String
+        switch reason {
+        case .belowThreshold:
+            if let phrase, !phrase.isEmpty {
+                detail = AppLocalization.isChinese
+                    ? "候选词“\(phrase)”接近唤醒词，但分数未过阈值"
+                    : "Candidate '\(phrase)' was close, but stayed below the wake threshold"
+            } else {
+                detail = AppLocalization.isChinese
+                    ? "检测到接近唤醒词的候选，但分数未过阈值"
+                    : "Detected a near wake candidate, but it stayed below the threshold"
+            }
+        case .phraseNotAtPrefix:
+            if let phrase, !phrase.isEmpty {
+                detail = AppLocalization.isChinese
+                    ? "检测到“\(phrase)”但不在句首"
+                    : "Detected '\(phrase)', but it was not at the start of the utterance"
+            } else {
+                detail = AppLocalization.isChinese
+                    ? "检测到唤醒词，但不在句首"
+                    : "Detected a wake phrase, but it was not at the start of the utterance"
+            }
+        case .prefixRejected:
+            if let phrase, !phrase.isEmpty {
+                detail = AppLocalization.isChinese
+                    ? "句首候选词“\(phrase)”未通过唤醒规则"
+                    : "Leading candidate '\(phrase)' did not pass the wake matching rules"
+            } else {
+                detail = AppLocalization.isChinese
+                    ? "句首候选词未通过唤醒规则"
+                    : "The leading candidate did not pass the wake matching rules"
+            }
+        case .noPhraseMatch:
+            detail = AppLocalization.isChinese
+                ? "未检测到可用唤醒词"
+                : "No usable wake phrase was detected"
+        }
+
+        recordVoiceUsageEvent(
+            kind: .activation,
+            action: AppLocalization.isChinese ? "唤醒失败" : "Wake Miss",
+            content: detail,
+            spokenText: transcript,
+            appName: nil,
+            bundleIdentifier: nil,
+            eventCode: "wake.miss.\(reason.rawValue)",
             wakePhrase: phrase,
             localeIdentifier: localeIdentifier
         )

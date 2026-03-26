@@ -2436,18 +2436,28 @@ final class SpeechManager: ObservableObject {
         // Wake word detection & stripping
         if isWakeWordEnabled && !isDirectCommandEnabled {
             logWakeWordConfigurationIfNeeded(reason: "partial")
+            let matchMode = Self.wakeMatchMode(
+                isWakeWordEnabled: isWakeWordEnabled,
+                isDirectCommandEnabled: isDirectCommandEnabled,
+                isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+                isAwake: isAwake
+            )
             let result = wakeWordDetector.process(
                 text,
                 localeIdentifier: activeLocale.identifier,
-                matchMode: Self.wakeMatchMode(
-                    isWakeWordEnabled: isWakeWordEnabled,
-                    isDirectCommandEnabled: isDirectCommandEnabled,
-                    isAlwaysListeningEnabled: isAlwaysListeningEnabled,
-                    isAwake: isAwake
-                )
+                matchMode: matchMode
             )
             wakeScore = result.score
             matchedWakePhrase = result.matchedPhrase
+            logWakeEvaluationIfNeeded(
+                phase: "partial",
+                rawText: originalRawText,
+                matchMode: matchMode,
+                wakeDetected: result.wakeDetected,
+                wakeScore: wakeScore,
+                matchedWakePhrase: matchedWakePhrase,
+                payload: result.wakeDetected ? result.payload : nil
+            )
             if result.wakeDetected {
                 wakeWordDetected = true
                 if !isAwake {
@@ -2470,10 +2480,6 @@ final class SpeechManager: ObservableObject {
                 } else {
                     text = result.payload
                 }
-            } else if wakeScore > 0 {
-                GlobalLogger.speech.info(
-                    "[WakeWordMiss] phase=partial score=\(String(format: "%.2f", wakeScore)) matched=\(matchedWakePhrase ?? "nil") threshold=\(String(format: "%.2f", WakeWordDetector.diagnosticsThreshold)) raw='\(originalRawText)'"
-                )
             }
         }
 
@@ -3355,6 +3361,166 @@ final class SpeechManager: ObservableObject {
         return "\(trimmed[..<end])..."
     }
 
+    private func wakeDiagnosticNormalizeForMatching(_ text: String) -> String {
+        text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .unicodeScalars
+            .filter {
+                !CharacterSet.whitespacesAndNewlines.contains($0)
+                    && !CharacterSet.punctuationCharacters.contains($0)
+            }
+            .map(String.init)
+            .joined()
+            .lowercased()
+    }
+
+    private func wakeDiagnosticTrimLeadingIgnorables(_ text: String) -> String {
+        var index = text.startIndex
+        while index < text.endIndex {
+            let scalarView = text[index].unicodeScalars
+            let isIgnorable = scalarView.allSatisfy {
+                CharacterSet.whitespacesAndNewlines.contains($0)
+                    || CharacterSet.punctuationCharacters.contains($0)
+            }
+            if !isIgnorable { break }
+            index = text.index(after: index)
+        }
+        return String(text[index...])
+    }
+
+    private func wakeDiagnosticMatchModeDescription(_ matchMode: WakeWordMatchMode) -> String {
+        switch matchMode {
+        case .strictPrefix:
+            return "strictPrefix"
+        case .retryAwareStandby:
+            return "retryAwareStandby"
+        case .awakeFollowUp:
+            return "awakeFollowUp"
+        }
+    }
+
+    private func wakeDiagnosticThresholdDescription(for matchMode: WakeWordMatchMode) -> String {
+        switch matchMode {
+        case .strictPrefix:
+            return "0.88"
+        case .retryAwareStandby, .awakeFollowUp:
+            return "strict=0.88 retry=0.93"
+        }
+    }
+
+    private func wakeDiagnosticEffectivePhrases(for localeIdentifier: String) -> [String] {
+        WakeWordDetector.effectiveWakePhrases(
+            for: localeIdentifier,
+            overrides: wakeWordDetector.overrides
+        )
+        .sorted { $0.count > $1.count }
+    }
+
+    private func wakeDiagnosticPhraseOccurrence(
+        in rawText: String,
+        localeIdentifier: String
+    ) -> (phrase: String, offset: Int, leadingContext: String)? {
+        let trimmedLeading = wakeDiagnosticTrimLeadingIgnorables(rawText)
+        let normalizedText = wakeDiagnosticNormalizeForMatching(trimmedLeading)
+        guard !normalizedText.isEmpty else { return nil }
+
+        var best: (phrase: String, offset: Int, leadingContext: String)?
+
+        for phrase in wakeDiagnosticEffectivePhrases(for: localeIdentifier) {
+            let normalizedPhrase = wakeDiagnosticNormalizeForMatching(phrase)
+            guard !normalizedPhrase.isEmpty,
+                  let range = normalizedText.range(of: normalizedPhrase) else {
+                continue
+            }
+
+            let offset = normalizedText.distance(from: normalizedText.startIndex, to: range.lowerBound)
+            let leadingContext = String(normalizedText.prefix(offset))
+            let candidate = (phrase: phrase, offset: offset, leadingContext: leadingContext)
+
+            if let current = best {
+                if candidate.offset < current.offset
+                    || (candidate.offset == current.offset && candidate.phrase.count > current.phrase.count) {
+                    best = candidate
+                }
+            } else {
+                best = candidate
+            }
+        }
+
+        return best
+    }
+
+    private func logWakeEvaluationIfNeeded(
+        phase: String,
+        rawText: String,
+        matchMode: WakeWordMatchMode,
+        wakeDetected: Bool,
+        wakeScore: Double,
+        matchedWakePhrase: String?,
+        payload: String?
+    ) {
+        let rawSnippet = wakeDiagnosticSnippet(rawText)
+        guard !rawSnippet.isEmpty else { return }
+
+        let phraseOccurrence = wakeDiagnosticPhraseOccurrence(
+            in: rawText,
+            localeIdentifier: activeLocale.identifier
+        )
+        let shouldLogMiss = phase.hasPrefix("final") || wakeScore > 0 || phraseOccurrence != nil
+        guard wakeDetected || shouldLogMiss else { return }
+
+        let result = wakeDetected ? "hit" : "miss"
+        let reason: String
+        let failureReason: WakeAnalyticsFailureReason
+        if wakeDetected {
+            reason = "matched-prefix"
+            failureReason = .noPhraseMatch
+        } else if wakeScore > 0 {
+            reason = "below-threshold"
+            failureReason = .belowThreshold
+        } else if let phraseOccurrence, phraseOccurrence.offset > 0 {
+            reason = "phrase-not-at-prefix"
+            failureReason = .phraseNotAtPrefix
+        } else if phraseOccurrence != nil {
+            reason = "prefix-rejected"
+            failureReason = .prefixRejected
+        } else {
+            reason = "no-phrase-match"
+            failureReason = .noPhraseMatch
+        }
+
+        let occurrenceDetails: String
+        if let phraseOccurrence {
+            occurrenceDetails = " candidate='\(phraseOccurrence.phrase)' candidateOffset=\(phraseOccurrence.offset) leadIn='\(wakeDiagnosticSnippet(phraseOccurrence.leadingContext, limit: 24))'"
+        } else {
+            occurrenceDetails = ""
+        }
+
+        let payloadDetails: String
+        if let payload {
+            payloadDetails = " payload='\(wakeDiagnosticSnippet(payload))'"
+        } else {
+            payloadDetails = ""
+        }
+
+        GlobalLogger.speech.info(
+            "[WakeWordResult] phase=\(phase) result=\(result) reason=\(reason) awake=\(isAwake) alwaysListening=\(isAlwaysListeningEnabled) directCommand=\(isDirectCommandEnabled) matchMode=\(wakeDiagnosticMatchModeDescription(matchMode)) score=\(String(format: "%.2f", wakeScore)) threshold=\(wakeDiagnosticThresholdDescription(for: matchMode)) matched=\(matchedWakePhrase ?? "nil")\(occurrenceDetails) raw='\(rawSnippet)'\(payloadDetails)"
+        )
+
+        let shouldEmitWakeMiss = !wakeDetected && phase.hasPrefix("final") && (wakeScore > 0 || phraseOccurrence != nil)
+        if shouldEmitWakeMiss {
+            onWakeAnalyticsSignal?(
+                .miss(
+                    phase: phase,
+                    reason: failureReason,
+                    phrase: matchedWakePhrase ?? phraseOccurrence?.phrase,
+                    localeIdentifier: activeLocale.identifier,
+                    transcript: rawSnippet
+                )
+            )
+        }
+    }
+
     private func wakeHUDStateSnapshot(
         controlMode: HUDRecognitionControlMode?,
         typingEligible: Bool?,
@@ -3619,30 +3785,46 @@ final class SpeechManager: ObservableObject {
             let wakeResult = wakeWordDetector.process(rawTrimmed, localeIdentifier: activeLocale.identifier)
             wakeScore = wakeResult.score
             matchedWakePhrase = wakeResult.matchedPhrase
+            if isWakeWordEnabled {
+                logWakeEvaluationIfNeeded(
+                    phase: "final-direct-command",
+                    rawText: rawTrimmed,
+                    matchMode: .strictPrefix,
+                    wakeDetected: wakeResult.wakeDetected,
+                    wakeScore: wakeScore,
+                    matchedWakePhrase: matchedWakePhrase,
+                    payload: wakeResult.wakeDetected ? wakeResult.payload : nil
+                )
+            }
             if isWakeWordEnabled && wakeResult.wakeDetected {
                 textToRoute = wakeResult.payload; wakeWordDetected = true; handleWakeActivation(reason: "direct-command-final-wake")
             } else {
-                if isWakeWordEnabled && wakeScore > 0 {
-                    GlobalLogger.speech.info(
-                        "[WakeWordMiss] phase=final-direct-command score=\(String(format: "%.2f", wakeScore)) matched=\(matchedWakePhrase ?? "nil") threshold=\(String(format: "%.2f", WakeWordDetector.diagnosticsThreshold)) raw='\(rawTrimmed)'"
-                    )
-                }
                 textToRoute = rawTrimmed
             }
         } else if isWakeWordEnabled && !isDirectCommandEnabled {
             logWakeWordConfigurationIfNeeded(reason: "final-always-listening")
+            let matchMode = Self.wakeMatchMode(
+                isWakeWordEnabled: isWakeWordEnabled,
+                isDirectCommandEnabled: isDirectCommandEnabled,
+                isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+                isAwake: isAwake
+            )
             let wakeResult = wakeWordDetector.process(
                 rawTrimmed,
                 localeIdentifier: activeLocale.identifier,
-                matchMode: Self.wakeMatchMode(
-                    isWakeWordEnabled: isWakeWordEnabled,
-                    isDirectCommandEnabled: isDirectCommandEnabled,
-                    isAlwaysListeningEnabled: isAlwaysListeningEnabled,
-                    isAwake: isAwake
-                )
+                matchMode: matchMode
             )
             wakeScore = wakeResult.score
             matchedWakePhrase = wakeResult.matchedPhrase
+            logWakeEvaluationIfNeeded(
+                phase: isAwake ? "final-awake" : "final-sleeping",
+                rawText: rawTrimmed,
+                matchMode: matchMode,
+                wakeDetected: wakeResult.wakeDetected,
+                wakeScore: wakeScore,
+                matchedWakePhrase: matchedWakePhrase,
+                payload: wakeResult.wakeDetected ? wakeResult.payload : nil
+            )
             if isAwake {
                 if wakeResult.wakeDetected {
                     textToRoute = wakeResult.payload
@@ -3652,11 +3834,6 @@ final class SpeechManager: ObservableObject {
                     }
                 }
                 else {
-                    if wakeScore > 0 {
-                        GlobalLogger.speech.info(
-                            "[WakeWordMiss] phase=final-awake score=\(String(format: "%.2f", wakeScore)) matched=\(matchedWakePhrase ?? "nil") threshold=\(String(format: "%.2f", WakeWordDetector.diagnosticsThreshold)) raw='\(rawTrimmed)'"
-                        )
-                    }
                     textToRoute = rawTrimmed
                 }
             } else {
@@ -3668,19 +3845,9 @@ final class SpeechManager: ObservableObject {
                     }
                 }
                 else {
-                    if wakeScore > 0 {
-                        GlobalLogger.speech.info(
-                            "[WakeWordMiss] phase=final-sleeping score=\(String(format: "%.2f", wakeScore)) matched=\(matchedWakePhrase ?? "nil") threshold=\(String(format: "%.2f", WakeWordDetector.diagnosticsThreshold)) raw='\(rawTrimmed)'"
-                        )
-                    }
                     return
                 }
             }
-        }
-        if isWakeWordEnabled {
-            GlobalLogger.speech.info(
-                "[WakeWord] final score=\(String(format: "%.2f", wakeScore)) matched=\(matchedWakePhrase ?? "nil") detected=\(wakeWordDetected) raw='\(rawTrimmed)' payload='\(textToRoute)'"
-            )
         }
         if wakeWordDetected {
             beginPendingWakeFollowUp(phrase: matchedWakePhrase, allowReuseExisting: true)

@@ -171,7 +171,7 @@ struct HUDView: View {
                 if state.isMicProgressVisible && (state.mode == .listening || state.mode == .command || state.mode == .dictation) {
                     Circle()
                         .stroke(Color.white.opacity(0.22), lineWidth: 2)
-                        .frame(width: micProgressDiameter, height: micProgressDiameter)
+                        .frame(width: deviceGlyphMetrics.progressDiameter, height: deviceGlyphMetrics.progressDiameter)
                     Circle()
                         .trim(from: 0, to: state.micProgress)
                         .stroke(
@@ -179,24 +179,27 @@ struct HUDView: View {
                             style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
                         )
                         .rotationEffect(.degrees(-90))
-                        .frame(width: micProgressDiameter, height: micProgressDiameter)
+                        .frame(width: deviceGlyphMetrics.progressDiameter, height: deviceGlyphMetrics.progressDiameter)
                 }
 
                 Image(systemName: resolvedSymbol)
                     .foregroundColor(.white)
-                    .font(.system(size: listeningDeviceSymbolFontSize))
+                    .font(.system(size: deviceGlyphMetrics.listeningSymbolFontSize))
+                    .offset(y: deviceGlyphMetrics.listeningSymbolYOffset)
                     .shadow(radius: 1)
             }
         }
-        .frame(width: listeningDeviceFrameSize, height: listeningDeviceFrameSize)
+        .frame(width: deviceGlyphMetrics.deviceFrameDiameter, height: deviceGlyphMetrics.deviceFrameDiameter)
     }
 
     private var listeningLeadingVisual: some View {
         decoratedDeviceLeadingVisual {
             AudioReactiveRingView(
                 level: state.audioLevel,
-                baseDiameter: micProgressDiameter + 3,
-                expansion: usesWideDeviceGlyph ? 9 : 8
+                baseDiameter: deviceGlyphMetrics.ringBaseDiameter,
+                expansion: deviceGlyphMetrics.ringExpansion,
+                lineWidth: deviceGlyphMetrics.ringStrokeWidth,
+                isCalmed: state.isPositionAnimating
             )
             micIcon
         }
@@ -208,9 +211,10 @@ struct HUDView: View {
                 symbol: currentInputDeviceSymbol,
                 tone: .white.opacity(0.92),
                 animatePulse: false,
-                circleDiameter: deviceBadgeCircleDiameter,
-                frameDiameter: deviceBadgeFrameDiameter,
-                symbolFontSize: stageDeviceSymbolFontSize
+                circleDiameter: deviceGlyphMetrics.stageCircleDiameter,
+                frameDiameter: leadingVisualFrameDiameter,
+                symbolFontSize: deviceGlyphMetrics.stageSymbolFontSize,
+                symbolYOffset: deviceGlyphMetrics.stageSymbolYOffset
             )
         }
     }
@@ -232,9 +236,10 @@ struct HUDView: View {
                     symbol: currentInputDeviceSymbol,
                     tone: .white.opacity(0.92),
                     animatePulse: false,
-                    circleDiameter: deviceBadgeCircleDiameter,
-                    frameDiameter: deviceBadgeFrameDiameter,
-                    symbolFontSize: stageDeviceSymbolFontSize
+                    circleDiameter: deviceGlyphMetrics.stageCircleDiameter,
+                    frameDiameter: leadingVisualFrameDiameter,
+                    symbolFontSize: deviceGlyphMetrics.stageSymbolFontSize,
+                    symbolYOffset: deviceGlyphMetrics.stageSymbolYOffset
                 )
             }
         case .wakeSuccess:
@@ -257,6 +262,23 @@ struct HUDView: View {
         resolvedSymbolName(for: state.inputDeviceIcon)
     }
 
+    private struct DeviceGlyphMetrics {
+        let deviceFrameDiameter: CGFloat
+        let progressDiameter: CGFloat
+        let listeningSymbolFontSize: CGFloat
+        let listeningSymbolYOffset: CGFloat
+        let stageCircleDiameter: CGFloat
+        let stageSymbolFontSize: CGFloat
+        let stageSymbolYOffset: CGFloat
+        let ringBaseDiameter: CGFloat
+        let ringExpansion: CGFloat
+        let ringStrokeWidth: CGFloat
+    }
+
+    private var deviceGlyphMetrics: DeviceGlyphMetrics {
+        metrics(for: currentInputDeviceSymbol)
+    }
+
     private var overlayBadgeTopOffset: CGFloat {
         1.0
     }
@@ -277,33 +299,89 @@ struct HUDView: View {
         state.mode == .standby ? 16 : 24
     }
 
-    private var usesWideDeviceGlyph: Bool {
-        let symbol = currentInputDeviceSymbol
-        return symbol.contains("airpod") || symbol.contains("airpods") || symbol.contains("headphones")
+    private var primaryBadgeCircleDiameter: CGFloat {
+        27
     }
 
-    private var listeningDeviceFrameSize: CGFloat {
-        usesWideDeviceGlyph ? 28 : 26
+    private var primaryBadgeSymbolFontSize: CGFloat {
+        15
     }
 
-    private var micProgressDiameter: CGFloat {
-        usesWideDeviceGlyph ? 28 : 26
-    }
+    private func metrics(for symbol: String) -> DeviceGlyphMetrics {
+        let normalized = symbol.lowercased()
 
-    private var listeningDeviceSymbolFontSize: CGFloat {
-        usesWideDeviceGlyph ? 18 : 16.5
-    }
+        if normalized == "airpods.max" {
+            return DeviceGlyphMetrics(
+                deviceFrameDiameter: 27,
+                progressDiameter: 27,
+                listeningSymbolFontSize: 17.8,
+                listeningSymbolYOffset: 0.2,
+                stageCircleDiameter: primaryBadgeCircleDiameter,
+                stageSymbolFontSize: 15.2,
+                stageSymbolYOffset: 0.2,
+                ringBaseDiameter: 25.8,
+                ringExpansion: 4.0,
+                ringStrokeWidth: 1.25
+            )
+        }
 
-    private var deviceBadgeCircleDiameter: CGFloat {
-        usesWideDeviceGlyph ? 28 : 27
-    }
+        if normalized.contains("airpod") || normalized.contains("airpods") {
+            return DeviceGlyphMetrics(
+                deviceFrameDiameter: 27,
+                progressDiameter: 27,
+                listeningSymbolFontSize: 18.2,
+                listeningSymbolYOffset: 0.15,
+                stageCircleDiameter: primaryBadgeCircleDiameter,
+                stageSymbolFontSize: 15.4,
+                stageSymbolYOffset: 0.15,
+                ringBaseDiameter: 25.8,
+                ringExpansion: 4.0,
+                ringStrokeWidth: 1.25
+            )
+        }
 
-    private var deviceBadgeFrameDiameter: CGFloat {
-        leadingVisualFrameDiameter
-    }
+        if normalized.contains("headphones") {
+            return DeviceGlyphMetrics(
+                deviceFrameDiameter: 27,
+                progressDiameter: 27,
+                listeningSymbolFontSize: 18.0,
+                listeningSymbolYOffset: 0.05,
+                stageCircleDiameter: primaryBadgeCircleDiameter,
+                stageSymbolFontSize: 15.2,
+                stageSymbolYOffset: 0.05,
+                ringBaseDiameter: 25.9,
+                ringExpansion: 4.1,
+                ringStrokeWidth: 1.25
+            )
+        }
 
-    private var stageDeviceSymbolFontSize: CGFloat {
-        usesWideDeviceGlyph ? 15.5 : 14
+        if normalized.contains("mic.slash") {
+            return DeviceGlyphMetrics(
+                deviceFrameDiameter: 27,
+                progressDiameter: 27,
+                listeningSymbolFontSize: 16.7,
+                listeningSymbolYOffset: 0,
+                stageCircleDiameter: primaryBadgeCircleDiameter,
+                stageSymbolFontSize: 14.6,
+                stageSymbolYOffset: 0,
+                ringBaseDiameter: 25.7,
+                ringExpansion: 4.0,
+                ringStrokeWidth: 1.25
+            )
+        }
+
+        return DeviceGlyphMetrics(
+            deviceFrameDiameter: 27,
+            progressDiameter: 27,
+            listeningSymbolFontSize: 17.2,
+            listeningSymbolYOffset: 0,
+            stageCircleDiameter: primaryBadgeCircleDiameter,
+            stageSymbolFontSize: 14.8,
+            stageSymbolYOffset: 0,
+            ringBaseDiameter: 25.8,
+            ringExpansion: 4.2,
+            ringStrokeWidth: 1.3
+        )
     }
 
     @ViewBuilder
@@ -550,7 +628,14 @@ struct HUDView: View {
     }
 
     private func semanticLeadingVisual(symbol: String, tone: Color) -> some View {
-        AnimatedHUDBadge(symbol: symbol, tone: tone.opacity(0.95), animatePulse: false)
+        AnimatedHUDBadge(
+            symbol: symbol,
+            tone: tone.opacity(0.95),
+            animatePulse: false,
+            circleDiameter: primaryBadgeCircleDiameter,
+            frameDiameter: leadingVisualFrameDiameter,
+            symbolFontSize: primaryBadgeSymbolFontSize
+        )
     }
 
     @ViewBuilder
@@ -583,7 +668,14 @@ struct HUDView: View {
     }
 
     private func actionBadge(symbol: String, tone: Color) -> some View {
-        AnimatedHUDBadge(symbol: symbol, tone: tone, animatePulse: false)
+        AnimatedHUDBadge(
+            symbol: symbol,
+            tone: tone,
+            animatePulse: false,
+            circleDiameter: primaryBadgeCircleDiameter,
+            frameDiameter: leadingVisualFrameDiameter,
+            symbolFontSize: primaryBadgeSymbolFontSize
+        )
     }
     
     // MARK: - Helper Types
@@ -828,16 +920,33 @@ private struct AudioReactiveRingView: View {
     let level: CGFloat
     let baseDiameter: CGFloat
     let expansion: CGFloat
+    let lineWidth: CGFloat
+    let isCalmed: Bool
+    @State private var displayedLevel: CGFloat = 0.18
 
     var body: some View {
         let clamped = max(0.12, min(level, 1.0))
+        let targetLevel = isCalmed ? min(clamped, 0.42) : clamped
+        let effectiveExpansion = isCalmed ? expansion * 0.42 : expansion
         Circle()
-            .stroke(Color.green.opacity(0.42), lineWidth: 1.6)
+            .stroke(Color.green.opacity(isCalmed ? 0.32 : 0.4), lineWidth: isCalmed ? max(1.15, lineWidth - 0.1) : lineWidth)
             .frame(
-                width: baseDiameter + clamped * expansion,
-                height: baseDiameter + clamped * expansion
+                width: baseDiameter + displayedLevel * effectiveExpansion,
+                height: baseDiameter + displayedLevel * effectiveExpansion
             )
-            .animation(.easeOut(duration: 0.14), value: clamped)
+            .animation(.easeOut(duration: isCalmed ? 0.24 : 0.2), value: displayedLevel)
+            .onAppear {
+                displayedLevel = targetLevel
+            }
+            .onChange(of: targetLevel) { newValue in
+                let blend: CGFloat = isCalmed ? 0.24 : 0.46
+                displayedLevel = displayedLevel * (1 - blend) + newValue * blend
+            }
+            .onChange(of: isCalmed) { calmed in
+                if calmed {
+                    displayedLevel = min(displayedLevel, 0.42)
+                }
+            }
     }
 }
 
@@ -1015,6 +1124,7 @@ private struct AnimatedHUDBadge: View {
     let circleDiameter: CGFloat
     let frameDiameter: CGFloat
     let symbolFontSize: CGFloat
+    let symbolYOffset: CGFloat
     @State private var pulseVisible = false
 
     init(
@@ -1023,7 +1133,8 @@ private struct AnimatedHUDBadge: View {
         animatePulse: Bool,
         circleDiameter: CGFloat = 24,
         frameDiameter: CGFloat = 28,
-        symbolFontSize: CGFloat = 13
+        symbolFontSize: CGFloat = 13,
+        symbolYOffset: CGFloat = 0
     ) {
         self.symbol = symbol
         self.tone = tone
@@ -1031,6 +1142,7 @@ private struct AnimatedHUDBadge: View {
         self.circleDiameter = circleDiameter
         self.frameDiameter = frameDiameter
         self.symbolFontSize = symbolFontSize
+        self.symbolYOffset = symbolYOffset
     }
 
     var body: some View {
@@ -1055,6 +1167,7 @@ private struct AnimatedHUDBadge: View {
             Image(systemName: symbol)
                 .font(.system(size: symbolFontSize, weight: .semibold))
                 .foregroundColor(.white)
+                .offset(y: symbolYOffset)
                 .shadow(radius: 1)
         }
         .frame(width: frameDiameter, height: frameDiameter)
