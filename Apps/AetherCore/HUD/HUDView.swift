@@ -95,7 +95,7 @@ struct HUDView: View {
                     if !trimmedMessage.isEmpty {
                         hudLabel(trimmedMessage)
                     } else {
-                        GenericProcessingView()
+                        TextOrganizingView()
                     }
                     trailingAccessories
 
@@ -262,7 +262,7 @@ struct HUDView: View {
     }
 
     private var overlayBadgeDiameter: CGFloat {
-        13
+        12
     }
 
     private var leadingVisualFrameDiameter: CGFloat {
@@ -279,19 +279,19 @@ struct HUDView: View {
     }
 
     private var listeningDeviceFrameSize: CGFloat {
-        usesWideDeviceGlyph ? 24 : 22
+        usesWideDeviceGlyph ? 26 : 24
     }
 
     private var micProgressDiameter: CGFloat {
-        usesWideDeviceGlyph ? 24 : 22
+        usesWideDeviceGlyph ? 26 : 24
     }
 
     private var listeningDeviceSymbolFontSize: CGFloat {
-        usesWideDeviceGlyph ? 15.5 : 14
+        usesWideDeviceGlyph ? 16.5 : 15
     }
 
     private var deviceBadgeCircleDiameter: CGFloat {
-        usesWideDeviceGlyph ? 25 : 24
+        usesWideDeviceGlyph ? 26 : 25
     }
 
     private var deviceBadgeFrameDiameter: CGFloat {
@@ -572,10 +572,10 @@ struct HUDView: View {
     }
 
     private var hudLabelMaxWidth: CGFloat {
-        var width: CGFloat = state.mode == .feedback ? 204 : 192
+        var width: CGFloat = state.mode == .feedback ? 252 : 232
         if hasVisibleContextIcon { width -= 20 }
         if state.isLanguageIndicatorVisible { width -= 24 }
-        return max(width, 96)
+        return max(width, 132)
     }
 
     private func actionBadge(symbol: String, tone: Color) -> some View {
@@ -857,15 +857,6 @@ private struct ProcessingDotsView: View {
     }
 }
 
-private struct GenericProcessingView: View {
-    var body: some View {
-        HStack(spacing: 8) {
-            TextOrganizingView()
-            ProcessingDotsView(tone: .white.opacity(0.88))
-        }
-    }
-}
-
 private struct TextOrganizingView: View {
     @State private var activeIndex = 0
 
@@ -878,14 +869,6 @@ private struct TextOrganizingView: View {
                         width: lineWidth(for: index),
                         height: activeIndex == index ? 4 : 3
                     )
-                    .overlay(alignment: .trailing) {
-                        if activeIndex == index {
-                            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                                .fill(Color.green.opacity(0.85))
-                                .frame(width: 7, height: 2.5)
-                                .padding(.trailing, 1.5)
-                        }
-                    }
             }
         }
         .frame(width: 32, height: 18, alignment: .leading)

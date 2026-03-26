@@ -2822,10 +2822,12 @@ final class HUDManager {
         // can re-enter SwiftUI graph updates and trigger AG precondition crashes.
         let existingSize = panel.frame.size
         let size: CGSize
-        if existingSize.width > 1, existingSize.height > 1 {
+        if let measuredSize = measuredHUDContentSize(for: panel) {
+            size = measuredSize
+        } else if existingSize.width > 1, existingSize.height > 1 {
             size = existingSize
         } else {
-            size = CGSize(width: 200, height: 60)
+            size = CGSize(width: 220, height: 60)
         }
         
         // 4. Candidate Position Evaluation
@@ -3204,6 +3206,16 @@ final class HUDManager {
                 }
             }
         }
+    }
+
+    private func measuredHUDContentSize(for panel: NSPanel) -> CGSize? {
+        guard let hostingView = panel.contentViewController?.view else { return nil }
+        let fitting = hostingView.fittingSize
+        guard fitting.width.isFinite, fitting.height.isFinite else { return nil }
+        guard fitting.width > 24, fitting.height > 20 else { return nil }
+        let clampedWidth = min(max(ceil(fitting.width), 96), 360)
+        let clampedHeight = min(max(ceil(fitting.height), 34), 180)
+        return CGSize(width: clampedWidth, height: clampedHeight)
     }
 
     private func hudRectSummary(_ rect: CGRect?) -> String {
