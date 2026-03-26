@@ -273,6 +273,8 @@ final class KeyRecorderNSView: NSView {
     
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var pendingModifierOnlyRecord: (keyCode: Int, flags: UInt64)?
+    private var sawNonModifierKeyAfterPendingModifier = false
 
     override var acceptsFirstResponder: Bool { true }
     
@@ -303,6 +305,7 @@ final class KeyRecorderNSView: NSView {
         
         let eventsOfInterest: CGEventMask =
             (CGEventMask(1) << CGEventType.keyDown.rawValue) |
+            (CGEventMask(1) << CGEventType.flagsChanged.rawValue) |
             (CGEventMask(1) << CGEventType.rightMouseDown.rawValue) |
             (CGEventMask(1) << CGEventType.otherMouseDown.rawValue)
         
@@ -341,6 +344,8 @@ final class KeyRecorderNSView: NSView {
     }
     
     private func stopMonitoring() {
+        pendingModifierOnlyRecord = nil
+        sawNonModifierKeyAfterPendingModifier = false
         if let source = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
             runLoopSource = nil
@@ -361,11 +366,21 @@ final class KeyRecorderNSView: NSView {
             onRecord?(-1, flags, btn)
             return
         }
+
+        if type == .flagsChanged {
+            handleModifierOnlyFlagsChanged(
+                keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
+                flags: event.flags
+            )
+            return
+        }
         
         // Handle Key
         if type == .keyDown {
             let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
             let flags = event.flags
+            pendingModifierOnlyRecord = nil
+            sawNonModifierKeyAfterPendingModifier = true
             
             // Filter bare escape
             let activeMods = flags.intersection([.maskControl, .maskAlternate, .maskShift, .maskCommand])
@@ -435,6 +450,13 @@ final class KeyRecorderNSView: NSView {
         logger.info("Recorded Key: code=\(keyCode), flags=\(cgFlags, format: .hex)")
         onRecord?(keyCode, cgFlags, nil)
     }
+
+    override func flagsChanged(with event: NSEvent) {
+        handleModifierOnlyFlagsChanged(
+            keyCode: Int(event.keyCode),
+            flags: cgFlags(from: event.modifierFlags, includePhysicalCapsLock: true)
+        )
+    }
     
     private func handleMouse(_ event: NSEvent) {
         let button = event.buttonNumber
@@ -453,6 +475,66 @@ final class KeyRecorderNSView: NSView {
     // We keep overrides just in case, though LocalMonitor should catch them first.
     override func otherMouseDown(with event: NSEvent) { handleMouse(event) }
     override func rightMouseDown(with event: NSEvent) { handleMouse(event) }
+
+    private func handleModifierOnlyFlagsChanged(keyCode: Int, flags: CGEventFlags) {
+        guard allowBareKeys else {
+            pendingModifierOnlyRecord = nil
+            sawNonModifierKeyAfterPendingModifier = false
+            return
+        }
+
+        let activeFlags = flags.intersection([.maskControl, .maskAlternate, .maskShift, .maskCommand, .maskAlphaShift])
+        let isModifierDown = Self.isModifierKeyDown(eventKeyCode: keyCode, flags: activeFlags)
+
+        if isModifierDown {
+            pendingModifierOnlyRecord = (keyCode: keyCode, flags: activeFlags.rawValue)
+            sawNonModifierKeyAfterPendingModifier = false
+            logger.info("Pending modifier-only record: code=\(keyCode), flags=\(activeFlags.rawValue, format: .hex)")
+            return
+        }
+
+        guard activeFlags.isEmpty else { return }
+        guard let pending = pendingModifierOnlyRecord, !sawNonModifierKeyAfterPendingModifier else {
+            pendingModifierOnlyRecord = nil
+            sawNonModifierKeyAfterPendingModifier = false
+            return
+        }
+
+        logger.info("Recorded modifier-only key: code=\(pending.keyCode), flags=\(pending.flags, format: .hex)")
+        onRecord?(pending.keyCode, pending.flags, nil)
+        pendingModifierOnlyRecord = nil
+        sawNonModifierKeyAfterPendingModifier = false
+    }
+
+    private func cgFlags(from flags: NSEvent.ModifierFlags, includePhysicalCapsLock: Bool) -> CGEventFlags {
+        var cgFlags: CGEventFlags = []
+        let activeModifiers = flags.intersection([.control, .option, .shift, .command])
+        if activeModifiers.contains(.control) { cgFlags.insert(.maskControl) }
+        if activeModifiers.contains(.option) { cgFlags.insert(.maskAlternate) }
+        if activeModifiers.contains(.shift) { cgFlags.insert(.maskShift) }
+        if activeModifiers.contains(.command) { cgFlags.insert(.maskCommand) }
+        if includePhysicalCapsLock && CGEventSource.keyState(.hidSystemState, key: 57) {
+            cgFlags.insert(.maskAlphaShift)
+        }
+        return cgFlags
+    }
+
+    private static func isModifierKeyDown(eventKeyCode: Int, flags: CGEventFlags) -> Bool {
+        switch eventKeyCode {
+        case Int(kVK_Shift), Int(kVK_RightShift):
+            return flags.contains(.maskShift)
+        case Int(kVK_Control), Int(kVK_RightControl):
+            return flags.contains(.maskControl)
+        case Int(kVK_Option), Int(kVK_RightOption):
+            return flags.contains(.maskAlternate)
+        case Int(kVK_Command), Int(kVK_RightCommand):
+            return flags.contains(.maskCommand)
+        case Int(kVK_CapsLock):
+            return flags.contains(.maskAlphaShift)
+        default:
+            return false
+        }
+    }
 }
 
 // MARK: - Standalone Key Recorder

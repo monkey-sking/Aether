@@ -187,13 +187,13 @@ struct HUDView: View {
         .overlay(alignment: .topLeading) {
             if let healthStyle = deviceHealthStyle {
                 DeviceHealthBadge(style: healthStyle)
-                    .offset(x: -4, y: -4)
+                    .offset(x: overlayBadgeTopOffset, y: overlayBadgeTopOffset)
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if let symbol = modeIndicatorSymbol {
-                ModeIndicatorBadge(symbol: symbol, compact: prefersCompactModeIndicator)
-                    .offset(x: prefersCompactModeIndicator ? 6 : 5, y: prefersCompactModeIndicator ? 6 : 5)
+            if shouldShowModeIndicator, let symbol = modeIndicatorSymbol {
+                ModeIndicatorBadge(symbol: symbol)
+                    .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
             }
         }
     }
@@ -217,13 +217,13 @@ struct HUDView: View {
         .overlay(alignment: .topLeading) {
             if let healthStyle = deviceHealthStyle {
                 DeviceHealthBadge(style: healthStyle)
-                    .offset(x: -4, y: -4)
+                    .offset(x: overlayBadgeTopOffset, y: overlayBadgeTopOffset)
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if let symbol = modeIndicatorSymbol {
-                ModeIndicatorBadge(symbol: symbol, compact: prefersCompactModeIndicator)
-                    .offset(x: prefersCompactModeIndicator ? 6 : 5, y: prefersCompactModeIndicator ? 6 : 5)
+            if shouldShowModeIndicator, let symbol = modeIndicatorSymbol {
+                ModeIndicatorBadge(symbol: symbol)
+                    .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
             }
         }
     }
@@ -244,7 +244,7 @@ struct HUDView: View {
                 )
                 if let healthStyle = deviceHealthStyle {
                     DeviceHealthBadge(style: healthStyle)
-                        .offset(x: -7, y: -7)
+                        .offset(x: overlayBadgeTopOffset, y: overlayBadgeTopOffset)
                 }
                 if let feedbackOutcomeSymbol {
                     OutcomeOverlayBadge(
@@ -252,7 +252,7 @@ struct HUDView: View {
                         tone: feedbackTone,
                         style: feedbackBadgeStyle
                     )
-                        .offset(x: 4, y: 4)
+                        .offset(x: overlayBadgeBottomOffset, y: overlayBadgeBottomOffset)
                 }
             }
         case .wakeSuccess:
@@ -275,9 +275,17 @@ struct HUDView: View {
         resolvedSymbolName(for: state.inputDeviceIcon)
     }
 
-    private var prefersCompactModeIndicator: Bool {
+    private var shouldShowModeIndicator: Bool {
         let symbol = currentInputDeviceSymbol
-        return symbol.contains("airpod") || symbol.contains("airpods")
+        return !symbol.contains("airpod") && !symbol.contains("airpods")
+    }
+
+    private var overlayBadgeTopOffset: CGFloat {
+        -4
+    }
+
+    private var overlayBadgeBottomOffset: CGFloat {
+        5
     }
 
     private var modeIndicatorSymbol: String? {
@@ -1040,34 +1048,29 @@ private struct OutcomeOverlayBadge: View {
 
 private struct ModeIndicatorBadge: View {
     let symbol: String
-    let compact: Bool
 
     var body: some View {
         ZStack {
             Circle()
                 .fill(Color.white.opacity(0.14))
-                .frame(width: badgeSize, height: badgeSize)
+                .frame(width: 14, height: 14)
             Circle()
                 .stroke(Color.white.opacity(0.16), lineWidth: 1)
-                .frame(width: badgeSize, height: badgeSize)
+                .frame(width: 14, height: 14)
             Image(systemName: symbol)
                 .font(.system(size: modeFontSize, weight: .semibold))
                 .foregroundColor(.white.opacity(0.92))
         }
     }
 
-    private var badgeSize: CGFloat {
-        compact ? 12 : 14
-    }
-
     private var modeFontSize: CGFloat {
         switch symbol {
         case "command":
-            return compact ? 6.4 : 7.2
+            return 7.2
         case "character.cursor.ibeam":
-            return compact ? 5.9 : 6.6
+            return 6.6
         default:
-            return compact ? 6.4 : 7.2
+            return 7.2
         }
     }
 }
