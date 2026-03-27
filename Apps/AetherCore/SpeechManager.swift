@@ -6969,7 +6969,7 @@ final class SpeechManager: ObservableObject {
         }
         else if shouldCollapseHandsFreeHUDToStandby { mode = .standby }
         else if shouldShowProcessingDots || shouldShowRecognizingWhileDictating { mode = .organizing }
-        else if effectiveDictating { mode = .dictation }
+        else if effectiveDictating { mode = .dictation; message = lastTranscript }
         else if shouldShowIdleAutoDictationHUD { mode = .listening }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
         else { mode = .listening }

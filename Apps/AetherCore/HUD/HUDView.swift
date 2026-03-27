@@ -33,11 +33,7 @@ struct HUDView: View {
 
                 case .dictation:
                     listeningLeadingVisual
-                    if trimmedMessage.isEmpty {
-                        WaveformView(level: state.audioLevel)
-                    } else {
-                        hudLabel(trimmedMessage)
-                    }
+                    dictationLane
                     trailingAccessories
 
                 case .organizing:
@@ -109,6 +105,7 @@ struct HUDView: View {
                     }
                 }
             }
+            .frame(width: stableContentRowWidth, alignment: .leading)
 
             if state.isGestureTrailVisible {
                 GestureTrailView(points: state.gestureTrailPoints)
@@ -161,6 +158,23 @@ struct HUDView: View {
 
     private var trimmedMessage: String {
         state.message.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var stableContentRowWidth: CGFloat? {
+        switch state.mode {
+        case .listening, .command, .dictation, .organizing, .typing, .executing, .optimizing, .checking, .dragging, .processing:
+            return 284
+        case .hidden, .standby, .feedback:
+            return nil
+        }
+    }
+
+    private var dictationLane: some View {
+        LiveDictationView(
+            text: trimmedMessage,
+            level: state.audioLevel,
+            maxWidth: hudLabelMaxWidth
+        )
     }
 
     private var micIcon: some View {
@@ -1038,6 +1052,77 @@ private struct TypingProgressView: View {
                 }
             }
         }
+    }
+}
+
+private struct LiveDictationView: View {
+    let text: String
+    let level: CGFloat
+    let maxWidth: CGFloat
+
+    @State private var phase: CGFloat = 0
+    @State private var cursorVisible = true
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if !text.isEmpty {
+                Text(text)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.98))
+                    .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .minimumScaleFactor(0.92)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+            }
+
+            HStack(alignment: .center, spacing: 3) {
+                ForEach(0..<6, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(Color.green.opacity(barOpacity(for: index)))
+                        .frame(width: 3, height: barHeight(for: index))
+                        .shadow(color: Color.green.opacity(0.16), radius: 1.5)
+                }
+
+                Rectangle()
+                    .fill(Color.green.opacity(cursorVisible ? 0.94 : 0.3))
+                    .frame(width: 2, height: 14)
+                    .shadow(color: Color.green.opacity(0.34), radius: 2)
+            }
+            .frame(width: 30, height: 18, alignment: .trailing)
+        }
+        .frame(maxWidth: maxWidth, alignment: .leading)
+        .animation(.easeInOut(duration: 0.16), value: phase)
+        .animation(.easeInOut(duration: 0.18), value: cursorVisible)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 180_000_000)
+                await MainActor.run {
+                    phase += 1
+                    cursorVisible.toggle()
+                }
+            }
+        }
+    }
+
+    private func barOpacity(for index: Int) -> Double {
+        let boosted = max(0.16, min(level, 1.0))
+        let phaseOffset = sin((phase + CGFloat(index) * 0.9) * 0.9)
+        let wave = max(0, 0.5 + phaseOffset * 0.5)
+        let emphasis = index == 2 || index == 3 ? 1.0 : 0.82
+        return min(0.98, Double(0.36 + boosted * 0.46 + wave * 0.18) * emphasis)
+    }
+
+    private func barHeight(for index: Int) -> CGFloat {
+        let baseHeights: [CGFloat] = [6, 11, 16, 16, 11, 6]
+        let boosted = max(0.16, min(level, 1.0))
+        let phaseOffset = sin((phase + CGFloat(index) * 0.85) * 0.9)
+        let wave = max(0, 0.5 + phaseOffset * 0.5)
+        let floor: CGFloat = text.isEmpty ? 0.44 : 0.34
+        let effective = max(floor, boosted * 0.78 + wave * 0.34)
+        let minHeight: CGFloat = 4
+        return minHeight + (baseHeights[index] - minHeight) * min(effective, 1.0)
     }
 }
 
