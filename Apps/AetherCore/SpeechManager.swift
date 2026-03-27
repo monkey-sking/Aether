@@ -2879,11 +2879,15 @@ final class SpeechManager: ObservableObject {
         resetUtteranceTrackingForNextPhrase()
         isStopping = false
         shouldShowProcessingDotsDuringStop = false
-        clearHUDStage()
         clearHUDOverride()
         stopMicProgressUI(keepVisible: false)
         stopAudioCapture()
-        HUDManager.shared.hide()
+        if activeHUDStageMode != nil {
+            refreshContinuousHUD(isDictating: false)
+        } else {
+            clearHUDStage()
+            HUDManager.shared.hide()
+        }
     }
 
     private func clearPendingFinalizeState() {
@@ -2937,7 +2941,11 @@ final class SpeechManager: ObservableObject {
 
         guard isPTTHeld else {
             stopAudioCapture()
-            HUDManager.shared.hide()
+            if activeHUDStageMode != nil {
+                refreshContinuousHUD(isDictating: false)
+            } else {
+                HUDManager.shared.hide()
+            }
             return
         }
 
@@ -3127,10 +3135,10 @@ final class SpeechManager: ObservableObject {
         clearHUDStage()
         clearHUDOverride()
         stopMicProgressUI(keepVisible: false)
-        HUDManager.shared.hide()
+        refreshContinuousHUD(isDictating: false)
         stopTimer?.invalidate()
         stopTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.stopAndFinalize() }
+            Task { @MainActor in self?.stopAndFinalize(keepHUDVisible: true) }
         }
     }
 
@@ -3145,12 +3153,16 @@ final class SpeechManager: ObservableObject {
         guard recognitionSession.isRunning else {
             clearPendingFinalizeState()
             resetHUDTransientState()
-            if !keepHUDVisible {
+            if keepHUDVisible, activeHUDStageMode != nil {
+                refreshContinuousHUD(isDictating: false)
+            } else if !keepHUDVisible {
                 if isAlwaysListeningEnabled {
                     refreshContinuousHUD()
                 } else {
                     HUDManager.shared.hide()
                 }
+            } else {
+                HUDManager.shared.hide()
             }
             ensureRecognitionSessionForVisibleHUD(reason: "finalize-no-active-session")
             return
@@ -4481,6 +4493,13 @@ final class SpeechManager: ObservableObject {
             )
         }
 
+        primeQueuedHUDStage(
+            for: intent,
+            typingContext: typingContext,
+            utteranceID: resolvedUID,
+            sessionGeneration: sessionGeneration
+        )
+
         enqueueIntentForParallelExecution(
             intent,
             typingContext: typingContext,
@@ -4490,6 +4509,29 @@ final class SpeechManager: ObservableObject {
             routeReason: decision.reason,
             commandHUDPreviewMessage: commandHUDPreviewMessage
         )
+    }
+
+    private func primeQueuedHUDStage(
+        for intent: VoiceIntent,
+        typingContext: Bool,
+        utteranceID: Int,
+        sessionGeneration: Int
+    ) {
+        guard utteranceID > 0 else { return }
+        guard !shouldHoldTextRewriteBarrier(for: intent) else { return }
+
+        let controlMode: HUDRecognitionControlMode = {
+            if isCommandIntent(intent) { return .command }
+            if typingContext { return .dictation }
+            return .auto
+        }()
+
+        setHUDStage(
+            owner: "job:\(sessionGeneration)#\(utteranceID)",
+            mode: .organizing,
+            controlMode: controlMode
+        )
+        status = organizingHUDStatus
     }
 
     private func enqueueIntentForParallelExecution(
