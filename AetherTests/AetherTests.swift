@@ -1373,4 +1373,41 @@ final class SpeechManagerEmptyFinalFallbackTests: XCTestCase {
             )
         )
     }
+
+    func testRecoverableNoSpeechUsesMeaningfulPartialFallbackDuringWakeFollowUpUtterance() {
+        XCTAssertEqual(
+            SpeechManager.fallbackTranscriptForRecoverableNoSpeechError(
+                isAlwaysListeningEnabled: true,
+                isRecoverable: true,
+                failureReason: "no-speech-detected",
+                lastPartialTranscript: "今天天气不错",
+                isUtteranceActive: true
+            ),
+            "今天天气不错"
+        )
+    }
+
+    func testRecoverableNoSpeechIgnoresShortWakeOnlyPartial() {
+        XCTAssertNil(
+            SpeechManager.fallbackTranscriptForRecoverableNoSpeechError(
+                isAlwaysListeningEnabled: true,
+                isRecoverable: true,
+                failureReason: "no-speech-detected",
+                lastPartialTranscript: "你好",
+                isUtteranceActive: true
+            )
+        )
+    }
+
+    func testRecoverableNoSpeechRequiresActiveUtterance() {
+        XCTAssertNil(
+            SpeechManager.fallbackTranscriptForRecoverableNoSpeechError(
+                isAlwaysListeningEnabled: true,
+                isRecoverable: true,
+                failureReason: "no-speech-detected",
+                lastPartialTranscript: "打开面板",
+                isUtteranceActive: false
+            )
+        )
+    }
 }

@@ -2827,7 +2827,7 @@ final class HUDManager {
         // Avoid forcing a synchronous layout pass here; doing so during app startup
         // can re-enter SwiftUI graph updates and trigger AG precondition crashes.
         let existingSize = panel.frame.size
-        let size: CGSize
+        var size: CGSize
         if let measuredSize = measuredHUDContentSize(for: panel) {
             size = measuredSize
         } else if existingSize.width > 1, existingSize.height > 1 {
@@ -2838,6 +2838,8 @@ final class HUDManager {
         
         // 4. Candidate Position Evaluation
         let padding: CGFloat = layoutTypingMode ? 18 : 16
+        size.width = min(size.width, max(visibleFrame.width - padding * 2, 72))
+        size.height = min(size.height, max(visibleFrame.height - padding * 2, 34))
         
         let siriLike = isSiriLikeBundle(update.sourceBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
         let strongCaretRect = update.caretRect.flatMap { isLikelyCaretRect($0) ? $0 : nil }
@@ -3150,37 +3152,35 @@ final class HUDManager {
                 }
             }
 
-            let finalOrigin: CGPoint
+            let unclampedFinalOrigin: CGPoint
             var isPositionAnimating = false
             if panel.isVisible, panel.alphaValue > 0.01, let prev = lastSmoothedWindowOrigin {
                 let dx = targetPos.x - prev.x
                 let dy = targetPos.y - prev.y
                 let dist = hypot(dx, dy)
                 if dist < 1 {
-                    finalOrigin = targetPos
+                    unclampedFinalOrigin = targetPos
                 } else {
                     isPositionAnimating = true
                     // Responsive follow:
                     // - large jumps snap to target to avoid trailing lag
                     // - small movements keep a light smoothing to reduce jitter
                     if dist > 36 {
-                        finalOrigin = targetPos
+                        unclampedFinalOrigin = targetPos
                     } else {
                         let alpha: CGFloat = 0.72
-                        finalOrigin = CGPoint(x: prev.x + dx * alpha, y: prev.y + dy * alpha)
+                        unclampedFinalOrigin = CGPoint(x: prev.x + dx * alpha, y: prev.y + dy * alpha)
                     }
                 }
             } else {
-                finalOrigin = targetPos
+                unclampedFinalOrigin = targetPos
             }
+            let finalOrigin = clampedHUDOrigin(unclampedFinalOrigin, size: size, visibleFrame: visibleFrame, padding: padding)
             if state.isPositionAnimating != isPositionAnimating {
                 state.isPositionAnimating = isPositionAnimating
             }
-            panel.setFrameOrigin(finalOrigin)
+            panel.setFrame(NSRect(origin: finalOrigin, size: size), display: false)
             lastSmoothedWindowOrigin = finalOrigin
-            if panel.frame.size != size {
-                 panel.setContentSize(size)
-            }
             if !panel.isVisible && (state.mode != .hidden) {
                 ensureWindowVisible()
             }
@@ -3224,7 +3224,8 @@ final class HUDManager {
         let fitting = hostingView.fittingSize
         guard fitting.width.isFinite, fitting.height.isFinite else { return nil }
         guard fitting.width > 24, fitting.height > 20 else { return nil }
-        let clampedWidth = min(max(ceil(fitting.width), 96), 360)
+        let minimumWidth: CGFloat = isTwoStateSpeechMode(state.mode) ? 72 : 96
+        let clampedWidth = min(max(ceil(fitting.width), minimumWidth), 360)
         let clampedHeight = min(max(ceil(fitting.height), 34), 180)
         let resolvedWidth: CGFloat
         if shouldPreserveMeasuredWidth(for: state.mode) {
@@ -3240,11 +3241,29 @@ final class HUDManager {
 
     private func shouldPreserveMeasuredWidth(for mode: HUDMode) -> Bool {
         switch mode {
-        case .listening, .command, .dictation, .organizing, .typing, .executing, .optimizing, .checking, .dragging, .processing:
+        case .optimizing, .dragging:
             return true
-        case .hidden, .standby, .feedback:
+        case .hidden, .standby, .feedback, .listening, .command, .dictation, .organizing, .typing, .executing, .checking, .processing:
             return false
         }
+    }
+
+    private func isTwoStateSpeechMode(_ mode: HUDMode) -> Bool {
+        switch mode {
+        case .listening, .command, .dictation, .organizing, .typing, .executing, .checking, .processing:
+            return true
+        case .hidden, .standby, .feedback, .optimizing, .dragging:
+            return false
+        }
+    }
+
+    private func clampedHUDOrigin(_ origin: CGPoint, size: CGSize, visibleFrame: CGRect, padding: CGFloat) -> CGPoint {
+        let horizontalInset = min(padding, max((visibleFrame.width - size.width) / 2, 0))
+        let verticalInset = min(padding, max((visibleFrame.height - size.height) / 2, 0))
+        return CGPoint(
+            x: max(visibleFrame.minX + horizontalInset, min(origin.x, visibleFrame.maxX - size.width - horizontalInset)),
+            y: max(visibleFrame.minY + verticalInset, min(origin.y, visibleFrame.maxY - size.height - verticalInset))
+        )
     }
 
     private func hudRectSummary(_ rect: CGRect?) -> String {
