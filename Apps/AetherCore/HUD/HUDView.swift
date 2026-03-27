@@ -1067,20 +1067,22 @@ private struct LiveDictationView: View {
                     .layoutPriority(1)
             }
 
-            HStack(alignment: .center, spacing: 3) {
-                ForEach(0..<5, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(Color.green.opacity(barOpacity(for: index)))
-                        .frame(width: 3, height: barHeight(for: index))
-                        .shadow(color: Color.green.opacity(0.16), radius: 1.5)
-                }
+            if text.isEmpty {
+                HStack(alignment: .center, spacing: 3) {
+                    ForEach(0..<5, id: \.self) { index in
+                        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                            .fill(Color.green.opacity(barOpacity(for: index)))
+                            .frame(width: 3, height: barHeight(for: index))
+                            .shadow(color: Color.green.opacity(0.16), radius: 1.5)
+                    }
 
-                Rectangle()
-                    .fill(Color.green.opacity(cursorVisible ? 0.94 : 0.3))
-                    .frame(width: 2, height: 14)
-                    .shadow(color: Color.green.opacity(0.34), radius: 2)
+                    Rectangle()
+                        .fill(Color.green.opacity(cursorVisible ? 0.94 : 0.3))
+                        .frame(width: 2, height: 14)
+                        .shadow(color: Color.green.opacity(0.34), radius: 2)
+                }
+                .frame(width: 30, height: 18, alignment: .trailing)
             }
-            .frame(width: 30, height: 18, alignment: .trailing)
         }
         .frame(maxWidth: maxWidth, alignment: .leading)
         .animation(.easeInOut(duration: 0.16), value: phase)

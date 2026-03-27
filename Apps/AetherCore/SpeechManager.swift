@@ -5858,6 +5858,22 @@ final class SpeechManager: ObservableObject {
         return count
     }
 
+    private func remainingDictationHUDText() -> String {
+        let transcript = lastTranscript
+        guard !transcript.isEmpty else { return "" }
+
+        let typed = dictationHandler.screenTypedText
+        guard !typed.isEmpty else { return transcript }
+
+        if transcript.hasPrefix(typed) {
+            return String(transcript.dropFirst(typed.count))
+        }
+
+        let common = commonPrefixLen(typed, transcript)
+        guard common > 0 else { return transcript }
+        return String(transcript.dropFirst(common))
+    }
+
     private func noteFirstPartialIfNeeded(at now: Date) {
         guard !didRecordFirstPartialForSession else { return }
         guard sessionStartedAt != .distantPast else { return }
@@ -7011,7 +7027,7 @@ final class SpeechManager: ObservableObject {
         }
         else if shouldCollapseHandsFreeHUDToStandby { mode = .standby }
         else if shouldShowProcessingDots || shouldShowRecognizingWhileDictating { mode = .organizing }
-        else if effectiveDictating { mode = .dictation; message = lastTranscript }
+        else if effectiveDictating { mode = .dictation; message = remainingDictationHUDText() }
         else if shouldShowIdleAutoDictationHUD { mode = .listening }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
         else { mode = .listening }
