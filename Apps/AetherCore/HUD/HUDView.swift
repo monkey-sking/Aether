@@ -18,7 +18,9 @@ struct HUDView: View {
                     }
 
                 case .listening, .command, .dictation, .organizing, .typing, .executing, .checking, .processing:
+                    listeningLeadingVisual
                     compactSpeechLane
+                    trailingAccessories
 
                 case .optimizing:
                     optimizingLeadingVisual
@@ -56,8 +58,8 @@ struct HUDView: View {
                 }
             }
         }
-        .padding(.horizontal, state.mode == .standby ? 8 : (isTwoStateSpeechMode ? 12 : 16))
-        .padding(.vertical, state.mode == .standby ? 8 : (isTwoStateSpeechMode ? 9 : 10))
+        .padding(.horizontal, state.mode == .standby ? 8 : (isTwoStateSpeechMode ? 8 : 16))
+        .padding(.vertical, state.mode == .standby ? 8 : (isTwoStateSpeechMode ? 7 : 10))
         .background(
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
         )
@@ -251,11 +253,14 @@ struct HUDView: View {
         if state.mode == .standby {
             return 16
         }
-        return isTwoStateSpeechMode ? 19 : 24
+        return isTwoStateSpeechMode ? 17 : 24
     }
 
     private var compactSpeechLaneWidth: CGFloat {
-        178
+        var width: CGFloat = 104
+        if hasVisibleContextIcon { width -= 18 }
+        if state.isLanguageIndicatorVisible { width -= 22 }
+        return max(width, 72)
     }
 
     private var primaryBadgeCircleDiameter: CGFloat {

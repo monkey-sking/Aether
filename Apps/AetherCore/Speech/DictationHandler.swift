@@ -24,8 +24,11 @@ final class DictationHandler {
     private var currentUtteranceID: UUID = UUID()
     private var pendingPartialCorrectionText: String?
     private var pendingPartialCorrectionWorkItem: DispatchWorkItem?
+    private var pendingAppendTargetText: String?
+    private var appendPumpTask: Task<Void, Never>?
     private let injector: any TextInjecting
     private let log = GlobalLogger.speech
+    private let appendPumpIntervalNs: UInt64 = 28_000_000
 
     // MARK: - LLM Enhancement
 
@@ -45,6 +48,7 @@ final class DictationHandler {
     /// Call at the start of each utterance to reset tracking state.
     func reset(targetPID: pid_t?) {
         cancelPendingPartialCorrection()
+        cancelAppendPump()
         self.screenTypedText = ""
         self.targetPID = targetPID
         self.currentUtteranceID = UUID()
@@ -65,16 +69,11 @@ final class DictationHandler {
         if text.hasPrefix(screenTypedText) {
             // Safe extension: engine output starts with everything we've already typed.
             cancelPendingPartialCorrection()
-            let suffix = String(text.dropFirst(screenTypedText.count))
-            if !suffix.isEmpty {
-                injector.type(suffix, targetPID: targetPID)
-                screenTypedText = text
-                os_log("DictationHandler stream append: +'%{public}@' (screen: %d chars)",
-                       log: log, type: .info, suffix, screenTypedText.count)
-            }
+            queueAppend(to: text)
             return
         }
 
+        cancelAppendPump()
         schedulePartialCorrection(to: text)
     }
 
@@ -109,12 +108,14 @@ final class DictationHandler {
             return
         }
         cancelPendingPartialCorrection()
+        cancelAppendPump()
         applyCorrection(corrected)
     }
 
     /// Synchronous finalization (no LLM). Used when LLM is disabled.
     func onFinalSync(_ text: String) {
         cancelPendingPartialCorrection()
+        cancelAppendPump()
         applyCorrection(text)
     }
 
@@ -131,6 +132,74 @@ final class DictationHandler {
         pendingPartialCorrectionWorkItem = nil
         pendingPartialCorrectionText = nil
         setAwaitingPartialReconciliation(false)
+    }
+
+    private func cancelAppendPump() {
+        appendPumpTask?.cancel()
+        appendPumpTask = nil
+        pendingAppendTargetText = nil
+    }
+
+    private func queueAppend(to text: String) {
+        guard text.hasPrefix(screenTypedText) else { return }
+        if let pendingAppendTargetText,
+           pendingAppendTargetText.hasPrefix(text),
+           pendingAppendTargetText.count > text.count {
+            return
+        }
+        pendingAppendTargetText = text
+        guard appendPumpTask == nil else { return }
+
+        let utteranceID = currentUtteranceID
+        appendPumpTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.appendPumpTask = nil
+                if self.pendingAppendTargetText == self.screenTypedText {
+                    self.pendingAppendTargetText = nil
+                }
+            }
+
+            while !Task.isCancelled, self.currentUtteranceID == utteranceID {
+                guard let target = self.pendingAppendTargetText else { break }
+                guard target.hasPrefix(self.screenTypedText) else { break }
+                guard target != self.screenTypedText else {
+                    self.pendingAppendTargetText = nil
+                    break
+                }
+
+                guard let nextChunk = self.nextAppendChunk(from: self.screenTypedText, toward: target) else {
+                    self.pendingAppendTargetText = nil
+                    break
+                }
+
+                self.injector.type(nextChunk, targetPID: self.targetPID)
+                self.screenTypedText.append(nextChunk)
+                self.emitHUDProgressUpdate()
+                os_log(
+                    "DictationHandler stream append step: +'%{public}@' (screen: %d chars / target: %d chars)",
+                    log: self.log,
+                    type: .info,
+                    nextChunk,
+                    self.screenTypedText.count,
+                    target.count
+                )
+
+                try? await Task.sleep(nanoseconds: self.appendPumpIntervalNs)
+            }
+        }
+    }
+
+    private func nextAppendChunk(from current: String, toward target: String) -> String? {
+        guard target.hasPrefix(current) else { return nil }
+        let suffixStart = target.index(target.startIndex, offsetBy: current.count)
+        guard suffixStart < target.endIndex else { return nil }
+        let nextIndex = target.index(after: suffixStart)
+        return String(target[suffixStart..<nextIndex])
+    }
+
+    private func emitHUDProgressUpdate() {
+        onStatusUpdate?(isAwaitingPartialReconciliation ? "speech.recognizing" : "speech.listening")
     }
 
     private func schedulePartialCorrection(to text: String) {
@@ -184,6 +253,7 @@ final class DictationHandler {
             }
         }
         screenTypedText = finalText
+        emitHUDProgressUpdate()
     }
 
     /// Find the length of the common prefix between two strings (by Character, not byte).

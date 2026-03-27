@@ -693,6 +693,45 @@ final class SpeechManagerGuardrailTests: XCTestCase {
         )
     }
 
+    func testInlineWakePayloadPromotesTypingContextWithFocusedInputEvidence() {
+        XCTAssertTrue(
+            SpeechManager.shouldPromoteInlineWakePayloadToTypingContext(
+                recognitionControlMode: .auto,
+                dictationEnabled: true,
+                wakeWordDetected: true,
+                wakePayload: "今天天气不错",
+                hasAuthoritativeTypingEvidence: true,
+                liveTyping: false
+            )
+        )
+    }
+
+    func testInlineWakePayloadDoesNotPromoteTypingContextWithoutPayload() {
+        XCTAssertFalse(
+            SpeechManager.shouldPromoteInlineWakePayloadToTypingContext(
+                recognitionControlMode: .auto,
+                dictationEnabled: true,
+                wakeWordDetected: true,
+                wakePayload: "",
+                hasAuthoritativeTypingEvidence: true,
+                liveTyping: false
+            )
+        )
+    }
+
+    func testInlineWakePayloadDoesNotPromoteTypingContextWithoutTypingEvidence() {
+        XCTAssertFalse(
+            SpeechManager.shouldPromoteInlineWakePayloadToTypingContext(
+                recognitionControlMode: .auto,
+                dictationEnabled: true,
+                wakeWordDetected: true,
+                wakePayload: "今天天气不错",
+                hasAuthoritativeTypingEvidence: false,
+                liveTyping: false
+            )
+        )
+    }
+
     func testWakeMatchModeUsesRetryAwareForAlwaysListeningWakeWordMode() {
         let mode = SpeechManager.wakeMatchMode(
             isWakeWordEnabled: true,

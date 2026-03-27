@@ -924,6 +924,21 @@ final class SpeechManager: ObservableObject {
         return true
     }
 
+    static func shouldPromoteInlineWakePayloadToTypingContext(
+        recognitionControlMode: HeadMotionManager.RecognitionControlMode,
+        dictationEnabled: Bool,
+        wakeWordDetected: Bool,
+        wakePayload: String,
+        hasAuthoritativeTypingEvidence: Bool,
+        liveTyping: Bool
+    ) -> Bool {
+        guard recognitionControlMode == .auto else { return false }
+        guard dictationEnabled else { return false }
+        guard wakeWordDetected else { return false }
+        guard !wakePayload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return hasAuthoritativeTypingEvidence || liveTyping
+    }
+
     static func shouldSuppressWakeFollowUpEcho(
         pendingWakePhrase: String?,
         routedTranscript: String,
@@ -2726,17 +2741,32 @@ final class SpeechManager: ObservableObject {
                 featureAvailability: featureAvailability,
                 liveTyping: liveTyping
             )
-        let resolvedTypingMode = restoredWakeTypingMode ? true : effectiveTypingMode
+        let promotedInlineWakePayloadTyping =
+            !effectiveTypingMode
+            && Self.shouldPromoteInlineWakePayloadToTypingContext(
+                recognitionControlMode: controlMode,
+                dictationEnabled: featureAvailability.dictationEnabled,
+                wakeWordDetected: wakeWordDetected,
+                wakePayload: text,
+                hasAuthoritativeTypingEvidence: hasAuthoritativeTypingEvidence,
+                liveTyping: liveTyping
+            )
+        let resolvedTypingMode = (restoredWakeTypingMode || promotedInlineWakePayloadTyping) ? true : effectiveTypingMode
         if restoredWakeTypingMode {
             GlobalLogger.speech.info(
                 "[TypingMode] restored wake-follow-up typing fallback targetPID=\(sessionTargetPID ?? 0) targetBundle=\(sessionTargetBundleID ?? "nil") liveTyping=\(liveTyping)"
+            )
+        }
+        if promotedInlineWakePayloadTyping {
+            GlobalLogger.speech.info(
+                "[TypingMode] promoted inline wake payload to typing context liveTyping=\(liveTyping) authoritativeFocus=\(hasAuthoritativeTypingEvidence)"
             )
         }
         if controlMode == .auto,
            sessionTypingMode,
            !nextTypingMode,
            !liveTyping,
-           !hasStreamedDictation {
+            !hasStreamedDictation {
             GlobalLogger.speech.info("[TypingMode] cleared stale auto typing state before routing partials")
         }
         if controlMode == .auto,
@@ -4389,6 +4419,20 @@ final class SpeechManager: ObservableObject {
             typingContext = true
             GlobalLogger.speech.info(
                 "[TypingMode] restored wake-follow-up typing fallback targetPID=\(sessionTargetPID ?? 0) targetBundle=\(sessionTargetBundleID ?? "nil") liveTyping=\(liveTyping)"
+            )
+        }
+        if !typingContext,
+           Self.shouldPromoteInlineWakePayloadToTypingContext(
+               recognitionControlMode: controlMode,
+               dictationEnabled: featureAvailability.dictationEnabled,
+               wakeWordDetected: wakeWordDetected,
+               wakePayload: textToRoute,
+               hasAuthoritativeTypingEvidence: hasAuthoritativeTypingEvidence,
+               liveTyping: liveTyping
+           ) {
+            typingContext = true
+            GlobalLogger.speech.info(
+                "[TypingMode] promoted inline wake payload to typing context before final routing liveTyping=\(liveTyping) authoritativeFocus=\(hasAuthoritativeTypingEvidence)"
             )
         }
         if typingContext != sessionTypingMode {
