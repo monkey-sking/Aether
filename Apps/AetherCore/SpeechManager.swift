@@ -930,12 +930,14 @@ final class SpeechManager: ObservableObject {
         wakeWordDetected: Bool,
         wakePayload: String,
         hasAuthoritativeTypingEvidence: Bool,
-        liveTyping: Bool
+        liveTyping: Bool,
+        commandLikely: Bool = false
     ) -> Bool {
         guard recognitionControlMode == .auto else { return false }
         guard dictationEnabled else { return false }
         guard wakeWordDetected else { return false }
         guard !wakePayload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard !commandLikely else { return false }
         return hasAuthoritativeTypingEvidence || liveTyping
     }
 
@@ -2716,6 +2718,7 @@ final class SpeechManager: ObservableObject {
             hasStreamedDictation: hasStreamedDictation
         )
         let hasAuthoritativeTypingEvidence = hasAuthoritativeTypingEvidence()
+        let wakePayloadLooksLikeCommand = likelyWakePayloadCommand(text)
         let hasStrongTypingFallback = hasStrongTypingFallbackEvidence(
             lockedFocusedSnapshot: lockedFocusedSnapshot,
             lockedTargetMatches: lockedTargetMatches,
@@ -2749,7 +2752,8 @@ final class SpeechManager: ObservableObject {
                 wakeWordDetected: wakeWordDetected,
                 wakePayload: text,
                 hasAuthoritativeTypingEvidence: hasAuthoritativeTypingEvidence,
-                liveTyping: liveTyping
+                liveTyping: liveTyping,
+                commandLikely: wakePayloadLooksLikeCommand
             )
         let resolvedTypingMode = (restoredWakeTypingMode || promotedInlineWakePayloadTyping) ? true : effectiveTypingMode
         if restoredWakeTypingMode {
@@ -3080,12 +3084,10 @@ final class SpeechManager: ObservableObject {
     private func handleRecognitionError(_ error: Error, isRecoverable: Bool) {
         let trimmed = lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         let reason = classifyRecognitionFailureReason(error)
-        let fallbackTranscript = Self.fallbackTranscriptForRecoverableNoSpeechError(
-            isAlwaysListeningEnabled: isAlwaysListeningEnabled,
-            isRecoverable: isRecoverable,
-            failureReason: reason,
+        let fallbackTranscript = recoverableNoSpeechFallbackTranscript(
             lastPartialTranscript: trimmed,
-            isUtteranceActive: isUtteranceActive
+            failureReason: reason,
+            isRecoverable: isRecoverable
         )
         if let fallbackTranscript {
             GlobalLogger.speech.info(
@@ -3158,6 +3160,45 @@ final class SpeechManager: ObservableObject {
         }
 
         return "recognition-failed"
+    }
+
+    private func recoverableNoSpeechFallbackTranscript(
+        lastPartialTranscript: String,
+        failureReason: String,
+        isRecoverable: Bool
+    ) -> String? {
+        let normalizedPartial = normalizeRecognizedText(
+            lastPartialTranscript,
+            scope: sessionTypingMode ? .dictation : .command
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let fallback = Self.fallbackTranscriptForRecoverableNoSpeechError(
+            isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+            isRecoverable: isRecoverable,
+            failureReason: failureReason,
+            lastPartialTranscript: normalizedPartial,
+            isUtteranceActive: isUtteranceActive
+        ) {
+            return fallback
+        }
+
+        guard isAlwaysListeningEnabled,
+              isRecoverable,
+              failureReason == "no-speech-detected",
+              isUtteranceActive,
+              !normalizedPartial.isEmpty else {
+            return nil
+        }
+
+        let decision = commandRouter.routeDetailed(
+            transcript: normalizedPartial,
+            bias: .commandPreferred,
+            localeIdentifier: activeLocale.identifier
+        )
+        guard decision.confidence >= .medium, isCommandIntent(decision.intent) else {
+            return nil
+        }
+        return normalizedPartial
     }
 
     private func recoverableRecognitionRetryDelay(for reason: String) -> TimeInterval {
@@ -4406,6 +4447,7 @@ final class SpeechManager: ObservableObject {
         )
         let hudState = HUDManager.shared.state
         let hasAuthoritativeTypingEvidence = hasAuthoritativeTypingEvidence()
+        let wakePayloadLooksLikeCommand = likelyWakePayloadCommand(textToRoute)
         let hasStrongTypingFallback = hasStrongTypingFallbackEvidence(
             lockedFocusedSnapshot: lockedFocusedSnapshot,
             lockedTargetMatches: lockedTargetMatches,
@@ -4443,7 +4485,8 @@ final class SpeechManager: ObservableObject {
                wakeWordDetected: wakeWordDetected,
                wakePayload: textToRoute,
                hasAuthoritativeTypingEvidence: hasAuthoritativeTypingEvidence,
-               liveTyping: liveTyping
+               liveTyping: liveTyping,
+               commandLikely: wakePayloadLooksLikeCommand
            ) {
             typingContext = true
             GlobalLogger.speech.info(
@@ -6078,6 +6121,15 @@ final class SpeechManager: ObservableObject {
     private func collapsedHUDMessage(for mode: HUDMode, explicitMessage: String = "") -> String {
         let trimmedExplicit = explicitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let tail = displayedDictationHUDTail()
+        let shouldKeepTextVisibleDuringMutation =
+            tail.isEmpty && dictationHandler.isInputMutationActive
+        let mutationFallbackText = shouldKeepTextVisibleDuringMutation
+            ? semanticHUDTailSlice(
+                from: lastTranscript
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            : ""
 
         switch mode {
         case .listening:
@@ -6088,6 +6140,7 @@ final class SpeechManager: ObservableObject {
             return lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         case .dictation, .organizing, .typing, .executing, .checking, .processing:
             if !tail.isEmpty { return tail }
+            if !mutationFallbackText.isEmpty { return mutationFallbackText }
             if shouldSuppressCollapsedHUDStatus(trimmedExplicit) { return "" }
             return trimmedExplicit
         default:
@@ -6259,6 +6312,19 @@ final class SpeechManager: ObservableObject {
             return false
         }
         return reconciledTypingContext
+    }
+
+    private func likelyWakePayloadCommand(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let decision = commandRouter.routeDetailed(
+            transcript: trimmed,
+            bias: .commandPreferred,
+            localeIdentifier: activeLocale.identifier
+        )
+        guard decision.confidence >= .medium else { return false }
+        return isCommandIntent(decision.intent)
     }
 
     private func isCommandIntent(_ intent: VoiceIntent) -> Bool {
@@ -7308,7 +7374,8 @@ final class SpeechManager: ObservableObject {
         else { mode = .listening }
         if shouldCollapseHUDToTwoState(mode: mode) {
             message = collapsedHUDMessage(for: mode, explicitMessage: message)
-            updateSpeechHUDTextVisibility(!message.isEmpty, at: now)
+            let shouldShowCollapsedText = !message.isEmpty || dictationHandler.isInputMutationActive
+            updateSpeechHUDTextVisibility(shouldShowCollapsedText, at: now)
         } else {
             updateSpeechHUDTextVisibility(false, at: now)
             if mode == .standby, isSpeechExitBarsHoldActive(at: now) {

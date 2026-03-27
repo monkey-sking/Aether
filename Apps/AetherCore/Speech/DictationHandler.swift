@@ -26,12 +26,14 @@ final class DictationHandler {
     private var pendingPartialCorrectionWorkItem: DispatchWorkItem?
     private var pendingAppendTargetText: String?
     private var appendPumpTask: Task<Void, Never>?
+    private var isApplyingFinalCorrection = false
+    private var lastReportedInputMutationActive = false
     private let injector: any TextInjecting
     private let log = GlobalLogger.speech
-    private let appendLeadDelayNs: UInt64 = 150_000_000
-    private let appendSmallBacklogIntervalNs: UInt64 = 150_000_000
-    private let appendMediumBacklogIntervalNs: UInt64 = 120_000_000
-    private let appendLargeBacklogIntervalNs: UInt64 = 90_000_000
+    private let appendLeadDelayNs: UInt64 = 240_000_000
+    private let appendSmallBacklogIntervalNs: UInt64 = 190_000_000
+    private let appendMediumBacklogIntervalNs: UInt64 = 160_000_000
+    private let appendLargeBacklogIntervalNs: UInt64 = 130_000_000
 
     // MARK: - LLM Enhancement
 
@@ -39,6 +41,13 @@ final class DictationHandler {
     var isLLMEnhancementEnabled: Bool = false
     var llmProviderContext: String = "source=openai-compatible"
     var onStatusUpdate: ((String) -> Void)?
+    var isInputMutationActive: Bool {
+        let hasPendingAppend = pendingAppendTargetText.map { $0 != screenTypedText } ?? false
+        return hasPendingAppend
+            || appendPumpTask != nil
+            || pendingPartialCorrectionWorkItem != nil
+            || isApplyingFinalCorrection
+    }
 
     // MARK: - Init
 
@@ -52,6 +61,8 @@ final class DictationHandler {
     func reset(targetPID: pid_t?) {
         cancelPendingPartialCorrection()
         cancelAppendPump()
+        setApplyingFinalCorrection(false)
+        lastReportedInputMutationActive = false
         self.screenTypedText = ""
         self.targetPID = targetPID
         self.currentUtteranceID = UUID()
@@ -135,12 +146,14 @@ final class DictationHandler {
         pendingPartialCorrectionWorkItem = nil
         pendingPartialCorrectionText = nil
         setAwaitingPartialReconciliation(false)
+        notifyInputMutationActivityIfNeeded()
     }
 
     private func cancelAppendPump() {
         appendPumpTask?.cancel()
         appendPumpTask = nil
         pendingAppendTargetText = nil
+        notifyInputMutationActivityIfNeeded()
     }
 
     private func queueAppend(to text: String) {
@@ -161,6 +174,7 @@ final class DictationHandler {
                 if self.pendingAppendTargetText == self.screenTypedText {
                     self.pendingAppendTargetText = nil
                 }
+                self.notifyInputMutationActivityIfNeeded()
             }
 
             try? await Task.sleep(nanoseconds: self.appendLeadDelayNs)
@@ -194,6 +208,7 @@ final class DictationHandler {
                 try? await Task.sleep(nanoseconds: self.appendPumpIntervalNs(for: backlogCount))
             }
         }
+        notifyInputMutationActivityIfNeeded()
     }
 
     private func nextAppendChunk(from current: String, toward target: String) -> String? {
@@ -206,6 +221,19 @@ final class DictationHandler {
 
     private func emitHUDProgressUpdate() {
         onStatusUpdate?(isAwaitingPartialReconciliation ? "speech.recognizing" : "speech.listening")
+    }
+
+    private func notifyInputMutationActivityIfNeeded() {
+        let active = isInputMutationActive
+        guard active != lastReportedInputMutationActive else { return }
+        lastReportedInputMutationActive = active
+        emitHUDProgressUpdate()
+    }
+
+    private func setApplyingFinalCorrection(_ applying: Bool) {
+        guard isApplyingFinalCorrection != applying else { return }
+        isApplyingFinalCorrection = applying
+        notifyInputMutationActivityIfNeeded()
     }
 
     private func appendPumpIntervalNs(for backlogCount: Int) -> UInt64 {
@@ -247,6 +275,8 @@ final class DictationHandler {
     private func applyCorrection(_ finalText: String) {
         guard !finalText.isEmpty else { return }
         guard finalText != screenTypedText else { return }
+        setApplyingFinalCorrection(true)
+        defer { setApplyingFinalCorrection(false) }
 
         if finalText.hasPrefix(screenTypedText) {
             // Pure append (most common case).

@@ -732,6 +732,20 @@ final class SpeechManagerGuardrailTests: XCTestCase {
         )
     }
 
+    func testInlineWakePayloadDoesNotPromoteTypingContextWhenPayloadLooksLikeCommand() {
+        XCTAssertFalse(
+            SpeechManager.shouldPromoteInlineWakePayloadToTypingContext(
+                recognitionControlMode: .auto,
+                dictationEnabled: true,
+                wakeWordDetected: true,
+                wakePayload: "打开面板",
+                hasAuthoritativeTypingEvidence: true,
+                liveTyping: false,
+                commandLikely: true
+            )
+        )
+    }
+
     func testWakeMatchModeUsesRetryAwareForAlwaysListeningWakeWordMode() {
         let mode = SpeechManager.wakeMatchMode(
             isWakeWordEnabled: true,
@@ -1408,6 +1422,19 @@ final class SpeechManagerEmptyFinalFallbackTests: XCTestCase {
                 lastPartialTranscript: "打开面板",
                 isUtteranceActive: false
             )
+        )
+    }
+
+    func testRecoverableNoSpeechAllowsCommandSizedFallbackWhenCommandLikely() {
+        XCTAssertEqual(
+            SpeechManager.fallbackTranscriptForRecoverableNoSpeechError(
+                isAlwaysListeningEnabled: true,
+                isRecoverable: true,
+                failureReason: "no-speech-detected",
+                lastPartialTranscript: "打开面板",
+                isUtteranceActive: true
+            ),
+            "打开面板"
         )
     }
 }

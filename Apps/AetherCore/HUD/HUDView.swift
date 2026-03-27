@@ -258,7 +258,7 @@ struct HUDView: View {
     }
 
     private var compactSpeechBarsWidth: CGFloat {
-        20
+        15
     }
 
     private func compactSpeechTextWidth(for text: String) -> CGFloat {
@@ -1030,11 +1030,11 @@ private struct TwoStateSpeechLaneView: View {
     var body: some View {
         Group {
             if text.isEmpty {
-                HStack(alignment: .center, spacing: 2.2) {
+                HStack(alignment: .center, spacing: 2.0) {
                     ForEach(0..<3, id: \.self) { index in
                         RoundedRectangle(cornerRadius: 1.3, style: .continuous)
                             .fill(Color.white.opacity(barOpacity(for: index)))
-                            .frame(width: 2.4, height: barHeight(for: index))
+                            .frame(width: 2.2, height: barHeight(for: index))
                             .shadow(color: Color.white.opacity(0.1), radius: 1)
                     }
                 }
@@ -1071,12 +1071,12 @@ private struct TwoStateSpeechLaneView: View {
     }
 
     private func barHeight(for index: Int) -> CGFloat {
-        let baseHeights: [CGFloat] = [6, 11, 8]
+        let baseHeights: [CGFloat] = [5.5, 10.0, 7.0]
         let boosted = max(0.14, min(level, 1.0))
         let phaseOffset = sin((phase + CGFloat(index) * 0.78) * 1.1)
         let wave = max(0, 0.5 + phaseOffset * 0.5)
         let effective = max(0.36, boosted * 0.74 + wave * 0.3)
-        let minHeight: CGFloat = 3.5
+        let minHeight: CGFloat = 3.0
         return minHeight + (baseHeights[index] - minHeight) * min(effective, 1.0)
     }
 }
