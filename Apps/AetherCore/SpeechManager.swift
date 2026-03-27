@@ -2829,11 +2829,10 @@ final class SpeechManager: ObservableObject {
                 GlobalLogger.speech.info(
                     "[TextPipeline] skip partial streaming for paste fallback target bundle=\(sessionTargetBundleID ?? "nil")"
                 )
-            } else if isWakeFollowUpDictationContext() {
-                GlobalLogger.speech.info(
-                    "[TextPipeline] skip streaming dictation for wake-follow-up targetPID=\(sessionTargetPID ?? 0) bundle=\(sessionTargetBundleID ?? "nil") textCount=\(text.count)"
-                )
             } else {
+                // Wake-follow-up dictation still needs live partial injection so the
+                // user sees text flow into the target immediately after wake.
+                // Final routing already owns diff correction and duplicate suppression.
                 dictationHandler.onPartial(text)
             }
         } else if featureAvailability.commandEnabled {

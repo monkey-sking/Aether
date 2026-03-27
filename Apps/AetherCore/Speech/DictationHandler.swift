@@ -28,7 +28,10 @@ final class DictationHandler {
     private var appendPumpTask: Task<Void, Never>?
     private let injector: any TextInjecting
     private let log = GlobalLogger.speech
-    private let appendPumpIntervalNs: UInt64 = 28_000_000
+    private let appendLeadDelayNs: UInt64 = 150_000_000
+    private let appendSmallBacklogIntervalNs: UInt64 = 150_000_000
+    private let appendMediumBacklogIntervalNs: UInt64 = 120_000_000
+    private let appendLargeBacklogIntervalNs: UInt64 = 90_000_000
 
     // MARK: - LLM Enhancement
 
@@ -160,6 +163,8 @@ final class DictationHandler {
                 }
             }
 
+            try? await Task.sleep(nanoseconds: self.appendLeadDelayNs)
+
             while !Task.isCancelled, self.currentUtteranceID == utteranceID {
                 guard let target = self.pendingAppendTargetText else { break }
                 guard target.hasPrefix(self.screenTypedText) else { break }
@@ -185,7 +190,8 @@ final class DictationHandler {
                     target.count
                 )
 
-                try? await Task.sleep(nanoseconds: self.appendPumpIntervalNs)
+                let backlogCount = max(0, target.count - self.screenTypedText.count)
+                try? await Task.sleep(nanoseconds: self.appendPumpIntervalNs(for: backlogCount))
             }
         }
     }
@@ -200,6 +206,17 @@ final class DictationHandler {
 
     private func emitHUDProgressUpdate() {
         onStatusUpdate?(isAwaitingPartialReconciliation ? "speech.recognizing" : "speech.listening")
+    }
+
+    private func appendPumpIntervalNs(for backlogCount: Int) -> UInt64 {
+        switch backlogCount {
+        case 0...2:
+            return appendSmallBacklogIntervalNs
+        case 3...6:
+            return appendMediumBacklogIntervalNs
+        default:
+            return appendLargeBacklogIntervalNs
+        }
     }
 
     private func schedulePartialCorrection(to text: String) {

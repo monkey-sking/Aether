@@ -104,7 +104,8 @@ struct HUDView: View {
         TwoStateSpeechLaneView(
             text: trimmedMessage,
             level: state.audioLevel,
-            width: compactSpeechLaneWidth
+            barsWidth: compactSpeechBarsWidth,
+            textWidth: compactSpeechTextWidth
         )
     }
 
@@ -253,10 +254,14 @@ struct HUDView: View {
         if state.mode == .standby {
             return 16
         }
-        return isTwoStateSpeechMode ? 17 : 24
+        return isTwoStateSpeechMode ? 22 : 24
     }
 
-    private var compactSpeechLaneWidth: CGFloat {
+    private var compactSpeechBarsWidth: CGFloat {
+        30
+    }
+
+    private var compactSpeechTextWidth: CGFloat {
         var width: CGFloat = 104
         if hasVisibleContextIcon { width -= 18 }
         if state.isLanguageIndicatorVisible { width -= 22 }
@@ -1008,22 +1013,23 @@ private struct TypingProgressView: View {
 private struct TwoStateSpeechLaneView: View {
     let text: String
     let level: CGFloat
-    let width: CGFloat
+    let barsWidth: CGFloat
+    let textWidth: CGFloat
 
     @State private var phase: CGFloat = 0
 
     var body: some View {
         Group {
             if text.isEmpty {
-                HStack(alignment: .center, spacing: 4) {
+                HStack(alignment: .center, spacing: 3) {
                     ForEach(0..<3, id: \.self) { index in
                         RoundedRectangle(cornerRadius: 1.6, style: .continuous)
                             .fill(Color.white.opacity(barOpacity(for: index)))
-                            .frame(width: 3.5, height: barHeight(for: index))
+                            .frame(width: 2.8, height: barHeight(for: index))
                             .shadow(color: Color.white.opacity(0.12), radius: 1.2)
                     }
                 }
-                .frame(width: width, height: 20, alignment: .center)
+                .frame(width: barsWidth, height: 18, alignment: .leading)
             } else {
                 Text(text)
                     .font(.system(size: 14, weight: .semibold))
@@ -1032,7 +1038,7 @@ private struct TwoStateSpeechLaneView: View {
                     .lineLimit(1)
                     .truncationMode(.head)
                     .minimumScaleFactor(0.92)
-                    .frame(width: width, alignment: .leading)
+                    .frame(width: textWidth, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -1056,12 +1062,12 @@ private struct TwoStateSpeechLaneView: View {
     }
 
     private func barHeight(for index: Int) -> CGFloat {
-        let baseHeights: [CGFloat] = [8, 15, 10]
+        let baseHeights: [CGFloat] = [7, 13, 9]
         let boosted = max(0.14, min(level, 1.0))
         let phaseOffset = sin((phase + CGFloat(index) * 0.78) * 1.1)
         let wave = max(0, 0.5 + phaseOffset * 0.5)
         let effective = max(0.36, boosted * 0.74 + wave * 0.3)
-        let minHeight: CGFloat = 5
+        let minHeight: CGFloat = 4
         return minHeight + (baseHeights[index] - minHeight) * min(effective, 1.0)
     }
 }
