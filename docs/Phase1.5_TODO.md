@@ -3,6 +3,7 @@
 > 文档状态：`Planned`
 > 说明：这是当前最接近实现面的近期规划清单，但其中条目并不等于已经完成或已经承诺的发布日期。
 > 当前线上口径与已落地行为请以 `PENDING_ACCEPTANCE.md` 和代码为准。
+> 2026-03-27 源码对齐说明：本次已按当前源码回写已落地的基础能力；仍为 `[ ]` 的条目表示剩余 gap / 产品边界 / 回归验证，并不都代表“从 0 到 1 未实现”。
 
 **里程碑目标**：零键鼠依赖 (Zero Keyboard/Mouse Dependency) - 让用户在安装后完全通过头部追踪和语音控制使用 Mac。
 
@@ -15,33 +16,32 @@
 - [ ] **最小闭环**：AirPods 指针移动 + 左键点击经由虚拟 HID 输出
 
 ### 1.2 连接管理 (Connection Management)
-- [ ] **AirPods 断开监听**：蓝牙路由变化时自动暂停头部控制
+- [x] **AirPods 断开监听**：耳机路由 / 佩戴侧变化时会自动暂停头部控制
 - [ ] **Multipeer Connectivity 预研**：为 Phase 2 多设备协同做准备
 
 ---
 
-## **2. 自动激活 (Auto Activation) [0%]**
-- [ ] **AirPods 连接自启动**
-    - [ ] 监听蓝牙音频路由变化 (`AVAudioSession.routeChangeNotification`)
-    - [ ] 检测到 AirPods 连接 → 自动激活头部控制
+## **2. 自动激活 (Auto Activation) [已部分落地]**
+- [x] **耳机连接自启动（基础能力）**
+    - [x] 监听耳机路由 / 连接状态变化
+    - [x] 检测到兼容耳机连接 → 自动激活头部控制
+    - [x] 检测到耳机麦克风 → 可按设置自动开启语音输入 / 控制
     - [ ] 播放提示音或语音："Aether 已就绪"
-- [ ] **登录项自启动**
-    - [ ] 添加"开机自启"选项到设置
-    - [ ] 使用 `SMAppService` 或 `LaunchAgent` 实现
+- [x] **登录项自启动**
+    - [x] 添加"开机自启"选项到设置
+    - [x] 使用 `SMAppService` 实现
 
 ---
 
-## **3. 语音控制独立 (Voice-Only Control) [0%]**
+## **3. 语音控制独立 (Voice-Only Control) [已部分落地]**
 - [ ] **去除 PTT 热键依赖**
     - [x] 常驻语音监听默认开启 (Build 1918)
     - [ ] **智能唤醒策略 (Context-Aware Wake)**
-        - [ ] **待机状态**：必须使用唤醒词 ("Aether", "艾瑟")
-        - [ ] **连指令窗口**：唤醒后 8 秒内无需再次唤醒 (e.g. "Start" -> "Scroll Down")
-        - [ ] **注视免唤醒**：当 `isLookingAtScreen == true` 且正在追踪时，特定指令（如 stop/recenter）免唤醒
-        - [ ] **输入与操作状态区分 (Context-Aware Mode)**：
-            - **输入状态** (焦点为 `AXTextArea/TextField`)：默认听写，指令需前缀（如"指令 点击"）
-            - **操作状态** (无输入框)：默认指令，听写需前缀（如"输入 你好"）
-- [ ] **核心语音指令**
+        - [x] **待机状态**：在 Wake Word 模式下需要先说唤醒词
+        - [x] **连指令窗口**：唤醒后已有 keep-awake window，窗口内无需再次唤醒
+        - [x] **注视免唤醒**：已有 gaze wake 开关与基础实现
+        - [x] **输入与操作状态区分 (Context-Aware Mode)**：已有 typing-aware 的听写 / 指令分路，当前主要剩稳定性与边界回归
+- [x] **核心语音指令**
     | 指令 | 功能 |
     |------|------|
     | `开始` / `start` | 激活头部控制 |
@@ -49,43 +49,24 @@
     | `校准` / `recenter` | 重置中心点 |
     | `悬停开` / `dwell on` | 开启 Dwell Click |
     | `悬停关` / `dwell off` | 关闭 Dwell Click |
-- [ ] **滚动语音指令 (Scroll)**
+- [x] **滚动语音指令 (Scroll)**
     | 指令 | 功能 |
     |------|------|
     | `向上滚` / `scroll up` | 向上滚动一段 |
     | `向下滚` / `scroll down` | 向下滚动一段 |
     | `到顶` / `top` | 滚动到页首 |
     | `到底` / `bottom` | 滚动到页尾 |
-- [ ] **拖拽语音指令 (Drag & Drop)**
+- [x] **拖拽语音指令 (Drag & Drop)**
     | 指令 | 功能 |
     |------|------|
     | `拖住` / `drag` | 按下鼠标左键（开始拖拽） |
     | `放下` / `drop` | 释放鼠标左键（结束拖拽） |
-- [ ] **App 打开与切换 (Future)**
-    - [ ] **MVP 范围**
-        - [ ] `打开 Safari` / `open Safari`：若未运行则启动，若已运行则前置
-        - [ ] `切到 Finder` / `switch to Finder`：仅切换到目标 App，不做窗口级导航
-        - [ ] 仅支持 `activationPolicy == .regular` 的常见 App，暂不覆盖 helper / menu bar / agent app
-    - [ ] **语义拆分**
-        - [ ] 将动作词与 App 名拆开解析：`打开` / `切到` / `回到` / `open` / `launch` / `switch to`
-        - [ ] App 名解析后统一落到 `bundleIdentifier`，执行层不直接依赖显示名
-    - [ ] **中英混合解析**
-        - [ ] 同一个 App 支持中英文混合别名：例如 `Chrome` / `谷歌` / `谷歌浏览器`
-        - [ ] 支持英文全称、缩写、空格变体：例如 `VS Code` / `Visual Studio Code` / `code`
-        - [ ] 支持中文转拼音回退，但不能把 App 名解析继续塞回 locale 词库模型
-        - [ ] 不能沿用“zh-CN 只保留中文词、en-US 只保留英文词”的默认词库过滤语义
-    - [ ] **输入态保护**
-        - [ ] 输入状态下，`打开 Chrome 官网` 这类普通听写不能误触发 App 切换
-        - [ ] 在输入模式中，必须带命令前缀或明确 command bias 才允许执行 `open/switch app`
-        - [ ] `命令 打开 Xcode` 未命中时，不能偷偷回退成普通输入
-    - [ ] **数据与配置**
-        - [ ] 新增独立于 `VoiceLexicon` 的 App alias / resolver 数据结构
-        - [ ] 允许从当前运行中的 App 预填充候选项
-        - [ ] 允许用户手动补充自定义 App 别名
-    - [ ] **后续边界**
-        - [ ] 本期不做“切到某个窗口 / 某个标签页 / 某个工作区”
-        - [ ] 本期不做 AppleScript 驱动的复杂应用内导航
-        - [ ] 如需窗口级或标签级跳转，另开后续能力设计
+- [x] **App 打开与切换 (MVP 已落地)**
+    - [x] 支持 `打开 Safari` / `open Safari` / `切到 Finder` 这类常见 App 的打开与前置
+    - [x] 仅支持 `activationPolicy == .regular` 的常见 App，暂不覆盖 helper / menu bar / agent app
+    - [x] 动作词与 App 名已拆开解析，并统一落到 `bundleIdentifier`
+    - [x] 已有独立于 `VoiceLexicon` 的 App alias / resolver 能力，也支持手动补充自定义别名
+    - [ ] 后续边界：窗口级 / 标签级 / 工作区级跳转仍不做；更复杂的中英混合别名与输入态保护继续补齐
 - [ ] **全文优化上下文 (Rewrite Context)**
     - [ ] **MVP 范围**
         - [ ] 将 `全文优化 / 全文纠错优化` 从单次改写升级为“围绕写作任务工作的连续优化”

@@ -587,6 +587,7 @@ final class SpeechManager: ObservableObject {
         var phrase: String?
         let localeIdentifier: String
         let createdAt: Date
+        var lastActivityAt: Date
         var timeoutWorkItem: DispatchWorkItem?
     }
     private struct RecentExpiredWakeFollowUp {
@@ -653,9 +654,11 @@ final class SpeechManager: ObservableObject {
     private let wakeFollowUpDuplicateSuppressionWindow: TimeInterval = 1.2
     private let wakeFollowUpLateFinalGraceWindow: TimeInterval = 1.35
     private let wakeFollowUpLateFinalActivityWindow: TimeInterval = 1.1
+    private let wakeFollowUpActivityRefreshDebounce: TimeInterval = 0.45
     private let standbyWakeMissSegmentationDebounce: TimeInterval = 0.85
     private var recentWakeFollowUpDictationSuppression: RecentWakeFollowUpDictationSuppression?
     private var wakeFollowUpDictationMarkers: [String: String] = [:]
+    private var lastWakeFollowUpActivityRefreshAt: Date = .distantPast
     private let postSubmitStreamingSuppressionWindow: TimeInterval = 0.8
     private var postSubmitDictationSuppression: PostSubmitDictationSuppression?
     private let postSubmitDictationSuppressionWindow: TimeInterval = 1.2
@@ -1620,6 +1623,8 @@ final class SpeechManager: ObservableObject {
         let baseMinimum = UserDefaults.standard.object(forKey: "minUtteranceMs") as? Double ?? 550
         let dictationTrailingFloor = UserDefaults.standard.object(forKey: "dictationTrailingSilenceFloorMs") as? Double ?? 1300
         let dictationMinimumFloor = UserDefaults.standard.object(forKey: "dictationMinUtteranceFloorMs") as? Double ?? 650
+        let wakeFollowUpTrailingFloor = UserDefaults.standard.object(forKey: "wakeFollowUpTrailingSilenceFloorMs") as? Double ?? 1000
+        let wakeFollowUpMinimumFloor = UserDefaults.standard.object(forKey: "wakeFollowUpMinUtteranceFloorMs") as? Double ?? 550
         let style = currentSessionSpeechStyle(
             for: availability,
             sessionTypingModeOverride: sessionTypingMode
@@ -1632,8 +1637,13 @@ final class SpeechManager: ObservableObject {
             eosDetector.trailingSilenceMs = min(baseTrailing, commandTrailing)
             eosDetector.minUtteranceMs = min(baseMinimum, commandMinimum)
         case .dictation:
-            eosDetector.trailingSilenceMs = max(baseTrailing, dictationTrailingFloor)
-            eosDetector.minUtteranceMs = max(baseMinimum, dictationMinimumFloor)
+            if isWakeFollowUpDictationContext(sessionTypingModeOverride: sessionTypingMode) {
+                eosDetector.trailingSilenceMs = max(baseTrailing, wakeFollowUpTrailingFloor)
+                eosDetector.minUtteranceMs = max(baseMinimum, wakeFollowUpMinimumFloor)
+            } else {
+                eosDetector.trailingSilenceMs = max(baseTrailing, dictationTrailingFloor)
+                eosDetector.minUtteranceMs = max(baseMinimum, dictationMinimumFloor)
+            }
         }
 
         eosDetector.maxUtteranceMs = UserDefaults.standard.object(forKey: "maxUtteranceMs") as? Double ?? 30000
@@ -1644,6 +1654,18 @@ final class SpeechManager: ObservableObject {
         guard let last = lastWakeTime else { return false }
         return Date().timeIntervalSince(last) < alwaysListeningWakeWindowSeconds()
     }
+
+    private func isWakeFollowUpDictationContext(
+        sessionTypingModeOverride: Bool? = nil,
+        awakeOverride: Bool? = nil
+    ) -> Bool {
+        let typing = sessionTypingModeOverride ?? sessionTypingMode
+        guard typing else { return false }
+        guard isAlwaysListeningEnabled, isWakeWordEnabled, !isDirectCommandEnabled else { return false }
+        let awakeState = awakeOverride ?? isAwake
+        return awakeState || pendingWakeFollowUp != nil
+    }
+
     private func alwaysListeningWakeWindowSeconds() -> TimeInterval {
         let v = UserDefaults.standard.object(forKey: "alwaysListeningWakeWindowSeconds") as? Double
             ?? VoiceDefaults.alwaysListeningWakeWindowSeconds
@@ -1994,6 +2016,9 @@ final class SpeechManager: ObservableObject {
                 self.refreshPlaybackLeakStateForCurrentSession()
             }
             self.eosDetector.noteVoiceActivity(active)
+            if active {
+                self.refreshPendingWakeFollowUpActivity(reason: "voice-activity", at: now)
+            }
         }
         eosDetector.endOfSpeechDeferralMsProvider = { [weak self] in
             self?.chineseDictationEOSDeferralMs()
@@ -2567,6 +2592,7 @@ final class SpeechManager: ObservableObject {
                 eosDetector.noteTranscriptChanged()
                 noteFirstPartialIfNeeded(at: now)
                 applyAdaptiveEOS(with: text, at: now)
+                refreshPendingWakeFollowUpActivity(reason: "partial", at: now)
             }
         }
 
@@ -2688,6 +2714,10 @@ final class SpeechManager: ObservableObject {
             } else if shouldUsePasteFallbackForCurrentTypingTarget() {
                 GlobalLogger.speech.info(
                     "[TextPipeline] skip partial streaming for paste fallback target bundle=\(sessionTargetBundleID ?? "nil")"
+                )
+            } else if isWakeFollowUpDictationContext() {
+                GlobalLogger.speech.info(
+                    "[TextPipeline] skip streaming dictation for wake-follow-up targetPID=\(sessionTargetPID ?? 0) bundle=\(sessionTargetBundleID ?? "nil") textCount=\(text.count)"
                 )
             } else {
                 dictationHandler.onPartial(text)
@@ -3907,12 +3937,34 @@ final class SpeechManager: ObservableObject {
             phrase: recentExpiredWakeFollowUp.phrase,
             localeIdentifier: recentExpiredWakeFollowUp.localeIdentifier,
             createdAt: recentExpiredWakeFollowUp.createdAt,
+            lastActivityAt: recentExpiredWakeFollowUp.expiredAt,
             timeoutWorkItem: nil
         )
     }
 
     private var hasRecentExpiredWakeFollowUpGrace: Bool {
         recentExpiredWakeFollowUp != nil
+    }
+
+    private func refreshPendingWakeFollowUpActivity(reason: String, at now: Date = Date()) {
+        guard var pending = pendingWakeFollowUp else { return }
+        guard now.timeIntervalSince(lastWakeFollowUpActivityRefreshAt) >= wakeFollowUpActivityRefreshDebounce else { return }
+
+        let previousActivityAt = pending.lastActivityAt
+        pending.timeoutWorkItem?.cancel()
+        pending.lastActivityAt = now
+        let workItem = makeWakeFollowUpTimeoutWorkItem(groupID: pending.groupID)
+        pending.timeoutWorkItem = workItem
+        pendingWakeFollowUp = pending
+        lastWakeFollowUpActivityRefreshAt = now
+
+        GlobalLogger.speech.info(
+            "[WakeFollowUp] activity-extend group=\(pending.groupID) reason=\(reason) age=\(wakeDiagnosticAgeDescription(since: pending.createdAt)) idle=\(String(format: "%.2fs", now.timeIntervalSince(previousActivityAt))) timeout=\(String(format: "%.2fs", alwaysListeningWakeWindowSeconds()))"
+        )
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + alwaysListeningWakeWindowSeconds(),
+            execute: workItem
+        )
     }
 
     private func makeWakeFollowUpTimeoutWorkItem(groupID: String) -> DispatchWorkItem {
@@ -3923,9 +3975,10 @@ final class SpeechManager: ObservableObject {
                       pending.groupID == groupID else { return }
                 let now = Date()
                 GlobalLogger.speech.info(
-                    "[WakeFollowUp] timeout group=\(pending.groupID) age=\(self.wakeDiagnosticAgeDescription(since: pending.createdAt)) phrase='\(pending.phrase ?? "nil")' hud=\(HUDManager.shared.state.mode.rawValue) recognitionRunning=\(self.recognitionSession.isRunning) audioRunning=\(self.audioCapture.isRunning) awake=\(self.isAwake) lastTranscript='\(self.wakeDiagnosticSnippet(self.lastTranscript))'"
+                    "[WakeFollowUp] timeout group=\(pending.groupID) age=\(self.wakeDiagnosticAgeDescription(since: pending.createdAt)) idle=\(String(format: "%.2fs", now.timeIntervalSince(pending.lastActivityAt))) phrase='\(pending.phrase ?? "nil")' hud=\(HUDManager.shared.state.mode.rawValue) recognitionRunning=\(self.recognitionSession.isRunning) audioRunning=\(self.audioCapture.isRunning) awake=\(self.isAwake) lastTranscript='\(self.wakeDiagnosticSnippet(self.lastTranscript))'"
                 )
                 self.pendingWakeFollowUp = nil
+                self.lastWakeFollowUpActivityRefreshAt = .distantPast
                 if self.shouldHoldWakeFollowUpForLateFinal(at: now) {
                     self.armRecentExpiredWakeFollowUpGrace(from: pending, expiredAt: now)
                     return
@@ -3950,9 +4003,11 @@ final class SpeechManager: ObservableObject {
             if pending.phrase == nil, normalizedPhrase?.isEmpty == false {
                 pending.phrase = normalizedPhrase
             }
+            pending.lastActivityAt = Date()
             let workItem = makeWakeFollowUpTimeoutWorkItem(groupID: pending.groupID)
             pending.timeoutWorkItem = workItem
             pendingWakeFollowUp = pending
+            lastWakeFollowUpActivityRefreshAt = pending.lastActivityAt
             GlobalLogger.speech.info(
                 "[WakeFollowUp] extend group=\(pending.groupID) age=\(wakeDiagnosticAgeDescription(since: pending.createdAt)) phrase='\(pending.phrase ?? "nil")' timeout=\(String(format: "%.2fs", alwaysListeningWakeWindowSeconds()))"
             )
@@ -3976,11 +4031,13 @@ final class SpeechManager: ObservableObject {
                 )
             )
             pendingWakeFollowUp = nil
+            lastWakeFollowUpActivityRefreshAt = .distantPast
         }
 
         let groupID = UUID().uuidString
         let localeIdentifier = activeLocale.identifier
         let phraseToStore = normalizedPhrase?.isEmpty == false ? normalizedPhrase : nil
+        let now = Date()
         onWakeAnalyticsSignal?(
             .hit(
                 groupID: groupID,
@@ -3995,9 +4052,11 @@ final class SpeechManager: ObservableObject {
             groupID: groupID,
             phrase: phraseToStore,
             localeIdentifier: localeIdentifier,
-            createdAt: Date(),
+            createdAt: now,
+            lastActivityAt: now,
             timeoutWorkItem: workItem
         )
+        lastWakeFollowUpActivityRefreshAt = now
         GlobalLogger.speech.info(
             "[WakeFollowUp] begin group=\(groupID) phrase='\(phraseToStore ?? "nil")' locale=\(localeIdentifier) timeout=\(String(format: "%.2fs", alwaysListeningWakeWindowSeconds())) hudBefore=\(HUDManager.shared.state.mode.rawValue)"
         )
@@ -4029,6 +4088,7 @@ final class SpeechManager: ObservableObject {
 
         pending.timeoutWorkItem?.cancel()
         pendingWakeFollowUp = nil
+        lastWakeFollowUpActivityRefreshAt = .distantPast
         clearWakeTypingFallback(reason: "wake-follow-up-converted")
         GlobalLogger.speech.info(
             "[WakeFollowUp] converted group=\(pending.groupID) followUp=\(String(describing: followUp)) age=\(wakeDiagnosticAgeDescription(since: pending.createdAt)) hud=\(HUDManager.shared.state.mode.rawValue) transcript='\(wakeDiagnosticSnippet(transcript))'"
@@ -5858,16 +5918,18 @@ final class SpeechManager: ObservableObject {
             for: currentVoiceFeatureAvailability(),
             sessionTypingModeOverride: sessionTypingMode
         )
+        let wakeFollowUpDictation = isWakeFollowUpDictationContext()
+        let wakeFollowUpTrailingMinimum = 900.0
 
         switch style {
         case .command:
             targetTrailingMs = min(targetTrailingMs, 620)
         case .dictation:
-            targetTrailingMs = max(targetTrailingMs, 1150)
+            targetTrailingMs = max(targetTrailingMs, wakeFollowUpDictation ? wakeFollowUpTrailingMinimum : 1150)
         }
 
         if sessionTypingMode {
-            targetTrailingMs = max(targetTrailingMs, 1150)
+            targetTrailingMs = max(targetTrailingMs, wakeFollowUpDictation ? wakeFollowUpTrailingMinimum : 1150)
         }
 
         targetTrailingMs = min(max(targetTrailingMs, 450), 1400)
@@ -8978,6 +9040,9 @@ final class SpeechManager: ObservableObject {
             for: availability,
             sessionTypingModeOverride: sessionTypingMode
         ) == .dictation else {
+            return nil
+        }
+        if isWakeFollowUpDictationContext(sessionTypingModeOverride: sessionTypingMode) {
             return nil
         }
 

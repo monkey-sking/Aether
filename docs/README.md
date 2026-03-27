@@ -50,6 +50,8 @@ Aether 当前是一个以 macOS 为中心的本地交互产品。当前代码主
 3. `REFERRAL_MVP.md`
 4. `Roadmap.md`
 
+如果你在看跨仓库 / 跨项目推进状态，再补看工作区根目录的 `../TODO.md`。
+
 ## 当前优先文档
 
 | 文档 | 状态 | 用途 |
@@ -65,7 +67,7 @@ Aether 当前是一个以 macOS 为中心的本地交互产品。当前代码主
 
 | 文档 | 状态 | 用途 |
 | :--- | :--- | :--- |
-| `Phase1.5_TODO.md` | `Planned` | 当前最接近实现面的近期规划 |
+| `Phase1.5_TODO.md` | `Planned` | 当前最接近实现面的近期规划；已在 2026-03-27 按源码回写已落地基线，但仍不是 `Current` 实现清单 |
 | `ACTIVATION_GATING_TODO.md` | `Planned` | 激活门禁专项计划 |
 | `REFERRAL_MVP.md` | `Planned` | 邀请码与邀请奖励 MVP 范围、API 草案与验收口径 |
 | `WHISPER_BACKEND_IMPLEMENTATION_CHECKLIST.md` | `Planned` | Whisper 后端专项实施清单 |
