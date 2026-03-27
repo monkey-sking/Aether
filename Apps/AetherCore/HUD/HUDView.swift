@@ -6,7 +6,7 @@ struct HUDView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: state.isGestureTrailVisible ? 8 : 0) {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 switch state.mode {
                 case .hidden:
                     EmptyView()
@@ -105,7 +105,6 @@ struct HUDView: View {
                     }
                 }
             }
-            .frame(width: stableContentRowWidth, alignment: .leading)
 
             if state.isGestureTrailVisible {
                 GestureTrailView(points: state.gestureTrailPoints)
@@ -118,8 +117,8 @@ struct HUDView: View {
                 }
             }
         }
-        .padding(.horizontal, state.mode == .standby ? 8 : 12)
-        .padding(.vertical, state.mode == .standby ? 8 : 8)
+        .padding(.horizontal, state.mode == .standby ? 8 : 16)
+        .padding(.vertical, state.mode == .standby ? 8 : 10)
         .background(
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
         )
@@ -158,15 +157,6 @@ struct HUDView: View {
 
     private var trimmedMessage: String {
         state.message.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var stableContentRowWidth: CGFloat? {
-        switch state.mode {
-        case .listening, .command, .dictation, .organizing, .typing, .executing, .optimizing, .checking, .dragging, .processing:
-            return 212
-        case .hidden, .standby, .feedback:
-            return nil
-        }
     }
 
     private var dictationLane: some View {
@@ -310,7 +300,7 @@ struct HUDView: View {
     }
 
     private var hudContainerCornerRadius: CGFloat {
-        state.mode == .standby ? 16 : 20
+        state.mode == .standby ? 16 : 24
     }
 
     private var primaryBadgeCircleDiameter: CGFloat {
@@ -675,7 +665,7 @@ struct HUDView: View {
     }
 
     private var hudLabelMaxWidth: CGFloat {
-        var width: CGFloat = state.mode == .feedback ? 252 : 176
+        var width: CGFloat = state.mode == .feedback ? 252 : 232
         if hasVisibleContextIcon { width -= 20 }
         if state.isLanguageIndicatorVisible { width -= 24 }
         return max(width, 132)
@@ -1064,7 +1054,7 @@ private struct LiveDictationView: View {
     @State private var cursorVisible = true
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             if !text.isEmpty {
                 Text(text)
                     .font(.system(size: 14, weight: .semibold))
@@ -1077,11 +1067,11 @@ private struct LiveDictationView: View {
                     .layoutPriority(1)
             }
 
-            HStack(alignment: .center, spacing: 2.5) {
+            HStack(alignment: .center, spacing: 3) {
                 ForEach(0..<5, id: \.self) { index in
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                         .fill(Color.green.opacity(barOpacity(for: index)))
-                        .frame(width: 2.6, height: barHeight(for: index))
+                        .frame(width: 3, height: barHeight(for: index))
                         .shadow(color: Color.green.opacity(0.16), radius: 1.5)
                 }
 
@@ -1090,7 +1080,7 @@ private struct LiveDictationView: View {
                     .frame(width: 2, height: 14)
                     .shadow(color: Color.green.opacity(0.34), radius: 2)
             }
-            .frame(width: 24, height: 16, alignment: .trailing)
+            .frame(width: 30, height: 18, alignment: .trailing)
         }
         .frame(maxWidth: maxWidth, alignment: .leading)
         .animation(.easeInOut(duration: 0.16), value: phase)
@@ -1115,7 +1105,7 @@ private struct LiveDictationView: View {
     }
 
     private func barHeight(for index: Int) -> CGFloat {
-        let baseHeights: [CGFloat] = [6, 11, 15, 11, 6]
+        let baseHeights: [CGFloat] = [6, 11, 16, 11, 6]
         let boosted = max(0.16, min(level, 1.0))
         let phaseOffset = sin((phase + CGFloat(index) * 0.85) * 0.9)
         let wave = max(0, 0.5 + phaseOffset * 0.5)

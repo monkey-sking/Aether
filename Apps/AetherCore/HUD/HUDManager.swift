@@ -486,6 +486,7 @@ final class HUDManager {
     private var activeTemporaryFallbackSnapshot: HUDPresentationSnapshot?
     private var isDragStatusForced: Bool = false
     private var dragStatusFallbackSnapshot: HUDPresentationSnapshot?
+    private var stickyMeasuredContentWidth: CGFloat?
     private var cancellables = Set<AnyCancellable>()
     private var backgroundFullscreenCheckTimer: Timer?
     private var appNapActivityToken: NSObjectProtocol?
@@ -671,6 +672,9 @@ final class HUDManager {
             inputDeviceHealth: inputDeviceHealth,
             contextIcon: contextIcon
         )
+        if !shouldPreserveMeasuredWidth(for: mode) {
+            stickyMeasuredContentWidth = nil
+        }
         if mode == .hidden {
             // Ensure transient indicators don't linger when the HUD is dismissed.
             state.isMicProgressVisible = false
@@ -3222,7 +3226,25 @@ final class HUDManager {
         guard fitting.width > 24, fitting.height > 20 else { return nil }
         let clampedWidth = min(max(ceil(fitting.width), 96), 360)
         let clampedHeight = min(max(ceil(fitting.height), 34), 180)
-        return CGSize(width: clampedWidth, height: clampedHeight)
+        let resolvedWidth: CGFloat
+        if shouldPreserveMeasuredWidth(for: state.mode) {
+            let stickyWidth = max(stickyMeasuredContentWidth ?? 0, clampedWidth)
+            stickyMeasuredContentWidth = stickyWidth
+            resolvedWidth = stickyWidth
+        } else {
+            stickyMeasuredContentWidth = nil
+            resolvedWidth = clampedWidth
+        }
+        return CGSize(width: resolvedWidth, height: clampedHeight)
+    }
+
+    private func shouldPreserveMeasuredWidth(for mode: HUDMode) -> Bool {
+        switch mode {
+        case .listening, .command, .dictation, .organizing, .typing, .executing, .optimizing, .checking, .dragging, .processing:
+            return true
+        case .hidden, .standby, .feedback:
+            return false
+        }
     }
 
     private func hudRectSummary(_ rect: CGRect?) -> String {
@@ -3505,6 +3527,7 @@ final class HUDManager {
             ctx.duration = 0.2
             self.hudWindow?.animator().alphaValue = 0
         }, completionHandler: {
+            self.stickyMeasuredContentWidth = nil
             self.lastSmoothedWindowOrigin = nil
             self.hudWindow?.orderOut(nil)
         })
