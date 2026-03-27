@@ -3079,13 +3079,29 @@ final class SpeechManager: ObservableObject {
 
     private func handleRecognitionError(_ error: Error, isRecoverable: Bool) {
         let trimmed = lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let failedTranscript = trimmed.isEmpty ? nil : trimmed
+        let reason = classifyRecognitionFailureReason(error)
+        let fallbackTranscript = Self.fallbackTranscriptForRecoverableNoSpeechError(
+            isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+            isRecoverable: isRecoverable,
+            failureReason: reason,
+            lastPartialTranscript: trimmed,
+            isUtteranceActive: isUtteranceActive
+        )
+        if let fallbackTranscript {
+            GlobalLogger.speech.info(
+                "[ASR Error] recoverable-no-speech using partial fallback transcript='\(wakeDiagnosticSnippet(fallbackTranscript))' utterance=\(activeUtteranceID) typing=\(sessionTypingMode)"
+            )
+            handleTranscript(fallbackTranscript, utteranceID: activeUtteranceID)
+            resetUtteranceTrackingForNextPhrase()
+            refreshContinuousHUD(isDictating: false)
+        }
+
+        let failedTranscript = fallbackTranscript == nil && !trimmed.isEmpty ? trimmed : nil
         let appName = NSWorkspace.shared.frontmostApplication?.localizedName
         let bundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        let reason = classifyRecognitionFailureReason(error)
-        let shouldSuppressFailure = failedTranscript == nil
+        let shouldSuppressFailure = fallbackTranscript != nil || (failedTranscript == nil
             && Date() < suppressRecognitionFailuresUntil
-            && (reason == "no-speech-detected" || reason == "recognition-interrupted")
+            && (reason == "no-speech-detected" || reason == "recognition-interrupted"))
         if shouldSuppressFailure {
             GlobalLogger.speech.info(
                 "[RecognitionFailure] suppressed reason=\(reason) suppressReason=\(suppressRecognitionFailuresReason ?? "unknown")"
@@ -9677,6 +9693,22 @@ final class SpeechManager: ObservableObject {
             return nil
         }
         return candidate
+    }
+
+    static func fallbackTranscriptForRecoverableNoSpeechError(
+        isAlwaysListeningEnabled: Bool,
+        isRecoverable: Bool,
+        failureReason: String,
+        lastPartialTranscript: String,
+        isUtteranceActive: Bool
+    ) -> String? {
+        guard isAlwaysListeningEnabled else { return nil }
+        guard isRecoverable, failureReason == "no-speech-detected" else { return nil }
+        guard isUtteranceActive else { return nil }
+        return fallbackTranscriptForUnexpectedEmptyFinal(
+            finalTranscript: "",
+            lastPartialTranscript: lastPartialTranscript
+        )
     }
 
     static func shouldCommitCompletedOneShotFinalResult(
