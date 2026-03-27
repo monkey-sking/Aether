@@ -703,6 +703,32 @@ final class SpeechManagerGuardrailTests: XCTestCase {
             )
         )
     }
+
+    func testResolvedSessionHardLimitsKeepsShortCapsForCommand() {
+        let limits = SpeechManager.resolvedSessionHardLimits(
+            isDictationStyle: false,
+            commandMaxUtteranceMs: 30000,
+            commandMaxSegmentSec: 32,
+            dictationMaxUtteranceMs: 600000,
+            dictationMaxSegmentSec: 600
+        )
+
+        XCTAssertEqual(limits.maxUtteranceMs, 30000)
+        XCTAssertEqual(limits.maxSegmentSec, 32)
+    }
+
+    func testResolvedSessionHardLimitsUsesExtendedCapsForDictation() {
+        let limits = SpeechManager.resolvedSessionHardLimits(
+            isDictationStyle: true,
+            commandMaxUtteranceMs: 30000,
+            commandMaxSegmentSec: 32,
+            dictationMaxUtteranceMs: 600000,
+            dictationMaxSegmentSec: 600
+        )
+
+        XCTAssertEqual(limits.maxUtteranceMs, 600000)
+        XCTAssertEqual(limits.maxSegmentSec, 600)
+    }
 }
 
 final class AetherBuildVersionFormatterTests: XCTestCase {

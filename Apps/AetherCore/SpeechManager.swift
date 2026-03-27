@@ -1646,8 +1646,9 @@ final class SpeechManager: ObservableObject {
             }
         }
 
-        eosDetector.maxUtteranceMs = UserDefaults.standard.object(forKey: "maxUtteranceMs") as? Double ?? 30000
-        eosDetector.maxSegmentSec = maxRecordingSegmentSeconds()
+        let limits = resolvedSessionHardLimits(for: style)
+        eosDetector.maxUtteranceMs = limits.maxUtteranceMs
+        eosDetector.maxSegmentSec = limits.maxSegmentSec
     }
 
     private var isAwake: Bool {
@@ -1671,6 +1672,56 @@ final class SpeechManager: ObservableObject {
             ?? VoiceDefaults.alwaysListeningWakeWindowSeconds
         return min(max(v, VoiceDefaults.minAlwaysListeningWakeWindowSeconds), VoiceDefaults.maxAlwaysListeningWakeWindowSeconds)
     }
+
+    static func resolvedSessionHardLimits(
+        isDictationStyle: Bool,
+        commandMaxUtteranceMs: Double,
+        commandMaxSegmentSec: Double,
+        dictationMaxUtteranceMs: Double,
+        dictationMaxSegmentSec: Double
+    ) -> (maxUtteranceMs: Double, maxSegmentSec: Double) {
+        if isDictationStyle {
+            return (
+                maxUtteranceMs: dictationMaxUtteranceMs,
+                maxSegmentSec: dictationMaxSegmentSec
+            )
+        }
+
+        return (
+            maxUtteranceMs: commandMaxUtteranceMs,
+            maxSegmentSec: commandMaxSegmentSec
+        )
+    }
+
+    private func resolvedSessionHardLimits(
+        for style: SessionSpeechStyle
+    ) -> (maxUtteranceMs: Double, maxSegmentSec: Double) {
+        let commandMaxUtteranceMs =
+            UserDefaults.standard.object(forKey: "maxUtteranceMs") as? Double ?? 30000
+        let commandMaxSegmentSec = maxRecordingSegmentSeconds()
+        let dictationMaxUtteranceMsRaw =
+            UserDefaults.standard.object(forKey: "dictationMaxUtteranceMs") as? Double ?? 600000
+        let dictationMaxSegmentSecRaw =
+            UserDefaults.standard.object(forKey: "dictationMaxRecordingSegmentSeconds") as? Double ?? 600.0
+        let dictationMaxUtteranceMs = min(max(dictationMaxUtteranceMsRaw, 60000), 3600000)
+        let dictationMaxSegmentSec = min(max(dictationMaxSegmentSecRaw, 60.0), 3600.0)
+
+        return Self.resolvedSessionHardLimits(
+            isDictationStyle: {
+                switch style {
+                case .dictation:
+                    return true
+                case .command:
+                    return false
+                }
+            }(),
+            commandMaxUtteranceMs: commandMaxUtteranceMs,
+            commandMaxSegmentSec: commandMaxSegmentSec,
+            dictationMaxUtteranceMs: dictationMaxUtteranceMs,
+            dictationMaxSegmentSec: dictationMaxSegmentSec
+        )
+    }
+
     private func maxRecordingSegmentSeconds() -> TimeInterval {
         let v = UserDefaults.standard.object(forKey: "maxRecordingSegmentSeconds") as? Double ?? 32.0
         return min(max(v, 10.0), 120.0)
@@ -2472,7 +2523,13 @@ final class SpeechManager: ObservableObject {
         lastTranscript = ""; lastError = ""
         status = NSLocalizedString("speech.listening", comment: "")
         noteHandsFreeHUDActivity()
-        startMicProgressUI(durationSec: maxRecordingSegmentSeconds(), generation: gen)
+        let limits = resolvedSessionHardLimits(
+            for: currentSessionSpeechStyle(
+                for: currentVoiceFeatureAvailability(),
+                sessionTypingModeOverride: sessionTypingMode
+            )
+        )
+        startMicProgressUI(durationSec: limits.maxSegmentSec, generation: gen)
         refreshContinuousHUD(isDictating: isDictating)
     }
 
@@ -2692,8 +2749,8 @@ final class SpeechManager: ObservableObject {
         }
 
         if text.count > 2 && isAwake { lastWakeTime = Date() }
-        if (!isStopping || isAlwaysListeningEnabled) { refreshContinuousHUD(isDictating: isDictating) }
-        else if isStopping { refreshContinuousHUD() }
+        let shouldDelayHUDRefreshUntilStreamingSync =
+            sessionTypingMode && featureAvailability.dictationEnabled && !isStopping
 
         // Dispatch to handler
         let pendingExplicitCommandPrefix = hasPendingExplicitCommandPrefix()
@@ -2726,8 +2783,12 @@ final class SpeechManager: ObservableObject {
             commandHandler.onPartial(text)
         }
 
-        if sessionTypingMode && featureAvailability.dictationEnabled {
+        if shouldDelayHUDRefreshUntilStreamingSync || (sessionTypingMode && featureAvailability.dictationEnabled) {
             refreshContinuousHUD(isDictating: isDictating)
+        } else if (!isStopping || isAlwaysListeningEnabled) {
+            refreshContinuousHUD(isDictating: isDictating)
+        } else if isStopping {
+            refreshContinuousHUD()
         }
     }
 
@@ -3385,7 +3446,13 @@ final class SpeechManager: ObservableObject {
                 if isWakeWordEnabled && !isDirectCommandEnabled {
                     refreshArmedInputTargetIfNeeded(reason: "wake-window-open")
                 }
-                startMicProgressUI(durationSec: maxRecordingSegmentSeconds(), generation: sessionGeneration)
+                let limits = resolvedSessionHardLimits(
+                    for: currentSessionSpeechStyle(
+                        for: currentVoiceFeatureAvailability(),
+                        sessionTypingModeOverride: sessionTypingMode
+                    )
+                )
+                startMicProgressUI(durationSec: limits.maxSegmentSec, generation: sessionGeneration)
             } else {
                 clearStandbyTypingStateIfNeeded(reason: "wake-window-closed")
                 // Wake-word standby hides the HUD, but the next wake phrase still
