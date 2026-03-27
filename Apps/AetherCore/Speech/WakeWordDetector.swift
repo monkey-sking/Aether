@@ -1,5 +1,7 @@
 import Foundation
 
+fileprivate let wakePayloadSeparatorScalars = CharacterSet(charactersIn: ",.!?;:，。！？；：、…")
+
 enum VoiceLexiconSupport {
     static func canonicalLocaleIdentifier(_ raw: String) -> String {
         let locale = raw.lowercased()
@@ -86,9 +88,16 @@ final class WakeWordDetector {
         var totalConsumedRawCount: Int { leadingRawDiscardCount + consumeRawCount }
     }
 
+    private struct WakeOccurrenceBlock {
+        let start: String.Index
+        let end: String.Index
+        let count: Int
+        let occurrencesBeforeBlock: Int
+    }
+
     private static let fuzzyWakeDetectionThreshold = 0.88
     private static let retryWakeDetectionThreshold = 0.93
-    private static let retryLeadInRawCharacterBudget = 8
+    private static let retryLeadInRawCharacterBudget = 12
     private static let retryTrailingClauseRawCharacterBudget = 16
     private let stateQueue = DispatchQueue(label: "com.aether.wake-word-detector.state", attributes: .concurrent)
     private var storedOverrides: [VoiceLanguageTermsOverrideConfig] = []
@@ -188,6 +197,21 @@ final class WakeWordDetector {
                 payload: payload,
                 score: trailingRecoveryMatch.score,
                 matchedPhrase: trailingRecoveryMatch.phrase
+            )
+        }
+
+        if matchMode == .retryAwareStandby,
+           let repeatedRetryMatch = Self.bestRepeatedWakeRetryMatch(
+            phrases: phrases,
+            in: trimmedLeading
+           ) {
+            let payload = String(trimmedLeading.dropFirst(repeatedRetryMatch.totalConsumedRawCount))
+                .trimmingLeadingWakePayloadSeparators()
+            return WakeWordDetectionResult(
+                wakeDetected: true,
+                payload: payload,
+                score: repeatedRetryMatch.score,
+                matchedPhrase: repeatedRetryMatch.phrase
             )
         }
 
@@ -457,6 +481,46 @@ final class WakeWordDetector {
         return bestRecoveryMatch
     }
 
+    private static func bestRepeatedWakeRetryMatch(
+        phrases: [String],
+        in text: String
+    ) -> WakePhraseMatch? {
+        guard text.count > 1 else { return nil }
+
+        var bestRetryMatch: WakePhraseMatch?
+
+        for phrase in phrases {
+            let occurrences = exactOccurrenceRanges(of: phrase, in: text)
+            guard occurrences.count >= 2,
+                  let block = trailingRepeatedWakeBlock(in: text, occurrences: occurrences),
+                  isRepeatedWakeRetryBlockEligible(block, in: text) else {
+                continue
+            }
+
+            let candidate = WakePhraseMatch(
+                phrase: phrase,
+                score: 1.0,
+                leadingRawDiscardCount: text.distance(from: text.startIndex, to: block.start),
+                consumeRawCount: text.distance(from: block.start, to: block.end)
+            )
+
+            if let currentBest = bestRetryMatch {
+                if candidate.score > currentBest.score
+                    || (candidate.score == currentBest.score
+                        && candidate.phrase.count > currentBest.phrase.count)
+                    || (candidate.score == currentBest.score
+                        && candidate.phrase.count == currentBest.phrase.count
+                        && candidate.leadingRawDiscardCount > currentBest.leadingRawDiscardCount) {
+                    bestRetryMatch = candidate
+                }
+            } else {
+                bestRetryMatch = candidate
+            }
+        }
+
+        return bestRetryMatch
+    }
+
     private static func isRetryLeadInEligible(
         _ text: String,
         localeIdentifier: String
@@ -468,7 +532,7 @@ final class WakeWordDetector {
         let maxNormalizedLength: Int
         switch canonicalLocale {
         case "zh-CN", "ja-JP", "ko-KR":
-            maxNormalizedLength = (canonicalLocale == "zh-CN") ? 6 : 4
+            maxNormalizedLength = (canonicalLocale == "zh-CN") ? 8 : 4
         default:
             maxNormalizedLength = 6
         }
@@ -515,12 +579,113 @@ final class WakeWordDetector {
         return normalized.count <= maxNormalizedLength
     }
 
+    private static func exactOccurrenceRanges(
+        of phrase: String,
+        in text: String
+    ) -> [Range<String.Index>] {
+        guard !phrase.isEmpty, !text.isEmpty else { return [] }
+
+        var ranges: [Range<String.Index>] = []
+        var searchStart = text.startIndex
+
+        while searchStart < text.endIndex,
+              let range = text.range(
+                of: phrase,
+                options: [.caseInsensitive, .diacriticInsensitive],
+                range: searchStart..<text.endIndex,
+                locale: .current
+              ) {
+            ranges.append(range)
+            searchStart = range.upperBound
+        }
+
+        return ranges
+    }
+
+    private static func trailingRepeatedWakeBlock(
+        in text: String,
+        occurrences: [Range<String.Index>]
+    ) -> WakeOccurrenceBlock? {
+        guard let lastIndex = occurrences.indices.last else { return nil }
+
+        var blockStartIndex = lastIndex
+        let blockEnd = occurrences[lastIndex].upperBound
+
+        while blockStartIndex > 0 {
+            let previous = occurrences[blockStartIndex - 1]
+            let current = occurrences[blockStartIndex]
+            let gap = text[previous.upperBound..<current.lowerBound]
+            guard containsOnlyWakeSeparators(gap) else { break }
+            blockStartIndex -= 1
+        }
+
+        return WakeOccurrenceBlock(
+            start: occurrences[blockStartIndex].lowerBound,
+            end: blockEnd,
+            count: lastIndex - blockStartIndex + 1,
+            occurrencesBeforeBlock: blockStartIndex
+        )
+    }
+
+    private static func isRepeatedWakeRetryBlockEligible(
+        _ block: WakeOccurrenceBlock,
+        in text: String
+    ) -> Bool {
+        let trailingRemainder = String(text[block.end...]).trimmingLeadingWakePayloadSeparators()
+        guard normalizeForWakeMatching(trailingRemainder).count <= 1 else {
+            return false
+        }
+
+        if block.count >= 2 {
+            return true
+        }
+
+        guard block.occurrencesBeforeBlock > 0 else {
+            return false
+        }
+
+        return hasClauseBoundaryBeforeRepeatedWakeBlock(in: text, at: block.start)
+    }
+
+    private static func hasClauseBoundaryBeforeRepeatedWakeBlock(
+        in text: String,
+        at blockStart: String.Index
+    ) -> Bool {
+        guard blockStart > text.startIndex else { return false }
+
+        var index = blockStart
+        var sawClauseBoundary = false
+
+        while index > text.startIndex {
+            let previous = text.index(before: index)
+            let scalarView = text[previous].unicodeScalars
+            let isIgnorable = scalarView.allSatisfy {
+                CharacterSet.whitespacesAndNewlines.contains($0)
+                    || wakePayloadSeparatorScalars.contains($0)
+            }
+            if !isIgnorable { break }
+            if scalarView.contains(where: { wakePayloadSeparatorScalars.contains($0) }) {
+                sawClauseBoundary = true
+            }
+            index = previous
+        }
+
+        return sawClauseBoundary
+    }
+
+    private static func containsOnlyWakeSeparators<S: StringProtocol>(_ text: S) -> Bool {
+        text.unicodeScalars.allSatisfy {
+            CharacterSet.whitespacesAndNewlines.contains($0)
+                || wakePayloadSeparatorScalars.contains($0)
+        }
+    }
+
     private static func retryLeadInTerms(for canonicalLocaleIdentifier: String) -> [String] {
         switch canonicalLocaleIdentifier {
         case "zh-CN":
             return [
-                "嗯", "啊", "呃", "诶", "欸", "嘿", "喂",
-                "那个", "就是", "真的", "还有", "然后", "那就", "那么", "请问", "麻烦",
+                "嗯", "嗯哼", "啊", "呃", "诶", "欸", "哎", "唉", "哎呀", "嘿", "喂",
+                "那个", "这个", "就是", "真的", "还有", "然后", "那就", "那么", "请问", "麻烦",
                 "能不能", "你能不能", "可不可以", "你可不可以"
             ]
         case "ja-JP":
@@ -633,14 +798,12 @@ final class WakeWordDetector {
 
 private extension String {
     func trimmingLeadingWakePayloadSeparators() -> String {
-        let separatorScalars = CharacterSet(charactersIn: ",.!?;:，。！？；：、…")
-
         var index = startIndex
         while index < endIndex {
             let scalarView = self[index].unicodeScalars
             let isIgnorable = scalarView.allSatisfy {
                 CharacterSet.whitespacesAndNewlines.contains($0)
-                    || separatorScalars.contains($0)
+                    || wakePayloadSeparatorScalars.contains($0)
             }
             if !isIgnorable { break }
             index = self.index(after: index)
@@ -649,15 +812,13 @@ private extension String {
     }
 
     func trimmingTrailingWakePayloadSeparators() -> String {
-        let separatorScalars = CharacterSet(charactersIn: ",.!?;:，。！？；：、…")
-
         var index = endIndex
         while index > startIndex {
             let previous = self.index(before: index)
             let scalarView = self[previous].unicodeScalars
             let isIgnorable = scalarView.allSatisfy {
                 CharacterSet.whitespacesAndNewlines.contains($0)
-                    || separatorScalars.contains($0)
+                    || wakePayloadSeparatorScalars.contains($0)
             }
             if !isIgnorable { break }
             index = previous

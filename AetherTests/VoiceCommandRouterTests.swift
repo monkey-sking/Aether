@@ -663,6 +663,19 @@ final class SpeechManagerTypingModeTests: XCTestCase {
         XCTAssertTrue(resolved)
     }
 
+    func testAutoModeKeepsTypingStickyDuringWakeGatedDictationHold() {
+        let resolved = SpeechManager.resolvedUtteranceTypingMode(
+            recognitionControlMode: .auto,
+            sessionTypingMode: true,
+            liveTyping: false,
+            canType: true,
+            hasStreamedDictation: false,
+            keepTypingSticky: true
+        )
+
+        XCTAssertTrue(resolved)
+    }
+
     func testAutoModeUsesLiveEditableContextImmediately() {
         let resolved = SpeechManager.resolvedUtteranceTypingMode(
             recognitionControlMode: .auto,

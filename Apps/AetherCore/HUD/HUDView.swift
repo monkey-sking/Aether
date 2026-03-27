@@ -17,51 +17,8 @@ struct HUDView: View {
                         languageToggle(showDivider: false)
                     }
 
-                case .listening:
-                    listeningLeadingVisual
-                    if !trimmedMessage.isEmpty {
-                        hudLabel(trimmedMessage)
-                    }
-                    trailingAccessories
-
-                case .command:
-                    listeningLeadingVisual
-                    if !trimmedMessage.isEmpty {
-                        hudLabel(trimmedMessage)
-                    }
-                    trailingAccessories
-
-                case .dictation:
-                    listeningLeadingVisual
-                    dictationLane
-                    trailingAccessories
-
-                case .organizing:
-                    stageLeadingVisual
-                    if trimmedMessage.isEmpty {
-                        TextOrganizingView()
-                    } else {
-                        hudLabel(trimmedMessage)
-                    }
-                    trailingAccessories
-
-                case .typing:
-                    stageLeadingVisual
-                    if trimmedMessage.isEmpty {
-                        TypingProgressView()
-                    } else {
-                        hudLabel(trimmedMessage)
-                    }
-                    trailingAccessories
-
-                case .executing:
-                    stageLeadingVisual
-                    if trimmedMessage.isEmpty {
-                        ExecutingPulseView()
-                    } else {
-                        hudLabel(trimmedMessage)
-                    }
-                    trailingAccessories
+                case .listening, .command, .dictation, .organizing, .typing, .executing, .checking, .processing:
+                    compactSpeechLane
 
                 case .optimizing:
                     optimizingLeadingVisual
@@ -72,27 +29,9 @@ struct HUDView: View {
                     }
                     trailingAccessories
 
-                case .checking:
-                    stageLeadingVisual
-                    if trimmedMessage.isEmpty {
-                        CheckingProgressView()
-                    } else {
-                        hudLabel(trimmedMessage)
-                    }
-                    trailingAccessories
-
                 case .dragging:
                     actionBadge(symbol: "hand.draw.fill", tone: .white)
                     hudLabel(NSLocalizedString("speech.dragging", comment: ""))
-                    trailingAccessories
-
-                case .processing:
-                    stageLeadingVisual
-                    if !trimmedMessage.isEmpty {
-                        hudLabel(trimmedMessage)
-                    } else {
-                        TextOrganizingView()
-                    }
                     trailingAccessories
 
                 case .feedback:
@@ -117,8 +56,8 @@ struct HUDView: View {
                 }
             }
         }
-        .padding(.horizontal, state.mode == .standby ? 8 : 16)
-        .padding(.vertical, state.mode == .standby ? 8 : 10)
+        .padding(.horizontal, state.mode == .standby ? 8 : (isTwoStateSpeechMode ? 12 : 16))
+        .padding(.vertical, state.mode == .standby ? 8 : (isTwoStateSpeechMode ? 9 : 10))
         .background(
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
         )
@@ -159,12 +98,21 @@ struct HUDView: View {
         state.message.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var dictationLane: some View {
-        LiveDictationView(
+    private var compactSpeechLane: some View {
+        TwoStateSpeechLaneView(
             text: trimmedMessage,
             level: state.audioLevel,
-            maxWidth: hudLabelMaxWidth
+            width: compactSpeechLaneWidth
         )
+    }
+
+    private var isTwoStateSpeechMode: Bool {
+        switch state.mode {
+        case .listening, .command, .dictation, .organizing, .typing, .executing, .checking, .processing:
+            return true
+        default:
+            return false
+        }
     }
 
     private var micIcon: some View {
@@ -300,7 +248,14 @@ struct HUDView: View {
     }
 
     private var hudContainerCornerRadius: CGFloat {
-        state.mode == .standby ? 16 : 24
+        if state.mode == .standby {
+            return 16
+        }
+        return isTwoStateSpeechMode ? 19 : 24
+    }
+
+    private var compactSpeechLaneWidth: CGFloat {
+        178
     }
 
     private var primaryBadgeCircleDiameter: CGFloat {
@@ -1045,17 +1000,26 @@ private struct TypingProgressView: View {
     }
 }
 
-private struct LiveDictationView: View {
+private struct TwoStateSpeechLaneView: View {
     let text: String
     let level: CGFloat
-    let maxWidth: CGFloat
+    let width: CGFloat
 
     @State private var phase: CGFloat = 0
-    @State private var cursorVisible = true
 
     var body: some View {
-        HStack(spacing: 8) {
-            if !text.isEmpty {
+        Group {
+            if text.isEmpty {
+                HStack(alignment: .center, spacing: 4) {
+                    ForEach(0..<3, id: \.self) { index in
+                        RoundedRectangle(cornerRadius: 1.6, style: .continuous)
+                            .fill(Color.white.opacity(barOpacity(for: index)))
+                            .frame(width: 3.5, height: barHeight(for: index))
+                            .shadow(color: Color.white.opacity(0.12), radius: 1.2)
+                    }
+                }
+                .frame(width: width, height: 20, alignment: .center)
+            } else {
                 Text(text)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white.opacity(0.98))
@@ -1063,57 +1027,36 @@ private struct LiveDictationView: View {
                     .lineLimit(1)
                     .truncationMode(.head)
                     .minimumScaleFactor(0.92)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .layoutPriority(1)
-            }
-
-            if text.isEmpty {
-                HStack(alignment: .center, spacing: 3) {
-                    ForEach(0..<5, id: \.self) { index in
-                        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                            .fill(Color.green.opacity(barOpacity(for: index)))
-                            .frame(width: 3, height: barHeight(for: index))
-                            .shadow(color: Color.green.opacity(0.16), radius: 1.5)
-                    }
-
-                    Rectangle()
-                        .fill(Color.green.opacity(cursorVisible ? 0.94 : 0.3))
-                        .frame(width: 2, height: 14)
-                        .shadow(color: Color.green.opacity(0.34), radius: 2)
-                }
-                .frame(width: 30, height: 18, alignment: .trailing)
+                    .frame(width: width, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(maxWidth: maxWidth, alignment: .leading)
         .animation(.easeInOut(duration: 0.16), value: phase)
-        .animation(.easeInOut(duration: 0.18), value: cursorVisible)
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 180_000_000)
                 await MainActor.run {
                     phase += 1
-                    cursorVisible.toggle()
                 }
             }
         }
     }
 
     private func barOpacity(for index: Int) -> Double {
-        let boosted = max(0.16, min(level, 1.0))
-        let phaseOffset = sin((phase + CGFloat(index) * 0.9) * 0.9)
+        let boosted = max(0.14, min(level, 1.0))
+        let phaseOffset = sin((phase + CGFloat(index) * 0.75) * 1.05)
         let wave = max(0, 0.5 + phaseOffset * 0.5)
-        let emphasis = index == 2 || index == 3 ? 1.0 : 0.82
-        return min(0.98, Double(0.36 + boosted * 0.46 + wave * 0.18) * emphasis)
+        let emphasis: Double = index == 1 ? 1.0 : 0.88
+        return min(0.96, (0.34 + Double(boosted) * 0.42 + Double(wave) * 0.16) * emphasis)
     }
 
     private func barHeight(for index: Int) -> CGFloat {
-        let baseHeights: [CGFloat] = [6, 11, 16, 11, 6]
-        let boosted = max(0.16, min(level, 1.0))
-        let phaseOffset = sin((phase + CGFloat(index) * 0.85) * 0.9)
+        let baseHeights: [CGFloat] = [8, 15, 10]
+        let boosted = max(0.14, min(level, 1.0))
+        let phaseOffset = sin((phase + CGFloat(index) * 0.78) * 1.1)
         let wave = max(0, 0.5 + phaseOffset * 0.5)
-        let floor: CGFloat = text.isEmpty ? 0.44 : 0.34
-        let effective = max(floor, boosted * 0.78 + wave * 0.34)
-        let minHeight: CGFloat = 4
+        let effective = max(0.36, boosted * 0.74 + wave * 0.3)
+        let minHeight: CGFloat = 5
         return minHeight + (baseHeights[index] - minHeight) * min(effective, 1.0)
     }
 }

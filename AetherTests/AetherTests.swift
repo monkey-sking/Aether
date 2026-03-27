@@ -313,12 +313,12 @@ final class AppStateLLMConfigurationTests: XCTestCase {
 }
 
 final class WakeWordDetectorTests: XCTestCase {
-    private func makeDetector() -> WakeWordDetector {
+    private func makeDetector(wakeWords: [String] = ["幻影"]) -> WakeWordDetector {
         let detector = WakeWordDetector()
         detector.overrides = [
             VoiceLanguageTermsOverrideConfig(
                 localeIdentifier: "zh-CN",
-                wakeWords: ["幻影"],
+                wakeWords: wakeWords,
                 commandPrefixes: [],
                 dictationPrefixes: []
             )
@@ -442,6 +442,110 @@ final class WakeWordDetectorTests: XCTestCase {
         XCTAssertEqual(result.payload, "打开设置")
     }
 
+    func testRetryAwareStandbyModeAllowsNaturalInterjectionLeadIn() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "哎呀 幻影 打开设置",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.payload, "打开设置")
+    }
+
+    func testRetryAwareStandbyModeAllowsShortConversationalLeadInChain() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "嗯哼这个 幻影 打开设置",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.payload, "打开设置")
+    }
+
+    func testRetryAwareStandbyModeAllowsLongerWhitelistedChineseLeadInChain() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "嗯那个这个请问 幻影 打开设置",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.payload, "打开设置")
+    }
+
+    func testRetryAwareStandbyModeAllowsPunctuatedLeadInChainWithinExpandedRawBudget() {
+        let detector = makeDetector()
+
+        let result = detector.process(
+            "诶，那个，那个，幻影 打开设置",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.payload, "打开设置")
+    }
+
+    func testRetryAwareStandbyModeRecoversRepeatedWakeRetryAtTail() {
+        let detector = makeDetector(wakeWords: ["你好"])
+
+        let result = detector.process(
+            "这是什么你好你好",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.matchedPhrase, "你好")
+        XCTAssertEqual(result.payload, "")
+    }
+
+    func testRetryAwareStandbyModeRecoversLaterRepeatedWakeAfterEarlierMidUtteranceMiss() {
+        let detector = makeDetector(wakeWords: ["你好"])
+
+        let result = detector.process(
+            "属性你好，你用的哪个？你好？",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertTrue(result.wakeDetected)
+        XCTAssertEqual(result.matchedPhrase, "你好")
+        XCTAssertEqual(result.payload, "")
+    }
+
+    func testRetryAwareStandbyModeKeepsSingleMidUtteranceWakeRejected() {
+        let detector = makeDetector(wakeWords: ["你好"])
+
+        let result = detector.process(
+            "属性你好，你用的哪个浏览器啊",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertFalse(result.wakeDetected)
+    }
+
+    func testRetryAwareStandbyModeDoesNotRecoverRepeatedWakeWhenTailHasRealContent() {
+        let detector = makeDetector(wakeWords: ["你好"])
+
+        let result = detector.process(
+            "这是什么你好你好朋友",
+            localeIdentifier: "zh-CN",
+            matchMode: .retryAwareStandby
+        )
+
+        XCTAssertFalse(result.wakeDetected)
+    }
+
     func testRetryAwareStandbyModeRejectsNonFillerLeadIn() {
         let detector = makeDetector()
 
@@ -505,6 +609,90 @@ final class SpeechManagerGuardrailTests: XCTestCase {
         )
     }
 
+    func testWakeGateAllowsActiveWakeDictationAfterWakeWindowDrops() {
+        XCTAssertTrue(
+            SpeechManager.shouldAllowWakeGatedTyping(
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                isAwake: false,
+                wakeWordDetected: false,
+                keepActiveWakeDictation: true
+            )
+        )
+    }
+
+    func testWakeGatedDictationHoldStaysActiveDuringUtteranceBeforeStreaming() {
+        XCTAssertTrue(
+            SpeechManager.shouldKeepWakeGatedDictationActive(
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                sessionTypingMode: true,
+                isUtteranceActive: true,
+                hasStreamedDictation: false,
+                pendingWakeFollowUp: false,
+                fallbackWindowActive: false
+            )
+        )
+    }
+
+    func testWakeGatedDictationHoldDoesNotKeepIdleStandbyActive() {
+        XCTAssertFalse(
+            SpeechManager.shouldKeepWakeGatedDictationActive(
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                sessionTypingMode: true,
+                isUtteranceActive: false,
+                hasStreamedDictation: false,
+                pendingWakeFollowUp: false,
+                fallbackWindowActive: false
+            )
+        )
+    }
+
+    func testWakeLifecycleSuppressesPureWakePhraseTranscript() {
+        XCTAssertTrue(
+            SpeechManager.shouldSuppressWakeOnlyTranscriptDuringActiveWakeLifecycle(
+                pendingWakePhrase: "你好",
+                activeWakePhrases: ["你好", "艾瑟"],
+                routedTranscript: "你好？",
+                wakeLifecycleActive: true
+            )
+        )
+    }
+
+    func testWakeLifecycleSuppressesRepeatedWakePhraseTranscript() {
+        XCTAssertTrue(
+            SpeechManager.shouldSuppressWakeOnlyTranscriptDuringActiveWakeLifecycle(
+                pendingWakePhrase: "你好",
+                activeWakePhrases: ["你好"],
+                routedTranscript: "你好你好你",
+                wakeLifecycleActive: true
+            )
+        )
+    }
+
+    func testWakeLifecycleDoesNotSuppressWakePhraseWithRealContent() {
+        XCTAssertFalse(
+            SpeechManager.shouldSuppressWakeOnlyTranscriptDuringActiveWakeLifecycle(
+                pendingWakePhrase: "你好",
+                activeWakePhrases: ["你好"],
+                routedTranscript: "你好浏览器",
+                wakeLifecycleActive: true
+            )
+        )
+    }
+
+    func testWakeLifecycleDoesNotSuppressWakePhraseOutsideWakeLifecycle() {
+        XCTAssertFalse(
+            SpeechManager.shouldSuppressWakeOnlyTranscriptDuringActiveWakeLifecycle(
+                pendingWakePhrase: "你好",
+                activeWakePhrases: ["你好"],
+                routedTranscript: "你好",
+                wakeLifecycleActive: false
+            )
+        )
+    }
+
     func testWakeMatchModeUsesRetryAwareForAlwaysListeningWakeWordMode() {
         let mode = SpeechManager.wakeMatchMode(
             isWakeWordEnabled: true,
@@ -553,8 +741,8 @@ final class SpeechManagerGuardrailTests: XCTestCase {
         }
     }
 
-    func testPartialWakeSegmentsOnlyWhenWakePhraseHasNoInlinePayload() {
-        XCTAssertTrue(
+    func testPartialWakeDoesNotSegmentImmediatelyEvenWhenWakePhraseHasNoInlinePayload() {
+        XCTAssertFalse(
             SpeechManager.shouldSegmentRecognitionAfterPartialWake(
                 isAlwaysListeningEnabled: true,
                 isWakeWordEnabled: true,
@@ -631,6 +819,57 @@ final class SpeechManagerGuardrailTests: XCTestCase {
                 continuousRecoveryGraceActive: false,
                 recognitionStartupGraceActive: true,
                 recognitionUnavailableActive: false
+            )
+        )
+    }
+
+    func testWakeFollowUpTypingStatePreservedWhileAwakeAndTargetStable() {
+        XCTAssertTrue(
+            SpeechManager.shouldPreserveWakeFollowUpTypingState(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                awakeWindowActive: true,
+                pendingWakeFollowUp: false,
+                recentExpiredWakeFollowUp: false,
+                typingStateActive: true,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: true,
+                typingSuppressed: false
+            )
+        )
+    }
+
+    func testWakeFollowUpTypingStateNotPreservedAfterWakeWindowCloses() {
+        XCTAssertFalse(
+            SpeechManager.shouldPreserveWakeFollowUpTypingState(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                awakeWindowActive: false,
+                pendingWakeFollowUp: false,
+                recentExpiredWakeFollowUp: false,
+                typingStateActive: true,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: true,
+                typingSuppressed: false
+            )
+        )
+    }
+
+    func testWakeFollowUpTypingStateNotPreservedWhenFrontmostTargetChanges() {
+        XCTAssertFalse(
+            SpeechManager.shouldPreserveWakeFollowUpTypingState(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                awakeWindowActive: true,
+                pendingWakeFollowUp: false,
+                recentExpiredWakeFollowUp: false,
+                typingStateActive: true,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: false,
+                typingSuppressed: false
             )
         )
     }

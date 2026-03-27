@@ -575,6 +575,8 @@ final class SpeechManager: ObservableObject {
     private var lastChangeAt: Date?
     private var lastStableText: String = ""
     private var lastHandsFreeHUDActivityAt: Date = Date()
+    private var speechExitBarsHoldUntil: Date = .distantPast
+    private var speechHUDTextVisible = false
     private var continuousTimer: Timer?
     private var stopTimer: Timer?
     private var finalizationWorkItem: DispatchWorkItem?
@@ -694,6 +696,7 @@ final class SpeechManager: ObservableObject {
     }
 
     private var handsFreeHUDCollapseDelay: TimeInterval { 8.0 }
+    private var speechExitBarsHoldDuration: TimeInterval { 0.32 }
 
     private struct RuntimeSpeechMetrics {
         var sessions: Int = 0
@@ -2274,6 +2277,30 @@ final class SpeechManager: ObservableObject {
     private func noteHandsFreeHUDActivity(at date: Date = Date()) {
         guard isAlwaysListeningEnabled, isDirectCommandEnabled else { return }
         lastHandsFreeHUDActivityAt = date
+    }
+
+    private func armSpeechExitBarsHold(at date: Date = Date()) {
+        speechExitBarsHoldUntil = date.addingTimeInterval(speechExitBarsHoldDuration)
+    }
+
+    private func cancelSpeechExitBarsHold() {
+        speechExitBarsHoldUntil = .distantPast
+    }
+
+    private func isSpeechExitBarsHoldActive(at date: Date = Date()) -> Bool {
+        date < speechExitBarsHoldUntil
+    }
+
+    private func updateSpeechHUDTextVisibility(_ visible: Bool, at date: Date, armHold: Bool = true) {
+        if visible {
+            speechHUDTextVisible = true
+            cancelSpeechExitBarsHold()
+            return
+        }
+        if armHold && speechHUDTextVisible {
+            armSpeechExitBarsHold(at: date)
+        }
+        speechHUDTextVisible = false
     }
 
     private var shouldCollapseHandsFreeHUDToStandby: Bool {
@@ -5937,8 +5964,96 @@ final class SpeechManager: ObservableObject {
         }
 
         let common = commonPrefixLen(typed, transcript)
-        guard common > 0 else { return transcript }
-        return String(transcript.dropFirst(common))
+        return common > 0 ? String(transcript.dropFirst(common)) : transcript
+    }
+
+    private func displayedDictationHUDTail() -> String {
+        semanticHUDTailSlice(
+            from: remainingDictationHUDText()
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private func semanticHUDTailSlice(from tail: String) -> String {
+        let preferredLength = 18
+        let searchWindow = 34
+        let minimumSemanticSegmentLength = 5
+        guard tail.count > preferredLength else { return tail }
+
+        let characters = Array(tail)
+        let lowerBound = max(0, characters.count - searchWindow)
+        let preferredBreakpointStart = max(lowerBound, characters.count - preferredLength)
+
+        for index in stride(from: preferredBreakpointStart, through: lowerBound, by: -1) {
+            guard isSemanticHUDTailBreakpoint(characters[index]) else { continue }
+            let nextIndex = index + 1
+            guard nextIndex < characters.count else { continue }
+            let candidate = String(characters[nextIndex...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if candidate.count >= minimumSemanticSegmentLength {
+                return candidate
+            }
+        }
+
+        return tail
+    }
+
+    private func isSemanticHUDTailBreakpoint(_ character: Character) -> Bool {
+        switch character {
+        case "，", "。", "！", "？", "；", "、", " ":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func shouldCollapseHUDToTwoState(mode: HUDMode) -> Bool {
+        switch mode {
+        case .listening, .command, .dictation, .organizing, .typing, .executing, .checking, .processing:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func collapsedHUDMessage(for mode: HUDMode, explicitMessage: String = "") -> String {
+        let trimmedExplicit = explicitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tail = displayedDictationHUDTail()
+
+        switch mode {
+        case .listening:
+            return trimmedExplicit
+        case .command:
+            if !trimmedExplicit.isEmpty { return trimmedExplicit }
+            if !tail.isEmpty { return tail }
+            return lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .dictation, .organizing, .typing, .executing, .checking, .processing:
+            if !tail.isEmpty { return tail }
+            if shouldSuppressCollapsedHUDStatus(trimmedExplicit) { return "" }
+            return trimmedExplicit
+        default:
+            return trimmedExplicit
+        }
+    }
+
+    private func shouldSuppressCollapsedHUDStatus(_ message: String) -> Bool {
+        guard !message.isEmpty else { return false }
+        return message == organizingHUDStatus
+            || message == typingHUDStatus
+            || message == executingHUDStatus
+            || message == checkingHUDStatus
+    }
+
+    private func showSpeechBarsHUD(recognitionControlMode: HUDRecognitionControlMode) {
+        HUDManager.shared.update(
+            mode: .listening,
+            message: "",
+            language: activeLocale.identifier,
+            recognitionControlMode: recognitionControlMode,
+            inputDeviceIcon: hudInputIcon(),
+            inputDeviceHealth: hudInputHealth(),
+            contextIcon: hudContextIcon()
+        )
     }
 
     private func noteFirstPartialIfNeeded(at now: Date) {
@@ -6916,7 +7031,9 @@ final class SpeechManager: ObservableObject {
     }
 
     private func refreshContinuousHUD(isDictating: Bool = false) {
+        let now = Date()
         if isIdlePauseSuspended {
+            updateSpeechHUDTextVisibility(false, at: now, armHold: false)
             if HUDManager.shared.isTemporaryHUDActive || HUDManager.shared.state.isLanguageIndicatorVisible {
                 return
             }
@@ -6960,6 +7077,7 @@ final class SpeechManager: ObservableObject {
             featureAvailability.commandEnabled
             && !featureAvailability.dictationEnabled
         if !isStopping && Date() < hudOverrideUntil {
+            updateSpeechHUDTextVisibility(false, at: now, armHold: false)
             HUDManager.shared.update(
                 mode: hudOverrideMode,
                 message: hudOverrideMessage,
@@ -6972,6 +7090,7 @@ final class SpeechManager: ObservableObject {
             return
         }
         if (isAlwaysListeningEnabled || isWakeWordEnabled), let hint = missingVoicePermissionHint() {
+            updateSpeechHUDTextVisibility(false, at: now, armHold: false)
             HUDManager.shared.update(
                 mode: .feedback,
                 message: hint.message,
@@ -6984,9 +7103,18 @@ final class SpeechManager: ObservableObject {
             return
         }
         if let activeStageMode = activeHUDStageMode {
+            let activeStageMessage =
+                shouldCollapseHUDToTwoState(mode: activeStageMode)
+                ? collapsedHUDMessage(for: activeStageMode, explicitMessage: activeHUDStageMessage)
+                : activeHUDStageMessage
+            if shouldCollapseHUDToTwoState(mode: activeStageMode) {
+                updateSpeechHUDTextVisibility(!activeStageMessage.isEmpty, at: now)
+            } else {
+                updateSpeechHUDTextVisibility(false, at: now, armHold: false)
+            }
             HUDManager.shared.update(
                 mode: activeStageMode,
-                message: activeHUDStageMessage,
+                message: activeStageMessage,
                 language: activeLocale.identifier,
                 recognitionControlMode: activeHUDStageControlMode ?? controlMode,
                 inputDeviceIcon: hudInputIcon(),
@@ -6998,6 +7126,7 @@ final class SpeechManager: ObservableObject {
         if isWakeGatedStandby {
             clearHUDOverride()
             clearUnarmedWakePreview()
+            updateSpeechHUDTextVisibility(false, at: now)
             logWakeHUDStateIfNeeded(
                 reason: "wake-standby-hidden",
                 controlMode: controlMode,
@@ -7006,6 +7135,10 @@ final class SpeechManager: ObservableObject {
                 isSessionActive: recognitionSession.isRunning || isStopping || effectiveDictating || isPTTHeld
             )
             ensureRecognitionSessionForVisibleHUD(reason: "wake-standby-hidden")
+            if isSpeechExitBarsHoldActive(at: now) {
+                showSpeechBarsHUD(recognitionControlMode: controlMode)
+                return
+            }
             if HUDManager.shared.isTemporaryHUDActive || HUDManager.shared.state.isLanguageIndicatorVisible {
                 return
             }
@@ -7015,6 +7148,11 @@ final class SpeechManager: ObservableObject {
         let isSessionActive = recognitionSession.isRunning || isStopping || effectiveDictating || isPTTHeld
         if !isContinuousActive && !isSessionActive {
             clearHUDOverride()
+            updateSpeechHUDTextVisibility(false, at: now)
+            if isSpeechExitBarsHoldActive(at: now) {
+                showSpeechBarsHUD(recognitionControlMode: controlMode)
+                return
+            }
             if isPushToTalkOnlyIdle {
                 if HUDManager.shared.isTemporaryHUDActive || HUDManager.shared.state.isLanguageIndicatorVisible {
                     return
@@ -7045,6 +7183,7 @@ final class SpeechManager: ObservableObject {
            !featureAvailability.commandEnabled,
            !focusedTypingEvidence {
             clearHUDOverride()
+            updateSpeechHUDTextVisibility(false, at: now)
             logWakeHUDStateIfNeeded(
                 reason: "dictation-only-without-focus-hidden",
                 controlMode: controlMode,
@@ -7052,11 +7191,16 @@ final class SpeechManager: ObservableObject {
                 effectiveDictating: effectiveDictating,
                 isSessionActive: recognitionSession.isRunning || isStopping || effectiveDictating || isPTTHeld
             )
+            if isSpeechExitBarsHoldActive(at: now) {
+                showSpeechBarsHUD(recognitionControlMode: controlMode)
+                return
+            }
             HUDManager.shared.hide()
             return
         }
 
         if realHardware.isEmpty {
+            updateSpeechHUDTextVisibility(false, at: now, armHold: false)
             HUDManager.shared.update(
                 mode: .feedback,
                 message: NSLocalizedString("speech.no_mic_detected", comment: ""),
@@ -7082,6 +7226,7 @@ final class SpeechManager: ObservableObject {
         if isWakeGated && !isAwake && !isStopping && !effectiveDictating {
             clearHUDOverride()
             clearUnarmedWakePreview()
+            updateSpeechHUDTextVisibility(false, at: now)
             logWakeHUDStateIfNeeded(
                 reason: "wake-gated-hidden-before-mode-selection",
                 controlMode: controlMode,
@@ -7089,6 +7234,10 @@ final class SpeechManager: ObservableObject {
                 effectiveDictating: effectiveDictating,
                 isSessionActive: isSessionActive
             )
+            if isSpeechExitBarsHoldActive(at: now) {
+                showSpeechBarsHUD(recognitionControlMode: controlMode)
+                return
+            }
             HUDManager.shared.hide()
             return
         }
@@ -7098,6 +7247,16 @@ final class SpeechManager: ObservableObject {
         else if shouldShowIdleAutoDictationHUD { mode = .listening }
         else if !lastTranscript.isEmpty { mode = .command; message = lastTranscript }
         else { mode = .listening }
+        if shouldCollapseHUDToTwoState(mode: mode) {
+            message = collapsedHUDMessage(for: mode, explicitMessage: message)
+            updateSpeechHUDTextVisibility(!message.isEmpty, at: now)
+        } else {
+            updateSpeechHUDTextVisibility(false, at: now)
+            if mode == .standby, isSpeechExitBarsHoldActive(at: now) {
+                showSpeechBarsHUD(recognitionControlMode: controlMode)
+                return
+            }
+        }
         if message.isEmpty {
             switch playbackLeakState {
             case .suspectedPlaybackLeak:
