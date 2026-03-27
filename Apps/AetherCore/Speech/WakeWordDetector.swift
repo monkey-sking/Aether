@@ -89,6 +89,7 @@ final class WakeWordDetector {
     private static let fuzzyWakeDetectionThreshold = 0.88
     private static let retryWakeDetectionThreshold = 0.93
     private static let retryLeadInRawCharacterBudget = 8
+    private static let retryTrailingClauseRawCharacterBudget = 16
     private let stateQueue = DispatchQueue(label: "com.aether.wake-word-detector.state", attributes: .concurrent)
     private var storedOverrides: [VoiceLanguageTermsOverrideConfig] = []
 
@@ -158,7 +159,7 @@ final class WakeWordDetector {
             )
         }
 
-        if matchMode == .retryAwareStandby || matchMode == .awakeFollowUp,
+        if matchMode == .retryAwareStandby,
            let retryMatch = Self.bestRetryAwareMatch(
             phrases: phrases,
             in: trimmedLeading,
@@ -171,6 +172,22 @@ final class WakeWordDetector {
                 payload: payload,
                 score: retryMatch.score,
                 matchedPhrase: retryMatch.phrase
+            )
+        }
+
+        if matchMode == .retryAwareStandby,
+           let trailingRecoveryMatch = Self.bestTrailingClauseRecoveryMatch(
+            phrases: phrases,
+            in: trimmedLeading,
+            localeIdentifier: localeIdentifier
+           ) {
+            let payload = String(trimmedLeading.dropFirst(trailingRecoveryMatch.totalConsumedRawCount))
+                .trimmingLeadingWakePayloadSeparators()
+            return WakeWordDetectionResult(
+                wakeDetected: true,
+                payload: payload,
+                score: trailingRecoveryMatch.score,
+                matchedPhrase: trailingRecoveryMatch.phrase
             )
         }
 
@@ -298,6 +315,59 @@ final class WakeWordDetector {
         return best
     }
 
+    private static func bestSuffixMatch(for phrase: String, in text: String) -> WakePhraseMatch? {
+        let loweredText = text.lowercased()
+        let loweredPhrase = phrase.lowercased()
+        if loweredText.hasSuffix(loweredPhrase) {
+            return WakePhraseMatch(
+                phrase: phrase,
+                score: 1.0,
+                leadingRawDiscardCount: max(0, text.count - phrase.count),
+                consumeRawCount: phrase.count
+            )
+        }
+
+        let normalizedPhrase = normalizeForWakeMatching(phrase)
+        guard !normalizedPhrase.isEmpty else { return nil }
+        let pinyinPhrase = phrase.pinyin
+
+        let maxRawSuffix = min(text.count, max(phrase.count + 4, phrase.count))
+        var best: WakePhraseMatch?
+
+        for rawCount in 1...maxRawSuffix {
+            let candidate = String(text.suffix(rawCount))
+            let normalizedCandidate = normalizeForWakeMatching(candidate)
+            guard !normalizedCandidate.isEmpty else { continue }
+            guard normalizedCandidate.count <= normalizedPhrase.count + 2 else { continue }
+
+            let score = wakeMatchScore(
+                candidate: candidate,
+                normalizedCandidate: normalizedCandidate,
+                pinyinCandidate: candidate.pinyin,
+                phrase: phrase,
+                normalizedPhrase: normalizedPhrase,
+                pinyinPhrase: pinyinPhrase
+            )
+            guard score > 0 else { continue }
+
+            let match = WakePhraseMatch(
+                phrase: phrase,
+                score: score,
+                leadingRawDiscardCount: max(0, text.count - rawCount),
+                consumeRawCount: rawCount
+            )
+            if let currentBest = best {
+                if match.score > currentBest.score || (match.score == currentBest.score && match.consumeRawCount > currentBest.consumeRawCount) {
+                    best = match
+                }
+            } else {
+                best = match
+            }
+        }
+
+        return best
+    }
+
     private static func bestRetryAwareMatch(
         phrases: [String],
         in text: String,
@@ -346,6 +416,47 @@ final class WakeWordDetector {
         return bestRetryMatch
     }
 
+    private static func bestTrailingClauseRecoveryMatch(
+        phrases: [String],
+        in text: String,
+        localeIdentifier: String
+    ) -> WakePhraseMatch? {
+        guard text.count > 1 else { return nil }
+
+        var bestRecoveryMatch: WakePhraseMatch?
+
+        for phrase in phrases {
+            guard let candidate = bestSuffixMatch(for: phrase, in: text),
+                  candidate.score >= retryWakeDetectionThreshold,
+                  isRetryExactMatch(
+                    candidate: String(text.suffix(candidate.consumeRawCount)),
+                    phrase: candidate.phrase
+                  ) else {
+                continue
+            }
+
+            let leadingRaw = String(text.prefix(candidate.leadingRawDiscardCount))
+            guard isTrailingWakeLeadInEligible(leadingRaw, localeIdentifier: localeIdentifier) else {
+                continue
+            }
+
+            if let currentBest = bestRecoveryMatch {
+                if candidate.score > currentBest.score
+                    || (candidate.score == currentBest.score
+                        && candidate.leadingRawDiscardCount < currentBest.leadingRawDiscardCount)
+                    || (candidate.score == currentBest.score
+                        && candidate.leadingRawDiscardCount == currentBest.leadingRawDiscardCount
+                        && candidate.phrase.count > currentBest.phrase.count) {
+                    bestRecoveryMatch = candidate
+                }
+            } else {
+                bestRecoveryMatch = candidate
+            }
+        }
+
+        return bestRecoveryMatch
+    }
+
     private static func isRetryLeadInEligible(
         _ text: String,
         localeIdentifier: String
@@ -374,12 +485,43 @@ final class WakeWordDetector {
         return canComposeRetryLeadIn(normalized, terms: leadInTerms)
     }
 
+    private static func isTrailingWakeLeadInEligible(
+        _ text: String,
+        localeIdentifier: String
+    ) -> Bool {
+        let trimmedTrailing = text.trimmingTrailingWakePayloadSeparators()
+        let normalized = normalizeForWakeMatching(trimmedTrailing)
+        guard !normalized.isEmpty else { return false }
+
+        if isRetryLeadInEligible(trimmedTrailing, localeIdentifier: localeIdentifier) {
+            return true
+        }
+
+        let hadClauseBoundary = trimmedTrailing.count != text.count
+        guard hadClauseBoundary else { return false }
+        guard trimmedTrailing.count <= retryTrailingClauseRawCharacterBudget else { return false }
+
+        let canonicalLocale = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let maxNormalizedLength: Int
+        switch canonicalLocale {
+        case "zh-CN":
+            maxNormalizedLength = 8
+        case "ja-JP", "ko-KR":
+            maxNormalizedLength = 6
+        default:
+            maxNormalizedLength = 8
+        }
+
+        return normalized.count <= maxNormalizedLength
+    }
+
     private static func retryLeadInTerms(for canonicalLocaleIdentifier: String) -> [String] {
         switch canonicalLocaleIdentifier {
         case "zh-CN":
             return [
                 "嗯", "啊", "呃", "诶", "欸", "嘿", "喂",
-                "那个", "就是", "真的", "还有", "然后", "那就", "那么", "请问", "麻烦"
+                "那个", "就是", "真的", "还有", "然后", "那就", "那么", "请问", "麻烦",
+                "能不能", "你能不能", "可不可以", "你可不可以"
             ]
         case "ja-JP":
             return ["えっと", "あの", "えー", "ねえ"]
@@ -504,6 +646,23 @@ private extension String {
             index = self.index(after: index)
         }
         return String(self[index...])
+    }
+
+    func trimmingTrailingWakePayloadSeparators() -> String {
+        let separatorScalars = CharacterSet(charactersIn: ",.!?;:，。！？；：、…")
+
+        var index = endIndex
+        while index > startIndex {
+            let previous = self.index(before: index)
+            let scalarView = self[previous].unicodeScalars
+            let isIgnorable = scalarView.allSatisfy {
+                CharacterSet.whitespacesAndNewlines.contains($0)
+                    || separatorScalars.contains($0)
+            }
+            if !isIgnorable { break }
+            index = previous
+        }
+        return String(self[..<index])
     }
 
     func trimmingLeadingWakeIgnorables() -> String {

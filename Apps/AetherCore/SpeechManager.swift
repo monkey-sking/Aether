@@ -630,6 +630,7 @@ final class SpeechManager: ObservableObject {
     private var noSpeechRecoveryUntil: Date = .distantPast
     private var consecutiveRecognitionUnavailableCount: Int = 0
     private var consecutiveNoSpeechRecoveries: Int = 0
+    private var standbyWakeMissRecoveryUntil: Date = .distantPast
     private var lastContinuousStartAt: Date = .distantPast
     private var nextAllowedStartOnceAt: Date = .distantPast
     private var isContinuousDictationWaitingForInputFocus: Bool = false
@@ -2481,7 +2482,7 @@ final class SpeechManager: ObservableObject {
                 localeIdentifier: activeLocale.identifier
             )
             logWakeEvaluationIfNeeded(
-                phase: "partial",
+                phase: isAwake ? "partial-awake" : "partial-standby",
                 rawText: originalRawText,
                 matchMode: matchMode,
                 wakeDetected: result.wakeDetected,
@@ -2769,6 +2770,10 @@ final class SpeechManager: ObservableObject {
         }
 
         lastStandbyWakeMissSegmentationAt = Date()
+        resetNoSpeechRecoveryBackoff()
+        standbyWakeMissRecoveryUntil = Date().addingTimeInterval(1.6)
+        suppressRecognitionFailuresUntil = Date().addingTimeInterval(1.6)
+        suppressRecognitionFailuresReason = "standby-wake-miss-recovery"
         GlobalLogger.speech.info(
             "[WakeWord] segmenting recognition after standby miss reason=\(reason) session=\(sessionGeneration) utterance=\(activeUtteranceID) transcript='\(wakeDiagnosticSnippet(rawText))'"
         )
@@ -2990,6 +2995,14 @@ final class SpeechManager: ObservableObject {
             return 0.12
         }
 
+        if Date() < standbyWakeMissRecoveryUntil {
+            noSpeechRecoveryUntil = Date().addingTimeInterval(0.05)
+            GlobalLogger.speech.info(
+                "[ASR Session] bypassed no-speech backoff during standby-wake-miss recovery retryIn=0.05"
+            )
+            return 0.05
+        }
+
         consecutiveNoSpeechRecoveries = min(consecutiveNoSpeechRecoveries + 1, 6)
         let delay = min(0.35 * pow(1.7, Double(consecutiveNoSpeechRecoveries - 1)), 1.5)
         noSpeechRecoveryUntil = Date().addingTimeInterval(delay)
@@ -3002,6 +3015,7 @@ final class SpeechManager: ObservableObject {
     private func resetNoSpeechRecoveryBackoff() {
         consecutiveNoSpeechRecoveries = 0
         noSpeechRecoveryUntil = .distantPast
+        standbyWakeMissRecoveryUntil = .distantPast
     }
 
     // MARK: - EOS Callbacks
@@ -3527,8 +3541,10 @@ final class SpeechManager: ObservableObject {
         switch matchMode {
         case .strictPrefix:
             return "0.88"
-        case .retryAwareStandby, .awakeFollowUp:
+        case .retryAwareStandby:
             return "strict=0.88 retry=0.93"
+        case .awakeFollowUp:
+            return "0.88"
         }
     }
 
@@ -3665,8 +3681,10 @@ final class SpeechManager: ObservableObject {
         guard isDiagnosableMiss else { return false }
 
         let shouldSurfaceInInsights: Bool
-        if phase.hasPrefix("final") {
-            shouldSurfaceInInsights = !(phase == "final-awake" && reason == .noPhraseMatch)
+        if phase.contains("awake") {
+            shouldSurfaceInInsights = false
+        } else if phase.hasPrefix("final") {
+            shouldSurfaceInInsights = true
         } else if phase.hasPrefix("partial") {
             switch reason {
             case .belowThreshold, .phraseNotAtPrefix, .prefixRejected:
