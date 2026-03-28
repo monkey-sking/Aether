@@ -5922,6 +5922,8 @@ struct OutputSettingsView: View {
 }
 
 private struct HeadGestureSettingsContent: View {
+    var showsDiagnostics: Bool = true
+
     @ObservedObject private var headManager = HeadMotionManager.shared
     private var isChinese: Bool { AppLocalization.isChinese }
 
