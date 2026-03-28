@@ -35,7 +35,7 @@ enum VoiceSettingsSection: Hashable {
         case .advanced: return AppLocalization.isChinese ? "高级" : "Advanced"
         case .termCorrections: return NSLocalizedString("settings.section.term_corrections.title", comment: "")
         case .lexicon: return NSLocalizedString("settings.section.lexicon.title", comment: "")
-        case .appControls: return NSLocalizedString("settings.section.app_controls.title", comment: "")
+        case .appControls: return AppLocalization.isChinese ? "App 规则与别名" : "App Rules & Aliases"
         case .insights: return NSLocalizedString("settings.section.insights.title", comment: "")
         case .wakeInsights: return AppLocalization.isChinese ? "唤醒与激活" : "Wake & Activation"
         }
@@ -58,7 +58,7 @@ enum VoiceSettingsSection: Hashable {
         case .lexicon:
             return NSLocalizedString("settings.section.lexicon.page_title", comment: "")
         case .appControls:
-            return NSLocalizedString("settings.section.app_controls.page_title", comment: "")
+            return AppLocalization.isChinese ? "App 规则与别名" : "App Rules & Aliases"
         case .insights:
             return NSLocalizedString("settings.section.insights.page_title", comment: "")
         case .wakeInsights:
@@ -85,7 +85,9 @@ enum VoiceSettingsSection: Hashable {
         case .lexicon:
             return NSLocalizedString("settings.section.lexicon.subtitle", comment: "")
         case .appControls:
-            return NSLocalizedString("settings.section.app_controls.subtitle", comment: "")
+            return isChinese
+                ? "管理当前 App 预览、自定义规则和启动别名。"
+                : "Manage current-app previews, custom rules, and app launch aliases."
         case .insights:
             return NSLocalizedString("settings.section.insights.subtitle", comment: "")
         case .wakeInsights:
@@ -6208,6 +6210,312 @@ struct ControlsShortcutsSettingsView: View {
 
                 HotkeySettingsSection()
             }
+        }
+    }
+}
+
+struct ImportExportSettingsView: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var lexiconTransferStatus: String?
+
+    private var isChinese: Bool { AppLocalization.isChinese }
+
+    var body: some View {
+        SettingsPage(
+            title: isChinese ? "导入与导出" : "Import & Export",
+            subtitle: isChinese
+                ? "集中管理词表、规则和别名的导入、导出、复制与粘贴。"
+                : "Manage lexicon, rule, and alias transfer actions in one place."
+        ) {
+            VStack(spacing: 16) {
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Label(L10n.voiceLexiconTitle, systemImage: "text.badge.star")
+                            .font(.headline)
+
+                        Text(isChinese ? "导入或导出语音词表，也可以直接从剪贴板恢复。" : "Import or export your voice lexicon, or restore it from the clipboard.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 10) {
+                            Button(L10n.voiceLexiconImport, action: importLexicon)
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            Button(LocalizedStringKey("voice_lexicon.import_clipboard"), action: importLexiconFromClipboard)
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            Button(L10n.voiceLexiconExport, action: exportLexicon)
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            Spacer()
+                        }
+
+                        if let lexiconTransferStatus, !lexiconTransferStatus.isEmpty {
+                            Text(lexiconTransferStatus)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Label(isChinese ? "App 规则" : "App Rules", systemImage: "app.badge")
+                            .font(.headline)
+
+                        Text(isChinese ? "复制或粘贴自定义 App 控制规则，方便在不同机器间同步。" : "Copy or paste custom app control rules to move them between Macs.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 10) {
+                            Button(isChinese ? "复制规则" : "Copy Rules", action: copyAppRules)
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            Button(isChinese ? "粘贴规则" : "Paste Rules", action: pasteAppRules)
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                    }
+                }
+
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Label(isChinese ? "App 打开别名" : "App Launch Aliases", systemImage: "command")
+                            .font(.headline)
+
+                        Text(isChinese ? "导出 AI 提示，或复制、粘贴 App 打开别名配置。" : "Export the AI prompt, or copy and paste app launch alias rules.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 10) {
+                            Button(isChinese ? "复制 AI 提示" : "Copy AI Prompt", action: copyAliasAIPrompt)
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            Button(isChinese ? "复制别名" : "Copy Aliases", action: copyAppAliases)
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            Button(isChinese ? "粘贴别名" : "Paste Aliases", action: pasteAppAliases)
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func importLexicon() {
+        do {
+            if let url = try appState.importVoiceLexicon() {
+                lexiconTransferStatus = "\(String(localized: "voice_lexicon.imported")): \(url.lastPathComponent)"
+            }
+        } catch {
+            lexiconTransferStatus = "\(String(localized: "voice_lexicon.import_failed")): \(error.localizedDescription)"
+        }
+    }
+
+    private func importLexiconFromClipboard() {
+        do {
+            let imported = try appState.importVoiceLexiconFromPasteboard()
+            lexiconTransferStatus = imported
+                ? String(localized: "voice_lexicon.import_clipboard_done")
+                : String(localized: "voice_lexicon.import_clipboard_empty")
+        } catch {
+            lexiconTransferStatus = "\(String(localized: "voice_lexicon.import_clipboard_failed")): \(error.localizedDescription)"
+        }
+    }
+
+    private func exportLexicon() {
+        do {
+            if let url = try appState.exportVoiceLexicon() {
+                lexiconTransferStatus = "\(String(localized: "voice_lexicon.exported")): \(url.lastPathComponent)"
+            }
+        } catch {
+            lexiconTransferStatus = "\(String(localized: "voice_lexicon.export_failed")): \(error.localizedDescription)"
+        }
+    }
+
+    private func copyAppRules() {
+        do {
+            try appState.copyCustomAppShortcutRulesToPasteboard()
+            HUDManager.shared.showTemporary(
+                message: String(localized: "custom_app_rules.copy_done"),
+                icon: "doc.on.doc"
+            )
+        } catch {
+            HUDManager.shared.showTemporary(
+                message: String(localized: "custom_app_rules.copy_failed"),
+                icon: "xmark.circle.fill"
+            )
+        }
+    }
+
+    private func pasteAppRules() {
+        do {
+            let imported = try appState.importCustomAppShortcutRulesFromPasteboard()
+            HUDManager.shared.showTemporary(
+                message: imported
+                    ? String(localized: "custom_app_rules.paste_done")
+                    : String(localized: "custom_app_rules.paste_empty"),
+                icon: imported ? "tray.and.arrow.down.fill" : "doc.text"
+            )
+        } catch {
+            HUDManager.shared.showTemporary(
+                message: String(localized: "custom_app_rules.paste_failed"),
+                icon: "xmark.circle.fill"
+            )
+        }
+    }
+
+    private func copyAliasAIPrompt() {
+        do {
+            try appState.exportAppLaunchAliasAIPrompt()
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "已复制 App AI 提示" : "App AI prompt copied",
+                icon: "wand.and.stars"
+            )
+        } catch {
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "复制 App AI 提示失败" : "Couldn't copy app AI prompt",
+                icon: "xmark.circle.fill"
+            )
+        }
+    }
+
+    private func copyAppAliases() {
+        do {
+            try appState.copyCustomAppLaunchAliasRulesToPasteboard()
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "已复制 App 别名" : "App aliases copied",
+                icon: "doc.on.doc"
+            )
+        } catch {
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "复制 App 别名失败" : "Couldn't copy app aliases",
+                icon: "xmark.circle.fill"
+            )
+        }
+    }
+
+    private func pasteAppAliases() {
+        do {
+            let imported = try appState.importCustomAppLaunchAliasRulesFromPasteboard()
+            HUDManager.shared.showTemporary(
+                message: imported
+                    ? (isChinese ? "已导入 App 别名" : "App aliases imported")
+                    : (isChinese ? "剪贴板里没有可导入的 App 别名" : "No app aliases found on the clipboard"),
+                icon: imported ? "tray.and.arrow.down.fill" : "doc.text"
+            )
+        } catch {
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "导入 App 别名失败" : "Couldn't import app aliases",
+                icon: "xmark.circle.fill"
+            )
+        }
+    }
+}
+
+struct FocusDiagnosticsSettingsView: View {
+    @EnvironmentObject private var appState: AppState
+    @ObservedObject private var motionManager = HeadMotionManager.shared
+
+    private var isChinese: Bool { AppLocalization.isChinese }
+
+    var body: some View {
+        SettingsPage(
+            title: isChinese ? "焦点与输入诊断" : "Focus & Input Diagnostics",
+            subtitle: isChinese
+                ? "集中导出输入焦点和头动相关诊断，方便排查输入态与焦点判断问题。"
+                : "Export focus and head-tracking diagnostics to debug typing heuristics and input targeting."
+        ) {
+            VStack(spacing: 16) {
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Label(isChinese ? "输入框焦点" : "Input Focus", systemImage: "scope")
+                            .font(.headline)
+
+                        Text(isChinese ? "导出当前输入目标和焦点判断快照，用来排查输入态误判。" : "Export the current input-target snapshot to debug typing-state misclassification.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        HStack {
+                            Button(isChinese ? "导出输入框诊断" : "Export Input Diagnostics", action: exportFocusedInputDiagnostics)
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                    }
+                }
+
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Label(isChinese ? "头动调试" : "Head Tracking Debug", systemImage: "figure.walk.motion")
+                            .font(.headline)
+
+                        Text(isChinese ? "复制或导出头动与热区调试数据，便于还原触发与输入切换过程。" : "Copy or export head-tracking and hot-zone debug data for review.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 10) {
+                            Button(isChinese ? "复制调试数据" : "Copy Debug Data", action: copyHeadDebugData)
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            Button(isChinese ? "导出调试数据" : "Export Debug Data", action: exportHeadDebugData)
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func exportFocusedInputDiagnostics() {
+        do {
+            _ = try appState.voiceService.exportFocusedInputDiagnostics()
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "已导出输入框诊断" : "Input diagnostics exported",
+                icon: "waveform.path.ecg"
+            )
+        } catch {
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "导出输入框诊断失败" : "Couldn't export input diagnostics",
+                icon: "xmark.circle.fill"
+            )
+        }
+    }
+
+    private func copyHeadDebugData() {
+        do {
+            try motionManager.copyHeadGestureDebugData()
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "已复制调试数据" : "Debug data copied",
+                icon: "doc.on.doc"
+            )
+        } catch {
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "复制调试数据失败" : "Couldn't copy debug data",
+                icon: "xmark.circle.fill"
+            )
+        }
+    }
+
+    private func exportHeadDebugData() {
+        do {
+            if let _ = try motionManager.exportHeadGestureDebugData() {
+                HUDManager.shared.showTemporary(
+                    message: isChinese ? "已导出调试数据" : "Debug data exported",
+                    icon: "square.and.arrow.up"
+                )
+            }
+        } catch {
+            HUDManager.shared.showTemporary(
+                message: isChinese ? "导出调试数据失败" : "Couldn't export debug data",
+                icon: "xmark.circle.fill"
+            )
         }
     }
 }

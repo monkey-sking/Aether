@@ -17,7 +17,12 @@ private enum SidebarMetrics {
             AppLocalization.isChinese ? "文字优化" : "Text Cleanup",
             AppLocalization.isChinese ? "控制与快捷键" : "Controls & Shortcuts",
             AppLocalization.isChinese ? "权限与状态" : "Permissions & Status",
-            AppLocalization.isChinese ? "高级" : "Advanced",
+            NSLocalizedString("settings.section.lexicon.page_title", comment: ""),
+            AppLocalization.isChinese ? "App 规则与别名" : "App Rules & Aliases",
+            AppLocalization.isChinese ? "导入与导出" : "Import & Export",
+            NSLocalizedString("settings.section.insights.page_title", comment: ""),
+            AppLocalization.isChinese ? "唤醒与激活" : "Wake & Activation",
+            AppLocalization.isChinese ? "焦点与输入诊断" : "Focus & Input Diagnostics",
             String(localized: "main.panel.about")
         ]
 
@@ -29,7 +34,9 @@ private enum SidebarMetrics {
             String(localized: "main.section.workspace"),
             String(localized: "main.section.voice"),
             String(localized: "main.section.controls"),
-            String(localized: "main.section.app")
+            String(localized: "main.section.app"),
+            AppLocalization.isChinese ? "高级" : "Advanced",
+            AppLocalization.isChinese ? "日志与诊断" : "Logs & Diagnostics"
         ]
         .map { ($0 as NSString).size(withAttributes: [.font: headerFont]).width }
         .max() ?? 0
@@ -162,7 +169,12 @@ struct AetherMainView: View {
         case textCleanup
         case controlsShortcuts
         case permissionsStatus
-        case advanced
+        case advancedLexicon
+        case advancedAppRulesAliases
+        case advancedImportExport
+        case logsVoiceUsage
+        case logsWakeActivation
+        case logsFocusDiagnostics
         case about
     }
     private var sidebarWidth: CGFloat {
@@ -198,12 +210,32 @@ struct AetherMainView: View {
                 Section {
                     sidebarItem(.permissionsStatus)
                         .tag(Panel.permissionsStatus)
-                    sidebarItem(.advanced)
-                        .tag(Panel.advanced)
                     sidebarItem(.about)
                         .tag(Panel.about)
                 } header: {
                     sidebarHeader("main.section.app")
+                }
+
+                Section {
+                    sidebarItem(.advancedLexicon)
+                        .tag(Panel.advancedLexicon)
+                    sidebarItem(.advancedAppRulesAliases)
+                        .tag(Panel.advancedAppRulesAliases)
+                    sidebarItem(.advancedImportExport)
+                        .tag(Panel.advancedImportExport)
+                } header: {
+                    sidebarHeaderText(AppLocalization.isChinese ? "高级" : "Advanced")
+                }
+
+                Section {
+                    sidebarItem(.logsVoiceUsage)
+                        .tag(Panel.logsVoiceUsage)
+                    sidebarItem(.logsWakeActivation)
+                        .tag(Panel.logsWakeActivation)
+                    sidebarItem(.logsFocusDiagnostics)
+                        .tag(Panel.logsFocusDiagnostics)
+                } header: {
+                    sidebarHeaderText(AppLocalization.isChinese ? "日志与诊断" : "Logs & Diagnostics")
                 }
             }
             .listStyle(.sidebar)
@@ -221,8 +253,18 @@ struct AetherMainView: View {
                 ControlsShortcutsSettingsView()
             case .permissionsStatus:
                 PermissionsStatusSettingsView()
-            case .advanced:
-                InputSettingsView(section: .advanced)
+            case .advancedLexicon:
+                InputSettingsView(section: .lexicon)
+            case .advancedAppRulesAliases:
+                InputSettingsView(section: .appControls)
+            case .advancedImportExport:
+                ImportExportSettingsView()
+            case .logsVoiceUsage:
+                InputSettingsView(section: .insights)
+            case .logsWakeActivation:
+                InputSettingsView(section: .wakeInsights)
+            case .logsFocusDiagnostics:
+                FocusDiagnosticsSettingsView()
             case .about:
                 AboutCenterView()
             case .none:
@@ -243,7 +285,11 @@ struct AetherMainView: View {
     }
 
     private func sidebarHeader(_ key: String, topPadding: CGFloat = 16) -> some View {
-        Text(LocalizedStringKey(key))
+        sidebarHeaderText(NSLocalizedString(key, comment: ""), topPadding: topPadding)
+    }
+
+    private func sidebarHeaderText(_ title: String, topPadding: CGFloat = 16) -> some View {
+        Text(title)
             .font(.system(size: 12.5, weight: .bold))
             .foregroundStyle(.secondary)
             .textCase(nil)
@@ -277,8 +323,18 @@ struct AetherMainView: View {
             return AppLocalization.isChinese ? "控制与快捷键" : "Controls & Shortcuts"
         case .permissionsStatus:
             return AppLocalization.isChinese ? "权限与状态" : "Permissions & Status"
-        case .advanced:
-            return AppLocalization.isChinese ? "高级" : "Advanced"
+        case .advancedLexicon:
+            return NSLocalizedString("settings.section.lexicon.page_title", comment: "")
+        case .advancedAppRulesAliases:
+            return AppLocalization.isChinese ? "App 规则与别名" : "App Rules & Aliases"
+        case .advancedImportExport:
+            return AppLocalization.isChinese ? "导入与导出" : "Import & Export"
+        case .logsVoiceUsage:
+            return NSLocalizedString("settings.section.insights.page_title", comment: "")
+        case .logsWakeActivation:
+            return AppLocalization.isChinese ? "唤醒与激活" : "Wake & Activation"
+        case .logsFocusDiagnostics:
+            return AppLocalization.isChinese ? "焦点与输入诊断" : "Focus & Input Diagnostics"
         case .about:
             return String(localized: "main.panel.about")
         }
@@ -296,8 +352,18 @@ struct AetherMainView: View {
             return "keyboard.fill"
         case .permissionsStatus:
             return "checkmark.shield.fill"
-        case .advanced:
-            return "slider.horizontal.3"
+        case .advancedLexicon:
+            return "text.badge.star"
+        case .advancedAppRulesAliases:
+            return "app.badge"
+        case .advancedImportExport:
+            return "arrow.left.arrow.right.square"
+        case .logsVoiceUsage:
+            return "chart.bar.xaxis"
+        case .logsWakeActivation:
+            return "waveform.badge.mic"
+        case .logsFocusDiagnostics:
+            return "scope"
         case .about:
             return "info.circle.fill"
         }
