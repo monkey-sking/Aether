@@ -1,5 +1,9 @@
 # Aether 代码审核报告：鼠标 + 语音管线
 
+> 文档状态：`Historical`
+> 说明：这是 2026-02-10 的代码快照审计，结论只代表当时状态，不能直接当成当前实现进度。
+> 若与当前代码冲突，请优先以源码、`PENDING_ACCEPTANCE.md`、`Phase1.5_TODO.md`、根目录 `TODO.md` 为准。
+
 > 审核时间：2026-02-10 18:42  
 > 审核范围：`Apps/AetherCore/` 全部 16 个 Swift 源文件
 

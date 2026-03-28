@@ -3,7 +3,7 @@
 > 文档状态：`Planned`
 > Workstream：`feature/referral-mvp`
 > 说明：本文档基于当前代码里已经存在的 `referralCode` 试用入参能力，补齐最小可上线的邀请码闭环。它描述的是推荐实现，不代表当前已经上线。
-> 当前代码基线：App 内已有“开始试用时可填写邀请码”的入口，但还没有“查看/分享邀请码、奖励记录、邀请统计”的完整体验。
+> 2026-03-28 代码对齐说明：当前代码基线不只是“可填写邀请码”，还包括 `/trial/start` 已传参、返回的 `referralCode` 会写回本地 entitlement / snapshot；但“查看/分享邀请码、奖励记录、邀请统计”的完整体验仍未落地。
 
 ## 1. 任务 intake baseline
 
@@ -35,9 +35,10 @@
 
 ### 2.1 已有能力
 
-- App 在试用入口里已经有“邀请码（可选）”输入框
+- `ActivationGateView` 和 `About -> Manage License` 都已有“邀请码（可选）”输入框
 - App 开始试用时会把 `referralCode` 发到 `/trial/start`
-- 后端若返回 `referralCode`，App 会保存到本地 entitlement 状态
+- 后端若返回 `referralCode`，App 会保存到共享 entitlement 状态
+- `referralCode` 也会被写入本地 entitlement snapshot / offline grace 快照
 
 ### 2.2 缺失能力
 
@@ -45,6 +46,7 @@
 - 用户无法一键复制或分享邀请码
 - 用户无法知道邀请码是否被使用
 - 用户无法看到自己获得了多少奖励时长
+- 用户看不到最近邀请记录或邀请人数汇总
 - 官网没有邀请入口或邀请规则说明
 - 没有最小反作弊规则定义
 

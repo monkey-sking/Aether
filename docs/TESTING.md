@@ -2,7 +2,7 @@
 
 > 文档状态：`Current`
 > 适用范围：本地开发机上的功能验证与回归。例行开发优先验证语音、HUD、头势、快捷键、权限与激活链路。
-> 说明：打包、签名、公证、安装替换属于单独的发布流程，不是默认开发验证路径。当前文本注入相关输出也不要默认按“DriverKit 键盘路径已完成”理解。
+> 说明：打包、签名、公证、安装替换属于单独的发布流程，不是默认开发验证路径。当前文本注入也不要按“DriverKit 键盘路径是近期目标”理解；文本输出继续按现有实现路径验证。
 
 This doc is for local testing on a development machine. System Extension + DriverKit requires correct code signing and explicit user approval in System Settings.
 For public release packaging, notarization, or installation into `/Applications`, see `docs/RELEASE_DISTRIBUTION.md`.

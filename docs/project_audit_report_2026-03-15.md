@@ -1,5 +1,9 @@
 # Aether 项目审核报告
 
+> 文档状态：`Historical`
+> 说明：这是 2026-03-15 的阶段性审核快照，里面的结论不保证仍与当前代码一致。
+> 若与当前实现冲突，请优先看源码、`PENDING_ACCEPTANCE.md`、`Phase1.5_TODO.md` 与根目录 `TODO.md`。
+
 审核时间：2026-03-15  
 审核范围：`/Volumes/SSD/Projects/Aether/Apps` 当前工作区代码与测试状态
 

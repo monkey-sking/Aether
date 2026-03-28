@@ -1,178 +1,54 @@
-# Activation Gating TODO
+# Activation Gating Status + Remaining TODO
 
-> 文档状态：`Planned`
-> 说明：这是激活门禁的专项规划文档，描述目标态和实施任务，不代表当前产品已经完全 gated。
+> 文档状态：`Planned + Source-synced`
+> Workstream：`fix/activation-gating-regression`
+> 说明：这份文档最初是从 0 到 1 的实施规划。2026-03-28 已按当前代码回写，现阶段它记录的是“已落地基线 + 剩余验证/收口”，不再代表功能尚未开始。
 
-## Goal
-Make Aether require a valid activation or trial before the core product can be used.
+## 当前代码基线
 
-Current state:
-- The app already has activation, trial, and entitlement refresh UI in `AboutCenter.swift`.
-- The app does **not** currently gate core features behind activation.
-- Users can still access and use the main product without a valid entitlement.
+已在本地源码中确认：
 
-## Required Outcome
-- Aether launches into either:
-  - an activated state, or
-  - a locked state that clearly asks the user to activate or start a trial
-- Core product features must not be usable when entitlement is inactive or expired.
-- The activation path must remain recoverable from inside the app.
+- 已有统一门禁状态源：`AboutCenter.swift` 中的 `AetherEntitlementGateState`
+- 已有 root 分流：`ActivationGateView.swift` 里的 `AetherRootView` 会在锁定态显示 `ActivationGateView`，在 `active / trialing` 或离线宽限态显示 `AetherMainView`
+- 已有 runtime gating：`AetherApp.swift` 会在未解锁时阻止语音意图执行、听写/命令执行、头控执行、快捷键面板打开等核心行为
+- 已有冷启动 / 刷新处理：`loading` 状态、离线 snapshot、7 天 offline grace 已在 `AboutCenter.swift` 中实现
+- 已有设备数恢复路径：`/devices` 与 `/devices/remove` 的拉取/移除逻辑已经落地
 
-## Scope
-This task is for the macOS app in:
-- `/Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore`
+当前没有在本地代码里看到单独的“Resend Activation”动作入口；如果产品仍要求它，这部分仍属于 gap。
 
-Primary existing files to review:
+## 已落地项
+
+- [x] 共享 entitlement gate model
+- [x] 锁定态 root experience
+- [x] 主窗口与核心 runtime gating
+- [x] 冷启动加载态与 offline grace 基线
+- [x] device-limit 基础恢复路径
+
+## 仍待完成
+
+### 1. 回归验证
+- [ ] 新安装、无授权：确认始终进入锁定页，且不能旁路使用核心能力
+- [ ] 开始试用 / 激活成功：确认 root 切换、runtime 放行、HUD/面板状态都同步恢复
+- [ ] 过期 / inactive：确认重新锁定，不会短暂露出可用态
+- [ ] device limit reached：确认锁定态里设备管理路径可真正恢复，而不是只显示信息
+- [ ] offline grace：确认断网校验失败时宽限放行和文案都符合预期
+
+### 2. 恢复路径补齐
+- [ ] 如果产品仍需要“重发激活码 / resend activation”，补一个明确入口；当前本地代码未看到这条路径
+
+### 3. 交互与边界收口
+- [ ] 检查 `loading -> unlocked`、`loading -> locked`、`offline grace -> refresh success/fail` 的 UI 切换是否足够稳定
+- [ ] 检查 About / update channel / update check 在锁定态下是否仍保持可恢复、可解释
+
+## 关键代码位置
+
+- [ActivationGateView.swift](/Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/ActivationGateView.swift)
 - [AboutCenter.swift](/Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/AboutCenter.swift)
-- [AetherMainView.swift](/Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/AetherMainView.swift)
 - [AetherApp.swift](/Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/AetherApp.swift)
 
-## Problems To Fix
-1. Activation state is currently mostly informational.
-The `AetherLicenseManager` tracks `status`, `plan`, and `isActivated`, but this state is not being used to block the main experience.
+## 当前判断
 
-2. Core controls are still reachable without entitlement.
-The user can enter the main interface and access product panels even if activation is missing.
+原先“Activation state is currently mostly informational / app does not currently gate core features”这一结论已不成立。更准确的状态是：
 
-3. There is no unified locked-state UX.
-The app needs a clear "you need activation" experience instead of scattered disabled controls.
-
-4. Expired and inactive states are not product-gated.
-The app should treat `inactive`, `expired`, and invalid entitlement states as locked for normal usage.
-
-## Implementation Tasks
-
-### 1. Create a shared entitlement gate model
-- Add one clear app-level source of truth for access state.
-- Recommended states:
-  - `active`
-  - `trialing`
-  - `inactive`
-  - `expired`
-  - `device_limit_reached`
-  - `loading`
-- The gate should derive from `AetherLicenseManager`, not duplicate license logic in multiple places.
-
-Exit criteria:
-- One place in app code decides whether the product is usable.
-- Other views can read a simple gate state instead of re-implementing entitlement checks.
-
-### 2. Add a locked root experience
-- When entitlement is not active/trialing, the app should open into a locked screen instead of the normal product UI.
-- This locked screen should include:
-  - email field
-  - activation code field
-  - "Activate"
-  - "Start Trial"
-  - "Resend Activation"
-  - current status / error messaging
-- Reuse existing `AetherLicenseManager` actions instead of re-implementing network calls.
-
-Exit criteria:
-- Launching without valid entitlement shows a locked screen first.
-- A successful activation/trial transitions the user into the main app.
-
-### 3. Gate the main window and core panels
-- Prevent normal product panels from being the initial/default experience when not activated.
-- At minimum gate:
-  - overview
-  - voice controls
-  - head gesture controls
-  - shortcuts / input-related surfaces
-- About can remain reachable as part of recovery flow.
-
-Exit criteria:
-- Unactivated users cannot meaningfully use the main interface.
-- Activated users still see the normal app flow.
-
-### 4. Gate runtime feature enablement
-- Even if a user reaches some UI accidentally, core runtime behavior must still be blocked.
-- Review and gate the services that actually execute product behavior:
-  - voice input / dictation execution
-  - voice command execution
-  - head tracking / motion-driven controls
-  - any global command / shortcut execution path
-- The gate should fail closed when entitlement is inactive or expired.
-
-Exit criteria:
-- No core input/control behavior runs without valid entitlement.
-- Locking is enforced at the service/runtime layer, not only at the view layer.
-
-### 5. Handle cold start and refresh correctly
-- On launch, do not treat missing credentials as active.
-- While entitlement is being refreshed, show a deterministic loading or locked state.
-- Avoid a brief "fully usable" window before license refresh completes.
-
-Exit criteria:
-- App startup does not temporarily expose the full product before refresh completes.
-- Activation status is stable on launch.
-
-### 6. Define inactive and expired behavior clearly
-- `trialing`, `active`, `valid`, `activated` should allow use.
-- `inactive`, `expired`, and equivalent failure states should lock use.
-- `device_limit_reached` should be recoverable via device management UI and should not silently behave like success.
-
-Exit criteria:
-- Each backend license state maps to a clear UX and access behavior.
-
-### 7. Keep recovery paths available
-- Locked users still need:
-  - activation
-  - start trial
-  - resend activation
-  - refresh entitlement
-  - device management, if relevant for recovery
-- Do not dead-end the user in a locked screen with no recovery path.
-
-Exit criteria:
-- A user can recover from inactive, expired, or wrong-device states without leaving the app.
-
-### 8. Verify channel behavior is unaffected
-- Activation gating must not break:
-  - Stable/Beta switching
-  - update checks
-  - About page status display
-- Update UI may remain visible, but product usage must still require entitlement.
-
-Exit criteria:
-- Activation gate does not regress About, channel switching, or update logic.
-
-## Recommended File Changes
-- Add a new locked-state root view, or equivalent:
-  - example: `ActivationGateView.swift`
-- Update:
-  - `AetherMainView.swift`
-  - `AetherApp.swift`
-  - `AboutCenter.swift`
-- Only add new state where necessary. Prefer reusing `AetherLicenseManager`.
-
-## Test Checklist
-- Fresh install with no email and no activation code:
-  - app opens locked
-  - core features are not usable
-- Start trial:
-  - app unlocks
-  - feature access becomes available
-- Activate with valid code:
-  - app unlocks
-  - device appears in entitlement state
-- Expired entitlement:
-  - app returns to locked state
-  - recovery path remains available
-- Device limit reached:
-  - app shows a recoverable blocked state
-- Launch after previous activation:
-  - app remains locked until entitlement refresh confirms valid access
-- About page:
-  - still shows status, devices, channel, and actions correctly
-
-## Non-Goals
-- Do not redesign the commercial model in this task.
-- Do not rewrite backend licensing endpoints in this task.
-- Do not remove the existing About activation center; reuse it where possible.
-
-## Suggested Priority
-1. App-level locked state
-2. Runtime feature gating
-3. Recovery UX polish
-4. State mapping cleanup
+- 门禁功能已落地到 root 和 runtime
+- 当前剩余工作以回归验证、恢复路径补齐、边界稳定性收口为主

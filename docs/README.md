@@ -12,7 +12,11 @@ Aether 当前是一个以 macOS 为中心的本地交互产品。当前代码主
 
 - Vision Pro / iPad + Pencil / Apple Watch / HomePod / UWB / gPTP 多设备协同
 - “Apple 全家桶分布式感知网络”类体验叙事
-- 完整的虚拟 HID 键盘注入路径
+- DriverKit 键盘注入路径
+
+当前额外边界：
+
+- 文本注入当前不以 DriverKit 键盘路径为近期目标；现有文本输出继续按当前实现路径理解
 
 补充边界：
 
@@ -57,7 +61,7 @@ Aether 当前是一个以 macOS 为中心的本地交互产品。当前代码主
 | 文档 | 状态 | 用途 |
 | :--- | :--- | :--- |
 | `user_guide.md` | `Current` | 当前产品使用说明，面向普通用户 |
-| `PENDING_ACCEPTANCE.md` | `Current` | 当前待验收与已通过项的活清单 |
+| `PENDING_ACCEPTANCE.md` | `Current` | 当前待人工复验与已通过项的活清单；未勾选不等于源码未实现 |
 | `VOICE_LEXICON_RULES.md` | `Current` | 语音词库、自定义 App 规则和未来 App 打开/切换的边界 |
 | `PERMISSION_TROUBLESHOOTING.md` | `Current` | 权限、授权状态与诊断排障 |
 | `TESTING.md` | `Current` | 本地开发验证与回归入口 |
@@ -67,8 +71,8 @@ Aether 当前是一个以 macOS 为中心的本地交互产品。当前代码主
 
 | 文档 | 状态 | 用途 |
 | :--- | :--- | :--- |
-| `Phase1.5_TODO.md` | `Planned` | 当前最接近实现面的近期规划；已在 2026-03-27 按源码回写已落地基线，但仍不是 `Current` 实现清单 |
-| `ACTIVATION_GATING_TODO.md` | `Planned` | 激活门禁专项计划 |
+| `Phase1.5_TODO.md` | `Planned` | 中期规划与明确功能缺口清单；不要把它和当前复验清单混读 |
+| `ACTIVATION_GATING_TODO.md` | `Planned` | 激活门禁已落地基线 + 剩余验证/收口 |
 | `REFERRAL_MVP.md` | `Planned` | 邀请码与邀请奖励 MVP 范围、API 草案与验收口径 |
 | `WHISPER_BACKEND_IMPLEMENTATION_CHECKLIST.md` | `Planned` | Whisper 后端专项实施清单 |
 | `Roadmap.md` | `Planned` | 中长期路线图，混合近期计划与远期愿景 |
