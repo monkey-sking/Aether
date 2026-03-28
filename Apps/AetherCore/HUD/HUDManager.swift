@@ -3241,18 +3241,18 @@ final class HUDManager {
 
     private func shouldPreserveMeasuredWidth(for mode: HUDMode) -> Bool {
         switch mode {
-        case .optimizing, .dragging:
+        case .dragging:
             return true
-        case .hidden, .standby, .feedback, .listening, .command, .dictation, .organizing, .typing, .executing, .checking, .processing:
+        case .hidden, .standby, .feedback, .listening, .command, .dictation, .organizing, .typing, .executing, .optimizing, .checking, .processing:
             return false
         }
     }
 
     private func isTwoStateSpeechMode(_ mode: HUDMode) -> Bool {
         switch mode {
-        case .listening, .command, .dictation, .organizing, .typing, .executing, .checking, .processing:
+        case .listening, .command, .dictation, .organizing, .typing, .executing, .optimizing, .checking, .processing:
             return true
-        case .hidden, .standby, .feedback, .optimizing, .dragging:
+        case .hidden, .standby, .feedback, .dragging:
             return false
         }
     }

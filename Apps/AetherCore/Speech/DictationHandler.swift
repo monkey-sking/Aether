@@ -30,10 +30,10 @@ final class DictationHandler {
     private var lastReportedInputMutationActive = false
     private let injector: any TextInjecting
     private let log = GlobalLogger.speech
-    private let appendLeadDelayNs: UInt64 = 240_000_000
-    private let appendSmallBacklogIntervalNs: UInt64 = 190_000_000
-    private let appendMediumBacklogIntervalNs: UInt64 = 160_000_000
-    private let appendLargeBacklogIntervalNs: UInt64 = 130_000_000
+    private let appendLeadDelayNs: UInt64 = 320_000_000
+    private let appendSmallBacklogIntervalNs: UInt64 = 230_000_000
+    private let appendMediumBacklogIntervalNs: UInt64 = 190_000_000
+    private let appendLargeBacklogIntervalNs: UInt64 = 160_000_000
 
     // MARK: - LLM Enhancement
 

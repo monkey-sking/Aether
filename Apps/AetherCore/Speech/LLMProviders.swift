@@ -24,6 +24,7 @@ enum TextRewriteFailureReason: String, Codable, Sendable {
     case llmUnavailable
     case sourceEmpty
     case sourceTooLong
+    case timedOut
     case providerFailed
     case focusChanged
     case inputInvalid
@@ -277,7 +278,7 @@ final class OpenAICompatibleProvider: LLMHealthCheckProvider {
     private static let modelListTimeout: TimeInterval = 12
     private static let testConnectionTimeout: TimeInterval = 15
     private static let dictationTimeout: TimeInterval = 10
-    private static let rewriteTimeout: TimeInterval = 35
+    static let rewriteTimeout: TimeInterval = 12
 
     private let config: Config
 
@@ -1246,7 +1247,10 @@ private final class AppleOnDeviceLLMProvider: LLMHealthCheckProvider {
             profile: config.rewriteProfile,
             contextualGlossaryText: config.contextualGlossaryText
         )
-        return try await respond(to: prompt)
+        return try await respond(
+            to: prompt,
+            timeout: OpenAICompatibleProvider.rewriteTimeout
+        )
     }
 
     func interpretCommand(_ text: String) async throws -> VoiceIntent {
@@ -1258,7 +1262,10 @@ private final class AppleOnDeviceLLMProvider: LLMHealthCheckProvider {
         _ = try await respond(to: "Reply with OK only.")
     }
 
-    private func respond(to prompt: String) async throws -> String {
+    private func respond(
+        to prompt: String,
+        timeout: TimeInterval? = nil
+    ) async throws -> String {
         let localeName = locale.localizedString(forIdentifier: locale.identifier)
         let availability = AppleOnDeviceLLMProviderFactory.availability(localeIdentifier: config.localeIdentifier)
         guard availability == .available else {
@@ -1267,7 +1274,9 @@ private final class AppleOnDeviceLLMProvider: LLMHealthCheckProvider {
 
         do {
             let session = LanguageModelSession(model: model)
-            let response = try await session.respond(to: prompt)
+            let response = try await performWithTimeout(seconds: timeout) {
+                try await session.respond(to: prompt)
+            }
             let text = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else {
                 throw LLMProviderError.invalidResponse()
@@ -1280,8 +1289,33 @@ private final class AppleOnDeviceLLMProvider: LLMHealthCheckProvider {
             default:
                 throw AppleOnDeviceLLMError.generationFailed(error.localizedDescription)
             }
+        } catch let error as LLMProviderError {
+            throw error
         } catch {
             throw AppleOnDeviceLLMError.generationFailed(error.localizedDescription)
+        }
+    }
+
+    private func performWithTimeout<T: Sendable>(
+        seconds: TimeInterval?,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        guard let seconds, seconds > 0 else {
+            return try await operation()
+        }
+
+        return try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                let timeoutNs = UInt64((seconds * 1_000_000_000).rounded())
+                try await Task.sleep(nanoseconds: timeoutNs)
+                throw LLMProviderError.requestTimedOut
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
         }
     }
 }

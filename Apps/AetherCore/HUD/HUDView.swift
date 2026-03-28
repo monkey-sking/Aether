@@ -24,11 +24,7 @@ struct HUDView: View {
 
                 case .optimizing:
                     optimizingLeadingVisual
-                    if trimmedMessage.isEmpty {
-                        OptimizingProgressView()
-                    } else {
-                        hudLabel(trimmedMessage)
-                    }
+                    compactOptimizingLane
                     trailingAccessories
 
                 case .dragging:
@@ -58,8 +54,8 @@ struct HUDView: View {
                 }
             }
         }
-        .padding(.horizontal, state.mode == .standby ? 8 : (isTwoStateSpeechMode ? 8 : 16))
-        .padding(.vertical, state.mode == .standby ? 8 : (isTwoStateSpeechMode ? 7 : 10))
+        .padding(.horizontal, state.mode == .standby ? 8 : (isCompactCapsuleMode ? 8 : 16))
+        .padding(.vertical, state.mode == .standby ? 8 : (isCompactCapsuleMode ? 7 : 10))
         .background(
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
         )
@@ -109,13 +105,25 @@ struct HUDView: View {
         )
     }
 
-    private var isTwoStateSpeechMode: Bool {
+    private var compactOptimizingLane: some View {
+        compactCapsuleText(trimmedOptimizingMessage, width: compactOptimizingTextWidth(for: trimmedOptimizingMessage))
+    }
+
+    private var isCompactCapsuleMode: Bool {
         switch state.mode {
-        case .listening, .command, .dictation, .organizing, .typing, .executing, .checking, .processing:
+        case .listening, .command, .dictation, .organizing, .typing, .executing, .optimizing, .checking, .processing:
             return true
         default:
             return false
         }
+    }
+
+    private var trimmedOptimizingMessage: String {
+        let trimmed = trimmedMessage
+        if !trimmed.isEmpty {
+            return trimmed
+        }
+        return AppLocalization.isChinese ? "正在优化…" : "Optimizing..."
     }
 
     private var micIcon: some View {
@@ -254,11 +262,11 @@ struct HUDView: View {
         if state.mode == .standby {
             return 16
         }
-        return isTwoStateSpeechMode ? 22 : 24
+        return isCompactCapsuleMode ? 22 : 24
     }
 
     private var compactSpeechBarsWidth: CGFloat {
-        15
+        17
     }
 
     private func compactSpeechTextWidth(for text: String) -> CGFloat {
@@ -269,12 +277,28 @@ struct HUDView: View {
             .font: NSFont.systemFont(ofSize: 14, weight: .semibold)
         ]).width)
 
-        let minWidth: CGFloat = 30
+        let minWidth: CGFloat = 24
+        var maxWidth: CGFloat = 88
+        if hasVisibleContextIcon { maxWidth -= 14 }
+        if state.isLanguageIndicatorVisible { maxWidth -= 16 }
+
+        return min(max(measuredWidth + 3, minWidth), max(maxWidth, minWidth))
+    }
+
+    private func compactOptimizingTextWidth(for text: String) -> CGFloat {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 44 }
+
+        let measuredWidth = ceil((trimmed as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: 14, weight: .semibold)
+        ]).width)
+
+        let minWidth: CGFloat = 44
         var maxWidth: CGFloat = 92
         if hasVisibleContextIcon { maxWidth -= 14 }
         if state.isLanguageIndicatorVisible { maxWidth -= 16 }
 
-        return min(max(measuredWidth + 2, minWidth), max(maxWidth, minWidth))
+        return min(max(measuredWidth + 3, minWidth), max(maxWidth, minWidth))
     }
 
     private var primaryBadgeCircleDiameter: CGFloat {
@@ -636,6 +660,18 @@ struct HUDView: View {
             .minimumScaleFactor(0.92)
             .frame(maxWidth: hudLabelMaxWidth, alignment: .leading)
             .layoutPriority(1)
+    }
+
+    private func compactCapsuleText(_ text: String, width: CGFloat) -> some View {
+        Text(text)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundColor(.white.opacity(0.98))
+            .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .minimumScaleFactor(0.92)
+            .frame(width: width, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var hudLabelMaxWidth: CGFloat {
@@ -1030,15 +1066,15 @@ private struct TwoStateSpeechLaneView: View {
     var body: some View {
         Group {
             if text.isEmpty {
-                HStack(alignment: .center, spacing: 2.0) {
+                HStack(alignment: .center, spacing: 2.6) {
                     ForEach(0..<3, id: \.self) { index in
-                        RoundedRectangle(cornerRadius: 1.3, style: .continuous)
+                        RoundedRectangle(cornerRadius: 1.6, style: .continuous)
                             .fill(Color.white.opacity(barOpacity(for: index)))
-                            .frame(width: 2.2, height: barHeight(for: index))
-                            .shadow(color: Color.white.opacity(0.1), radius: 1)
+                            .frame(width: 2.8, height: barHeight(for: index))
+                            .shadow(color: Color.white.opacity(0.12), radius: 1.2)
                     }
                 }
-                .frame(width: barsWidth, height: 16, alignment: .trailing)
+                .frame(width: barsWidth, height: 18, alignment: .trailing)
             } else {
                 Text(text)
                     .font(.system(size: 14, weight: .semibold))
@@ -1071,12 +1107,12 @@ private struct TwoStateSpeechLaneView: View {
     }
 
     private func barHeight(for index: Int) -> CGFloat {
-        let baseHeights: [CGFloat] = [5.5, 10.0, 7.0]
+        let baseHeights: [CGFloat] = [6.4, 11.8, 8.6]
         let boosted = max(0.14, min(level, 1.0))
         let phaseOffset = sin((phase + CGFloat(index) * 0.78) * 1.1)
         let wave = max(0, 0.5 + phaseOffset * 0.5)
         let effective = max(0.36, boosted * 0.74 + wave * 0.3)
-        let minHeight: CGFloat = 3.0
+        let minHeight: CGFloat = 4.1
         return minHeight + (baseHeights[index] - minHeight) * min(effective, 1.0)
     }
 }
@@ -1101,33 +1137,6 @@ private struct ExecutingPulseView: View {
         .animation(.easeInOut(duration: 0.32).repeatForever(autoreverses: true), value: offset)
         .onAppear {
             offset = 4
-        }
-    }
-}
-
-private struct OptimizingProgressView: View {
-    @State private var activeIndex = 0
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<3, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(Color.mint.opacity(activeIndex == index ? 0.95 : 0.35))
-                    .frame(
-                        width: activeIndex == index ? 15 : 11,
-                        height: activeIndex == index ? 4.5 : 3.5
-                    )
-            }
-        }
-        .frame(height: 16)
-        .animation(.easeInOut(duration: 0.18), value: activeIndex)
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 220_000_000)
-                await MainActor.run {
-                    activeIndex = (activeIndex + 1) % 3
-                }
-            }
         }
     }
 }

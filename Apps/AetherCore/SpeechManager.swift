@@ -569,6 +569,8 @@ final class SpeechManager: ObservableObject {
     private var activeHUDStageControlMode: HUDRecognitionControlMode?
     private var pendingCheckingHUDWorkItem: DispatchWorkItem?
     private var activeTextRewriteHUDCount: Int = 0
+    private var isTextRewriteHUDSlowPhase = false
+    private var pendingTextRewriteSlowHUDWorkItem: DispatchWorkItem?
     private var isUtteranceActive: Bool = false
     private var cachedTypingMode: Bool = false
     private var lastTypingCheckAt: Date = .distantPast
@@ -638,6 +640,7 @@ final class SpeechManager: ObservableObject {
     private var nextAllowedStartOnceAt: Date = .distantPast
     private var isContinuousDictationWaitingForInputFocus: Bool = false
     private var lastRecognitionBufferWithoutSessionAt: Date = .distantPast
+    private let textRewriteHUDSlowMessageDelay: TimeInterval = 4.0
     private var pendingExplicitCommandPrefixExpiry: Date?
     private let pendingExplicitCommandPrefixWindow: TimeInterval = 4.0
     private var cancellables = Set<AnyCancellable>()
@@ -2314,10 +2317,35 @@ final class SpeechManager: ObservableObject {
             cancelSpeechExitBarsHold()
             return
         }
+        if !armHold {
+            cancelSpeechExitBarsHold()
+        }
         if armHold && speechHUDTextVisible {
             armSpeechExitBarsHold(at: date)
         }
         speechHUDTextVisible = false
+    }
+
+    private func shouldSuppressSpeechExitBarsForCompletedDictation(
+        featureAvailability: VoiceFeatureAvailability,
+        controlMode: HUDRecognitionControlMode,
+        isContinuousActive: Bool,
+        isSessionActive: Bool
+    ) -> Bool {
+        guard speechHUDTextVisible else { return false }
+        guard !isContinuousActive else { return false }
+        guard !isSessionActive else { return false }
+        guard !dictationHandler.isInputMutationActive else { return false }
+        guard lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+
+        switch controlMode {
+        case .dictation:
+            return true
+        case .auto:
+            return featureAvailability.dictationEnabled && !featureAvailability.commandEnabled
+        case .command:
+            return false
+        }
     }
 
     private var shouldCollapseHandsFreeHUDToStandby: Bool {
@@ -5425,9 +5453,10 @@ final class SpeechManager: ObservableObject {
                     commandHUDPreviewMessage: job.commandHUDPreviewMessage
                 )
             } catch {
-                payload.failureReason = .providerFailed
+                let failureReason = textRewriteFailureReason(for: error)
+                payload.failureReason = failureReason
                 logTextRewriteFailure(
-                    .providerFailed,
+                    failureReason,
                     phase: "execute",
                     utteranceID: job.utteranceID,
                     typing: job.sessionTypingMode,
@@ -5452,7 +5481,7 @@ final class SpeechManager: ObservableObject {
                     targetSource: job.targetSource,
                     verificationSnapshot: job.verificationSnapshot,
                     holdsTextRewriteBarrier: job.holdsTextRewriteBarrier,
-                    diagnostics: "rewrite=provider-failed",
+                    diagnostics: failureReason == .timedOut ? "rewrite=timed-out" : "rewrite=provider-failed",
                     spokenText: job.spokenText,
                     originalContent: nil,
                     enhancedContent: nil,
@@ -6889,17 +6918,22 @@ final class SpeechManager: ObservableObject {
     }
 
     private var textRewriteHUDMessage: String {
+        let isSlow = isTextRewriteHUDSlowPhase
         if AppLocalization.isChinese {
             return activeTextRewriteHUDCount > 1
-                ? "正在优化（\(activeTextRewriteHUDCount)）"
-                : "正在优化…"
+                ? (isSlow ? "还在优化（\(activeTextRewriteHUDCount)）…" : "正在优化（\(activeTextRewriteHUDCount)）")
+                : (isSlow ? "还在优化…" : "正在优化…")
         }
         return activeTextRewriteHUDCount > 1
-            ? "Optimizing (\(activeTextRewriteHUDCount))"
-            : "Optimizing..."
+            ? (isSlow ? "Still optimizing (\(activeTextRewriteHUDCount))…" : "Optimizing (\(activeTextRewriteHUDCount))")
+            : (isSlow ? "Still optimizing..." : "Optimizing...")
     }
 
     private func beginTextRewriteHUDActivity() {
+        if activeTextRewriteHUDCount == 0 {
+            isTextRewriteHUDSlowPhase = false
+            armTextRewriteHUDSlowTransition()
+        }
         activeTextRewriteHUDCount += 1
         status = textRewriteHUDMessage
         setHUDStage(
@@ -6920,10 +6954,44 @@ final class SpeechManager: ObservableObject {
                 controlMode: .command
             )
         } else if activeHUDStageOwner == "rewrite-global" {
+            cancelTextRewriteHUDSlowTransition()
+            isTextRewriteHUDSlowPhase = false
             clearHUDStage(owner: "rewrite-global")
         } else {
+            cancelTextRewriteHUDSlowTransition()
+            isTextRewriteHUDSlowPhase = false
             refreshContinuousHUD(isDictating: false)
         }
+    }
+
+    private func armTextRewriteHUDSlowTransition() {
+        cancelTextRewriteHUDSlowTransition()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.activeTextRewriteHUDCount > 0 else { return }
+            self.isTextRewriteHUDSlowPhase = true
+            self.status = self.textRewriteHUDMessage
+            self.setHUDStage(
+                owner: "rewrite-global",
+                mode: .optimizing,
+                message: self.textRewriteHUDMessage,
+                controlMode: .command
+            )
+        }
+        pendingTextRewriteSlowHUDWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + textRewriteHUDSlowMessageDelay, execute: workItem)
+    }
+
+    private func cancelTextRewriteHUDSlowTransition() {
+        pendingTextRewriteSlowHUDWorkItem?.cancel()
+        pendingTextRewriteSlowHUDWorkItem = nil
+    }
+
+    private func textRewriteFailureReason(for error: Error) -> TextRewriteFailureReason {
+        if let providerError = error as? LLMProviderError,
+           case .requestTimedOut = providerError {
+            return .timedOut
+        }
+        return .providerFailed
     }
 
     private func shouldHoldTextRewriteBarrier(for intent: VoiceIntent) -> Bool {
@@ -7191,6 +7259,12 @@ final class SpeechManager: ObservableObject {
         let shouldShowIdleCommandHUD =
             featureAvailability.commandEnabled
             && !featureAvailability.dictationEnabled
+        let suppressCompletedDictationExitBars = shouldSuppressSpeechExitBarsForCompletedDictation(
+            featureAvailability: featureAvailability,
+            controlMode: controlMode,
+            isContinuousActive: isContinuousActive,
+            isSessionActive: recognitionSession.isRunning || isStopping || effectiveDictating || isPTTHeld
+        )
         if !isStopping && Date() < hudOverrideUntil {
             updateSpeechHUDTextVisibility(false, at: now, armHold: false)
             HUDManager.shared.update(
@@ -7241,7 +7315,7 @@ final class SpeechManager: ObservableObject {
         if isWakeGatedStandby {
             clearHUDOverride()
             clearUnarmedWakePreview()
-            updateSpeechHUDTextVisibility(false, at: now)
+            updateSpeechHUDTextVisibility(false, at: now, armHold: !suppressCompletedDictationExitBars)
             logWakeHUDStateIfNeeded(
                 reason: "wake-standby-hidden",
                 controlMode: controlMode,
@@ -7263,7 +7337,7 @@ final class SpeechManager: ObservableObject {
         let isSessionActive = recognitionSession.isRunning || isStopping || effectiveDictating || isPTTHeld
         if !isContinuousActive && !isSessionActive {
             clearHUDOverride()
-            updateSpeechHUDTextVisibility(false, at: now)
+            updateSpeechHUDTextVisibility(false, at: now, armHold: !suppressCompletedDictationExitBars)
             if isSpeechExitBarsHoldActive(at: now) {
                 showSpeechBarsHUD(recognitionControlMode: controlMode)
                 return
@@ -7298,7 +7372,7 @@ final class SpeechManager: ObservableObject {
            !featureAvailability.commandEnabled,
            !focusedTypingEvidence {
             clearHUDOverride()
-            updateSpeechHUDTextVisibility(false, at: now)
+            updateSpeechHUDTextVisibility(false, at: now, armHold: !suppressCompletedDictationExitBars)
             logWakeHUDStateIfNeeded(
                 reason: "dictation-only-without-focus-hidden",
                 controlMode: controlMode,
@@ -7341,7 +7415,7 @@ final class SpeechManager: ObservableObject {
         if isWakeGated && !isAwake && !isStopping && !effectiveDictating {
             clearHUDOverride()
             clearUnarmedWakePreview()
-            updateSpeechHUDTextVisibility(false, at: now)
+            updateSpeechHUDTextVisibility(false, at: now, armHold: !suppressCompletedDictationExitBars)
             logWakeHUDStateIfNeeded(
                 reason: "wake-gated-hidden-before-mode-selection",
                 controlMode: controlMode,
@@ -8747,6 +8821,8 @@ final class SpeechManager: ObservableObject {
                 return "当前文本为空"
             case .sourceTooLong:
                 return "文本过长，请分段优化"
+            case .timedOut:
+                return "优化超时，请重试"
             case .providerFailed:
                 return "文本优化失败"
             case .focusChanged:
@@ -8769,6 +8845,8 @@ final class SpeechManager: ObservableObject {
             return "The current text is empty"
         case .sourceTooLong:
             return "Text is too long. Please rewrite it in chunks"
+        case .timedOut:
+            return "Rewrite timed out. Please try again"
         case .providerFailed:
             return "Text rewrite failed"
         case .focusChanged:
