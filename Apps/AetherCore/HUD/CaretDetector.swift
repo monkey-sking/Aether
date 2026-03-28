@@ -13,6 +13,32 @@ final class CaretDetector: ObservableObject {
         let isSticky: Bool
         let caretSourceLabel: String?
     }
+
+    private struct DetectionSnapshot {
+        let currentAppName: String?
+        let currentAppBundleID: String?
+        let lastFocusedAppName: String?
+        let lastFocusedBundleID: String?
+        let bridgedCaretRect: CGRect?
+        let bridgedInputContextRect: CGRect?
+        let bridgedBundleID: String?
+        let bridgedCaretAt: Date?
+        let frontmostAppPID: pid_t?
+        let frontmostAppBundleID: String?
+    }
+
+    private struct DetectionResult {
+        let currentAppName: String?
+        let currentAppBundleID: String?
+        let lastFocusedAppName: String?
+        let lastFocusedBundleID: String?
+        let caretRect: CGRect?
+        let inputContextRect: CGRect?
+        let caretSourceBundleID: String?
+        let caretSourceLabel: String?
+        let focusedIsEditable: Bool
+        let shouldTemporarilyKeepLastCaret: Bool
+    }
     
     @Published var currentUpdate: Update = Update(caretRect: nil, inputRect: nil, sourceBundleID: nil, isSticky: false, caretSourceLabel: nil)
     
@@ -322,9 +348,10 @@ final class CaretDetector: ObservableObject {
     private func updateCaretRect() {
         if isFetchingCaret { return }
         isFetchingCaret = true
+        let snapshot = makeDetectionSnapshot()
         
         // Short-circuit for self
-        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier {
+        if snapshot.frontmostAppBundleID == Bundle.main.bundleIdentifier {
             DispatchQueue.main.async {
                 self.isFetchingCaret = false
                 self.resetCaretState()
@@ -334,8 +361,27 @@ final class CaretDetector: ObservableObject {
         }
         
         DispatchQueue.global(qos: .userInteractive).async {
-            self.performCaretDetection()
+            let result = self.performCaretDetection(snapshot: snapshot)
+            DispatchQueue.main.async {
+                self.applyDetectionResult(result)
+            }
         }
+    }
+
+    private func makeDetectionSnapshot() -> DetectionSnapshot {
+        let frontmostApp = NSWorkspace.shared.frontmostApplication
+        return DetectionSnapshot(
+            currentAppName: currentAppName,
+            currentAppBundleID: currentAppBundleID,
+            lastFocusedAppName: lastFocusedAppName,
+            lastFocusedBundleID: lastFocusedBundleID,
+            bridgedCaretRect: bridgedCaretRect,
+            bridgedInputContextRect: bridgedInputContextRect,
+            bridgedBundleID: bridgedBundleID,
+            bridgedCaretAt: bridgedCaretAt,
+            frontmostAppPID: frontmostApp?.processIdentifier,
+            frontmostAppBundleID: frontmostApp?.bundleIdentifier
+        )
     }
     
     private func resetCaretState() {
@@ -360,7 +406,7 @@ final class CaretDetector: ObservableObject {
         return nil
     }
     
-    private func performCaretDetection() {
+    private func performCaretDetection(snapshot: DetectionSnapshot) -> DetectionResult {
         var newRect: CGRect? = nil
         var newInputContextRect: CGRect? = nil
         var newCaretSourceBundleID: String? = nil
@@ -371,21 +417,25 @@ final class CaretDetector: ObservableObject {
         var imeContextRect: CGRect? = nil
         var imeBundleID: String? = nil
         var imeSourceLabel: String? = nil
+        var detectedCurrentAppName = snapshot.currentAppName
+        var detectedCurrentAppBundleID = snapshot.currentAppBundleID
+        var detectedLastFocusedAppName = snapshot.lastFocusedAppName
+        var detectedLastFocusedBundleID = snapshot.lastFocusedBundleID
 
         // 1. IME Bridge Check (fresh bridge update wins when AX is flaky across app/focus switches).
         if imeBridgeEnabled,
-           let bridgedAt = bridgedCaretAt,
+           let bridgedAt = snapshot.bridgedCaretAt,
            Date().timeIntervalSince(bridgedAt) <= 0.45,
-           let rawBridgeCaret = bridgedCaretRect,
+           let rawBridgeCaret = snapshot.bridgedCaretRect,
            let bridgeCaret = normalizeBridgeRect(rawBridgeCaret) {
-            let frontBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-            let bundleMatches = (bridgedBundleID == nil) || (frontBundle == nil) || (bridgedBundleID == frontBundle)
+            let frontBundle = snapshot.frontmostAppBundleID
+            let bundleMatches = (snapshot.bridgedBundleID == nil) || (frontBundle == nil) || (snapshot.bridgedBundleID == frontBundle)
             if bundleMatches {
                 imeRect = normalizeCaretRect(bridgeCaret)
-                if let rawContext = bridgedInputContextRect {
+                if let rawContext = snapshot.bridgedInputContextRect {
                     imeContextRect = normalizeBridgeRect(rawContext) ?? rawContext
                 }
-                imeBundleID = bridgedBundleID ?? frontBundle
+                imeBundleID = snapshot.bridgedBundleID ?? frontBundle
                 imeSourceLabel = "IME"
                 focusedIsEditable = true
                 usedInputMethodBridge = true
@@ -401,8 +451,8 @@ final class CaretDetector: ObservableObject {
         
         // Fallback search
         if elementStatus != .success || focusedElement == nil {
-            if let frontApp = NSWorkspace.shared.frontmostApplication {
-                 let frontAppElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+            if let frontmostPID = snapshot.frontmostAppPID {
+                 let frontAppElement = AXUIElementCreateApplication(frontmostPID)
                  var windowsRef: CFTypeRef?
                  if AXUIElementCopyAttributeValue(frontAppElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
                     let windows = windowsRef as? [AXUIElement], let firstWindow = windows.first {
@@ -419,18 +469,25 @@ final class CaretDetector: ObservableObject {
             AXUIElementGetPid(element, &pid)
             let app = NSRunningApplication(processIdentifier: pid)
             let bundleID = app?.bundleIdentifier ?? ""
-            self.currentAppName = app?.localizedName
-            self.currentAppBundleID = bundleID
-            self.lastFocusedAppName = self.currentAppName
-            self.lastFocusedBundleID = bundleID
+            let appName = app?.localizedName
+            detectedCurrentAppName = appName
+            detectedCurrentAppBundleID = bundleID
+            detectedLastFocusedAppName = appName
+            detectedLastFocusedBundleID = bundleID
             
             if bundleID == Bundle.main.bundleIdentifier {
-                DispatchQueue.main.async {
-                    self.isFetchingCaret = false
-                    self.resetCaretState()
-                    self.updateState()
-                }
-                return
+                return DetectionResult(
+                    currentAppName: detectedCurrentAppName,
+                    currentAppBundleID: detectedCurrentAppBundleID,
+                    lastFocusedAppName: detectedLastFocusedAppName,
+                    lastFocusedBundleID: detectedLastFocusedBundleID,
+                    caretRect: nil,
+                    inputContextRect: nil,
+                    caretSourceBundleID: nil,
+                    caretSourceLabel: nil,
+                    focusedIsEditable: false,
+                    shouldTemporarilyKeepLastCaret: false
+                )
             }
             
             var roleValue: CFTypeRef?
@@ -441,7 +498,7 @@ final class CaretDetector: ObservableObject {
             // logger.error("HUD_DEBUG: Focused App='\(self.currentAppName ?? "unknown")', Bundle='\(bundleID)', Role='\(role)'")
             
             // Drill down
-            if ["AXWindow", "AXSheet", "AXScrollArea", "AXSplitGroup"].contains(role) || isSiriLike(appName: self.currentAppName, bundleID: bundleID) {
+            if ["AXWindow", "AXSheet", "AXScrollArea", "AXSplitGroup"].contains(role) || isSiriLike(appName: appName, bundleID: bundleID) {
                 if let child = findFirstTextField(in: element) {
                     element = child
                     // [Legacy Fix] Re-fetch role for the new element so isEditable checks work
@@ -588,7 +645,7 @@ final class CaretDetector: ObservableObject {
                                   if (role == "AXTextArea" || role == "AXWebArea") && (r_appkit.width > 220 || r_appkit.height > 70) {
                                       // [Legacy Restore] Codex/HighFreq Rule: Never use synthetic caret for code editors.
                                       // For web containers, only synthesize when AX explicitly reports editable.
-                                      if (axEditable == true) && !self.isHighFrequencyApp(appName: self.currentAppName, bundleID: self.currentAppBundleID) {
+                                      if (axEditable == true) && !self.isHighFrequencyApp(appName: detectedCurrentAppName, bundleID: detectedCurrentAppBundleID) {
                                           self.logger.debug("⚠️ [WEAK CARET] Large bounds -> Synthetic Caret")
                                           let h = min(max(14.0, r_appkit.height), 24.0)
                                           let y = r_appkit.minY + max(0.0, (r_appkit.height - h) * 0.5)
@@ -676,7 +733,7 @@ final class CaretDetector: ObservableObject {
         }
         
         // [Final Sanity Check] Codex/HighFreq
-        if let r = newRect, self.isHighFrequencyApp(appName: self.currentAppName, bundleID: self.currentAppBundleID) {
+        if let r = newRect, self.isHighFrequencyApp(appName: detectedCurrentAppName, bundleID: detectedCurrentAppBundleID) {
              if r.width > 100 || r.height > 100 {
                  self.logger.debug("[CODEX] Final Sanity: Rejecting huge caret \(r.debugDescription, privacy: .public)")
                  newRect = nil
@@ -686,7 +743,7 @@ final class CaretDetector: ObservableObject {
         }
         
         if newRect != nil {
-            newCaretSourceBundleID = self.currentAppBundleID
+            newCaretSourceBundleID = detectedCurrentAppBundleID
         }
 
         // Prefer AX caret when present; fall back to IME only when AX is unavailable/unlikely.
@@ -705,78 +762,91 @@ final class CaretDetector: ObservableObject {
         }
         let newSourceLabel: String? = {
             if newRect == nil { return nil }
-            if axLikely || (!imeLikely && newCaretSourceBundleID == self.currentAppBundleID) { return "AX" }
+            if axLikely || (!imeLikely && newCaretSourceBundleID == detectedCurrentAppBundleID) { return "AX" }
             if imeRect != nil { return imeSourceLabel ?? "IME" }
             return "AX"
         }()
-        
-        DispatchQueue.main.async {
-            self.isFetchingCaret = false
-            
-            if newRect == nil {
-                if !focusedIsEditable {
-                    // Not editable, clear sticky immediately
-                    self.resetCaretState()
-                    self.updateState()
-                    return
-                }
-                
-                // Editable but lost caret: enter Sticky Grace Period
-                
-                // [Legacy Special Rule] Codex/HighFreq: Immediate Clear (Synchronous)
-                if self.isHighFrequencyApp(appName: self.lastFocusedAppName, bundleID: self.lastFocusedBundleID) {
-                    self.resetCaretState()
-                    self.updateState()
-                    return
-                }
 
-                if let last = self.recentCaretRect(), shouldTemporarilyKeepLastCaret {
-                     // keep existing
-                     return
-                }
-                
-                if self.caretRect != nil && !self.isCaretStickyActive {
-                    // Start sticky timer
-                    let sticky = self.stickyDuration(for: self.lastFocusedBundleID, appName: self.lastFocusedAppName)
-                    self.isCaretStickyActive = true
-                    self.caretStickyTimer?.invalidate()
-                    self.caretStickyTimer = Timer.scheduledTimer(withTimeInterval: sticky, repeats: false) { [weak self] _ in
-                        guard let self = self else { return }
-                        if self.isCaretStickyActive {
-                            self.resetCaretState()
-                            self.updateState()
-                        }
-                    }
-                    // Update state to reflect sticky overlay
-                    self.updateState()
-                    return
-                }
-                
-                if self.isCaretStickyActive && self.recentCaretRect() == nil {
-                    // Expired
-                    self.resetCaretState()
-                    self.updateState()
-                    return
-                }
-                return
-            }
-            
-            // Focus recovered
-            self.isCaretStickyActive = false
-            self.caretStickyTimer?.invalidate()
-            self.caretStickyTimer = nil
-            
-            self.caretRect = newRect
-            self.lastCaretRect = newRect
-            self.lastCaretRectAt = Date()
-            self.caretSourceBundleID = newCaretSourceBundleID
-            self.inputContextRect = newInputContextRect
-            self.caretSourceLabel = newSourceLabel
-            
-            self.updateState()
-        }
+        return DetectionResult(
+            currentAppName: detectedCurrentAppName,
+            currentAppBundleID: detectedCurrentAppBundleID,
+            lastFocusedAppName: detectedLastFocusedAppName,
+            lastFocusedBundleID: detectedLastFocusedBundleID,
+            caretRect: newRect,
+            inputContextRect: newInputContextRect,
+            caretSourceBundleID: newCaretSourceBundleID,
+            caretSourceLabel: newSourceLabel,
+            focusedIsEditable: focusedIsEditable,
+            shouldTemporarilyKeepLastCaret: shouldTemporarilyKeepLastCaret
+        )
     }
     
+    private func applyDetectionResult(_ result: DetectionResult) {
+        isFetchingCaret = false
+        currentAppName = result.currentAppName
+        currentAppBundleID = result.currentAppBundleID
+        lastFocusedAppName = result.lastFocusedAppName
+        lastFocusedBundleID = result.lastFocusedBundleID
+
+        if result.caretRect == nil {
+            if !result.focusedIsEditable {
+                // Not editable, clear sticky immediately
+                resetCaretState()
+                updateState()
+                return
+            }
+
+            // Editable but lost caret: enter Sticky Grace Period
+            if isHighFrequencyApp(appName: lastFocusedAppName, bundleID: lastFocusedBundleID) {
+                resetCaretState()
+                updateState()
+                return
+            }
+
+            if recentCaretRect() != nil, result.shouldTemporarilyKeepLastCaret {
+                // keep existing
+                return
+            }
+
+            if caretRect != nil && !isCaretStickyActive {
+                let sticky = stickyDuration(for: lastFocusedBundleID, appName: lastFocusedAppName)
+                isCaretStickyActive = true
+                caretStickyTimer?.invalidate()
+                caretStickyTimer = Timer.scheduledTimer(withTimeInterval: sticky, repeats: false) { [weak self] _ in
+                    guard let self = self else { return }
+                    if self.isCaretStickyActive {
+                        self.resetCaretState()
+                        self.updateState()
+                    }
+                }
+                // Update state to reflect sticky overlay
+                updateState()
+                return
+            }
+
+            if isCaretStickyActive && recentCaretRect() == nil {
+                resetCaretState()
+                updateState()
+                return
+            }
+            return
+        }
+
+        // Focus recovered
+        isCaretStickyActive = false
+        caretStickyTimer?.invalidate()
+        caretStickyTimer = nil
+
+        caretRect = result.caretRect
+        lastCaretRect = result.caretRect
+        lastCaretRectAt = Date()
+        caretSourceBundleID = result.caretSourceBundleID
+        inputContextRect = result.inputContextRect
+        caretSourceLabel = result.caretSourceLabel
+
+        updateState()
+    }
+
     private func updateState() {
         let focusBundleID = caretSourceBundleID ?? lastFocusedBundleID ?? currentAppBundleID
         let update = Update(
