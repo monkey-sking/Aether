@@ -5904,11 +5904,6 @@ final class SpeechManager: ObservableObject {
                     self.status = completionStatus
                     self.clearHUDStage(owner: phaseOwner)
                     self.clearHandledCommandPreview()
-                    HUDManager.shared.showTemporary(
-                        message: completionStatus,
-                        recognitionControlMode: .dictation,
-                        icon: self.hudInputIcon()
-                    )
                 case .mismatch:
                     self.status = self.genericIncompleteHUDMessage
                     self.clearHUDStage(owner: phaseOwner)
@@ -5927,11 +5922,6 @@ final class SpeechManager: ObservableObject {
                     self.status = completionStatus
                     self.clearHUDStage(owner: phaseOwner)
                     self.clearHandledCommandPreview()
-                    HUDManager.shared.showTemporary(
-                        message: completionStatus,
-                        recognitionControlMode: .dictation,
-                        icon: self.hudInputIcon()
-                    )
                 }
             }
         case .unknown(let transcript):
