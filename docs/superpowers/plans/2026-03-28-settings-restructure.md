@@ -66,14 +66,16 @@
 - [ ] Keep launch-at-login, app language, and idle-pause settings together there.
 - [ ] Preserve existing guided permission actions.
 
-### Task 7: Build the advanced page
+### Task 7: Split advanced settings from logs and diagnostics
 
 **Files:**
 - Modify: `Apps/AetherCore/SettingsModules.swift`
+- Modify: `Apps/AetherCore/AetherMainView.swift`
 
-- [ ] Create a dedicated `AdvancedSettingsView`.
-- [ ] Move lexicon, app controls, voice insights, and wake insights into that page.
-- [ ] Keep advanced import/export and rule customization available there without surfacing them in ordinary task pages.
+- [ ] Replace the single `Advanced` destination with two sidebar groups: `Advanced` and `Logs & Diagnostics`.
+- [ ] Keep lexicon, app rules, and transfer actions under `Advanced`.
+- [ ] Move usage/wake diagnostics into `Logs & Diagnostics`.
+- [ ] Add focused wrapper pages for `Import / Export` and `Focus & Input Diagnostics`.
 
 ### Task 8: Slim the overview page
 

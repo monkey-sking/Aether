@@ -20,8 +20,15 @@ Make the settings window feel lighter for everyday use while preserving advanced
 3. `Text Cleanup`
 4. `Controls & Shortcuts`
 5. `Permissions & Status`
-6. `About`
-7. `Advanced`
+6. `Advanced`
+   - `Voice Lexicon`
+   - `App Rules & Aliases`
+   - `Import / Export`
+7. `Logs & Diagnostics`
+   - `Voice Usage`
+   - `Wake & Activation`
+   - `Focus & Input Diagnostics`
+8. `About`
 
 ### Content Mapping
 
@@ -71,10 +78,17 @@ This page holds app/system state and setup flows that do not belong inside conte
 
 - Voice lexicon editor
 - App controls / app aliases / shortcut rule customization
+- Import / export and transfer actions
+
+Advanced is explicitly a power-user destination for settings that change behavior.
+
+#### Logs & Diagnostics
+
 - Voice insights
 - Wake insights
+- Focus / input diagnostics exports
 
-Advanced is explicitly a power-user destination. Import/export, aliases, app-specific rules, and diagnostics stay available but no longer compete with the default settings flow.
+Logs & Diagnostics is a separate destination for history, diagnostics, and troubleshooting surfaces.
 
 ## UI Rules
 
@@ -103,7 +117,8 @@ Advanced is explicitly a power-user destination. Import/export, aliases, app-spe
   - `TextCleanupSettingsView`
   - `ControlsShortcutsSettingsView`
   - `PermissionsStatusSettingsView`
-  - `AdvancedSettingsView`
+  - `ImportExportSettingsView`
+  - `FocusDiagnosticsSettingsView`
 
 ### VizComponents
 
