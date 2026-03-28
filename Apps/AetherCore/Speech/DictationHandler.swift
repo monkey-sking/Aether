@@ -133,6 +133,42 @@ final class DictationHandler {
         applyCorrection(text)
     }
 
+    /// When utterance finalization has started, stop pacing any queued partial backlog.
+    /// This keeps the post-speech tail from outlasting the real processing phase.
+    func flushPendingAppendForFinalization() {
+        cancelPendingPartialCorrection()
+
+        guard let target = pendingAppendTargetText,
+              target.hasPrefix(screenTypedText),
+              target != screenTypedText else {
+            cancelAppendPump()
+            return
+        }
+
+        appendPumpTask?.cancel()
+        appendPumpTask = nil
+
+        let suffix = String(target.dropFirst(screenTypedText.count))
+        pendingAppendTargetText = nil
+
+        guard !suffix.isEmpty else {
+            notifyInputMutationActivityIfNeeded()
+            return
+        }
+
+        injector.type(suffix, targetPID: targetPID)
+        screenTypedText = target
+        emitHUDProgressUpdate()
+        os_log(
+            "DictationHandler finalize flush: +%d chars (screen: %d chars)",
+            log: log,
+            type: .info,
+            suffix.count,
+            screenTypedText.count
+        )
+        notifyInputMutationActivityIfNeeded()
+    }
+
     // MARK: - Private
 
     private func setAwaitingPartialReconciliation(_ awaiting: Bool) {

@@ -1679,6 +1679,16 @@ final class SpeechManager: ObservableObject {
         return Date().timeIntervalSince(last) < alwaysListeningWakeWindowSeconds()
     }
 
+    // Session-active follow-up means the app is still waiting for more speech.
+    private var isWakeFollowUpSessionActive: Bool {
+        isAwake || pendingWakeFollowUp != nil
+    }
+
+    // Routing stays slightly broader so late final results can still recover.
+    private var isWakeFollowUpRoutingActive: Bool {
+        isWakeFollowUpSessionActive || hasRecentExpiredWakeFollowUpGrace
+    }
+
     private func isWakeFollowUpDictationContext(
         sessionTypingModeOverride: Bool? = nil,
         awakeOverride: Bool? = nil
@@ -1686,8 +1696,10 @@ final class SpeechManager: ObservableObject {
         let typing = sessionTypingModeOverride ?? sessionTypingMode
         guard typing else { return false }
         guard isAlwaysListeningEnabled, isWakeWordEnabled, !isDirectCommandEnabled else { return false }
-        let awakeState = awakeOverride ?? isAwake
-        return awakeState || pendingWakeFollowUp != nil
+        if let awakeOverride {
+            return awakeOverride || pendingWakeFollowUp != nil
+        }
+        return isWakeFollowUpSessionActive
     }
 
     private func alwaysListeningWakeWindowSeconds() -> TimeInterval {
@@ -3266,6 +3278,7 @@ final class SpeechManager: ObservableObject {
         os_log("EOS detected, finalizing", log: log, type: .info)
         isStopping = true
         shouldShowProcessingDotsDuringStop = shouldUseProcessingDotsForCurrentMode()
+        flushDictationStreamingForFinalization(reason: "eos")
         os_log(
             "Stop latch (EOS): controlMode=%{public}@ typing=%{public}@ showDots=%{public}@ lastTranscript=%{public}@",
             log: log,
@@ -3287,6 +3300,7 @@ final class SpeechManager: ObservableObject {
         os_log("Segment timeout. shouldContinue=%d", log: log, type: .info, shouldContinue)
         isStopping = true
         shouldShowProcessingDotsDuringStop = shouldUseProcessingDotsForCurrentMode()
+        flushDictationStreamingForFinalization(reason: "segment-timeout")
         os_log(
             "Stop latch (timeout): controlMode=%{public}@ typing=%{public}@ showDots=%{public}@ lastTranscript=%{public}@",
             log: log,
@@ -3334,6 +3348,7 @@ final class SpeechManager: ObservableObject {
         }
         isStopping = true
         shouldShowProcessingDotsDuringStop = shouldUseProcessingDotsForCurrentMode()
+        flushDictationStreamingForFinalization(reason: "ptt-up")
         clearHUDStage()
         clearHUDOverride()
         stopMicProgressUI(keepVisible: false)
@@ -3347,6 +3362,7 @@ final class SpeechManager: ObservableObject {
     // MARK: - Stop & Finalize
     func stopAndFinalize(keepHUDVisible: Bool = false, discardTranscript: Bool = false) {
         if !keepHUDVisible { clearHUDOverride() }
+        flushDictationStreamingForFinalization(reason: "stop-and-finalize")
         stopMicProgressUI(keepVisible: keepHUDVisible)
         eosDetector.stop()
         if !keepHUDVisible {
@@ -3377,6 +3393,7 @@ final class SpeechManager: ObservableObject {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self, self.sessionGeneration == genToFinalize else { return }
             self.recognitionSession.cancel()
+            self.flushDictationStreamingForFinalization(reason: "finalize-timeout")
             let textToUse = discardTranscript ? "" : (self.lastTranscript.isEmpty ? fallbackTranscript : self.lastTranscript)
             if self.isAlwaysListeningEnabled {
                 self.completeAlwaysListeningFinalResult(
@@ -3418,6 +3435,14 @@ final class SpeechManager: ObservableObject {
         }
         finalizationWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: workItem)
+    }
+
+    private func flushDictationStreamingForFinalization(reason: String) {
+        guard sessionTypingMode || !dictationHandler.screenTypedText.isEmpty else { return }
+        GlobalLogger.speech.info(
+            "[TextPipeline] finalize-flush reason=\(reason) screenTypedCount=\(dictationHandler.screenTypedText.count)"
+        )
+        dictationHandler.flushPendingAppendForFinalization()
     }
 
     private func stopAudioCapture() {
@@ -4378,8 +4403,7 @@ final class SpeechManager: ObservableObject {
         var wakeWordDetected = false
         var wakeScore: Double = 0
         var matchedWakePhrase: String?
-        let wakeFollowUpGraceActive = hasRecentExpiredWakeFollowUpGrace
-        let wakeRoutingActive = isAwake || pendingWakeFollowUp != nil || wakeFollowUpGraceActive
+        let wakeRoutingActive = isWakeFollowUpRoutingActive
 
         if isDirectCommandEnabled {
             logWakeWordConfigurationIfNeeded(reason: "final-direct-command")
@@ -7245,11 +7269,12 @@ final class SpeechManager: ObservableObject {
                 : idleTypingEvidence
         )
         let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
-        let isWakeGatedStandby = isWakeGated && !isAwake && !isStopping
+        let wakeFollowUpActive = isWakeFollowUpSessionActive
+        let isWakeGatedStandby = isWakeGated && !wakeFollowUpActive && !isStopping
         let shouldHoldDictationHUD =
             isTypingRecoveryHoldActive
             && controlMode == .auto
-            && (!isWakeGated || isAwake)
+            && (!isWakeGated || wakeFollowUpActive)
         let effectiveDictating = isDictating || shouldHoldDictationHUD
         let realHardware = availableInputDevices.filter { $0.id != 0 }
         let shouldShowIdleDictationHUD =
@@ -7412,7 +7437,7 @@ final class SpeechManager: ObservableObject {
             && !isStopping
             && lastTranscript.isEmpty
             && !effectiveDictating
-        if isWakeGated && !isAwake && !isStopping && !effectiveDictating {
+        if isWakeGated && !wakeFollowUpActive && !isStopping && !effectiveDictating {
             clearHUDOverride()
             clearUnarmedWakePreview()
             updateSpeechHUDTextVisibility(false, at: now, armHold: !suppressCompletedDictationExitBars)
