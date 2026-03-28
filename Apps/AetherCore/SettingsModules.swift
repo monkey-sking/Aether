@@ -3,6 +3,8 @@ import AppKit
 
 enum VoiceSettingsSection: Hashable {
     case basics
+    case textCleanup
+    case advanced
     case termCorrections
     case lexicon
     case appControls
@@ -16,6 +18,8 @@ enum VoiceSettingsSection: Hashable {
     var systemImage: String {
         switch self {
         case .basics: return "mic.fill"
+        case .textCleanup: return "wand.and.stars"
+        case .advanced: return "slider.horizontal.3"
         case .termCorrections: return "text.magnifyingglass"
         case .lexicon: return "text.badge.star"
         case .appControls: return "app.badge"
@@ -26,7 +30,9 @@ enum VoiceSettingsSection: Hashable {
 
     var title: String {
         switch self {
-        case .basics: return NSLocalizedString("settings.section.basics.title", comment: "")
+        case .basics: return AppLocalization.isChinese ? "语音输入" : "Voice Input"
+        case .textCleanup: return AppLocalization.isChinese ? "文字优化" : "Text Cleanup"
+        case .advanced: return AppLocalization.isChinese ? "高级" : "Advanced"
         case .termCorrections: return NSLocalizedString("settings.section.term_corrections.title", comment: "")
         case .lexicon: return NSLocalizedString("settings.section.lexicon.title", comment: "")
         case .appControls: return NSLocalizedString("settings.section.app_controls.title", comment: "")
@@ -42,7 +48,11 @@ enum VoiceSettingsSection: Hashable {
     func pageTitle(isChinese: Bool) -> String {
         switch self {
         case .basics:
-            return NSLocalizedString("settings.section.basics.page_title", comment: "")
+            return isChinese ? "语音输入" : "Voice Input"
+        case .textCleanup:
+            return isChinese ? "文字优化" : "Text Cleanup"
+        case .advanced:
+            return isChinese ? "高级" : "Advanced"
         case .termCorrections:
             return NSLocalizedString("settings.section.term_corrections.page_title", comment: "")
         case .lexicon:
@@ -59,7 +69,17 @@ enum VoiceSettingsSection: Hashable {
     func pageSubtitle(isChinese: Bool) -> String {
         switch self {
         case .basics:
-            return NSLocalizedString("settings.section.basics.subtitle", comment: "")
+            return isChinese
+                ? "管理麦克风、识别语言和语音激活方式。"
+                : "Manage your microphone, recognition languages, and voice activation behavior."
+        case .textCleanup:
+            return isChinese
+                ? "管理听写整理、术语修正和全文优化。"
+                : "Control dictation cleanup, term correction, and full-text rewrite."
+        case .advanced:
+            return isChinese
+                ? "词库、App 规则、导入导出和使用洞察都收在这里。"
+                : "Voice lexicon, app rules, import/export, and usage insights live here."
         case .termCorrections:
             return NSLocalizedString("settings.section.term_corrections.subtitle", comment: "")
         case .lexicon:
@@ -221,6 +241,34 @@ struct InputSettingsView: View {
         appState.isChineseUI
     }
 
+    private var showsBasics: Bool {
+        section == .basics
+    }
+
+    private var showsTermCorrections: Bool {
+        section == .termCorrections || section == .textCleanup
+    }
+
+    private var showsTextCleanupRewriteCard: Bool {
+        section == .textCleanup
+    }
+
+    private var showsLexiconTools: Bool {
+        section == .lexicon || section == .advanced
+    }
+
+    private var showsAppControls: Bool {
+        section == .appControls || section == .advanced
+    }
+
+    private var showsInsights: Bool {
+        section == .insights || section == .advanced
+    }
+
+    private var showsWakeInsights: Bool {
+        section == .wakeInsights || section == .advanced
+    }
+
     private var visibleFrontmostCommands: [FrontmostAppCommand] {
         let commands = mergedFrontmostSnapshot?.commands ?? []
         let recommended = commands.filter { $0.aliases.count > 2 }
@@ -333,7 +381,7 @@ struct InputSettingsView: View {
             subtitle: section.pageSubtitle(isChinese: isChinese)
         ) {
             VStack(spacing: 20) {
-                if section == .basics {
+                if showsBasics {
                     GlassCard {
                     VStack(alignment: .leading, spacing: 16) {
                         HStack {
@@ -421,7 +469,7 @@ struct InputSettingsView: View {
                 }
                 }
                 
-                if section == .basics {
+                if showsBasics {
                     GlassCard {
                     VStack(alignment: .leading, spacing: 20) {
                         ControlCard(
@@ -566,7 +614,11 @@ struct InputSettingsView: View {
                 }
                 }
                 
-                if section == .termCorrections {
+                if showsTermCorrections {
+                    if showsTextCleanupRewriteCard {
+                        LLMRewriteSettingsCard()
+                    }
+
                     GlassCard {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(alignment: .top, spacing: 10) {
@@ -686,8 +738,7 @@ struct InputSettingsView: View {
                     }
                 }
 
-                if section == .lexicon {
-                    LLMRewriteSettingsCard()
+                if showsLexiconTools {
                     GlassCard {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(alignment: .top, spacing: 12) {
@@ -878,7 +929,7 @@ struct InputSettingsView: View {
                 }
                 }
 
-                if section == .appControls {
+                if showsAppControls {
                     GlassCard {
                         VStack(alignment: .leading, spacing: 14) {
                             HStack(alignment: .top) {
@@ -1061,11 +1112,11 @@ struct InputSettingsView: View {
                     }
                 }
 
-                if section == .insights {
+                if showsInsights {
                     VoiceUsageInsightsCard()
                 }
 
-                if section == .wakeInsights {
+                if showsWakeInsights {
                     WakeActivationInsightsCard()
                 }
             }
@@ -1075,7 +1126,9 @@ struct InputSettingsView: View {
                 let preferred = appState.voiceService.effectiveLocaleIdentifier
                 commandLocaleID = normalizedCommandLocaleIdentifier(preferred)
             }
-            _ = frontmostAppCommandCatalog.refresh(force: true)
+            if showsAppControls {
+                _ = frontmostAppCommandCatalog.refresh(force: true)
+            }
         }
         .sheet(isPresented: Binding(
             get: {
@@ -5880,8 +5933,7 @@ private struct FixedWidthPopUpMenu: NSViewRepresentable {
 }
 
 // MARK: - Output Settings (Motion)
-struct OutputSettingsView: View {
-    @EnvironmentObject var appState: AppState
+private struct PointerSettingsCardContent: View {
     @ObservedObject var headManager = HeadMotionManager.shared
 
     private var isChinese: Bool {
@@ -5916,66 +5968,72 @@ struct OutputSettingsView: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ControlCard(
+                title: L10n.commandCenterMotionMatrix,
+                subtitle: headManager.isTracking ? L10n.statusActive : L10n.statusPaused,
+                icon: "cursorarrow.and.square.on.square.dashed",
+                color: .green,
+                isOn: trackingBinding
+            )
+
+            Divider()
+
+            Toggle(
+                isChinese ? "连接耳机后自动开启头控" : "Auto-start tracking when headset connects",
+                isOn: autoStartTrackingBinding
+            )
+            Toggle(
+                isChinese ? "自动开启前显示姿态引导" : "Show posture guide before auto-start",
+                isOn: postureGuideBinding
+            )
+            .disabled(!headManager.autoStartTrackingOnHeadsetConnection)
+
+            Divider()
+
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(isChinese ? "回中" : "Recenter")
+                        .font(.subheadline.weight(.semibold))
+                    Text(
+                        isChinese
+                            ? "把当前头部朝向重新设为中心，适合姿态变化后快速校正。"
+                            : "Use the current head position as the new center after your posture changes."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+                Spacer(minLength: 16)
+                Button(action: { headManager.recenter() }) {
+                    Text(isChinese ? "重新取中心" : "Recenter Now")
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(headManager.isTracking ? 0.72 : 0.42))
+                .cornerRadius(10)
+                .disabled(!headManager.isTracking)
+            }
+        }
+    }
+}
+
+struct OutputSettingsView: View {
+    var body: some View {
         SettingsPage(
             title: String(localized: "settings.page.pointer.title"),
             subtitle: String(localized: "settings.page.pointer.subtitle")
         ) {
             VStack(spacing: 20) {
                 GlassCard {
-                    VStack(alignment: .leading, spacing: 14) {
-                        ControlCard(
-                            title: L10n.commandCenterMotionMatrix, // Reusing Motion Matrix title which is appropriate
-                            subtitle: headManager.isTracking ? L10n.statusActive : L10n.statusPaused,
-                            icon: "cursorarrow.and.square.on.square.dashed",
-                            color: .green,
-                            isOn: trackingBinding
-                        )
-
-                        Divider()
-
-                        Toggle(
-                            isChinese ? "连接耳机后自动开启头控" : "Auto-start tracking when headset connects",
-                            isOn: autoStartTrackingBinding
-                        )
-                        Toggle(
-                            isChinese ? "自动开启前显示姿态引导" : "Show posture guide before auto-start",
-                            isOn: postureGuideBinding
-                        )
-                        .disabled(!headManager.autoStartTrackingOnHeadsetConnection)
-
-                        Divider()
-
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(isChinese ? "回中" : "Recenter")
-                                    .font(.subheadline.weight(.semibold))
-                                Text(
-                                    isChinese
-                                        ? "把当前头部朝向重新设为中心，适合姿态变化后快速校正。"
-                                        : "Use the current head position as the new center after your posture changes."
-                                )
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            }
-                            Spacer(minLength: 16)
-                            Button(action: { headManager.recenter() }) {
-                                Text(isChinese ? "重新取中心" : "Recenter Now")
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                            }
-                            .buttonStyle(.plain)
-                            .background(Color(nsColor: .controlBackgroundColor).opacity(headManager.isTracking ? 0.72 : 0.42))
-                            .cornerRadius(10)
-                            .disabled(!headManager.isTracking)
-                        }
-                    }
+                    PointerSettingsCardContent()
                 }
             }
         }
     }
 }
 
-struct HeadGestureSettingsView: View {
+private struct HeadGestureSettingsContent: View {
     @ObservedObject private var headManager = HeadMotionManager.shared
     private var isChinese: Bool { AppLocalization.isChinese }
 
@@ -6015,111 +6073,140 @@ struct HeadGestureSettingsView: View {
     }
 
     var body: some View {
+        VStack(spacing: 16) {
+            GlassCard(padding: 16) {
+                HStack(alignment: .top, spacing: 10) {
+                    TransparencyModeIcon(size: 22, color: .secondary)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(isChinese ? "启用热区触发" : "Enable Hot Zones")
+                            .font(.subheadline.weight(.semibold))
+                        Text(isChinese ? "四个边缘热区固定在当前显示器，移入即可触发。" : "Four edge zones stay on the active display and trigger on entry.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Toggle("", isOn: headGestureToggleBinding)
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .accessibilityLabel(Text(isChinese ? "启用热区触发" : "Enable Hot Zones"))
+                        .accessibilityHint(Text(isChinese ? "启用基于屏幕边缘的热区触发" : "Enable edge hot zone triggers"))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            GlassCard(padding: 16) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(isChinese ? "触发来源" : "Trigger Sources")
+                                .font(.subheadline.weight(.semibold))
+                            Text(isChinese ? "头控开启时可用头控指针触发；关闭时可用鼠标触发。" : "Use the head cursor when tracking is on, or the mouse when it's off.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 12)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle(isChinese ? "允许头控触发" : "Allow Head Tracking", isOn: hotZoneHeadInputBinding)
+                                .toggleStyle(.switch)
+                            Toggle(isChinese ? "允许鼠标触发" : "Allow Mouse", isOn: hotZoneMouseInputBinding)
+                                .toggleStyle(.switch)
+                        }
+                        .controlSize(.small)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(!headManager.headGestureToggleEnabled)
+            .opacity(headManager.headGestureToggleEnabled ? 1.0 : 0.55)
+
+            GlassCard(padding: 16) {
+                HStack(alignment: .top, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text(isChinese ? "热区大小" : "Zone Size")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Text("\(Int(headManager.headHotZoneSizeScale * 100))%")
+                                .font(.caption.weight(.semibold).monospacedDigit())
+                                .foregroundColor(.secondary)
+                        }
+
+                        Slider(value: hotZoneSizeBinding, in: 0.4...1.8, step: 0.05)
+                            .controlSize(.small)
+
+                        Text(isChinese ? "调大更容易进入热区，也更明显。" : "Larger zones are easier to enter and more visible.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text(isChinese ? "触发停留时间" : "Dwell Time")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Text(String(format: isChinese ? "%.0f 毫秒" : "%.0f ms", headManager.headHotZoneTriggerDuration * 1000))
+                                .font(.caption.weight(.semibold).monospacedDigit())
+                                .foregroundColor(.secondary)
+                        }
+
+                        Slider(value: hotZoneTriggerDurationBinding, in: 0.08...1.2, step: 0.02)
+                            .controlSize(.small)
+
+                        Text(isChinese ? "进入热区后停留这么久才触发。调大可减少误触，调小更快。" : "How long to dwell before triggering. Increase to reduce false triggers.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(!headManager.headGestureToggleEnabled)
+            .opacity(headManager.headGestureToggleEnabled ? 1.0 : 0.55)
+
+            HeadGestureShortcutMappingCard()
+        }
+    }
+}
+
+struct HeadGestureSettingsView: View {
+    var body: some View {
         SettingsPage(
             title: String(localized: "settings.page.head_gestures.title"),
             subtitle: String(localized: "settings.page.head_gestures.subtitle")
         ) {
+            HeadGestureSettingsContent()
+        }
+    }
+}
+
+struct ControlsShortcutsSettingsView: View {
+    private var isChinese: Bool { AppLocalization.isChinese }
+
+    var body: some View {
+        SettingsPage(
+            title: isChinese ? "控制与快捷键" : "Controls & Shortcuts",
+            subtitle: isChinese
+                ? "管理头控、热区和全局快捷键。"
+                : "Manage pointer control, hot zones, and global shortcuts."
+        ) {
             VStack(spacing: 16) {
-                GlassCard(padding: 16) {
-                    HStack(alignment: .top, spacing: 10) {
-                        TransparencyModeIcon(size: 22, color: .secondary)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(isChinese ? "启用热区触发" : "Enable Hot Zones")
-                                .font(.subheadline.weight(.semibold))
-                            Text(isChinese ? "四个边缘热区固定在当前显示器，移入即可触发。" : "Four edge zones stay on the active display and trigger on entry.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-
-                        Spacer(minLength: 12)
-
-                        Toggle("", isOn: headGestureToggleBinding)
-                            .labelsHidden()
-                            .controlSize(.small)
-                            .accessibilityLabel(Text(isChinese ? "启用热区触发" : "Enable Hot Zones"))
-                            .accessibilityHint(Text(isChinese ? "启用基于屏幕边缘的热区触发" : "Enable edge hot zone triggers"))
-                    }
+                GlassCard {
+                    PointerSettingsCardContent()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
 
-                GlassCard(padding: 16) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .top, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(isChinese ? "触发来源" : "Trigger Sources")
-                                    .font(.subheadline.weight(.semibold))
-                                Text(isChinese ? "头控开启时可用头控指针触发；关闭时可用鼠标触发。" : "Use the head cursor when tracking is on, or the mouse when it's off.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer(minLength: 12)
-                            VStack(alignment: .leading, spacing: 8) {
-                                Toggle(isChinese ? "允许头控触发" : "Allow Head Tracking", isOn: hotZoneHeadInputBinding)
-                                    .toggleStyle(.switch)
-                                Toggle(isChinese ? "允许鼠标触发" : "Allow Mouse", isOn: hotZoneMouseInputBinding)
-                                    .toggleStyle(.switch)
-                            }
-                            .controlSize(.small)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .disabled(!headManager.headGestureToggleEnabled)
-                .opacity(headManager.headGestureToggleEnabled ? 1.0 : 0.55)
+                HeadGestureSettingsContent()
 
-                GlassCard(padding: 16) {
-                    HStack(alignment: .top, spacing: 18) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Text(isChinese ? "热区大小" : "Zone Size")
-                                    .font(.subheadline.weight(.semibold))
-                                Spacer()
-                                Text("\(Int(headManager.headHotZoneSizeScale * 100))%")
-                                    .font(.caption.weight(.semibold).monospacedDigit())
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Slider(value: hotZoneSizeBinding, in: 0.4...1.8, step: 0.05)
-                                .controlSize(.small)
-
-                            Text(isChinese ? "调大更容易进入热区，也更明显。" : "Larger zones are easier to enter and more visible.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Divider()
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Text(isChinese ? "触发停留时间" : "Dwell Time")
-                                    .font(.subheadline.weight(.semibold))
-                                Spacer()
-                                Text(String(format: isChinese ? "%.0f 毫秒" : "%.0f ms", headManager.headHotZoneTriggerDuration * 1000))
-                                    .font(.caption.weight(.semibold).monospacedDigit())
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Slider(value: hotZoneTriggerDurationBinding, in: 0.08...1.2, step: 0.02)
-                                .controlSize(.small)
-
-                            Text(isChinese ? "进入热区后停留这么久才触发。调大可减少误触，调小更快。" : "How long to dwell before triggering. Increase to reduce false triggers.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .disabled(!headManager.headGestureToggleEnabled)
-                .opacity(headManager.headGestureToggleEnabled ? 1.0 : 0.55)
-
-                HeadGestureShortcutMappingCard()
+                HotkeySettingsSection()
             }
         }
     }

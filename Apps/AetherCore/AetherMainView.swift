@@ -13,11 +13,11 @@ private enum SidebarMetrics {
     static func preferredWidth() -> CGFloat {
         let itemTitles = [
             String(localized: "main.panel.overview"),
-            String(localized: "main.panel.head_gestures"),
-            String(localized: "main.panel.shortcuts"),
-            String(localized: "settings.section.app_controls.page_title"),
-            String(localized: "settings.section.lexicon.page_title"),
-            String(localized: "settings.section.insights.page_title"),
+            AppLocalization.isChinese ? "语音输入" : "Voice Input",
+            AppLocalization.isChinese ? "文字优化" : "Text Cleanup",
+            AppLocalization.isChinese ? "控制与快捷键" : "Controls & Shortcuts",
+            AppLocalization.isChinese ? "权限与状态" : "Permissions & Status",
+            AppLocalization.isChinese ? "高级" : "Advanced",
             String(localized: "main.panel.about")
         ]
 
@@ -27,8 +27,8 @@ private enum SidebarMetrics {
 
         let widestHeader = [
             String(localized: "main.section.workspace"),
-            String(localized: "main.section.controls"),
             String(localized: "main.section.voice"),
+            String(localized: "main.section.controls"),
             String(localized: "main.section.app")
         ]
         .map { ($0 as NSString).size(withAttributes: [.font: headerFont]).width }
@@ -158,14 +158,12 @@ struct AetherMainView: View {
 
     enum Panel: Hashable {
         case overview
+        case voiceInput
+        case textCleanup
+        case controlsShortcuts
+        case permissionsStatus
+        case advanced
         case about
-        case voiceTerms
-        case voiceLexicon
-        case voiceAppControls
-        case voiceInsights
-        case wakeInsights
-        case headGestures
-        case shortcuts
     }
     private var sidebarWidth: CGFloat {
         SidebarMetrics.preferredWidth()
@@ -182,28 +180,26 @@ struct AetherMainView: View {
                 }
 
                 Section {
-                    sidebarItem(.headGestures)
-                        .tag(Panel.headGestures)
-                    sidebarItem(.shortcuts)
-                        .tag(Panel.shortcuts)
-                    sidebarItem(.voiceAppControls)
-                        .tag(Panel.voiceAppControls)
-                } header: {
-                    sidebarHeader("main.section.controls")
-                }
-
-                Section {
-                    sidebarItem(.voiceLexicon)
-                        .tag(Panel.voiceLexicon)
-                    sidebarItem(.voiceInsights)
-                        .tag(Panel.voiceInsights)
-                    sidebarItem(.wakeInsights)
-                        .tag(Panel.wakeInsights)
+                    sidebarItem(.voiceInput)
+                        .tag(Panel.voiceInput)
+                    sidebarItem(.textCleanup)
+                        .tag(Panel.textCleanup)
                 } header: {
                     sidebarHeader("main.section.voice")
                 }
 
                 Section {
+                    sidebarItem(.controlsShortcuts)
+                        .tag(Panel.controlsShortcuts)
+                } header: {
+                    sidebarHeader("main.section.controls")
+                }
+
+                Section {
+                    sidebarItem(.permissionsStatus)
+                        .tag(Panel.permissionsStatus)
+                    sidebarItem(.advanced)
+                        .tag(Panel.advanced)
                     sidebarItem(.about)
                         .tag(Panel.about)
                 } header: {
@@ -217,22 +213,18 @@ struct AetherMainView: View {
             switch selection {
             case .overview:
                 OverviewDashboardView()
+            case .voiceInput:
+                InputSettingsView(section: .basics)
+            case .textCleanup:
+                InputSettingsView(section: .textCleanup)
+            case .controlsShortcuts:
+                ControlsShortcutsSettingsView()
+            case .permissionsStatus:
+                PermissionsStatusSettingsView()
+            case .advanced:
+                InputSettingsView(section: .advanced)
             case .about:
                 AboutCenterView()
-            case .voiceTerms:
-                OverviewDashboardView()
-            case .voiceLexicon:
-                InputSettingsView(section: .lexicon)
-            case .voiceAppControls:
-                InputSettingsView(section: .appControls)
-            case .voiceInsights:
-                InputSettingsView(section: .insights)
-            case .wakeInsights:
-                InputSettingsView(section: .wakeInsights)
-            case .headGestures:
-                HeadGestureSettingsView()
-            case .shortcuts:
-                ShortcutsSettingsView()
             case .none:
                 Text(L10n.selectItem)
             }
@@ -243,11 +235,6 @@ struct AetherMainView: View {
                 subtitle: ""
             )
         )
-        .onAppear {
-            if selection == .voiceTerms {
-                selection = .overview
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .aetherToggleMainSidebar)) { _ in
             withAnimation(.easeInOut(duration: 0.18)) {
                 columnVisibility = (columnVisibility == .detailOnly) ? .all : .detailOnly
@@ -282,22 +269,18 @@ struct AetherMainView: View {
         switch panel {
         case .overview:
             return String(localized: "main.panel.overview")
+        case .voiceInput:
+            return AppLocalization.isChinese ? "语音输入" : "Voice Input"
+        case .textCleanup:
+            return AppLocalization.isChinese ? "文字优化" : "Text Cleanup"
+        case .controlsShortcuts:
+            return AppLocalization.isChinese ? "控制与快捷键" : "Controls & Shortcuts"
+        case .permissionsStatus:
+            return AppLocalization.isChinese ? "权限与状态" : "Permissions & Status"
+        case .advanced:
+            return AppLocalization.isChinese ? "高级" : "Advanced"
         case .about:
             return String(localized: "main.panel.about")
-        case .voiceTerms:
-            return NSLocalizedString("settings.section.term_corrections.page_title", comment: "")
-        case .voiceLexicon:
-            return NSLocalizedString("settings.section.lexicon.page_title", comment: "")
-        case .voiceAppControls:
-            return NSLocalizedString("settings.section.app_controls.page_title", comment: "")
-        case .voiceInsights:
-            return NSLocalizedString("settings.section.insights.page_title", comment: "")
-        case .wakeInsights:
-            return AppLocalization.isChinese ? "唤醒与激活" : "Wake & Activation"
-        case .headGestures:
-            return String(localized: "main.panel.head_gestures")
-        case .shortcuts:
-            return String(localized: "main.panel.shortcuts")
         }
     }
 
@@ -305,22 +288,18 @@ struct AetherMainView: View {
         switch panel {
         case .overview:
             return "square.grid.2x2.fill"
+        case .voiceInput:
+            return "mic.fill"
+        case .textCleanup:
+            return "wand.and.stars"
+        case .controlsShortcuts:
+            return "keyboard.fill"
+        case .permissionsStatus:
+            return "checkmark.shield.fill"
+        case .advanced:
+            return "slider.horizontal.3"
         case .about:
             return "info.circle.fill"
-        case .voiceTerms:
-            return "text.magnifyingglass"
-        case .voiceLexicon:
-            return "text.book.closed.fill"
-        case .voiceAppControls:
-            return "command.square.fill"
-        case .voiceInsights:
-            return "waveform.path.ecg"
-        case .wakeInsights:
-            return "waveform.badge.mic"
-        case .headGestures:
-            return "person.fill.viewfinder"
-        case .shortcuts:
-            return "keyboard.fill"
         }
     }
 }
@@ -474,7 +453,6 @@ private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryVie
 private struct OverviewDashboardView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var headManager = HeadMotionManager.shared
-    @StateObject private var launchAtLogin = LaunchAtLoginManager()
     @State private var readinessExpanded: Bool = false
     private var isChinese: Bool { AppLocalization.isChinese }
 
@@ -509,6 +487,165 @@ private struct OverviewDashboardView: View {
             set: { headManager.showPostureGuideBeforeTracking = $0 }
         )
     }
+
+    private var microphoneSetupActionTitle: String? {
+        guard !appState.microphoneAuthorized else { return nil }
+        switch appState.microphoneAuthorizationStatus {
+        case .denied, .restricted:
+            return String(localized: "permissions.fix_microphone")
+        default:
+            return String(localized: "main.action.enable")
+        }
+    }
+
+    private func handleMicrophoneSetupAction() {
+        switch appState.microphoneAuthorizationStatus {
+        case .denied, .restricted:
+            appState.repairMicrophoneGuided()
+        default:
+            appState.requestMicrophoneGuided()
+        }
+    }
+
+    private var speechSetupActionTitle: String? {
+        guard !appState.speechAuthorized else { return nil }
+        switch appState.speechAuthorizationStatus {
+        case .denied, .restricted:
+            return String(localized: "permissions.fix_speech")
+        default:
+            return String(localized: "main.action.enable")
+        }
+    }
+
+    private func handleSpeechSetupAction() {
+        switch appState.speechAuthorizationStatus {
+        case .denied, .restricted:
+            appState.repairSpeechGuided()
+        default:
+            appState.requestSpeechGuided()
+        }
+    }
+
+    private var setupItems: [OverviewSetupItem] {
+        [
+            OverviewSetupItem(
+                id: "accessibility",
+                icon: "hand.raised.fill",
+                title: String(localized: "permissions.accessibility"),
+                detail: appState.accessibilityTrusted
+                    ? String(localized: "main.permission.accessibility.detail.ready")
+                    : String(localized: "main.permission.accessibility.detail.missing"),
+                isReady: appState.accessibilityTrusted,
+                actionTitle: appState.accessibilityTrusted ? nil : String(localized: "main.action.enable"),
+                action: appState.accessibilityTrusted ? nil : { appState.requestAccessibilityGuided() }
+            ),
+            OverviewSetupItem(
+                id: "microphone",
+                icon: "mic.fill",
+                title: String(localized: "permissions.microphone"),
+                detail: appState.microphoneAuthorized
+                    ? String(localized: "main.permission.microphone.detail.ready")
+                    : String(localized: "main.permission.microphone.detail.missing"),
+                isReady: appState.microphoneAuthorized,
+                actionTitle: microphoneSetupActionTitle,
+                action: appState.microphoneAuthorized ? nil : handleMicrophoneSetupAction
+            ),
+            OverviewSetupItem(
+                id: "speech",
+                icon: "waveform",
+                title: String(localized: "permissions.speech"),
+                detail: appState.speechAuthorized
+                    ? String(localized: "main.permission.speech.detail.ready")
+                    : String(localized: "main.permission.speech.detail.missing"),
+                isReady: appState.speechAuthorized,
+                actionTitle: speechSetupActionTitle,
+                action: appState.speechAuthorized ? nil : handleSpeechSetupAction
+            )
+        ]
+    }
+
+    private var blockingIssuesCount: Int {
+        setupItems.filter { !$0.isReady }.count
+    }
+
+    private var readinessCanCollapse: Bool {
+        blockingIssuesCount == 0
+    }
+
+    private var overviewSubtitle: String {
+        if blockingIssuesCount == 0 {
+            return String(localized: "main.overview.subtitle.ready")
+        }
+        return String(format: String(localized: "main.overview.subtitle.pending_fmt"), blockingIssuesCount)
+    }
+
+    var body: some View {
+        SettingsPage(
+            title: String(localized: "main.overview.title"),
+            subtitle: overviewSubtitle,
+            headerTrailing: {
+                EmptyView()
+            }
+        ) {
+            Text(isChinese ? "准备度" : "Readiness")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.secondary)
+
+            OverviewReadinessCard(
+                setupItems: setupItems,
+                isCollapsed: readinessCanCollapse && !readinessExpanded,
+                canCollapse: readinessCanCollapse,
+                onToggle: { readinessExpanded.toggle() }
+            )
+
+            Text(isChinese ? "核心功能" : "Core Features")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.secondary)
+
+            LazyVGrid(columns: columns, spacing: 16) {
+                GlassCard {
+                    PointerControlTile(
+                        subtitle: headManager.isTracking
+                            ? String(localized: "main.pointer.subtitle.active")
+                            : String(localized: "main.pointer.subtitle.idle"),
+                        isOn: trackingBinding,
+                        autoStartOnConnect: autoStartTrackingBinding,
+                        showPostureGuide: postureGuideBinding
+                    )
+                }
+
+                GlassCard {
+                    VoiceBasicsTile(
+                        mode: $appState.voiceActivationMode
+                    )
+                }
+
+                GlassCard {
+                    VoiceInputTile()
+                }
+
+                GlassCard {
+                    VoiceControlTile()
+                }
+            }
+
+        }
+        .onAppear {
+            readinessExpanded = !readinessCanCollapse
+        }
+        .onChange(of: readinessCanCollapse) { _, canCollapse in
+            readinessExpanded = !canCollapse
+        }
+    }
+}
+
+private struct PermissionsStatusSettingsView: View {
+    @EnvironmentObject private var appState: AppState
+    @ObservedObject private var headManager = HeadMotionManager.shared
+    @StateObject private var launchAtLogin = LaunchAtLoginManager()
+    @State private var readinessExpanded: Bool = false
+
+    private var isChinese: Bool { AppLocalization.isChinese }
 
     private var mouseIdlePauseMinutesBinding: Binding<String> {
         Binding(
@@ -634,147 +771,108 @@ private struct OverviewDashboardView: View {
         blockingIssuesCount == 0
     }
 
-    private var overviewSubtitle: String {
+    private var pageSubtitle: String {
         if blockingIssuesCount == 0 {
-            return String(localized: "main.overview.subtitle.ready")
+            return isChinese ? "系统权限和全局状态都已就绪。" : "Permissions and global status are ready."
         }
-        return String(format: String(localized: "main.overview.subtitle.pending_fmt"), blockingIssuesCount)
+        return isChinese
+            ? "还有 \(blockingIssuesCount) 项需要处理。"
+            : "\(blockingIssuesCount) setup item(s) still need attention."
     }
 
     var body: some View {
         SettingsPage(
-            title: String(localized: "main.overview.title"),
-            subtitle: overviewSubtitle,
-            headerTrailing: {
-                EmptyView()
-            }
+            title: isChinese ? "权限与状态" : "Permissions & Status",
+            subtitle: pageSubtitle
         ) {
-            Text(isChinese ? "准备度" : "Readiness")
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(.secondary)
+            VStack(spacing: 16) {
+                OverviewReadinessCard(
+                    setupItems: setupItems,
+                    isCollapsed: readinessCanCollapse && !readinessExpanded,
+                    canCollapse: readinessCanCollapse,
+                    onToggle: { readinessExpanded.toggle() }
+                )
 
-            OverviewReadinessCard(
-                setupItems: setupItems,
-                isCollapsed: readinessCanCollapse && !readinessExpanded,
-                canCollapse: readinessCanCollapse,
-                onToggle: { readinessExpanded.toggle() }
-            )
-
-            Text(isChinese ? "全局行为" : "Global Behavior")
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(.secondary)
-
-            GlassCard {
-                VStack(spacing: 10) {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(isChinese ? "鼠标静止后暂停整个 App" : "Pause App After Mouse Idle")
-                                .font(AetherUI.bodyFont)
-                            Text(isChinese ? "暂停头控、语音与快捷键，鼠标移动后恢复。" : "Pauses head tracking, voice, and shortcuts; resumes on movement.")
-                                .font(AetherUI.captionFont)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .allowsTightening(true)
-                                .minimumScaleFactor(0.88)
-                        }
-                        .layoutPriority(1)
-                        Spacer()
-                        DashboardFixedWidthPopUpMenu(
-                            options: mouseIdlePauseOptions,
-                            selection: mouseIdlePauseMinutesBinding
-                        )
-                    }
-
-                    Divider()
-
-                    VStack(alignment: .leading, spacing: 10) {
+                GlassCard {
+                    VStack(spacing: 10) {
                         HStack(spacing: 10) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(isChinese ? "登录后自动启动 Aether" : "Launch Aether At Login")
+                                Text(isChinese ? "鼠标静止后暂停整个 App" : "Pause App After Mouse Idle")
                                     .font(AetherUI.bodyFont)
-                                Text(launchAtLoginDetailText)
+                                Text(isChinese ? "暂停头控、语音与快捷键，鼠标移动后恢复。" : "Pauses head tracking, voice, and shortcuts; resumes on movement.")
                                     .font(AetherUI.captionFont)
-                                    .foregroundColor(launchAtLogin.requiresApproval ? .orange : .secondary)
-                                    .lineLimit(2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
                                     .truncationMode(.tail)
+                                    .allowsTightening(true)
+                                    .minimumScaleFactor(0.88)
                             }
                             .layoutPriority(1)
                             Spacer()
-                            Toggle("", isOn: launchAtLoginBinding)
-                                .labelsHidden()
-                                .toggleStyle(.switch)
-                                .disabled(launchAtLogin.isBusy)
+                            DashboardFixedWidthPopUpMenu(
+                                options: mouseIdlePauseOptions,
+                                selection: mouseIdlePauseMinutesBinding
+                            )
                         }
 
-                        if launchAtLogin.requiresApproval {
-                            HStack {
-                                Button(isChinese ? "前往登录项" : "Open Login Items") {
-                                    launchAtLogin.openSystemSettings()
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(isChinese ? "登录后自动启动 Aether" : "Launch Aether At Login")
+                                        .font(AetherUI.bodyFont)
+                                    Text(launchAtLoginDetailText)
+                                        .font(AetherUI.captionFont)
+                                        .foregroundColor(launchAtLogin.requiresApproval ? .orange : .secondary)
+                                        .lineLimit(2)
+                                        .truncationMode(.tail)
                                 }
-                                .controlSize(.small)
-                                .buttonStyle(.bordered)
+                                .layoutPriority(1)
                                 Spacer()
+                                Toggle("", isOn: launchAtLoginBinding)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .disabled(launchAtLogin.isBusy)
+                            }
+
+                            if launchAtLogin.requiresApproval {
+                                HStack {
+                                    Button(isChinese ? "前往登录项" : "Open Login Items") {
+                                        launchAtLogin.openSystemSettings()
+                                    }
+                                    .controlSize(.small)
+                                    .buttonStyle(.bordered)
+                                    Spacer()
+                                }
                             }
                         }
-                    }
 
-                    Divider()
+                        Divider()
 
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(String(localized: "settings.app_language.title"))
-                                .font(AetherUI.bodyFont)
-                            Text(String(localized: "settings.app_language.restart_hint"))
-                                .font(AetherUI.captionFont)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .allowsTightening(true)
-                                .minimumScaleFactor(0.88)
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(String(localized: "settings.app_language.title"))
+                                    .font(AetherUI.bodyFont)
+                                Text(String(localized: "settings.app_language.restart_hint"))
+                                    .font(AetherUI.captionFont)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .allowsTightening(true)
+                                    .minimumScaleFactor(0.88)
+                            }
+                            .layoutPriority(1)
+                            Spacer()
+                            AppLanguageHeader(compact: true)
                         }
-                        .layoutPriority(1)
-                        Spacer()
-                        AppLanguageHeader(compact: true)
                     }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 11)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-                .cornerRadius(12)
-            }
-
-            Text(isChinese ? "核心功能" : "Core Features")
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(.secondary)
-
-            LazyVGrid(columns: columns, spacing: 16) {
-                GlassCard {
-                    PointerControlTile(
-                        subtitle: headManager.isTracking
-                            ? String(localized: "main.pointer.subtitle.active")
-                            : String(localized: "main.pointer.subtitle.idle"),
-                        isOn: trackingBinding,
-                        autoStartOnConnect: autoStartTrackingBinding,
-                        showPostureGuide: postureGuideBinding
-                    )
-                }
-
-                GlassCard {
-                    VoiceBasicsTile(
-                        mode: $appState.voiceActivationMode
-                    )
-                }
-
-                GlassCard {
-                    VoiceInputTile()
-                }
-
-                GlassCard {
-                    VoiceControlTile()
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 11)
+                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+                    .cornerRadius(12)
                 }
             }
-
         }
         .onAppear {
             readinessExpanded = !readinessCanCollapse

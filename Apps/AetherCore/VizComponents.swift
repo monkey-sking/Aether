@@ -237,24 +237,25 @@ struct SettingsPageHero<HeaderTrailing: View>: View {
     }
 
     var body: some View {
-        GlassCard(padding: 16) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(AetherUI.pageTitleFont)
-                    if !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.callout)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(AetherUI.pageTitleFont)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-
-                Spacer(minLength: 12)
-
-                headerTrailing
             }
+
+            Spacer(minLength: 12)
+
+            headerTrailing
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 2)
+        .padding(.bottom, 2)
     }
 }
 
@@ -411,16 +412,16 @@ struct SettingsPage<Content: View, HeaderTrailing: View, FooterOverlay: View>: V
 
     private var baseContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
                 SettingsPageHero(title: title, subtitle: subtitle) {
                     headerTrailing
                 }
 
                 content
             }
-            .frame(maxWidth: 960, alignment: .leading)
+            .frame(maxWidth: 940, alignment: .leading)
             .padding(.horizontal, 22)
-            .padding(.top, 12)
+            .padding(.top, 10)
             .padding(.bottom, 18)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
