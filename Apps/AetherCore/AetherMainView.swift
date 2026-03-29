@@ -519,7 +519,6 @@ private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryVie
 private struct OverviewDashboardView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var headManager = HeadMotionManager.shared
-    @State private var readinessExpanded: Bool = false
     private var isChinese: Bool { AppLocalization.isChinese }
 
     private let columns = [
@@ -634,10 +633,6 @@ private struct OverviewDashboardView: View {
         setupItems.filter { !$0.isReady }.count
     }
 
-    private var readinessCanCollapse: Bool {
-        blockingIssuesCount == 0
-    }
-
     private var overviewSubtitle: String {
         if blockingIssuesCount == 0 {
             return String(localized: "main.overview.subtitle.ready")
@@ -657,11 +652,9 @@ private struct OverviewDashboardView: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundColor(.secondary)
 
-            OverviewReadinessCard(
+            OverviewReadinessSummaryCard(
                 setupItems: setupItems,
-                isCollapsed: readinessCanCollapse && !readinessExpanded,
-                canCollapse: readinessCanCollapse,
-                onToggle: { readinessExpanded.toggle() }
+                blockingIssuesCount: blockingIssuesCount
             )
 
             Text(isChinese ? "核心功能" : "Core Features")
@@ -694,13 +687,6 @@ private struct OverviewDashboardView: View {
                     VoiceControlTile()
                 }
             }
-
-        }
-        .onAppear {
-            readinessExpanded = !readinessCanCollapse
-        }
-        .onChange(of: readinessCanCollapse) { _, canCollapse in
-            readinessExpanded = !canCollapse
         }
     }
 }
@@ -852,7 +838,7 @@ private struct PermissionsStatusSettingsView: View {
             subtitle: pageSubtitle
         ) {
             VStack(spacing: 16) {
-                OverviewReadinessCard(
+                PermissionsReadinessCard(
                     setupItems: setupItems,
                     isCollapsed: readinessCanCollapse && !readinessExpanded,
                     canCollapse: readinessCanCollapse,
@@ -860,83 +846,70 @@ private struct PermissionsStatusSettingsView: View {
                 )
 
                 GlassCard {
-                    VStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(isChinese ? "App 空闲后自动暂停" : "Pause App After Mouse Idle")
+                            .font(.headline)
+                        Text(isChinese ? "暂停头控、语音与快捷键，鼠标移动后恢复。" : "Pauses head tracking, voice, and shortcuts; resumes on movement.")
+                            .font(AetherUI.captionFont)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
                         HStack(spacing: 10) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(isChinese ? "鼠标静止后暂停整个 App" : "Pause App After Mouse Idle")
-                                    .font(AetherUI.bodyFont)
-                                Text(isChinese ? "暂停头控、语音与快捷键，鼠标移动后恢复。" : "Pauses head tracking, voice, and shortcuts; resumes on movement.")
-                                    .font(AetherUI.captionFont)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .allowsTightening(true)
-                                    .minimumScaleFactor(0.88)
-                            }
-                            .layoutPriority(1)
                             Spacer()
                             DashboardFixedWidthPopUpMenu(
                                 options: mouseIdlePauseOptions,
                                 selection: mouseIdlePauseMinutesBinding
                             )
                         }
+                    }
+                }
 
-                        Divider()
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack(spacing: 10) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(isChinese ? "登录后自动启动 Aether" : "Launch Aether At Login")
-                                        .font(AetherUI.bodyFont)
-                                    Text(launchAtLoginDetailText)
-                                        .font(AetherUI.captionFont)
-                                        .foregroundColor(launchAtLogin.requiresApproval ? .orange : .secondary)
-                                        .lineLimit(2)
-                                        .truncationMode(.tail)
-                                }
-                                .layoutPriority(1)
-                                Spacer()
-                                Toggle("", isOn: launchAtLoginBinding)
-                                    .labelsHidden()
-                                    .toggleStyle(.switch)
-                                    .disabled(launchAtLogin.isBusy)
-                            }
-
-                            if launchAtLogin.requiresApproval {
-                                HStack {
-                                    Button(isChinese ? "前往登录项" : "Open Login Items") {
-                                        launchAtLogin.openSystemSettings()
-                                    }
-                                    .controlSize(.small)
-                                    .buttonStyle(.bordered)
-                                    Spacer()
-                                }
-                            }
-                        }
-
-                        Divider()
-
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 10) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(String(localized: "settings.app_language.title"))
-                                    .font(AetherUI.bodyFont)
-                                Text(String(localized: "settings.app_language.restart_hint"))
+                                Text(isChinese ? "登录后自动启动 Aether" : "Launch Aether At Login")
+                                    .font(.headline)
+                                Text(launchAtLoginDetailText)
                                     .font(AetherUI.captionFont)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .allowsTightening(true)
-                                    .minimumScaleFactor(0.88)
+                                    .foregroundColor(launchAtLogin.requiresApproval ? .orange : .secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             .layoutPriority(1)
                             Spacer()
-                            AppLanguageHeader(compact: true)
+                            Toggle("", isOn: launchAtLoginBinding)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .disabled(launchAtLogin.isBusy)
+                        }
+
+                        if launchAtLogin.requiresApproval {
+                            HStack {
+                                Button(isChinese ? "前往登录项" : "Open Login Items") {
+                                    launchAtLogin.openSystemSettings()
+                                }
+                                .controlSize(.small)
+                                .buttonStyle(.bordered)
+                                Spacer()
+                            }
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 11)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-                    .cornerRadius(12)
+                }
+
+                GlassCard {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(String(localized: "settings.app_language.title"))
+                                .font(.headline)
+                            Text(String(localized: "settings.app_language.restart_hint"))
+                                .font(AetherUI.captionFont)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .layoutPriority(1)
+                        Spacer()
+                        AppLanguageHeader(compact: true)
+                    }
                 }
             }
         }
@@ -953,43 +926,14 @@ private struct PermissionsStatusSettingsView: View {
     }
 }
 
-private struct OverviewReadinessCard: View {
-    @EnvironmentObject private var appState: AppState
+private struct OverviewReadinessSummaryCard: View {
     let setupItems: [OverviewSetupItem]
-    let isCollapsed: Bool
-    let canCollapse: Bool
-    let onToggle: () -> Void
+    let blockingIssuesCount: Int
 
-    private var realInputDevices: [AudioInputDevice] {
-        appState.availableInputDevices.filter { $0.id != 0 }
-    }
-
-    private var hasMicrophoneDevice: Bool {
-        !realInputDevices.isEmpty
-    }
-
-    private var readinessTotalCount: Int {
-        setupItems.count + 1
-    }
+    private var isChinese: Bool { AppLocalization.isChinese }
 
     private var readyCount: Int {
-        setupItems.filter(\.isReady).count + (hasMicrophoneDevice ? 1 : 0)
-    }
-
-    private var microphoneButtonTitle: String {
-        guard hasMicrophoneDevice else {
-            return String(localized: "settings.no_microphone")
-        }
-        guard let selected = appState.availableInputDevices.first(where: { $0.id == appState.selectedInputDeviceID }) else {
-            return String(localized: "settings.default_device")
-        }
-        return selected.name
-    }
-
-    private var microphoneRowDetail: String {
-        hasMicrophoneDevice
-            ? microphoneButtonTitle
-            : String(localized: "speech.no_mic_detected")
+        setupItems.filter(\.isReady).count
     }
 
     var body: some View {
@@ -1008,8 +952,79 @@ private struct OverviewReadinessCard: View {
                     }
                     Spacer()
                     OverviewStateTag(
-                        title: String(format: String(localized: "main.readiness.ready_count_fmt"), readyCount, readinessTotalCount),
-                        tint: readyCount == readinessTotalCount ? .green : .orange
+                        title: String(format: String(localized: "main.readiness.ready_count_fmt"), readyCount, setupItems.count),
+                        tint: blockingIssuesCount == 0 ? .green : .orange
+                    )
+                }
+
+                if blockingIssuesCount == 0 {
+                    Text(isChinese ? "所有核心权限都已就绪。需要调整系统接入项时，再去“权限与状态”。" : "Core permissions are ready. Go to Permissions & Status only when you need to adjust system access.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(setupItems.filter { !$0.isReady }) { item in
+                            HStack(spacing: 12) {
+                                Image(systemName: item.icon)
+                                    .frame(width: 20)
+                                    .foregroundColor(.orange)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title)
+                                        .font(.subheadline.weight(.medium))
+                                    Text(item.detail)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                if let actionTitle = item.actionTitle, let action = item.action {
+                                    Button(actionTitle, action: action)
+                                        .controlSize(.small)
+                                        .buttonStyle(.bordered)
+                                }
+                            }
+                            .padding(12)
+                            .background(Color(nsColor: .controlBackgroundColor))
+                            .cornerRadius(12)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct PermissionsReadinessCard: View {
+    let setupItems: [OverviewSetupItem]
+    let isCollapsed: Bool
+    let canCollapse: Bool
+    let onToggle: () -> Void
+
+    private var readyCount: Int {
+        setupItems.filter(\.isReady).count
+    }
+
+    var body: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(LocalizedStringKey("main.readiness.title"))
+                            .font(.headline)
+                        Text(String(localized: "main.readiness.subtitle"))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                            .minimumScaleFactor(0.9)
+                    }
+                    Spacer()
+                    OverviewStateTag(
+                        title: String(format: String(localized: "main.readiness.ready_count_fmt"), readyCount, setupItems.count),
+                        tint: readyCount == setupItems.count ? .green : .orange
                     )
                     if canCollapse {
                         Button(action: onToggle) {
@@ -1056,87 +1071,10 @@ private struct OverviewReadinessCard: View {
                             .background(Color(nsColor: .controlBackgroundColor))
                             .cornerRadius(12)
                         }
-
-                        readinessMenuRow(
-                            title: String(localized: "settings.microphone"),
-                            value: microphoneButtonTitle,
-                            detail: microphoneRowDetail,
-                            systemImage: "mic.fill",
-                            isReady: hasMicrophoneDevice
-                        ) {
-                            if appState.availableInputDevices.isEmpty {
-                                Text(L10n.settingsNoMicrophone)
-                            } else {
-                                ForEach(appState.availableInputDevices) { device in
-                                    Button(device.name) {
-                                        appState.selectedInputDeviceID = device.id
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func readinessMenuRow<Content: View>(
-        title: String,
-        value: String,
-        detail: String,
-        systemImage: String,
-        isReady: Bool,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .frame(width: 20)
-                .foregroundColor(isReady ? .green : .orange)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.medium))
-                Text(detail)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if isReady {
-                Menu {
-                    content()
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(value)
-                            .lineLimit(1)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2)
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color(nsColor: .windowBackgroundColor).opacity(0.9))
-                    .cornerRadius(10)
-                }
-                .menuStyle(.borderlessButton)
-            } else {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(.orange)
-                    Text(value)
-                        .lineLimit(1)
-                }
-                .font(.caption.weight(.medium))
-                .foregroundColor(.orange)
-            }
-        }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(12)
     }
 }
 
