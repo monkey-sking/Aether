@@ -18,7 +18,8 @@ private enum SidebarMetrics {
             AppLocalization.isChinese ? "控制与快捷键" : "Controls & Shortcuts",
             AppLocalization.isChinese ? "权限与状态" : "Permissions & Status",
             NSLocalizedString("settings.section.lexicon.page_title", comment: ""),
-            AppLocalization.isChinese ? "App 规则与别名" : "App Rules & Aliases",
+            AppLocalization.isChinese ? "App 规则" : "App Rules",
+            AppLocalization.isChinese ? "启动别名" : "Launch Aliases",
             AppLocalization.isChinese ? "导入与导出" : "Import & Export",
             NSLocalizedString("settings.section.insights.page_title", comment: ""),
             AppLocalization.isChinese ? "唤醒与激活" : "Wake & Activation",
@@ -170,7 +171,8 @@ struct AetherMainView: View {
         case controlsShortcuts
         case permissionsStatus
         case advancedLexicon
-        case advancedAppRulesAliases
+        case advancedAppRules
+        case advancedLaunchAliases
         case advancedImportExport
         case logsVoiceUsage
         case logsWakeActivation
@@ -219,8 +221,10 @@ struct AetherMainView: View {
                 Section {
                     sidebarItem(.advancedLexicon)
                         .tag(Panel.advancedLexicon)
-                    sidebarItem(.advancedAppRulesAliases)
-                        .tag(Panel.advancedAppRulesAliases)
+                    sidebarItem(.advancedAppRules)
+                        .tag(Panel.advancedAppRules)
+                    sidebarItem(.advancedLaunchAliases)
+                        .tag(Panel.advancedLaunchAliases)
                     sidebarItem(.advancedImportExport)
                         .tag(Panel.advancedImportExport)
                 } header: {
@@ -255,8 +259,10 @@ struct AetherMainView: View {
                 PermissionsStatusSettingsView()
             case .advancedLexicon:
                 InputSettingsView(section: .lexicon)
-            case .advancedAppRulesAliases:
-                InputSettingsView(section: .appControls)
+            case .advancedAppRules:
+                AppRulesSettingsView()
+            case .advancedLaunchAliases:
+                AppLaunchAliasesSettingsView()
             case .advancedImportExport:
                 ImportExportSettingsView()
             case .logsVoiceUsage:
@@ -325,8 +331,10 @@ struct AetherMainView: View {
             return AppLocalization.isChinese ? "权限与状态" : "Permissions & Status"
         case .advancedLexicon:
             return NSLocalizedString("settings.section.lexicon.page_title", comment: "")
-        case .advancedAppRulesAliases:
-            return AppLocalization.isChinese ? "App 规则与别名" : "App Rules & Aliases"
+        case .advancedAppRules:
+            return AppLocalization.isChinese ? "App 规则" : "App Rules"
+        case .advancedLaunchAliases:
+            return AppLocalization.isChinese ? "启动别名" : "Launch Aliases"
         case .advancedImportExport:
             return AppLocalization.isChinese ? "导入与导出" : "Import & Export"
         case .logsVoiceUsage:
@@ -354,8 +362,10 @@ struct AetherMainView: View {
             return "checkmark.shield.fill"
         case .advancedLexicon:
             return "text.badge.star"
-        case .advancedAppRulesAliases:
+        case .advancedAppRules:
             return "app.badge"
+        case .advancedLaunchAliases:
+            return "arrow.up.forward.app"
         case .advancedImportExport:
             return "arrow.left.arrow.right.square"
         case .logsVoiceUsage:
@@ -519,6 +529,7 @@ private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryVie
 private struct OverviewDashboardView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var headManager = HeadMotionManager.shared
+    @State private var readinessExpanded = false
     private var isChinese: Bool { AppLocalization.isChinese }
 
     private let columns = [
@@ -654,7 +665,9 @@ private struct OverviewDashboardView: View {
 
             OverviewReadinessSummaryCard(
                 setupItems: setupItems,
-                blockingIssuesCount: blockingIssuesCount
+                blockingIssuesCount: blockingIssuesCount,
+                isExpanded: readinessExpanded,
+                onToggle: { readinessExpanded.toggle() }
             )
 
             Text(isChinese ? "核心功能" : "Core Features")
@@ -929,6 +942,8 @@ private struct PermissionsStatusSettingsView: View {
 private struct OverviewReadinessSummaryCard: View {
     let setupItems: [OverviewSetupItem]
     let blockingIssuesCount: Int
+    let isExpanded: Bool
+    let onToggle: () -> Void
 
     private var isChinese: Bool { AppLocalization.isChinese }
 
@@ -955,9 +970,46 @@ private struct OverviewReadinessSummaryCard: View {
                         title: String(format: String(localized: "main.readiness.ready_count_fmt"), readyCount, setupItems.count),
                         tint: blockingIssuesCount == 0 ? .green : .orange
                     )
+                    Button(action: onToggle) {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
 
-                if blockingIssuesCount == 0 {
+                if isExpanded {
+                    VStack(spacing: 10) {
+                        ForEach(setupItems) { item in
+                            HStack(spacing: 12) {
+                                Image(systemName: item.icon)
+                                    .frame(width: 20)
+                                    .foregroundColor(item.isReady ? .green : .orange)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title)
+                                        .font(.subheadline.weight(.medium))
+                                    Text(item.detail)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                if item.isReady {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                } else if let actionTitle = item.actionTitle, let action = item.action {
+                                    Button(actionTitle, action: action)
+                                        .controlSize(.small)
+                                        .buttonStyle(.bordered)
+                                }
+                            }
+                            .padding(12)
+                            .background(Color(nsColor: .controlBackgroundColor))
+                            .cornerRadius(12)
+                        }
+                    }
+                } else if blockingIssuesCount == 0 {
                     Text(isChinese ? "所有核心权限都已就绪。需要调整系统接入项时，再去“权限与状态”。" : "Core permissions are ready. Go to Permissions & Status only when you need to adjust system access.")
                         .font(.caption)
                         .foregroundColor(.secondary)

@@ -6102,6 +6102,165 @@ struct ControlsShortcutsSettingsView: View {
     }
 }
 
+struct AppRulesSettingsView: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var editingCustomRuleID: String?
+    @State private var newlyInsertedCustomRuleID: String?
+
+    private var isChinese: Bool { AppLocalization.isChinese }
+
+    var body: some View {
+        SettingsPage(
+            title: isChinese ? "App 规则" : "App Rules",
+            subtitle: isChinese
+                ? "管理按 App 生效的语音规则和全局规则。"
+                : "Manage app-specific voice rules and global rules."
+        ) {
+            GlassCard {
+                CustomAppShortcutRulesCard(
+                    rules: $appState.customAppShortcutRules,
+                    onCopy: nil,
+                    onPaste: nil,
+                    onAddCurrent: {
+                        let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                        appState.addCustomAppShortcutRule(prefilling: bundleID)
+                        newlyInsertedCustomRuleID = appState.customAppShortcutRules.first?.id
+                        editingCustomRuleID = appState.customAppShortcutRules.first?.id
+                    },
+                    onAddGlobal: {
+                        appState.addGlobalCustomAppShortcutRule()
+                        newlyInsertedCustomRuleID = appState.customAppShortcutRules.first?.id
+                        editingCustomRuleID = appState.customAppShortcutRules.first?.id
+                    },
+                    onEdit: { ruleID in
+                        newlyInsertedCustomRuleID = nil
+                        editingCustomRuleID = ruleID
+                    },
+                    onDelete: { ruleID in
+                        appState.removeCustomAppShortcutRule(id: ruleID)
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { editingCustomRuleID != nil },
+            set: {
+                if !$0 {
+                    editingCustomRuleID = nil
+                    newlyInsertedCustomRuleID = nil
+                }
+            }
+        )) {
+            if let id = editingCustomRuleID,
+               let idx = appState.customAppShortcutRules.firstIndex(where: { $0.id == id }) {
+                CustomAppShortcutRuleEditorSheet(
+                    rule: appState.customAppShortcutRules[idx],
+                    onSave: { updatedRule in
+                        if let saveIndex = appState.customAppShortcutRules.firstIndex(where: { $0.id == id }) {
+                            appState.customAppShortcutRules[saveIndex] = updatedRule
+                        }
+                        newlyInsertedCustomRuleID = nil
+                        editingCustomRuleID = nil
+                    },
+                    onCancel: {
+                        if newlyInsertedCustomRuleID == id {
+                            appState.removeCustomAppShortcutRule(id: id)
+                        }
+                        newlyInsertedCustomRuleID = nil
+                        editingCustomRuleID = nil
+                    }
+                )
+            } else {
+                EmptyView()
+            }
+        }
+    }
+}
+
+struct AppLaunchAliasesSettingsView: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var editingAppLaunchAliasID: String?
+    @State private var editingNewAppLaunchAliasRule: CustomAppLaunchAliasRule?
+
+    private var isChinese: Bool { AppLocalization.isChinese }
+
+    var body: some View {
+        SettingsPage(
+            title: isChinese ? "启动别名" : "Launch Aliases",
+            subtitle: isChinese
+                ? "管理“打开 / 切到”类命令使用的 App 别名。"
+                : "Manage the app aliases used by open and switch commands."
+        ) {
+            GlassCard {
+                CustomAppLaunchAliasesCard(
+                    rules: $appState.customAppLaunchAliasRules,
+                    onCopyAIPrompt: nil,
+                    onCopy: nil,
+                    onPaste: nil,
+                    onAddCurrent: {
+                        let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                        editingAppLaunchAliasID = nil
+                        editingNewAppLaunchAliasRule = appState.makeCustomAppLaunchAliasDraft(prefilling: bundleID)
+                    },
+                    onAddEmpty: {
+                        editingAppLaunchAliasID = nil
+                        editingNewAppLaunchAliasRule = appState.makeCustomAppLaunchAliasDraft()
+                    },
+                    onEdit: { ruleID in
+                        editingNewAppLaunchAliasRule = nil
+                        editingAppLaunchAliasID = ruleID
+                    },
+                    onDelete: { ruleID in
+                        appState.removeCustomAppLaunchAlias(id: ruleID)
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { editingAppLaunchAliasID != nil || editingNewAppLaunchAliasRule != nil },
+            set: {
+                if !$0 {
+                    editingNewAppLaunchAliasRule = nil
+                    editingAppLaunchAliasID = nil
+                }
+            }
+        )) {
+            if let draftRule = editingNewAppLaunchAliasRule {
+                CustomAppLaunchAliasRuleEditorSheet(
+                    rule: draftRule,
+                    onSave: { updatedRule in
+                        appState.customAppLaunchAliasRules.insert(updatedRule, at: 0)
+                        editingNewAppLaunchAliasRule = nil
+                        editingAppLaunchAliasID = nil
+                    },
+                    onCancel: {
+                        editingNewAppLaunchAliasRule = nil
+                        editingAppLaunchAliasID = nil
+                    }
+                )
+            } else if let id = editingAppLaunchAliasID,
+                      let idx = appState.customAppLaunchAliasRules.firstIndex(where: { $0.id == id }) {
+                CustomAppLaunchAliasRuleEditorSheet(
+                    rule: appState.customAppLaunchAliasRules[idx],
+                    onSave: { updatedRule in
+                        if let saveIndex = appState.customAppLaunchAliasRules.firstIndex(where: { $0.id == id }) {
+                            appState.customAppLaunchAliasRules[saveIndex] = updatedRule
+                        }
+                        editingNewAppLaunchAliasRule = nil
+                        editingAppLaunchAliasID = nil
+                    },
+                    onCancel: {
+                        editingNewAppLaunchAliasRule = nil
+                        editingAppLaunchAliasID = nil
+                    }
+                )
+            } else {
+                EmptyView()
+            }
+        }
+    }
+}
+
 struct ImportExportSettingsView: View {
     @EnvironmentObject private var appState: AppState
     @State private var lexiconTransferStatus: String?
