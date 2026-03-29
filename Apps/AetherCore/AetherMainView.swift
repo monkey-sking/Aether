@@ -15,7 +15,8 @@ private enum SidebarMetrics {
             String(localized: "main.panel.overview"),
             AppLocalization.isChinese ? "语音输入" : "Voice Input",
             AppLocalization.isChinese ? "文字优化" : "Text Cleanup",
-            AppLocalization.isChinese ? "控制与快捷键" : "Controls & Shortcuts",
+            AppLocalization.isChinese ? "头控与热区" : "Pointer & Hot Zones",
+            AppLocalization.isChinese ? "快捷键" : "Shortcuts",
             AppLocalization.isChinese ? "权限与状态" : "Permissions & Status",
             NSLocalizedString("settings.section.lexicon.page_title", comment: ""),
             AppLocalization.isChinese ? "App 规则" : "App Rules",
@@ -168,6 +169,7 @@ struct AetherMainView: View {
         case overview
         case voiceInput
         case textCleanup
+        case controlsPointerHotZones
         case controlsShortcuts
         case permissionsStatus
         case advancedLexicon
@@ -203,6 +205,8 @@ struct AetherMainView: View {
                 }
 
                 Section {
+                    sidebarItem(.controlsPointerHotZones)
+                        .tag(Panel.controlsPointerHotZones)
                     sidebarItem(.controlsShortcuts)
                         .tag(Panel.controlsShortcuts)
                 } header: {
@@ -253,6 +257,8 @@ struct AetherMainView: View {
                 InputSettingsView(section: .basics)
             case .textCleanup:
                 InputSettingsView(section: .textCleanup)
+            case .controlsPointerHotZones:
+                ControlsPointerHotZonesSettingsView()
             case .controlsShortcuts:
                 ControlsShortcutsSettingsView()
             case .permissionsStatus:
@@ -325,8 +331,10 @@ struct AetherMainView: View {
             return AppLocalization.isChinese ? "语音输入" : "Voice Input"
         case .textCleanup:
             return AppLocalization.isChinese ? "文字优化" : "Text Cleanup"
+        case .controlsPointerHotZones:
+            return AppLocalization.isChinese ? "头控与热区" : "Pointer & Hot Zones"
         case .controlsShortcuts:
-            return AppLocalization.isChinese ? "控制与快捷键" : "Controls & Shortcuts"
+            return AppLocalization.isChinese ? "快捷键" : "Shortcuts"
         case .permissionsStatus:
             return AppLocalization.isChinese ? "权限与状态" : "Permissions & Status"
         case .advancedLexicon:
@@ -356,8 +364,10 @@ struct AetherMainView: View {
             return "mic.fill"
         case .textCleanup:
             return "wand.and.stars"
+        case .controlsPointerHotZones:
+            return "scope"
         case .controlsShortcuts:
-            return "keyboard.fill"
+            return "command"
         case .permissionsStatus:
             return "checkmark.shield.fill"
         case .advancedLexicon:

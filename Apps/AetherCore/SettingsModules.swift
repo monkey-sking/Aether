@@ -6079,15 +6079,15 @@ struct HeadGestureSettingsView: View {
     }
 }
 
-struct ControlsShortcutsSettingsView: View {
+struct ControlsPointerHotZonesSettingsView: View {
     private var isChinese: Bool { AppLocalization.isChinese }
 
     var body: some View {
         SettingsPage(
-            title: isChinese ? "控制与快捷键" : "Controls & Shortcuts",
+            title: isChinese ? "头控与热区" : "Pointer & Hot Zones",
             subtitle: isChinese
-                ? "管理头控、热区和全局快捷键。"
-                : "Manage pointer control, hot zones, and global shortcuts."
+                ? "管理头控、热区触发和停留参数。"
+                : "Manage pointer control, hot zone triggers, and dwell tuning."
         ) {
             VStack(spacing: 16) {
                 GlassCard {
@@ -6095,7 +6095,22 @@ struct ControlsShortcutsSettingsView: View {
                 }
 
                 HeadGestureSettingsContent(showsDiagnostics: false)
+            }
+        }
+    }
+}
 
+struct ControlsShortcutsSettingsView: View {
+    private var isChinese: Bool { AppLocalization.isChinese }
+
+    var body: some View {
+        SettingsPage(
+            title: isChinese ? "快捷键" : "Shortcuts",
+            subtitle: isChinese
+                ? "管理全局快捷键与语音触发快捷键。"
+                : "Manage global shortcuts and voice-triggered shortcuts."
+        ) {
+            VStack(spacing: 16) {
                 HotkeySettingsSection()
             }
         }
