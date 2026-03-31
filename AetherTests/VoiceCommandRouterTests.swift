@@ -733,6 +733,88 @@ final class SpeechManagerTypingModeTests: XCTestCase {
         )
     }
 
+    func testWakeTypingFallbackDoesNotRestoreDuringInlineWakeLifecycle() {
+        XCTAssertFalse(
+            SpeechManager.shouldRestoreWakeTypingFallbackBeforeRouting(
+                wakeLifecycleActive: true,
+                recognitionControlMode: .auto,
+                dictationEnabled: true,
+                liveTyping: false,
+                pendingWakeFollowUp: true,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: true,
+                fallbackWindowActive: true,
+                typingSuppressed: false
+            )
+        )
+    }
+
+    func testWakeTypingFallbackCanRestoreAfterWakeLifecycleEnds() {
+        XCTAssertTrue(
+            SpeechManager.shouldRestoreWakeTypingFallbackBeforeRouting(
+                wakeLifecycleActive: false,
+                recognitionControlMode: .auto,
+                dictationEnabled: true,
+                liveTyping: false,
+                pendingWakeFollowUp: true,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: true,
+                fallbackWindowActive: true,
+                typingSuppressed: false
+            )
+        )
+    }
+
+    func testWakeCommandRoutingOverridesStickyTypingDuringWakeLifecycle() {
+        XCTAssertTrue(
+            SpeechManager.shouldPreferWakeCommandRouting(
+                recognitionControlMode: .auto,
+                commandEnabled: true,
+                wakeLifecycleActive: true,
+                wakePayloadLooksLikeCommand: true,
+                liveTyping: false
+            )
+        )
+    }
+
+    func testWakeCommandRoutingDoesNotOverrideLiveTypingDuringWakeLifecycle() {
+        XCTAssertFalse(
+            SpeechManager.shouldPreferWakeCommandRouting(
+                recognitionControlMode: .auto,
+                commandEnabled: true,
+                wakeLifecycleActive: true,
+                wakePayloadLooksLikeCommand: true,
+                liveTyping: true
+            )
+        )
+    }
+
+    func testWakeAdapterPrefersCommandCommitForWakeCommandPayload() {
+        let decision = SpeechManager.resolveWakeFollowUpArbitration(
+            controlMode: .auto,
+            transcript: "打开面板",
+            routerDecision: .init(intent: .showShortcutPanel, confidence: .high, reason: "alias"),
+            hasStableTypingEvidence: true,
+            hasLiveTypingEvidence: false,
+            hasCommittedDictation: false
+        )
+
+        XCTAssertEqual(decision.state, .commandCommitted)
+    }
+
+    func testWakeAdapterKeepsPendingBeforeDictationCommitWithoutStableTypingEvidence() {
+        let decision = SpeechManager.resolveWakeFollowUpArbitration(
+            controlMode: .auto,
+            transcript: "今天下午三点开会",
+            routerDecision: .init(intent: .dictation("今天下午三点开会"), confidence: .medium, reason: "dictation"),
+            hasStableTypingEvidence: false,
+            hasLiveTypingEvidence: false,
+            hasCommittedDictation: false
+        )
+
+        XCTAssertEqual(decision.state, .pending)
+    }
+
     func testWakeFollowUpEchoSuppressionDropsTranscriptMatchingPendingWakePhrase() {
         XCTAssertTrue(
             SpeechManager.shouldSuppressWakeFollowUpEcho(
