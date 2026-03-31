@@ -15,9 +15,11 @@
 		31B988EA77999AB6CC7B6D66 /* WakeWordDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A02A17193B719852F3F6799 /* WakeWordDetector.swift */; };
 		38E0C2865D2EF8EBA566137B /* CommandHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83D513A99130EC0F797EAF0 /* CommandHandler.swift */; };
 		4BDBBCA080E1B33D13F87E22 /* VoiceCommandRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D863E78A6DBBC070343227B /* VoiceCommandRouter.swift */; };
+		CDC403859BCD1D115565CFCB /* UtteranceArbitrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15F2037660B8AC1F0D5617A2 /* UtteranceArbitrator.swift */; };
 		58F4FE2F0F3944ACA658AA5B /* HUDState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD149F2C14A14BBD874C58F7 /* HUDState.swift */; };
 		6CAFD84A56B2486181DB21D0 /* HUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDD62DBE56B946A9A7724D7D /* HUDView.swift */; };
 		752B8656CCE440E6FF74855D /* VoiceCommandRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAE13A5808AC6A480FF02900 /* VoiceCommandRouterTests.swift */; };
+		7E6D5C4B3A2910F8E7D6C5B4 /* UtteranceArbitratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82E7D6C5B4A3F2019E8D7C6B /* UtteranceArbitratorTests.swift */; };
 		7538C6658F303E0F9F88B2AC /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F795E7530701568580707FBB /* Sparkle */; };
 		7B6C97DA4CFC0DEC0EDB1148 /* SparkleUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCB362410BB16740950C337A /* SparkleUpdater.swift */; };
 		80BFA81A4CB14209B6E96C5F /* InputMethodCaretBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B7AD64E322D43EBB7EB5CA2 /* InputMethodCaretBridge.swift */; };
@@ -74,7 +76,9 @@
 		4B7AD64E322D43EBB7EB5CA2 /* InputMethodCaretBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HUD/InputMethodCaretBridge.swift; sourceTree = "<group>"; };
 		607FEF712E1EB0E5508512FC /* TextInjector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TextInjector.swift; path = ../Apps/AetherCore/Speech/TextInjector.swift; sourceTree = "<group>"; };
 		6FAA72967637433DB33B061E /* HeadMotionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HeadMotionManager.swift; sourceTree = "<group>"; };
+		15F2037660B8AC1F0D5617A2 /* UtteranceArbitrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Apps/AetherCore/Speech/UtteranceArbitrator.swift; sourceTree = "<group>"; };
 		7B12389AB5C944F3B8BE3C75 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Apps/AetherCore/Assets.xcassets; sourceTree = SOURCE_ROOT; };
+		82E7D6C5B4A3F2019E8D7C6B /* UtteranceArbitratorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UtteranceArbitratorTests.swift; sourceTree = "<group>"; };
 		8567D0FA10ABB5C4430600CE /* PermissionsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/PermissionsManager.swift; sourceTree = "<group>"; };
 		92E84E48FCD38E25EA733664 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9A02A17193B719852F3F6799 /* WakeWordDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WakeWordDetector.swift; path = ../Apps/AetherCore/Speech/WakeWordDetector.swift; sourceTree = "<group>"; };
@@ -144,6 +148,7 @@
 			isa = PBXGroup;
 			children = (
 				1D863E78A6DBBC070343227B /* VoiceCommandRouter.swift */,
+				15F2037660B8AC1F0D5617A2 /* UtteranceArbitrator.swift */,
 				C0DEF00D0BADC0FFEE555556 /* VoiceLexiconDefaults.swift */,
 				0A2FFF0B546D7CEAD686E5CE /* LLMProviders.swift */,
 				607FEF712E1EB0E5508512FC /* TextInjector.swift */,
@@ -171,6 +176,7 @@
 			children = (
 				92E84E48FCD38E25EA733664 /* Info.plist */,
 				35EEF3E8253127D05E0B8AF8 /* AetherTests.swift */,
+				82E7D6C5B4A3F2019E8D7C6B /* UtteranceArbitratorTests.swift */,
 				BAE13A5808AC6A480FF02900 /* VoiceCommandRouterTests.swift */,
 			);
 			path = AetherTests;
@@ -380,6 +386,7 @@
 				2C4EA293C03545F8952A233C /* CaretDetector.swift in Sources */,
 				80BFA81A4CB14209B6E96C5F /* InputMethodCaretBridge.swift in Sources */,
 				4BDBBCA080E1B33D13F87E22 /* VoiceCommandRouter.swift in Sources */,
+				CDC403859BCD1D115565CFCB /* UtteranceArbitrator.swift in Sources */,
 				C0DEF00D0BADC0FFEE555557 /* VoiceLexiconDefaults.swift in Sources */,
 				B536C893C35B916AD9A8D4BE /* LLMProviders.swift in Sources */,
 				AD623470C6D84037CBC4BAC0 /* TextInjector.swift in Sources */,
@@ -400,6 +407,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				94C13D4D41BCE1227E78927E /* AetherTests.swift in Sources */,
+				7E6D5C4B3A2910F8E7D6C5B4 /* UtteranceArbitratorTests.swift in Sources */,
 				752B8656CCE440E6FF74855D /* VoiceCommandRouterTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

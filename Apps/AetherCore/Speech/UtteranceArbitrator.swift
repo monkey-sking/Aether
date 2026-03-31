@@ -20,6 +20,18 @@ struct UtteranceArbitrationEvidence: Equatable {
     let hasLiveTypingEvidence: Bool
     let transport: UtteranceTransportContext
     let hasCommittedDictation: Bool
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.controlMode == rhs.controlMode &&
+        lhs.normalizedText == rhs.normalizedText &&
+        lhs.routerDecision.intent == rhs.routerDecision.intent &&
+        lhs.routerDecision.confidence == rhs.routerDecision.confidence &&
+        lhs.routerDecision.reason == rhs.routerDecision.reason &&
+        lhs.hasStableTypingEvidence == rhs.hasStableTypingEvidence &&
+        lhs.hasLiveTypingEvidence == rhs.hasLiveTypingEvidence &&
+        lhs.transport == rhs.transport &&
+        lhs.hasCommittedDictation == rhs.hasCommittedDictation
+    }
 }
 
 struct UtteranceArbitrationResult: Equatable {
