@@ -8,6 +8,7 @@ DEFAULT_WEBSITE_ROOT="${PROJECT_ROOT}/../Website"
 DEFAULT_APP_PATH="${PROJECT_ROOT}/.build/release/${APP_NAME}.app"
 DEFAULT_DMG_PATH="${PROJECT_ROOT}/.build/release/${APP_NAME}_Installer.dmg"
 DEFAULT_ZIP_PATH="${PROJECT_ROOT}/.build/release/${APP_NAME}.zip"
+DEFAULT_DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-/tmp/aether_xcodebuild_deriveddata}"
 DOWNLOAD_NAME="${APP_NAME}.dmg"
 SPARKLE_ACCOUNT="${SPARKLE_ACCOUNT:-aether}" # Ed25519 private key is stored in Keychain under this account.
 # Preserve latest + 2 older full packages by default (3 total).
@@ -131,6 +132,16 @@ find_generate_appcast() {
     return
   fi
   candidate="$(find "${PROJECT_ROOT}/.build" -type f -name "generate-appcast" -path "*sparkle*" 2>/dev/null | head -n 1 || true)"
+  if [[ -n "$candidate" ]]; then
+    echo "$candidate"
+    return
+  fi
+  candidate="$(find "${DEFAULT_DERIVED_DATA_PATH}" -type f -name "generate_appcast" -path "*sparkle*" 2>/dev/null | head -n 1 || true)"
+  if [[ -n "$candidate" ]]; then
+    echo "$candidate"
+    return
+  fi
+  candidate="$(find "${DEFAULT_DERIVED_DATA_PATH}" -type f -name "generate-appcast" -path "*sparkle*" 2>/dev/null | head -n 1 || true)"
   if [[ -n "$candidate" ]]; then
     echo "$candidate"
     return
