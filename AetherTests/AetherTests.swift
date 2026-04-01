@@ -663,6 +663,50 @@ final class SpeechManagerGuardrailTests: XCTestCase {
         )
     }
 
+    func testSpeechActivityHoldStaysActiveBrieflyAfterRecentVoiceActivity() {
+        let now = Date()
+
+        XCTAssertTrue(
+            SpeechManager.isSpeechActivityHoldActive(
+                latestVoiceActivity: false,
+                lastSpeechActivityAt: now.addingTimeInterval(-0.6),
+                now: now,
+                holdWindow: 1.1
+            )
+        )
+    }
+
+    func testWakeFollowUpRemainsActiveDuringRecentSpeechActivityHold() {
+        XCTAssertTrue(
+            SpeechManager.shouldKeepWakeFollowUpActive(
+                isWakeFollowUpSessionActive: false,
+                keepWakeGatedDictationHUD: false,
+                speechActivityHoldActive: true
+            )
+        )
+    }
+
+    func testLateFinalHoldKeepsWakeFollowUpAliveDuringRecentSpeechActivity() {
+        XCTAssertTrue(
+            SpeechManager.shouldHoldWakeFollowUpForLateFinal(
+                isUtteranceActive: false,
+                hasTranscript: false,
+                hasRecentTranscriptChange: false,
+                speechActivityHoldActive: true
+            )
+        )
+    }
+
+    func testDictationOnlyHUDDoesNotHideWhileSpeechActivityHoldIsActive() {
+        XCTAssertFalse(
+            SpeechManager.shouldHideDictationOnlyHUDWithoutFocus(
+                focusedTypingEvidence: false,
+                effectiveDictating: false,
+                speechActivityHoldActive: true
+            )
+        )
+    }
+
     func testWakeLifecycleSuppressesPureWakePhraseTranscript() {
         XCTAssertTrue(
             SpeechManager.shouldSuppressWakeOnlyTranscriptDuringActiveWakeLifecycle(
