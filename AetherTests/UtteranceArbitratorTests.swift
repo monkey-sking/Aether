@@ -52,4 +52,21 @@ final class UtteranceArbitratorTests: XCTestCase {
         XCTAssertEqual(result.state, .dictationCommitted)
         XCTAssertTrue(result.allowsDictationStreaming)
     }
+
+    func testAutoModeTypingEvidenceWinsOverCommandIntentWithoutExplicitPrefix() {
+        let result = UtteranceArbitrator.resolve(
+            evidence: .init(
+                controlMode: .auto,
+                normalizedText: "关闭面板",
+                routerDecision: .init(intent: .hideShortcutPanel, confidence: .high, reason: "alias"),
+                hasStableTypingEvidence: true,
+                hasLiveTypingEvidence: true,
+                transport: .wakeFollowUp,
+                hasCommittedDictation: false
+            )
+        )
+
+        XCTAssertEqual(result.state, .dictationCommitted)
+        XCTAssertTrue(result.allowsDictationStreaming)
+    }
 }

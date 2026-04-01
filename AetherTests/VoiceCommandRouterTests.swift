@@ -789,7 +789,7 @@ final class SpeechManagerTypingModeTests: XCTestCase {
         )
     }
 
-    func testWakeAdapterPrefersCommandCommitForWakeCommandPayload() {
+    func testWakeAdapterKeepsDictationCommitForWakeCommandPayloadWhenTypingIsStable() {
         let decision = SpeechManager.resolveWakeFollowUpArbitration(
             controlMode: .auto,
             transcript: "打开面板",
@@ -799,7 +799,7 @@ final class SpeechManagerTypingModeTests: XCTestCase {
             hasCommittedDictation: false
         )
 
-        XCTAssertEqual(decision.state, .commandCommitted)
+        XCTAssertEqual(decision.state, .dictationCommitted)
     }
 
     func testWakeAdapterKeepsPendingBeforeDictationCommitWithoutStableTypingEvidence() {
@@ -869,6 +869,30 @@ final class SpeechManagerTypingModeTests: XCTestCase {
         )
 
         XCTAssertFalse(reconciled)
+    }
+
+    func testCommittedUtteranceDecisionKeepsInputWithoutExplicitCommandRouting() {
+        XCTAssertEqual(
+            SpeechManager.resolvedCommittedUtteranceDecision(
+                typingContext: true,
+                routingBias: .commandPreferred,
+                consumedExplicitCommandPrefix: false,
+                inlineExplicitCommandPrefix: false
+            ),
+            .dictationCommitted
+        )
+    }
+
+    func testCommittedUtteranceDecisionAllowsInlineExplicitCommandPrefixOverride() {
+        XCTAssertEqual(
+            SpeechManager.resolvedCommittedUtteranceDecision(
+                typingContext: true,
+                routingBias: .commandPreferred,
+                consumedExplicitCommandPrefix: false,
+                inlineExplicitCommandPrefix: true
+            ),
+            .commandCommitted
+        )
     }
 
     func testAutoHUDDictationModeForcesTypingContext() {

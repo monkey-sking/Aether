@@ -47,7 +47,7 @@ final class InputControlArbiterTests: XCTestCase {
         XCTAssertEqual(resolved, .command)
     }
 
-    func testAutoModeCommandIntentCommitsCommandThroughSharedResolver() {
+    func testAutoModeTypingInteractionCommitsDictationThroughSharedResolver() {
         let result = InputControlArbiter.resolveUtteranceDecision(
             controlMode: .auto,
             transcript: "打开面板",
@@ -58,21 +58,21 @@ final class InputControlArbiterTests: XCTestCase {
             hasCommittedDictation: false
         )
 
-        XCTAssertEqual(result.state, .commandCommitted)
+        XCTAssertEqual(result.state, .dictationCommitted)
     }
 
-    func testAutoModeTypingInteractionCommitsDictationThroughSharedResolver() {
+    func testAutoModeCommandInteractionCommitsCommandThroughSharedResolver() {
         let result = InputControlArbiter.resolveUtteranceDecision(
             controlMode: .auto,
-            transcript: "今天下午三点开会",
-            routerDecision: .init(intent: .dictation("今天下午三点开会"), confidence: .medium, reason: "dictation"),
-            interactionState: .typing,
+            transcript: "打开面板",
+            routerDecision: .init(intent: .showShortcutPanel, confidence: .high, reason: "alias"),
+            interactionState: .command,
             hasLiveTypingEvidence: false,
             transport: .wakeFollowUp,
             hasCommittedDictation: false
         )
 
-        XCTAssertEqual(result.state, .dictationCommitted)
+        XCTAssertEqual(result.state, .commandCommitted)
     }
 
     func testUpdateFocusStateCanClearBundleID() {
@@ -91,5 +91,21 @@ final class InputControlArbiterTests: XCTestCase {
         )
 
         XCTAssertNil(InputControlArbiter.shared.currentSnapshot.bundleID)
+    }
+
+    func testResolvedTypingInteractionPrefersCommittedCommandDecision() {
+        let snapshot = InputControlSnapshot(
+            controlMode: .auto,
+            focusState: .typing,
+            sessionState: .typingSession,
+            interactionState: .typing,
+            utteranceDecision: .commandCommitted,
+            hasCommittedDictation: false,
+            hasStreamedDictation: true,
+            bundleID: "com.example.input",
+            source: "test"
+        )
+
+        XCTAssertFalse(snapshot.resolvedTypingInteraction)
     }
 }

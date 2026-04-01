@@ -121,6 +121,17 @@ struct InputControlSnapshot: Equatable, Sendable {
     let hasStreamedDictation: Bool
     let bundleID: String?
     let source: String
+
+    var resolvedTypingInteraction: Bool {
+        switch utteranceDecision {
+        case .dictationCommitted:
+            return true
+        case .commandCommitted:
+            return false
+        case .pending:
+            return interactionState.isTyping
+        }
+    }
 }
 
 final class InputControlArbiter {

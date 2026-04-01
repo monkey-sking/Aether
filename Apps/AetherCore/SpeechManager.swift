@@ -199,7 +199,7 @@ final class SpeechManager: ObservableObject {
         let routeReason: String
         let commandHUDPreviewMessage: String?
 
-        var typingInteraction: Bool { inputControlSnapshot.interactionState.isTyping }
+        var typingInteraction: Bool { inputControlSnapshot.resolvedTypingInteraction }
     }
     private struct ProcessedJob: Sendable {
         let seq: Int; let intent: VoiceIntent; let localeIdentifier: String
@@ -216,7 +216,7 @@ final class SpeechManager: ObservableObject {
         let routeReason: String
         let commandHUDPreviewMessage: String?
 
-        var typingInteraction: Bool { inputControlSnapshot.interactionState.isTyping }
+        var typingInteraction: Bool { inputControlSnapshot.resolvedTypingInteraction }
     }
     private struct InputVerificationSnapshot: Sendable {
         let pid: pid_t
@@ -1097,6 +1097,24 @@ final class SpeechManager: ObservableObject {
         }
 
         return (routingBias, blockDictationWithoutInput)
+    }
+
+    static func resolvedCommittedUtteranceDecision(
+        typingContext: Bool,
+        routingBias: VoiceCommandRouter.RoutingBias,
+        consumedExplicitCommandPrefix: Bool,
+        inlineExplicitCommandPrefix: Bool
+    ) -> InputControlUtteranceDecision {
+        let explicitCommandRouting =
+            routingBias == .forceCommand
+            || consumedExplicitCommandPrefix
+            || inlineExplicitCommandPrefix
+
+        if typingContext && !explicitCommandRouting {
+            return .dictationCommitted
+        }
+
+        return .commandCommitted
     }
 
     private var recognitionControlMode: RecognitionControlMode {
@@ -4979,6 +4997,16 @@ final class SpeechManager: ObservableObject {
             localeIdentifier: activeLocale.identifier,
             overrides: commandRouter.languageTermsOverrides
         )
+        let committedUtteranceDecision = Self.resolvedCommittedUtteranceDecision(
+            typingContext: typingContext,
+            routingBias: routingBias,
+            consumedExplicitCommandPrefix: consumedExplicitCommandPrefix,
+            inlineExplicitCommandPrefix: explicitInlineCommandPrefix
+        )
+        let committedInputControlSnapshot = InputControlArbiter.shared.updateUtteranceDecision(
+            committedUtteranceDecision,
+            source: "speech.final-committed-routing"
+        )
         let commandHUDPreviewMessage =
             Self.shouldPreviewForcedCommandHUD(
                 typingContext: typingContext,
@@ -5019,6 +5047,7 @@ final class SpeechManager: ObservableObject {
         enqueueIntentForParallelExecution(
             intent,
             typingContext: typingContext,
+            inputControlSnapshot: committedInputControlSnapshot,
             utteranceID: resolvedUID,
             originSessionGeneration: sessionGeneration,
             spokenText: rawTrimmed,
@@ -5053,6 +5082,7 @@ final class SpeechManager: ObservableObject {
     private func enqueueIntentForParallelExecution(
         _ intent: VoiceIntent,
         typingContext: Bool,
+        inputControlSnapshot: InputControlSnapshot,
         utteranceID: Int,
         originSessionGeneration: Int,
         spokenText: String?,
@@ -5079,10 +5109,14 @@ final class SpeechManager: ObservableObject {
             typingContext: typingContext,
             verificationSnapshot: verificationSnapshot
         )
-        let inputControlSnapshot = authoritativeInputControlSnapshot
         let holdsTextRewriteBarrier = shouldHoldTextRewriteBarrier(for: hydratedIntent)
         if holdsTextRewriteBarrier {
             beginTextRewriteHUDActivity()
+        }
+        if inputControlSnapshot.resolvedTypingInteraction != typingContext {
+            GlobalLogger.speech.info(
+                "[IntentPipeline] corrected typing mismatch utterance=\(utteranceID) routeTyping=\(typingContext) snapshotTyping=\(inputControlSnapshot.resolvedTypingInteraction) interaction=\(inputControlSnapshot.interactionState.rawValue) decision=\(inputControlSnapshot.utteranceDecision.rawValue)"
+            )
         }
         let job = IntentJob(seq: -1, intent: hydratedIntent, localeIdentifier: localeID,
                             dictationEnhancementEnabled: isAutoDictationEnhancementEnabled,

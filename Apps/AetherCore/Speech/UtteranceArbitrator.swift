@@ -53,14 +53,14 @@ enum UtteranceArbitrator {
             break
         }
 
+        if evidence.hasCommittedDictation || evidence.hasStableTypingEvidence {
+            return .init(state: .dictationCommitted)
+        }
+
         if isCommandIntent(evidence.routerDecision.intent),
            evidence.routerDecision.confidence >= .medium
         {
             return .init(state: .commandCommitted)
-        }
-
-        if evidence.hasCommittedDictation || evidence.hasStableTypingEvidence {
-            return .init(state: .dictationCommitted)
         }
 
         return .init(state: .pending)
