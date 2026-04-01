@@ -53,7 +53,7 @@ enum UtteranceArbitrator {
             break
         }
 
-        if evidence.hasCommittedDictation || evidence.hasStableTypingEvidence {
+        if evidence.hasCommittedDictation || evidence.hasStableTypingEvidence || evidence.hasLiveTypingEvidence {
             return .init(state: .dictationCommitted)
         }
 
