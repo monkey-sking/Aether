@@ -220,3 +220,47 @@ codesign -d --entitlements :- "$APP" 2>/dev/null | \
 - App 内显示麦克风 `denied`，但系统麦克风列表没有 `Aether`
   - 先确认上面的 entitlement 与 usage description 检查都通过。
   - 然后执行：`tccutil reset Microphone com.7fei.Aether`，重启 App 再触发一次授权。
+
+## 7. 发布事故记录
+
+### 7.1 2026-04-01: Xcode 26.4 命令行发布链路卡死
+
+现象：
+
+- `ReleaseForUsers.sh` / `BuildRelease.sh` 的 fresh build 在命令行路径卡住。
+- 卡点稳定出现在 `CreateBuildDescription -> ExecuteExternalTool clang -v -E -dM ...`。
+- 这不是 Aether 业务源码编译报错，也不是签名、公证或上传链路失败；新的 `.app` 还没 fresh build 出来之前就挂住了。
+
+定位结论：
+
+- 同一条 `clang -v -E -dM ...` 命令，单独直接运行是正常的。
+- 通过 `python3 subprocess.Popen(..., stdout=PIPE, stderr=PIPE)` 且不及时消费输出时，可以稳定复现挂起。
+- 当前判断是 `Xcode 26.4 / SWBBuildService` 在命令行构建路径上的输出管道死锁/阻塞问题，不是项目业务逻辑本身的问题。
+
+当前处理：
+
+- 仓库内新增了 `Scripts/XcodeClangWrapper.sh`。
+- `Scripts/BuildRelease.sh` 默认注入 `CC=Scripts/XcodeClangWrapper.sh`，作为命令行 release build 的 workaround。
+- 截至 2026-04-01，`AETHER_UNIVERSAL=0` 的 `arm64` 发布链路已经用这套 workaround 完整验证过：fresh build、签名、公证、staple、Sparkle 发布、线上 appcast 校验均通过。
+
+影响与后续：
+
+- 当前可用的稳定发布路径是 `arm64` 单架构包。
+- `universal` 不是产品方向废弃，而是发布基础设施仍需单独恢复与验证。
+- 后续如继续排查，应优先把它当作 release/packaging 基础设施问题处理，而不是先怀疑业务代码。
+
+### 7.2 2026-04-01: `Audit i18n` 被 Xcode 脚本沙箱拦截
+
+现象：
+
+- `PhaseScriptExecution Audit i18n` 失败。
+- 直接报 `Sandbox ... deny file-read-data`，无法读取 `Scripts/AuditI18n.py`。
+
+原因：
+
+- Build Phase 开启了用户脚本沙箱，但 `Audit i18n` 没有声明必要的 `inputPaths`。
+
+处理：
+
+- 已在工程文件中补齐 `AuditI18n.py` 和资源目录输入路径。
+- 当前该脚本不再是发布链路阻塞点。
