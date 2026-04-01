@@ -10,26 +10,26 @@
 
 将原有的 `HotkeyFeedbackHUD.swift` 拆分为 5 个专注的模块:
 
-#### [HUDState.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HUD/HUDState.swift)
+#### [HUDState.swift](file:///Volumes/SSD/Projects/Aether/App/Apps/AetherCore/HUD/HUDState.swift)
 - 定义 `HUDMode` 枚举:`.hidden`、`.standby`、`.active`、`.dictation`
 - `HUDState` 类管理 HUD 的状态(mode、message、audioLevel)
 
-#### [HUDView.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HUD/HUDView.swift)
+#### [HUDView.swift](file:///Volumes/SSD/Projects/Aether/App/Apps/AetherCore/HUD/HUDView.swift)
 - SwiftUI 视图组件
 - 根据 `HUDMode` 渲染不同的 UI(图标、文本、波形)
 - 支持语言切换按钮
 
-#### [CaretDetector.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HUD/CaretDetector.swift)
+#### [CaretDetector.swift](file:///Volumes/SSD/Projects/Aether/App/Apps/AetherCore/HUD/CaretDetector.swift)
 - 封装复杂的光标检测逻辑
 - 使用 Accessibility API 跟踪光标位置
 - 处理不同应用的特殊情况(浏览器、终端、IDE)
 - 实现 Sticky 逻辑防止光标闪烁
 
-#### [InputMethodCaretBridge.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HUD/InputMethodCaretBridge.swift)
+#### [InputMethodCaretBridge.swift](file:///Volumes/SSD/Projects/Aether/App/Apps/AetherCore/HUD/InputMethodCaretBridge.swift)
 - 桥接输入法相关的光标更新通知
 - 处理 IME 特定的光标位置信息
 
-#### [HUDManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HUD/HUDManager.swift)
+#### [HUDManager.swift](file:///Volumes/SSD/Projects/Aether/App/Apps/AetherCore/HUD/HUDManager.swift)
 - 中央控制器(Singleton)
 - 管理 `NSPanel` 窗口
 - 协调 `HUDState` 和 `CaretDetector`
@@ -37,7 +37,7 @@
 
 ### 2. API 更新
 
-#### [SpeechManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/SpeechManager.swift)
+#### [SpeechManager.swift](file:///Volumes/SSD/Projects/Aether/App/Apps/AetherCore/SpeechManager.swift)
 - 替换 `HotkeyFeedbackHUD.showContinuous()` → `HUDManager.shared.update(mode:message:isInteractive:)`
 - 替换 `HotkeyFeedbackHUD.updateAudioLevel()` → `HUDManager.shared.updateAudioLevel()`
 - 替换 `HotkeyFeedbackHUD.hide()` → `HUDManager.shared.hide()`
@@ -47,7 +47,7 @@
   - `isAlwaysListeningEnabled` → `.active`
   - `isWakeWordEnabled` → `.standby`
 
-#### [HeadMotionManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/AetherCore/HeadMotionManager.swift)
+#### [HeadMotionManager.swift](file:///Volumes/SSD/Projects/Aether/App/Apps/AetherCore/HeadMotionManager.swift)
 - 替换所有 `HotkeyFeedbackHUD.show()` → `HUDManager.shared.showTemporary(message:)`
 - 涉及 14 处调用(追踪启动/停止、滚动、拖拽、PTT、连接错误等)
 

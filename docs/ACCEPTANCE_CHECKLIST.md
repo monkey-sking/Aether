@@ -1,7 +1,7 @@
 # Aether Acceptance Checklist
 
 > 文档状态：`Historical`
-> 说明：这份文档仅保留已整理归档的历史验收项，不再维护待验收入口。当前待验收请看 [PENDING_ACCEPTANCE.md](/Volumes/SSD/Projects/Aether/Apps/docs/PENDING_ACCEPTANCE.md)。
+> 说明：这份文档仅保留已整理归档的历史验收项，不再维护待验收入口。当前待验收请看 [PENDING_ACCEPTANCE.md](/Volumes/SSD/Projects/Aether/App/docs/PENDING_ACCEPTANCE.md)。
 
 ## 已验收（Passed）
 

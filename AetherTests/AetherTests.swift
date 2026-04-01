@@ -1437,4 +1437,28 @@ final class SpeechManagerEmptyFinalFallbackTests: XCTestCase {
             "打开面板"
         )
     }
+
+    func testNoSpeechRecoveryBypassesBackoffDuringWakeActivationRecovery() {
+        let resolution = SpeechManager.resolvedNoSpeechRecoveryBackoffDelay(
+            reason: "no-speech-detected",
+            standbyWakeMissRecoveryActive: false,
+            wakeActivationRecoveryActive: true,
+            consecutiveRecoveries: 6
+        )
+
+        XCTAssertEqual(resolution.delay, 0.05, accuracy: 0.0001)
+        XCTAssertEqual(resolution.nextConsecutiveRecoveries, 0)
+    }
+
+    func testNoSpeechRecoveryUsesAccumulatedBackoffOutsideWakeRecovery() {
+        let resolution = SpeechManager.resolvedNoSpeechRecoveryBackoffDelay(
+            reason: "no-speech-detected",
+            standbyWakeMissRecoveryActive: false,
+            wakeActivationRecoveryActive: false,
+            consecutiveRecoveries: 5
+        )
+
+        XCTAssertEqual(resolution.delay, 1.5, accuracy: 0.0001)
+        XCTAssertEqual(resolution.nextConsecutiveRecoveries, 6)
+    }
 }

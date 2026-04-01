@@ -90,6 +90,6 @@ HUD 右侧的语言按钮具备“母语记忆”功能：
 ---
 
 ## 六、 维护路径
-* **硬件监听与图标逻辑**：[SpeechManager.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/SpeechManager.swift)
+* **硬件监听与图标逻辑**：[SpeechManager.swift](file:///Volumes/SSD/Projects/Aether/App/Apps/AetherCore/SpeechManager.swift)
 * **佩戴探测快轨**：`AirPodsDetector` 内部类 (@ SpeechManager.swift)
-* **视图层渲染**：[HUDView.swift](file:///Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/HUD/HUDView.swift)
+* **视图层渲染**：[HUDView.swift](file:///Volumes/SSD/Projects/Aether/App/Apps/AetherCore/HUD/HUDView.swift)

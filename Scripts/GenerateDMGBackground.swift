@@ -2,7 +2,7 @@ import AppKit
 
 let width: CGFloat = 640
 let height: CGFloat = 420
-let outputPath = "/Volumes/SSD/Projects/Aether/Apps/Scripts/Resources/dmg_background.png"
+let outputPath = "/Volumes/SSD/Projects/Aether/App/Scripts/Resources/dmg_background.png"
 
 let image = NSImage(size: NSSize(width: width, height: height))
 image.lockFocus()

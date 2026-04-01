@@ -303,6 +303,8 @@ enum AXFocusedTypingContextDetector {
 
 final class HUDManager {
     static let shared = HUDManager()
+    static let typingContextSuppressedByNonInputClickNotification =
+        Notification.Name("AetherTypingContextSuppressedByNonInputClick")
 
     static func isBrowserLikeBundleIdentifier(_ bundleID: String?) -> Bool {
         let bundleID = (bundleID ?? "").lowercased()
@@ -621,7 +623,10 @@ final class HUDManager {
             return
         }
         
-        let inferredTypingContext = lastKnownTypingState()
+        // Refresh focus evidence first, then let the shared arbiter decide the
+        // semantic interaction state that HUD should display.
+        _ = lastKnownTypingState()
+        let inferredTypingContext = InputControlArbiter.shared.currentSnapshot.interactionState.isTyping
         let frontBundle = currentTypingContextBundleID()
         let effectiveTypingContext = Self.resolvedTypingContext(
             recognitionControlMode: recognitionControlMode,
@@ -1101,6 +1106,11 @@ final class HUDManager {
             explicitTypingReentryBundleID = nil
             explicitTypingReentrySourceFingerprint = nil
             explicitTypingReentrySourceRect = nil
+            InputControlArbiter.shared.updateFocusState(
+                .typing,
+                bundleID: bundleID,
+                source: "hud.mouse-input"
+            )
             appendTypingSuppressionDiagnostic(
                 suppressed: false,
                 reason: "mouse-in-input",
@@ -1120,6 +1130,16 @@ final class HUDManager {
             suppressed: true,
             reason: "mouse-noninput",
             bundleID: bundleID
+        )
+        InputControlArbiter.shared.updateFocusState(
+            .suppressed,
+            bundleID: bundleID,
+            source: "hud.mouse-noninput"
+        )
+        NotificationCenter.default.post(
+            name: Self.typingContextSuppressedByNonInputClickNotification,
+            object: self,
+            userInfo: ["bundleID": bundleID as Any]
         )
         lastAXTypingEvaluationAt = .distantPast
         cachedAXTypingEvaluation = .unavailable
@@ -1202,6 +1222,17 @@ final class HUDManager {
         )
     }
 
+    @discardableResult
+    func refreshInputControlFocusState() -> InputControlSnapshot {
+        if !Thread.isMainThread {
+            return DispatchQueue.main.sync {
+                refreshInputControlFocusState()
+            }
+        }
+        _ = lastKnownTypingState()
+        return InputControlArbiter.shared.currentSnapshot
+    }
+
     private func appendMouseDownDiagnostic(
         timestamp: Date,
         point: CGPoint,
@@ -1249,21 +1280,32 @@ final class HUDManager {
         let frontBundle = currentTypingContextBundleID()
         let suppressionSensitiveApp = isExplicitTypingSuppressionApp(bundleID: frontBundle)
         let explicitTypingClickReentry = suppressionSensitiveApp ? false : hasRecentExplicitTypingClickReentry(at: now)
+        var resolvedFocusState: InputControlFocusState = .unknown
+        defer {
+            InputControlArbiter.shared.updateFocusState(
+                resolvedFocusState,
+                bundleID: frontBundle,
+                source: "hud.last-known-typing"
+            )
+        }
 
         if isSiriLikeBundle(frontBundle) {
             if detector.currentUpdate.caretRect != nil || detector.recentCaretRect() != nil {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
+                resolvedFocusState = .typing
                 return true
             }
             if axCaretRectThrottled() != nil || axEstimatedCaretContextThrottled() != nil {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
+                resolvedFocusState = .typing
                 return true
             }
             if let r = axFocusedElementRectThrottled(), !isProbablyWholeWindowRect(r) {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
+                resolvedFocusState = .typing
                 return true
             }
         }
@@ -1279,6 +1321,7 @@ final class HUDManager {
             if shouldReleaseSuppression {
                 clearExplicitTypingSuppression(reason: "strong-ax-evidence", bundleID: frontBundle)
             } else {
+                resolvedFocusState = .suppressed
                 return false
             }
         }
@@ -1287,6 +1330,7 @@ final class HUDManager {
            !requiresExplicitTypingReentry,
            lastGoodTypingRect != nil,
            now.timeIntervalSince(lastGoodTypingRectAt) < 1.2 {
+            resolvedFocusState = .typing
             return true
         }
 
@@ -1300,6 +1344,7 @@ final class HUDManager {
             } else if shouldReleaseSuppression {
                 clearExplicitTypingSuppression(reason: "strong-ax-evidence", bundleID: frontBundle)
             } else {
+                resolvedFocusState = .suppressed
                 return false
             }
         }
@@ -1310,12 +1355,14 @@ final class HUDManager {
         if detector.currentUpdate.caretRect != nil {
             requiresExplicitTypingReentry = false
             explicitTypingReentryBundleID = nil
+            resolvedFocusState = .typing
             return true
         }
         // Sticky can linger in "weird" apps; only treat it as typing if we still have a recent caret rect.
         if detector.currentUpdate.isSticky, detector.recentCaretRect() != nil {
             requiresExplicitTypingReentry = false
             explicitTypingReentryBundleID = nil
+            resolvedFocusState = .typing
             return true
         }
 
@@ -1324,6 +1371,7 @@ final class HUDManager {
            (axEvaluation.hasEditableAttribute || axEvaluation.hasSettableValue || axEvaluation.hasEditableAncestor) {
             requiresExplicitTypingReentry = false
             explicitTypingReentryBundleID = nil
+            resolvedFocusState = .typing
             return true
         }
 
@@ -1331,11 +1379,13 @@ final class HUDManager {
         if axCaretRectThrottled() != nil, axEditableLikely || axEvaluation.insertionContextAvailable {
             requiresExplicitTypingReentry = false
             explicitTypingReentryBundleID = nil
+            resolvedFocusState = .typing
             return true
         }
         if let r = detector.currentUpdate.inputRect, isTypingBoxSizedRect(r), !isProbablyWholeWindowRect(r) {
             requiresExplicitTypingReentry = false
             explicitTypingReentryBundleID = nil
+            resolvedFocusState = .typing
             return true
         }
         if let r = axFocusedElementRectThrottled(),
@@ -1345,17 +1395,20 @@ final class HUDManager {
                (isTypingBoxSizedRect(r) || (Self.shouldUseWebInputSizedRectHeuristics(bundleID: frontBundle) && isWebInputSizedRect(r))) {
                 requiresExplicitTypingReentry = false
                 explicitTypingReentryBundleID = nil
+                resolvedFocusState = .typing
                 return true
             }
             if axEditableLikely {
                 if isTypingBoxSizedRect(r) {
                     requiresExplicitTypingReentry = false
                     explicitTypingReentryBundleID = nil
+                    resolvedFocusState = .typing
                     return true
                 }
                 if Self.shouldUseWebInputSizedRectHeuristics(bundleID: frontBundle), isWebInputSizedRect(r) {
                     requiresExplicitTypingReentry = false
                     explicitTypingReentryBundleID = nil
+                    resolvedFocusState = .typing
                     return true
                 }
             }
@@ -1365,12 +1418,14 @@ final class HUDManager {
            axEvaluation.looselyEditableForWeb {
             requiresExplicitTypingReentry = false
             explicitTypingReentryBundleID = nil
+            resolvedFocusState = .typing
             return true
         }
         if axEditableLikely {
             requiresExplicitTypingReentry = false
             explicitTypingReentryBundleID = nil
         }
+        resolvedFocusState = axEditableLikely ? .typing : .nonTyping
         return axEditableLikely
     }
 
@@ -2649,9 +2704,10 @@ final class HUDManager {
 
         // 1. Determine Anchor & Mode
         var anchor = mouseLoc
-        // `state.isTypingContext` is the single semantic source of truth. Layout may
-        // still probe caret geometry below, but it must not compute and write back a
-        // second typing verdict or we recreate the HUD/SpeechManager feedback loop.
+        // `state.isTypingContext` is the current HUD display state derived from the
+        // shared arbiter. Layout may still probe caret geometry below, but it must not
+        // compute and write back a second semantic typing verdict or we recreate the
+        // HUD/SpeechManager feedback loop.
         let uiTypingMode = state.isTypingContext
         let wasTypingMode = state.isTypingContext
         var layoutTypingMode = false

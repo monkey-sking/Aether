@@ -27,3 +27,10 @@ signing/
 
 # Local references and generated artifacts
 References/
+
+# Agent-local artifacts
+/.superpowers/
+/.learnings/
+/findings.md
+/progress.md
+/task_plan.md

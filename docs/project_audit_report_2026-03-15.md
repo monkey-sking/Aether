@@ -5,7 +5,7 @@
 > 若与当前实现冲突，请优先看源码、`PENDING_ACCEPTANCE.md`、`Phase1.5_TODO.md` 与根目录 `TODO.md`。
 
 审核时间：2026-03-15  
-审核范围：`/Volumes/SSD/Projects/Aether/Apps` 当前工作区代码与测试状态
+审核范围：`/Volumes/SSD/Projects/Aether/App` 当前工作区代码与测试状态
 
 ## 审核结论
 
@@ -124,9 +124,9 @@
 
 验证结果：
 
-- `xcodebuild build -project /Volumes/SSD/Projects/Aether/Apps/Aether.xcodeproj -scheme Aether -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO`
+- `xcodebuild build -project /Volumes/SSD/Projects/Aether/App/Aether.xcodeproj -scheme Aether -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO`
   - 结果：通过
-- `xcodebuild test -project /Volumes/SSD/Projects/Aether/Apps/Aether.xcodeproj -scheme Aether -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO`
+- `xcodebuild test -project /Volumes/SSD/Projects/Aether/App/Aether.xcodeproj -scheme Aether -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO`
   - 结果：失败
 
 失败原因：

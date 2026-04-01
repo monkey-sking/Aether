@@ -61,6 +61,10 @@ class HeadMotionManager: ObservableObject {
             }
         }
     }
+
+    private var authoritativeTypingInteraction: Bool {
+        InputControlArbiter.shared.currentSnapshot.interactionState.isTyping
+    }
     
     enum HeadsetPressKind: String, CaseIterable, Identifiable, Sendable {
         case single
@@ -4643,7 +4647,8 @@ class HeadMotionManager: ObservableObject {
     @MainActor
     func toggleRecognitionInputControlMode(source: String = "hotkey", persist: Bool = true) {
         guard !isGloballyPausedForIdle else { return }
-        let currentlyTyping = HUDManager.shared.lastKnownTypingState()
+        _ = HUDManager.shared.refreshInputControlFocusState()
+        let currentlyTyping = authoritativeTypingInteraction
         let currentResolvedMode = resolvedRecognitionControlMode(currentlyTyping: currentlyTyping)
         let nextMode: RecognitionControlMode = (currentResolvedMode == .command) ? .dictation : .command
 
@@ -4817,6 +4822,10 @@ class HeadMotionManager: ObservableObject {
     }
 
     private func postRecognitionControlModeChanged(source: String) {
+        InputControlArbiter.shared.updateControlMode(
+            InputControlMode(effectiveRecognitionControlMode),
+            source: "head-motion.\(source)"
+        )
         NotificationCenter.default.post(
             name: Self.recognitionControlModeChangedNotification,
             object: nil,
@@ -4826,7 +4835,8 @@ class HeadMotionManager: ObservableObject {
 
     @MainActor
     private func exitDictationModeOnEscape(source: String = "escape-key") {
-        let currentlyTyping = HUDManager.shared.lastKnownTypingState()
+        _ = HUDManager.shared.refreshInputControlFocusState()
+        let currentlyTyping = authoritativeTypingInteraction
         let resolvedMode = resolvedRecognitionControlMode(currentlyTyping: currentlyTyping)
         guard resolvedMode == .dictation else { return }
 
@@ -5457,7 +5467,7 @@ class HeadMotionManager: ObservableObject {
         case .command, .dictation:
             return effectiveRecognitionControlMode
         case .auto:
-            return (currentlyTyping ?? HUDManager.shared.lastKnownTypingState()) ? .dictation : .command
+            return (currentlyTyping ?? authoritativeTypingInteraction) ? .dictation : .command
         }
     }
 
@@ -5487,7 +5497,8 @@ class HeadMotionManager: ObservableObject {
         lastTransientModeSyncAt = now
 
         guard let anchor = transientModeAnchorTypingState else { return }
-        let currentlyTyping = HUDManager.shared.lastKnownTypingState()
+        _ = HUDManager.shared.refreshInputControlFocusState()
+        let currentlyTyping = authoritativeTypingInteraction
         if transientModeObservedTypingState != currentlyTyping {
             transientModeObservedTypingState = currentlyTyping
             transientModeObservedAt = now
@@ -5517,7 +5528,7 @@ class HeadMotionManager: ObservableObject {
         postRecognitionControlModeChanged(source: source)
         os_log("Recognition Mode transient override cleared (%{public}@): prior=%{public}@ typing=%{public}@ explicitReentry=%{public}@",
                log: log, type: .info, source, priorMode,
-               String(HUDManager.shared.lastKnownTypingState()),
+               String(authoritativeTypingInteraction),
                String(HUDManager.shared.hasRecentExplicitTypingClickReentry()))
     }
 

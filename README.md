@@ -1,13 +1,13 @@
-# Aether Apps
+# Aether App
 
-`Apps` 是 Aether 的 macOS 客户端仓库。这里放的是当前在维护的原生 App、构建脚本、文档和测试，而不是早期 README 里那种偏概念化的项目介绍。
+`App` 是 Aether 的 macOS 客户端仓库。这里放的是当前在维护的原生 App、构建脚本、文档和测试，而不是早期 README 里那种偏概念化的项目介绍。
 
 这份 README 只按当前源码做导航，不再按历史阶段或提交摘要描述项目。
 
 ## 仓库里现在有什么
 
 ```text
-Apps/
+App/
 ├── Apps/
 │   └── AetherCore/          # 主应用源码
 ├── AetherTests/             # 单元测试
@@ -136,7 +136,7 @@ Apps/
 常用命令：
 
 ```bash
-cd Apps
+cd App
 
 ./Scripts/BuildRelease.sh Release
 ./Scripts/BuildRelease.sh Debug

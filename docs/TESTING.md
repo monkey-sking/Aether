@@ -9,13 +9,13 @@ For public release packaging, notarization, or installation into `/Applications`
 
 ## Where the build artifacts are
 
-- Release `.app`: `/Volumes/SSD/Projects/Aether/Apps/.build/release/Aether.app`
-- Installer DMG: `/Volumes/SSD/Projects/Aether/Apps/.build/release/Aether_Installer.dmg`
+- Release `.app`: `/Volumes/SSD/Projects/Aether/App/.build/release/Aether.app`
+- Installer DMG: `/Volumes/SSD/Projects/Aether/App/.build/release/Aether_Installer.dmg`
 - Debug `.app` (Xcode DerivedData output): path depends on local Xcode settings and is not fixed in this repo
 
 Note: typing `Aether.app` in Terminal will not launch it. Use `open /path/to/Aether.app`.
 If Finder shows a blank icon for the release build, run:
-`/Volumes/SSD/Projects/Aether/Apps/Scripts/PrepareAppBundle.sh /Volumes/SSD/Projects/Aether/Apps/.build/release/Aether.app`
+`/Volumes/SSD/Projects/Aether/App/Scripts/PrepareAppBundle.sh /Volumes/SSD/Projects/Aether/App/.build/release/Aether.app`
 
 ## Build (local verification)
 
@@ -24,7 +24,7 @@ If Finder shows a blank icon for the release build, run:
 3. Build a Release app into `.build/release`:
 
 ```bash
-cd /Volumes/SSD/Projects/Aether/Apps
+cd /Volumes/SSD/Projects/Aether/App
 ./Scripts/BuildRelease.sh Release
 open ./.build/release/Aether.app
 ```

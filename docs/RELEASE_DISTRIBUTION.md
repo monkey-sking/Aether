@@ -66,7 +66,7 @@ NOTARY_PROFILE=AetherNotary \
 
 如果这次发布还要同步官网下载与 Sparkle appcast，发布前先确认：
 
-- `Apps/` 当前版本号已是最终值。App 内更新链接里的 `version=` 取自 `CFBundleShortVersionString` / `MARKETING_VERSION`。
+- `App/` 当前版本号已是最终值。App 内更新链接里的 `version=` 取自 `CFBundleShortVersionString` / `MARKETING_VERSION`。
 - `Website/src/data/downloads.ts` 里的 `CURRENT_DOWNLOAD_VERSIONS.stable` / `beta` 已同步成这次发布要上报给后台的短版本号。
 - 后台 tracking gateway 已支持以下下载路径，而不只是 DMG：
   - `/download/Aether.dmg`
@@ -102,12 +102,12 @@ PUBLISH_SPARKLE=1 SPARKLE_CHANNEL=stable NOTARY_PROFILE=AetherNotary ./Scripts/R
 
 ### 3.1.1 从指定 Git 记录/分支发布（推荐）
 
-`Apps/` 与 `Website/` 是两个独立 Git 仓库。发布包使用的是 `Apps/` 当前检出的代码与版本号。
+`App/` 与 `Website/` 是两个独立 Git 仓库。发布包使用的是 `App/` 当前检出的代码与版本号。
 
-发布前建议先确保 `Apps/` 工作区干净，并切到你要发布的 commit / 分支 / tag：
+发布前建议先确保 `App/` 工作区干净，并切到你要发布的 commit / 分支 / tag：
 
 ```bash
-cd /Volumes/SSD/Projects/Aether/Apps
+cd /Volumes/SSD/Projects/Aether/App
 git fetch
 git checkout <branch-or-sha-or-tag>
 git status
@@ -116,28 +116,28 @@ git status
 正式包，不同步官网：
 
 ```bash
-cd /Volumes/SSD/Projects/Aether/Apps
+cd /Volumes/SSD/Projects/Aether/App
 NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh
 ```
 
 正式包，并同步 Stable 官网与 Sparkle：
 
 ```bash
-cd /Volumes/SSD/Projects/Aether/Apps
+cd /Volumes/SSD/Projects/Aether/App
 PUBLISH_SPARKLE=1 SPARKLE_CHANNEL=stable NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh
 ```
 
 Beta 包，并同步 Beta 官网与 Sparkle：
 
 ```bash
-cd /Volumes/SSD/Projects/Aether/Apps
+cd /Volumes/SSD/Projects/Aether/App
 PUBLISH_SPARKLE=1 SPARKLE_CHANNEL=beta NOTARY_PROFILE=AetherNotary ./Scripts/ReleaseForUsers.sh
 ```
 
 本地快速验证，跳过公证：
 
 ```bash
-cd /Volumes/SSD/Projects/Aether/Apps
+cd /Volumes/SSD/Projects/Aether/App
 SKIP_NOTARIZE=1 ./Scripts/ReleaseForUsers.sh
 ```
 
@@ -177,8 +177,8 @@ SKIP_NOTARIZE=1 ./Scripts/ReleaseForUsers.sh
 ## 5. 验签命令（发布后）
 
 ```bash
-APP="/Volumes/SSD/Projects/Aether/Apps/.build/release/Aether.app"
-DMG="/Volumes/SSD/Projects/Aether/Apps/.build/release/Aether_Installer.dmg"
+APP="/Volumes/SSD/Projects/Aether/App/.build/release/Aether.app"
+DMG="/Volumes/SSD/Projects/Aether/App/.build/release/Aether_Installer.dmg"
 
 codesign --verify --deep --strict --verbose=2 "$APP"
 spctl -a -t exec -vv "$APP"

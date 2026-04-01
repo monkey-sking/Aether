@@ -85,7 +85,7 @@ resolve_destination() {
 
 DESTINATION="${AETHER_DESTINATION:-$(resolve_destination)}"
 if [[ "$UNIVERSAL_BUILD" == "1" ]]; then
-  DESTINATION="platform=macOS"
+  DESTINATION="${AETHER_DESTINATION:-platform=macOS}"
   EXTRA_BUILD_FLAGS+=(
     "ARCHS=arm64 x86_64"
     "ONLY_ACTIVE_ARCH=NO"

@@ -4944,7 +4944,8 @@ Recent history relevant to app-launch commands (JSON):
             recordVoiceRewrite(payload, spokenText: spokenText, appName: appName, bundleIdentifier: bundleIdentifier)
         case .dictation(let text):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=dictation text=\(text)")
-            if HUDManager.shared.state.recognitionControlMode == .command || !HUDManager.shared.state.isTypingContext {
+            let inputControlState = InputControlArbiter.shared.currentSnapshot.interactionState
+            if inputControlState != .typing {
                 GlobalLogger.lifecycle.info("[VoiceIntent] hud_control_mismatch text=\(text)")
                 recordVoiceDictationWhileHUDControl(
                     text,
@@ -4972,8 +4973,7 @@ Recent history relevant to app-launch commands (JSON):
             GlobalLogger.lifecycle.info("[VoiceIntent] action=unknown")
             if case .unknown(let transcript) = intent {
                 let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-                let hudState = HUDManager.shared.state
-                let isControlLike = hudState.recognitionControlMode == .command || !hudState.isTypingContext
+                let isControlLike = InputControlArbiter.shared.currentSnapshot.interactionState != .typing
                 let localeIdentifier = voiceService.effectiveLocaleIdentifier
                 if !trimmed.isEmpty, !isControlLike {
                     recordVoiceUnrecognized(

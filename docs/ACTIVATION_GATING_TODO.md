@@ -42,9 +42,9 @@
 
 ## 关键代码位置
 
-- [ActivationGateView.swift](/Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/ActivationGateView.swift)
-- [AboutCenter.swift](/Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/AboutCenter.swift)
-- [AetherApp.swift](/Volumes/SSD/Projects/Aether/Apps/Apps/AetherCore/AetherApp.swift)
+- [ActivationGateView.swift](/Volumes/SSD/Projects/Aether/App/Apps/AetherCore/ActivationGateView.swift)
+- [AboutCenter.swift](/Volumes/SSD/Projects/Aether/App/Apps/AetherCore/AboutCenter.swift)
+- [AetherApp.swift](/Volumes/SSD/Projects/Aether/App/Apps/AetherCore/AetherApp.swift)
 
 ## 当前判断
 

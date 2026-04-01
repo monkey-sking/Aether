@@ -13,7 +13,7 @@ enum UtteranceArbitrationState: Equatable {
 }
 
 struct UtteranceArbitrationEvidence: Equatable {
-    let controlMode: HeadMotionManager.RecognitionControlMode
+    let controlMode: InputControlMode
     let normalizedText: String
     let routerDecision: VoiceCommandDecision
     let hasStableTypingEvidence: Bool

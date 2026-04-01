@@ -190,7 +190,7 @@ final class SpeechManager: ObservableObject {
         let seq: Int; let intent: VoiceIntent; let localeIdentifier: String
         let dictationEnhancementEnabled: Bool; let fullTextRewriteEnabled: Bool
         let originSessionGeneration: Int; let utteranceID: Int
-        let sessionTypingMode: Bool; let streamedTextSnapshot: String; let screenTypedCount: Int
+        let inputControlSnapshot: InputControlSnapshot; let streamedTextSnapshot: String; let screenTypedCount: Int
         let targetPID: pid_t?; let targetBundleID: String?; let targetElementFingerprint: String?
         let targetSource: FocusedInputSource?
         let verificationSnapshot: InputVerificationSnapshot?
@@ -198,11 +198,13 @@ final class SpeechManager: ObservableObject {
         let spokenText: String?
         let routeReason: String
         let commandHUDPreviewMessage: String?
+
+        var typingInteraction: Bool { inputControlSnapshot.interactionState.isTyping }
     }
     private struct ProcessedJob: Sendable {
         let seq: Int; let intent: VoiceIntent; let localeIdentifier: String
         let originSessionGeneration: Int; let utteranceID: Int
-        let sessionTypingMode: Bool; let streamedTextSnapshot: String; let screenTypedCount: Int
+        let inputControlSnapshot: InputControlSnapshot; let streamedTextSnapshot: String; let screenTypedCount: Int
         let targetPID: pid_t?; let targetBundleID: String?; let targetElementFingerprint: String?
         let targetSource: FocusedInputSource?
         let verificationSnapshot: InputVerificationSnapshot?
@@ -213,6 +215,8 @@ final class SpeechManager: ObservableObject {
         let enhancedContent: String?
         let routeReason: String
         let commandHUDPreviewMessage: String?
+
+        var typingInteraction: Bool { inputControlSnapshot.interactionState.isTyping }
     }
     private struct InputVerificationSnapshot: Sendable {
         let pid: pid_t
@@ -540,7 +544,6 @@ final class SpeechManager: ObservableObject {
     private var sessionGeneration: Int = 0
     private var activeUtteranceID: Int = 0
     private var nextUtteranceID: Int = 1
-    private var sessionTypingMode: Bool = false
     private var shouldShowProcessingDotsDuringStop: Bool = false
     private var sessionTargetPID: pid_t?
     private var sessionTargetBundleID: String?
@@ -637,7 +640,6 @@ final class SpeechManager: ObservableObject {
     private var consecutiveNoSpeechRecoveries: Int = 0
     private var standbyWakeMissRecoveryUntil: Date = .distantPast
     private var wakeActivationRecoveryUntil: Date = .distantPast
-    private var currentUtteranceArbitration: UtteranceArbitrationResult = .init(state: .pending)
     private var lastContinuousStartAt: Date = .distantPast
     private var nextAllowedStartOnceAt: Date = .distantPast
     private var isContinuousDictationWaitingForInputFocus: Bool = false
@@ -976,16 +978,14 @@ final class SpeechManager: ObservableObject {
         hasLiveTypingEvidence: Bool,
         hasCommittedDictation: Bool
     ) -> UtteranceArbitrationResult {
-        UtteranceArbitrator.resolve(
-            evidence: .init(
-                controlMode: controlMode,
-                normalizedText: transcript,
-                routerDecision: routerDecision,
-                hasStableTypingEvidence: hasStableTypingEvidence,
-                hasLiveTypingEvidence: hasLiveTypingEvidence,
-                transport: .wakeFollowUp,
-                hasCommittedDictation: hasCommittedDictation
-            )
+        InputControlArbiter.resolveUtteranceDecision(
+            controlMode: InputControlMode(controlMode),
+            transcript: transcript,
+            routerDecision: routerDecision,
+            interactionState: hasStableTypingEvidence ? .typing : .pending,
+            hasLiveTypingEvidence: hasLiveTypingEvidence,
+            transport: .wakeFollowUp,
+            hasCommittedDictation: hasCommittedDictation
         )
     }
 
@@ -1101,6 +1101,79 @@ final class SpeechManager: ObservableObject {
 
     private var recognitionControlMode: RecognitionControlMode {
         HeadMotionManager.shared.effectiveRecognitionControlMode
+    }
+
+    private var authoritativeInputControlSnapshot: InputControlSnapshot {
+        InputControlArbiter.shared.currentSnapshot
+    }
+
+    private var sessionTypingMode: Bool {
+        authoritativeInputControlSnapshot.interactionState.isTyping
+    }
+
+    private func currentInputControlSessionState() -> InputControlSessionState {
+        if recognitionControlMode == .auto, isTypingRecoveryHoldActive {
+            return .recoveryHold
+        }
+        if isDictating || !dictationHandler.screenTypedText.isEmpty {
+            return .typingSession
+        }
+        if recognitionSession.isRunning || isStopping || isUtteranceActive || isPTTHeld || pendingWakeFollowUp != nil {
+            if authoritativeInputControlSnapshot.sessionState == .typingSession
+                || authoritativeInputControlSnapshot.sessionState == .recoveryHold {
+                return authoritativeInputControlSnapshot.sessionState
+            }
+            return .commandSession
+        }
+        return .idle
+    }
+
+    @discardableResult
+    private func setAuthoritativeSessionTyping(
+        _ typing: Bool,
+        source: String
+    ) -> InputControlSnapshot {
+        let nextSessionState: InputControlSessionState
+        if recognitionControlMode == .auto, isTypingRecoveryHoldActive {
+            nextSessionState = .recoveryHold
+        } else if typing {
+            nextSessionState = .typingSession
+        } else if recognitionSession.isRunning || isStopping || isUtteranceActive || isPTTHeld || pendingWakeFollowUp != nil {
+            nextSessionState = .commandSession
+        } else {
+            nextSessionState = .idle
+        }
+
+        return InputControlArbiter.shared.sync(
+            controlMode: InputControlMode(recognitionControlMode),
+            sessionState: nextSessionState,
+            utteranceDecision: authoritativeInputControlSnapshot.utteranceDecision,
+            hasCommittedDictation: !dictationHandler.screenTypedText.isEmpty,
+            hasStreamedDictation: !dictationHandler.screenTypedText.isEmpty,
+            source: source
+        )
+    }
+
+    @discardableResult
+    private func syncInputControlState(source: String) -> InputControlSnapshot {
+        InputControlArbiter.shared.sync(
+            controlMode: InputControlMode(recognitionControlMode),
+            sessionState: currentInputControlSessionState(),
+            utteranceDecision: authoritativeInputControlSnapshot.utteranceDecision,
+            hasCommittedDictation: !dictationHandler.screenTypedText.isEmpty,
+            hasStreamedDictation: !dictationHandler.screenTypedText.isEmpty,
+            source: source
+        )
+    }
+
+    private func setCurrentUtteranceArbitration(
+        _ result: UtteranceArbitrationResult,
+        source: String
+    ) {
+        InputControlArbiter.shared.updateUtteranceDecision(
+            InputControlUtteranceDecision(result.state),
+            source: source
+        )
     }
 
     private func audioDeviceID(for selector: AudioObjectPropertySelector) -> AudioDeviceID? {
@@ -1668,13 +1741,7 @@ final class SpeechManager: ObservableObject {
 
     private var hudRecognitionControlMode: HUDRecognitionControlMode {
         let availability = currentVoiceFeatureAvailability()
-        let liveTypingEvidence = liveTypingHUDEvidence()
-        let typingEligible =
-            liveTypingEvidence
-            || isDictating
-            || sessionTypingMode
-            || isTypingRecoveryHoldActive
-            || !dictationHandler.screenTypedText.isEmpty
+        let typingEligible = syncInputControlState(source: "speech.hud-control-mode").interactionState.isTyping
         return effectiveHUDRecognitionControlMode(
             for: availability,
             typingEligible: typingEligible
@@ -2088,6 +2155,7 @@ final class SpeechManager: ObservableObject {
         NotificationCenter.default.addObserver(self, selector: #selector(toggleLanguage), name: Notification.Name("AetherToggleLanguage"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAirPodsChange), name: .AirPodsStateChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleRecognitionControlModeChanged(_:)), name: HeadMotionManager.recognitionControlModeChangedNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleExplicitNonInputClick(_:)), name: HUDManager.typingContextSuppressedByNonInputClickNotification, object: nil)
         NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didActivateApplicationNotification)
             .receive(on: DispatchQueue.main)
@@ -2216,28 +2284,66 @@ final class SpeechManager: ObservableObject {
         if recognitionControlMode != .auto {
             endTypingRecoveryHold(reason: "mode-changed-\(recognitionControlMode.rawValue)")
         }
+        let nextTypingMode: Bool
         switch recognitionControlMode {
         case .command:
-            sessionTypingMode = false
+            nextTypingMode = false
             dictationHandler.reset(targetPID: nil)
         case .dictation:
-            sessionTypingMode = true
+            nextTypingMode = true
         case .auto:
-            sessionTypingMode = isTypingMode
+            nextTypingMode = isTypingMode
         }
 
         // Dictation UI mode should track active capture state, not just a persisted mode preference.
         let isCaptureActive = recognitionSession.isRunning || isStopping
-        isDictating = isCaptureActive && sessionTypingMode
+        isDictating = isCaptureActive && nextTypingMode
+        setAuthoritativeSessionTyping(nextTypingMode, source: "speech.mode-changed")
 
         // Avoid overriding manual mode-switch toasts when there is no active voice HUD lifecycle.
         let shouldRefreshHUD = isAlwaysListeningEnabled || isWakeWordEnabled || isCaptureActive
         GlobalLogger.speech.info(
             "[ModeSync] source=\(source) effective=\(recognitionControlMode.rawValue) sessionTyping=\(sessionTypingMode) captureActive=\(isCaptureActive) shouldRefreshHUD=\(shouldRefreshHUD)"
         )
+        syncInputControlState(source: "speech.mode-changed")
         if shouldRefreshHUD {
             refreshContinuousHUD(isDictating: isDictating)
         }
+    }
+
+    @objc private func handleExplicitNonInputClick(_ note: Notification) {
+        let clickedBundleID = note.userInfo?["bundleID"] as? String
+        let frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if let clickedBundleID,
+           let frontmostBundleID,
+           clickedBundleID != frontmostBundleID {
+            return
+        }
+        guard recognitionControlMode == .auto else { return }
+        guard !isUtteranceActive else { return }
+
+        let hadTypingState =
+            sessionTypingMode
+            || isDictating
+            || isTypingRecoveryHoldActive
+            || !dictationHandler.screenTypedText.isEmpty
+        let hadLockedTarget =
+            sessionTargetPID != nil
+            || sessionTargetBundleID != nil
+            || sessionTargetElementFingerprint != nil
+        guard hadTypingState || hadLockedTarget else { return }
+
+        resetTypingStateCache()
+        endTypingRecoveryHold(reason: "mouse-noninput")
+        isDictating = false
+        dictationHandler.reset(targetPID: nil)
+        clearSessionInputTarget(reason: "mouse-noninput")
+        clearRecentWakeFollowUpDictationSuppression(reason: "mouse-noninput")
+        GlobalLogger.speech.info(
+            "[TypingMode] cleared session after explicit non-input click frontBundle=\(frontmostBundleID ?? "nil")"
+        )
+        setAuthoritativeSessionTyping(false, source: "speech.mouse-noninput")
+        refreshContinuousHUD(isDictating: false)
     }
 
     // MARK: - Locale
@@ -2534,7 +2640,7 @@ final class SpeechManager: ObservableObject {
         clearPendingFinalizeState()
         isStopping = false
         activeUtteranceID = 0
-        currentUtteranceArbitration = .init(state: .pending)
+        setCurrentUtteranceArbitration(.init(state: .pending), source: "speech.start-once")
         resetTypingStateCache()
 
         stopTimer?.invalidate(); stopTimer = nil
@@ -2617,10 +2723,12 @@ final class SpeechManager: ObservableObject {
         dictationHandler.llmProviderContext = llmProviderDiagnosticsContext(for: .dictationEnhancement)
         dictationHandler.isLLMEnhancementEnabled = isAutoDictationEnhancementEnabled
 
-        if isWakeWordEnabled && !isAwake && !isDirectCommandEnabled { sessionTypingMode = false }
-        else { sessionTypingMode = isTypingMode }
-        isDictating = sessionTypingMode
-        let finalProfile = desiredSpeechProcessingProfile(forTypingMode: sessionTypingMode)
+        let initialTypingMode: Bool
+        if isWakeWordEnabled && !isAwake && !isDirectCommandEnabled { initialTypingMode = false }
+        else { initialTypingMode = isTypingMode }
+        isDictating = initialTypingMode
+        setAuthoritativeSessionTyping(initialTypingMode, source: "speech.session-start")
+        let finalProfile = desiredSpeechProcessingProfile(forTypingMode: initialTypingMode)
         if finalProfile != currentSpeechProcessingProfile {
             applySpeechProcessingProfile(finalProfile, reason: "session-mode-finalized")
         }
@@ -2843,7 +2951,7 @@ final class SpeechManager: ObservableObject {
                 hasLiveTypingEvidence: liveTyping
             )
             : .init(state: .pending)
-        currentUtteranceArbitration = wakeArbitration
+        setCurrentUtteranceArbitration(wakeArbitration, source: "speech.partial-wake")
         let nextTypingMode = hasStrongTypingFallback
             ? computedTypingMode
             : Self.reconcileTypingContextWithVisibleHUD(
@@ -2941,8 +3049,8 @@ final class SpeechManager: ObservableObject {
         if isTypingRecoveryHoldActive, resolvedTypingMode, (liveTyping || lockedTargetMatches) {
             endTypingRecoveryHold(reason: "typing-restored")
         }
-        sessionTypingMode = resolvedTypingMode
         isDictating = resolvedTypingMode && featureAvailability.dictationEnabled
+        setAuthoritativeSessionTyping(resolvedTypingMode, source: "speech.partial-routing")
         if controlMode != .command, resolvedTypingMode {
             syncSessionInputTargetFromCurrentFocus(resetDictationStream: dictationHandler.screenTypedText.isEmpty)
         }
@@ -3652,9 +3760,9 @@ final class SpeechManager: ObservableObject {
         stopTimer?.invalidate(); stopTimer = nil
         clearPendingFinalizeState()
         headsetInputMuteRouter.deactivate()
-        isStopping = false; isDictating = false; sessionTypingMode = false; shouldShowProcessingDotsDuringStop = false
+        isStopping = false; isDictating = false; shouldShowProcessingDotsDuringStop = false
         activeUtteranceID = 0
-        currentUtteranceArbitration = .init(state: .pending)
+        setCurrentUtteranceArbitration(.init(state: .pending), source: "speech.reset-recognition-session")
         recentExpiredWakeFollowUp?.finalizeWorkItem?.cancel()
         recentExpiredWakeFollowUp = nil
         wakeActivatedDuringCurrentUtterance = false
@@ -3673,14 +3781,15 @@ final class SpeechManager: ObservableObject {
         postSubmitDictationSuppression = nil
         dictationHandler.reset(targetPID: nil)
         resetTypingStateCache()
+        setAuthoritativeSessionTyping(false, source: "speech.reset-recognition-session")
     }
 
     private func resetHUDTransientState() {
         headsetInputMuteRouter.deactivate()
         clearPendingFinalizeState()
-        isStopping = false; isDictating = false; sessionTypingMode = false; shouldShowProcessingDotsDuringStop = false
+        isStopping = false; isDictating = false; shouldShowProcessingDotsDuringStop = false
         activeUtteranceID = 0
-        currentUtteranceArbitration = .init(state: .pending)
+        setCurrentUtteranceArbitration(.init(state: .pending), source: "speech.reset-hud-transient")
         recentExpiredWakeFollowUp?.finalizeWorkItem?.cancel()
         recentExpiredWakeFollowUp = nil
         wakeActivatedDuringCurrentUtterance = false
@@ -3690,6 +3799,7 @@ final class SpeechManager: ObservableObject {
         wakeTypingFallbackUntil = .distantPast
         recentWakeFollowUpDictationSuppression = nil
         wakeFollowUpDictationMarkers.removeAll()
+        setAuthoritativeSessionTyping(false, source: "speech.reset-hud-transient")
         if !isTypingRecoveryHoldActive {
             sessionTargetPID = nil; sessionTargetBundleID = nil
             sessionTargetElementFingerprint = nil; sessionTargetSource = nil
@@ -4487,12 +4597,15 @@ final class SpeechManager: ObservableObject {
         if recognitionControlMode == .auto,
            dictationHandler.screenTypedText.isEmpty,
            (sessionTypingMode || isDictating || isTypingRecoveryHoldActive) {
-            sessionTypingMode = false
             isDictating = false
             endTypingRecoveryHold(reason: "wake-activation-command-baseline")
+            setAuthoritativeSessionTyping(false, source: "speech.wake-activation")
             GlobalLogger.speech.info(
                 "[TypingMode] reset to command baseline on wake activation reason=\(reason)"
             )
+        }
+        else {
+            syncInputControlState(source: "speech.wake-activation")
         }
         clearUnarmedWakePreview()
         setHUDOverride(
@@ -4649,7 +4762,7 @@ final class SpeechManager: ObservableObject {
                 hasLiveTypingEvidence: liveTyping
             )
             : .init(state: .pending)
-        currentUtteranceArbitration = wakeArbitration
+        setCurrentUtteranceArbitration(wakeArbitration, source: "speech.final-wake")
         var typingContext = Self.reconcileTypingContextWithVisibleHUD(
             recognitionControlMode: controlMode,
             computedTypingContext: computedTypingContext
@@ -4693,10 +4806,8 @@ final class SpeechManager: ObservableObject {
                 )
             }
         }
-        if typingContext != sessionTypingMode {
-            sessionTypingMode = typingContext
-        }
         isDictating = typingContext && featureAvailability.dictationEnabled
+        setAuthoritativeSessionTyping(typingContext, source: "speech.final-routing")
         if controlMode != .command, typingContext {
             syncSessionInputTargetFromCurrentFocus(resetDictationStream: dictationHandler.screenTypedText.isEmpty)
         }
@@ -4968,6 +5079,7 @@ final class SpeechManager: ObservableObject {
             typingContext: typingContext,
             verificationSnapshot: verificationSnapshot
         )
+        let inputControlSnapshot = authoritativeInputControlSnapshot
         let holdsTextRewriteBarrier = shouldHoldTextRewriteBarrier(for: hydratedIntent)
         if holdsTextRewriteBarrier {
             beginTextRewriteHUDActivity()
@@ -4975,7 +5087,7 @@ final class SpeechManager: ObservableObject {
         let job = IntentJob(seq: -1, intent: hydratedIntent, localeIdentifier: localeID,
                             dictationEnhancementEnabled: isAutoDictationEnhancementEnabled,
                             fullTextRewriteEnabled: isFullTextRewriteEnabled,
-                            originSessionGeneration: originSessionGeneration, utteranceID: utteranceID, sessionTypingMode: typingContext,
+                            originSessionGeneration: originSessionGeneration, utteranceID: utteranceID, inputControlSnapshot: inputControlSnapshot,
                             streamedTextSnapshot: dictationHandler.screenTypedText, screenTypedCount: dictationHandler.screenTypedText.count,
                             targetPID: pid, targetBundleID: bid, targetElementFingerprint: fp, targetSource: source, verificationSnapshot: verificationSnapshot,
                             holdsTextRewriteBarrier: holdsTextRewriteBarrier,
@@ -4990,7 +5102,7 @@ final class SpeechManager: ObservableObject {
             let seeded = IntentJob(seq: seq, intent: job.intent, localeIdentifier: job.localeIdentifier,
                                    dictationEnhancementEnabled: job.dictationEnhancementEnabled,
                                    fullTextRewriteEnabled: job.fullTextRewriteEnabled,
-                                   originSessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID, sessionTypingMode: job.sessionTypingMode,
+                                   originSessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID, inputControlSnapshot: job.inputControlSnapshot,
                                    streamedTextSnapshot: job.streamedTextSnapshot, screenTypedCount: job.screenTypedCount,
                                    targetPID: job.targetPID, targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
                                    targetSource: job.targetSource,
@@ -5143,8 +5255,8 @@ final class SpeechManager: ObservableObject {
         GlobalLogger.speech.info(
             "[TypingMode] frontmost-app change reconciled \(sessionTypingMode)->\(refreshedTypingMode) pendingWake=\(pendingWakeFollowUp != nil) utteranceActive=\(isUtteranceActive) frontmostBundle=\(frontmostBundle)"
         )
-        sessionTypingMode = refreshedTypingMode
         isDictating = refreshedTypingMode && currentVoiceFeatureAvailability().dictationEnabled
+        setAuthoritativeSessionTyping(refreshedTypingMode, source: "speech.frontmost-app-changed")
     }
 
     private func shouldKeepWakeHUDArmed() -> Bool {
@@ -5262,10 +5374,10 @@ final class SpeechManager: ObservableObject {
             || sessionTargetElementFingerprint != nil
             || wakeTypingFallbackUntil != .distantPast
         guard hadTypingState || hadTarget else { return }
-        sessionTypingMode = false
         isDictating = false
         clearSessionInputTarget(reason: reason)
         GlobalLogger.speech.info("[TypingMode] cleared standby typing state reason=\(reason)")
+        setAuthoritativeSessionTyping(false, source: "speech.clear-standby-typing")
     }
 
     private func shouldAllowIdleTargetRearm(reason: String) -> Bool {
@@ -5385,7 +5497,7 @@ final class SpeechManager: ObservableObject {
         if !job.holdsTextRewriteBarrier {
             let stageControlMode: HUDRecognitionControlMode = {
                 if isCommandIntent(job.intent) { return .command }
-                if job.sessionTypingMode { return .dictation }
+                if job.typingInteraction { return .dictation }
                 return .auto
             }()
             setHUDStage(
@@ -5408,7 +5520,7 @@ final class SpeechManager: ObservableObject {
                     localeIdentifier: job.localeIdentifier,
                     originSessionGeneration: job.originSessionGeneration,
                     utteranceID: job.utteranceID,
-                    sessionTypingMode: job.sessionTypingMode,
+                    inputControlSnapshot: job.inputControlSnapshot,
                     streamedTextSnapshot: job.streamedTextSnapshot,
                     screenTypedCount: job.screenTypedCount,
                     targetPID: job.targetPID,
@@ -5429,7 +5541,7 @@ final class SpeechManager: ObservableObject {
             guard job.dictationEnhancementEnabled else {
                 return passthroughResult("llm=disabled")
             }
-            guard job.sessionTypingMode else {
+            guard job.typingInteraction else {
                 return passthroughResult("llm=skipped-no-typing")
             }
             if let skipReason = Self.dictationEnhancementSkipReason(
@@ -5465,7 +5577,7 @@ final class SpeechManager: ObservableObject {
                         localeIdentifier: job.localeIdentifier,
                         originSessionGeneration: job.originSessionGeneration,
                         utteranceID: job.utteranceID,
-                        sessionTypingMode: job.sessionTypingMode,
+                        inputControlSnapshot: job.inputControlSnapshot,
                         streamedTextSnapshot: job.streamedTextSnapshot,
                         screenTypedCount: job.screenTypedCount,
                         targetPID: job.targetPID,
@@ -5483,7 +5595,7 @@ final class SpeechManager: ObservableObject {
                     )
                 case .reject(let reason):
                     GlobalLogger.speech.info(
-                        "[DictationLLM] rejected phase=process reason=\(reason) \(llmProviderDiagnosticsContext(for: .dictationEnhancement, utteranceID: job.utteranceID, typing: job.sessionTypingMode, targetPID: job.targetPID, bundleID: job.targetBundleID, sourceCount: text.count))"
+                        "[DictationLLM] rejected phase=process reason=\(reason) \(llmProviderDiagnosticsContext(for: .dictationEnhancement, utteranceID: job.utteranceID, typing: job.typingInteraction, targetPID: job.targetPID, bundleID: job.targetBundleID, sourceCount: text.count))"
                     )
                     return passthroughResult("llm=rejected-\(reason)", enhancedContent: enhanced.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
@@ -5503,7 +5615,7 @@ final class SpeechManager: ObservableObject {
                     failureReason,
                     phase: "prepare",
                     utteranceID: job.utteranceID,
-                    typing: job.sessionTypingMode,
+                    typing: job.typingInteraction,
                     targetPID: job.targetPID,
                     bundleID: job.targetBundleID,
                     payload: payload,
@@ -5515,7 +5627,7 @@ final class SpeechManager: ObservableObject {
                     localeIdentifier: job.localeIdentifier,
                     originSessionGeneration: job.originSessionGeneration,
                     utteranceID: job.utteranceID,
-                    sessionTypingMode: job.sessionTypingMode,
+                    inputControlSnapshot: job.inputControlSnapshot,
                     streamedTextSnapshot: job.streamedTextSnapshot,
                     screenTypedCount: job.screenTypedCount,
                     targetPID: job.targetPID,
@@ -5542,7 +5654,7 @@ final class SpeechManager: ObservableObject {
                     .llmUnavailable,
                     phase: "execute",
                     utteranceID: job.utteranceID,
-                    typing: job.sessionTypingMode,
+                    typing: job.typingInteraction,
                     targetPID: job.targetPID,
                     bundleID: job.targetBundleID,
                     payload: payload,
@@ -5555,7 +5667,7 @@ final class SpeechManager: ObservableObject {
                     localeIdentifier: job.localeIdentifier,
                     originSessionGeneration: job.originSessionGeneration,
                     utteranceID: job.utteranceID,
-                    sessionTypingMode: job.sessionTypingMode,
+                    inputControlSnapshot: job.inputControlSnapshot,
                     streamedTextSnapshot: job.streamedTextSnapshot,
                     screenTypedCount: job.screenTypedCount,
                     targetPID: job.targetPID,
@@ -5578,7 +5690,7 @@ final class SpeechManager: ObservableObject {
                     .unsupportedTarget,
                     phase: "execute",
                     utteranceID: job.utteranceID,
-                    typing: job.sessionTypingMode,
+                    typing: job.typingInteraction,
                     targetPID: job.targetPID,
                     bundleID: job.targetBundleID,
                     payload: payload,
@@ -5590,7 +5702,7 @@ final class SpeechManager: ObservableObject {
                     localeIdentifier: job.localeIdentifier,
                     originSessionGeneration: job.originSessionGeneration,
                     utteranceID: job.utteranceID,
-                    sessionTypingMode: job.sessionTypingMode,
+                    inputControlSnapshot: job.inputControlSnapshot,
                     streamedTextSnapshot: job.streamedTextSnapshot,
                     screenTypedCount: job.screenTypedCount,
                     targetPID: job.targetPID,
@@ -5617,7 +5729,7 @@ final class SpeechManager: ObservableObject {
                     localeIdentifier: job.localeIdentifier,
                     originSessionGeneration: job.originSessionGeneration,
                     utteranceID: job.utteranceID,
-                    sessionTypingMode: job.sessionTypingMode,
+                    inputControlSnapshot: job.inputControlSnapshot,
                     streamedTextSnapshot: job.streamedTextSnapshot,
                     screenTypedCount: job.screenTypedCount,
                     targetPID: job.targetPID,
@@ -5640,7 +5752,7 @@ final class SpeechManager: ObservableObject {
                     failureReason,
                     phase: "execute",
                     utteranceID: job.utteranceID,
-                    typing: job.sessionTypingMode,
+                    typing: job.typingInteraction,
                     targetPID: job.targetPID,
                     bundleID: job.targetBundleID,
                     payload: payload,
@@ -5653,7 +5765,7 @@ final class SpeechManager: ObservableObject {
                     localeIdentifier: job.localeIdentifier,
                     originSessionGeneration: job.originSessionGeneration,
                     utteranceID: job.utteranceID,
-                    sessionTypingMode: job.sessionTypingMode,
+                    inputControlSnapshot: job.inputControlSnapshot,
                     streamedTextSnapshot: job.streamedTextSnapshot,
                     screenTypedCount: job.screenTypedCount,
                     targetPID: job.targetPID,
@@ -5673,7 +5785,7 @@ final class SpeechManager: ObservableObject {
         }
         return ProcessedJob(seq: job.seq, intent: job.intent, localeIdentifier: job.localeIdentifier,
                             originSessionGeneration: job.originSessionGeneration, utteranceID: job.utteranceID,
-                            sessionTypingMode: job.sessionTypingMode, streamedTextSnapshot: job.streamedTextSnapshot,
+                            inputControlSnapshot: job.inputControlSnapshot, streamedTextSnapshot: job.streamedTextSnapshot,
                             screenTypedCount: job.screenTypedCount, targetPID: job.targetPID,
                             targetBundleID: job.targetBundleID, targetElementFingerprint: job.targetElementFingerprint,
                             targetSource: job.targetSource,
@@ -5695,7 +5807,7 @@ final class SpeechManager: ObservableObject {
         let diagnosticsLog = job.diagnostics ?? "nil"
         let usageContext = resolvedUsageAppContext(for: job)
         GlobalLogger.speech.info(
-            "[IntentPipeline] apply seq=\(job.seq) utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) intent=\(intentSummary(job.intent)) targetSource=\(job.targetSource?.rawValue ?? "nil") diagnostics=\(diagnosticsLog)"
+            "[IntentPipeline] apply seq=\(job.seq) utterance=\(job.utteranceID) typing=\(job.typingInteraction) intent=\(intentSummary(job.intent)) targetSource=\(job.targetSource?.rawValue ?? "nil") diagnostics=\(diagnosticsLog)"
         )
         func finishWithFeedback(
             _ message: String,
@@ -5833,7 +5945,7 @@ final class SpeechManager: ObservableObject {
                     payload.failureReason ?? .unsupportedTarget,
                     phase: "apply",
                     utteranceID: job.utteranceID,
-                    typing: job.sessionTypingMode,
+                    typing: job.typingInteraction,
                     targetPID: job.targetPID,
                     bundleID: job.targetBundleID,
                     payload: payload,
@@ -5855,7 +5967,7 @@ final class SpeechManager: ObservableObject {
                     failureReason,
                     phase: "apply",
                     utteranceID: job.utteranceID,
-                    typing: job.sessionTypingMode,
+                    typing: job.typingInteraction,
                     targetPID: job.targetPID,
                     bundleID: job.targetBundleID,
                     payload: payload,
@@ -5877,7 +5989,7 @@ final class SpeechManager: ObservableObject {
                     .providerFailed,
                     phase: "apply",
                     utteranceID: job.utteranceID,
-                    typing: job.sessionTypingMode,
+                    typing: job.typingInteraction,
                     targetPID: job.targetPID,
                     bundleID: job.targetBundleID,
                     payload: payload,
@@ -5900,7 +6012,7 @@ final class SpeechManager: ObservableObject {
                     .inputInvalid,
                     phase: "apply",
                     utteranceID: job.utteranceID,
-                    typing: job.sessionTypingMode,
+                    typing: job.typingInteraction,
                     targetPID: job.targetPID,
                     bundleID: job.targetBundleID,
                     payload: payload,
@@ -5922,7 +6034,7 @@ final class SpeechManager: ObservableObject {
                     .focusChanged,
                     phase: "apply",
                     utteranceID: job.utteranceID,
-                    typing: job.sessionTypingMode,
+                    typing: job.typingInteraction,
                     targetPID: job.targetPID,
                     bundleID: job.targetBundleID,
                     payload: payload,
@@ -5985,7 +6097,7 @@ final class SpeechManager: ObservableObject {
                         .commitFailed,
                         phase: "verify",
                         utteranceID: job.utteranceID,
-                        typing: job.sessionTypingMode,
+                        typing: job.typingInteraction,
                         targetPID: job.targetPID,
                         bundleID: job.targetBundleID,
                         payload: completedPayload,
@@ -6066,7 +6178,7 @@ final class SpeechManager: ObservableObject {
                     "[TextPipeline] paste-fallback utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) textCount=\(finalText.count)"
                 )
                 injector.paste(finalText)
-            } else if job.sessionTypingMode || hasStreamed {
+            } else if job.typingInteraction || hasStreamed {
                 // Use DictationHandler's diff-based correction instead of old TypingFinalizationPlanner
                 // The handler already applied corrections during streaming; final sync is done here
                 if finalText == job.streamedTextSnapshot {
@@ -6136,7 +6248,7 @@ final class SpeechManager: ObservableObject {
             }
         case .unknown(let transcript):
             GlobalLogger.router.info(
-                "[IntentPipeline] unknown utterance=\(job.utteranceID) typing=\(job.sessionTypingMode) transcript='\(transcript)'"
+                "[IntentPipeline] unknown utterance=\(job.utteranceID) typing=\(job.typingInteraction) transcript='\(transcript)'"
             )
             status = NSLocalizedString("speech.no_matching_command", comment: "")
             clearHUDStage(owner: phaseOwner)
@@ -6144,7 +6256,7 @@ final class SpeechManager: ObservableObject {
             let commandEnabled = isCommandExecutionEnabled?() ?? true
             let shouldSurfaceUnknownHUD =
                 commandEnabled && (
-                    !job.sessionTypingMode ||
+                    !job.typingInteraction ||
                     effectiveRecognitionControlMode(for: currentVoiceFeatureAvailability()) == .command ||
                     job.routeReason == "forced-command-no-match"
                 )
@@ -6170,7 +6282,7 @@ final class SpeechManager: ObservableObject {
         case .dictation:
             return
         case .unknown:
-            guard !job.sessionTypingMode else { return }
+            guard !job.typingInteraction else { return }
             shouldRevert = true
             reason = "unknown-control"
         default:
@@ -7408,15 +7520,11 @@ final class SpeechManager: ObservableObject {
         let isDictationOnly =
             featureAvailability.dictationEnabled
             && !featureAvailability.commandEnabled
-        let liveTypingEvidence = liveTypingHUDEvidence()
+        let authoritativeState = syncInputControlState(source: "speech.refresh-continuous-hud")
         let focusedTypingEvidence = focusedTypingHUDEvidence()
-        let stickyTypingHUDEligible =
-            isDictating
-            || sessionTypingMode
-            || isTypingRecoveryHoldActive
-            || !dictationHandler.screenTypedText.isEmpty
-        let idleTypingEvidence = isDictationOnly ? focusedTypingEvidence : liveTypingEvidence
-        let typingHUDEligible = idleTypingEvidence || stickyTypingHUDEligible
+        let stickyTypingHUDEligible = authoritativeState.interactionState.isTyping
+        let idleTypingEvidence = isDictationOnly ? focusedTypingEvidence : authoritativeState.interactionState.isTyping
+        let typingHUDEligible = authoritativeState.interactionState.isTyping
         let isContinuousActive = isAlwaysListeningEnabled
         let isPushToTalkOnlyIdle = !isAlwaysListeningEnabled && !isWakeWordEnabled
         let controlMode = effectiveHUDRecognitionControlMode(
@@ -7429,7 +7537,7 @@ final class SpeechManager: ObservableObject {
         let wakeFollowUpActive = isWakeFollowUpSessionActive
         let isWakeGatedStandby = isWakeGated && !wakeFollowUpActive && !isStopping
         let shouldHoldDictationHUD =
-            isTypingRecoveryHoldActive
+            authoritativeState.sessionState == .recoveryHold
             && controlMode == .auto
             && (!isWakeGated || wakeFollowUpActive)
         let effectiveDictating = isDictating || shouldHoldDictationHUD
@@ -7651,7 +7759,7 @@ final class SpeechManager: ObservableObject {
         case .command:
             return false
         case .auto:
-            return sessionTypingMode
+            return authoritativeInputControlSnapshot.interactionState.isTyping
         }
     }
 
@@ -7985,11 +8093,12 @@ final class SpeechManager: ObservableObject {
         }
         if let app = NSWorkspace.shared.frontmostApplication,
            isSystemSearchLikeApplication(app) {
-            let hudState = HUDManager.shared.state
-            if hudState.recognitionControlMode == .command, !hudState.isTypingContext {
+            _ = HUDManager.shared.refreshInputControlFocusState()
+            let interactionState = authoritativeInputControlSnapshot.interactionState
+            if interactionState == .command || interactionState == .suppressed {
                 return false
             }
-            if hudState.recognitionControlMode == .dictation || hudState.isTypingContext {
+            if interactionState == .typing {
                 return true
             }
             return currentFocusedInputSnapshot() != nil
@@ -8002,7 +8111,11 @@ final class SpeechManager: ObservableObject {
         if isWeChatSpecialModeActive() {
             return true
         }
-        if isSystemSearchLikeApplication(frontmostApp), HUDManager.shared.lastKnownTypingState() {
+        if isSystemSearchLikeApplication(frontmostApp) {
+            _ = HUDManager.shared.refreshInputControlFocusState()
+        }
+        if isSystemSearchLikeApplication(frontmostApp),
+           authoritativeInputControlSnapshot.focusState.indicatesTyping {
             return true
         }
         if hasRecentClickTypingFallbackEvidence() {
@@ -8043,7 +8156,7 @@ final class SpeechManager: ObservableObject {
 
     private func resetUtteranceTrackingForNextPhrase() {
         activeUtteranceID = 0
-        currentUtteranceArbitration = .init(state: .pending)
+        setCurrentUtteranceArbitration(.init(state: .pending), source: "speech.reset-utterance-tracking")
         recentExpiredWakeFollowUp?.finalizeWorkItem?.cancel()
         recentExpiredWakeFollowUp = nil
         wakeActivatedDuringCurrentUtterance = false
@@ -8052,7 +8165,6 @@ final class SpeechManager: ObservableObject {
         lastWakeMissInsightAt = .distantPast
         isUtteranceActive = false
         isDictating = false
-        sessionTypingMode = false
         voiceActivityWithoutPartialSince = nil
         lastTranscript = ""
         lastChangeAt = nil
@@ -8063,6 +8175,7 @@ final class SpeechManager: ObservableObject {
                 bundleID: sessionTargetBundleID
             )
         )
+        setAuthoritativeSessionTyping(false, source: "speech.reset-utterance-tracking")
     }
 
     private func partialHasExplicitCommandPrefix(_ text: String) -> Bool {
@@ -8287,6 +8400,7 @@ final class SpeechManager: ObservableObject {
         guard sessionTypingMode || !dictationHandler.screenTypedText.isEmpty else { return }
         typingRecoveryHoldUntil = Date().addingTimeInterval(2.0)
         typingRecoveryHoldReason = reason
+        syncInputControlState(source: "speech.begin-typing-recovery")
         GlobalLogger.speech.info(
             "[TypingMode] begin recovery hold reason=\(reason) targetPID=\(sessionTargetPID ?? 0) targetBundle=\(sessionTargetBundleID ?? "nil")"
         )
@@ -8297,6 +8411,7 @@ final class SpeechManager: ObservableObject {
         let priorReason = typingRecoveryHoldReason ?? "unknown"
         typingRecoveryHoldUntil = .distantPast
         typingRecoveryHoldReason = nil
+        syncInputControlState(source: "speech.end-typing-recovery")
         GlobalLogger.speech.info("[TypingMode] end recovery hold reason=\(reason) prior=\(priorReason)")
     }
 
@@ -8416,7 +8531,9 @@ final class SpeechManager: ObservableObject {
         let frontPID = frontmostApp?.processIdentifier ?? 0
         let axTrusted = accessibilityTrustedSnapshot || AXIsProcessTrusted()
         let hudEvaluation = HUDManager.shared.currentAXTypingEvaluation()
-        let hudTypingState = HUDManager.shared.lastKnownTypingState()
+        _ = HUDManager.shared.refreshInputControlFocusState()
+        let arbiterState = authoritativeInputControlSnapshot
+        let hudTypingState = arbiterState.focusState.indicatesTyping
         let hudDisplayState = HUDManager.shared.currentDisplayStateSnapshot()
         let hudSuppressionState = HUDManager.shared.currentTypingSuppressionStateSnapshot()
         let snapshot = currentFocusedInputSnapshot()
@@ -8450,6 +8567,9 @@ final class SpeechManager: ObservableObject {
         } ?? "nil"
         lines.append("speech.currentFocusedInputSnapshot.anchorPoint=\(anchorPointSummary)")
         lines.append("hud.lastKnownTypingState=\(hudTypingState)")
+        lines.append("arbiter.interactionState=\(arbiterState.interactionState.rawValue)")
+        lines.append("arbiter.focusState=\(arbiterState.focusState.rawValue)")
+        lines.append("arbiter.sessionState=\(arbiterState.sessionState.rawValue)")
         lines.append("hud.display.mode=\(hudDisplayState.mode.rawValue)")
         lines.append("hud.display.isTypingContext=\(hudDisplayState.isTypingContext)")
         lines.append("hud.display.recognitionControlMode=\(hudDisplayState.recognitionControlMode.rawValue)")
@@ -8941,7 +9061,7 @@ final class SpeechManager: ObservableObject {
             routerDecision: decision,
             hasStableTypingEvidence: hasStableTypingEvidence,
             hasLiveTypingEvidence: hasLiveTypingEvidence,
-            hasCommittedDictation: currentUtteranceArbitration.state == .dictationCommitted
+            hasCommittedDictation: authoritativeInputControlSnapshot.utteranceDecision == .dictationCommitted
         )
     }
 
@@ -9192,7 +9312,7 @@ final class SpeechManager: ObservableObject {
         error: Error? = nil,
         note: String? = nil
     ) {
-        var message = "[DictationLLM] failure phase=\(phase) \(llmProviderDiagnosticsContext(for: .dictationEnhancement, utteranceID: job.utteranceID, typing: job.sessionTypingMode, targetPID: job.targetPID, bundleID: job.targetBundleID, sourceCount: textCount))"
+        var message = "[DictationLLM] failure phase=\(phase) \(llmProviderDiagnosticsContext(for: .dictationEnhancement, utteranceID: job.utteranceID, typing: job.typingInteraction, targetPID: job.targetPID, bundleID: job.targetBundleID, sourceCount: textCount))"
         if let note, !note.isEmpty {
             message += " note=\(note)"
         }
@@ -9423,7 +9543,7 @@ final class SpeechManager: ObservableObject {
 
     private func shouldDowngradeVerificationMismatchForLockedWeirdTypingTarget(_ job: ProcessedJob) -> Bool {
         Self.shouldTrustLockedWeirdTypingTargetWithoutLiveFocus(
-            sessionTypingMode: job.sessionTypingMode,
+            sessionTypingMode: job.typingInteraction,
             targetBundleID: job.targetBundleID,
             targetElementFingerprint: job.targetElementFingerprint,
             verificationSnapshotAvailable: job.verificationSnapshot != nil,
@@ -9528,7 +9648,7 @@ final class SpeechManager: ObservableObject {
             return false
         }()
         if Self.shouldTrustLockedWeirdTypingTargetWithoutLiveFocus(
-            sessionTypingMode: job.sessionTypingMode,
+            sessionTypingMode: job.typingInteraction,
             targetBundleID: job.targetBundleID,
             targetElementFingerprint: job.targetElementFingerprint,
             verificationSnapshotAvailable: job.verificationSnapshot != nil,
@@ -9537,14 +9657,14 @@ final class SpeechManager: ObservableObject {
             return true
         }
         if Self.shouldAcceptStreamedDictationTargetWithoutLiveFocus(
-            sessionTypingMode: job.sessionTypingMode,
+            sessionTypingMode: job.typingInteraction,
             screenTypedCount: job.screenTypedCount,
             streamedTextSnapshot: job.streamedTextSnapshot,
             frontmostMatchesTarget: frontmostMatchesTarget
         ) {
             return true
         }
-        if job.sessionTypingMode && (job.targetPID == nil || job.targetPID == 0) {
+        if job.typingInteraction && (job.targetPID == nil || job.targetPID == 0) {
             if job.targetSource == .recentClickFallback,
                let front = NSWorkspace.shared.frontmostApplication {
                 if let bundleID = job.targetBundleID, !bundleID.isEmpty {

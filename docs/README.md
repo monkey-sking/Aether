@@ -20,8 +20,8 @@ Aether 当前是一个以 macOS 为中心的本地交互产品。当前代码主
 
 补充边界：
 
-- 当前主工作区根目录是 `/Volumes/SSD/Projects/Aether/Apps`
-- 当前核心代码主要位于 `Apps/Apps/AetherCore`
+- 当前主工作区根目录是 `/Volumes/SSD/Projects/Aether/App`
+- 当前核心代码主要位于 `App/Apps/AetherCore`
 - 例行开发与回归优先看 `Current` 文档，不要默认从 PRD 开始
 
 ## 文档状态
@@ -104,4 +104,4 @@ Aether 当前是一个以 macOS 为中心的本地交互产品。当前代码主
 - 任何影响行为、范围、设置、命令语义或验收口径的改动，都应先更新最接近的 `Current` 或 `Planned` 文档
 - 不要再默认“所有改动都先改 PRD / Roadmap”；只有范围与方向变化时才更新它们
 - 新文档默认放在 `docs/`；如果只是保留背景，应明确标成 `Historical`
-- 路径、命令和产物位置统一以 `/Volumes/SSD/Projects/Aether/Apps` 为基准，除非文档明确说明是 `Website/`
+- 路径、命令和产物位置统一以 `/Volumes/SSD/Projects/Aether/App` 为基准，除非文档明确说明是 `Website/`
