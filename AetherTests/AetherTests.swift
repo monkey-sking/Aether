@@ -649,6 +649,20 @@ final class SpeechManagerGuardrailTests: XCTestCase {
         )
     }
 
+    func testWakeGatedDictationHoldStaysActiveDuringLateFinalGraceWhenTextAlreadyStreamed() {
+        XCTAssertTrue(
+            SpeechManager.shouldKeepWakeGatedDictationActive(
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                sessionTypingMode: true,
+                isUtteranceActive: false,
+                hasStreamedDictation: true,
+                pendingWakeFollowUp: false,
+                fallbackWindowActive: true
+            )
+        )
+    }
+
     func testWakeLifecycleSuppressesPureWakePhraseTranscript() {
         XCTAssertTrue(
             SpeechManager.shouldSuppressWakeOnlyTranscriptDuringActiveWakeLifecycle(
@@ -922,6 +936,23 @@ final class SpeechManagerGuardrailTests: XCTestCase {
                 typingStateActive: true,
                 sessionTargetAvailable: true,
                 frontmostMatchesTarget: false,
+                typingSuppressed: false
+            )
+        )
+    }
+
+    func testWakeFollowUpTypingStatePreservedDuringLateGraceWhenTargetStable() {
+        XCTAssertTrue(
+            SpeechManager.shouldPreserveWakeFollowUpTypingState(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                awakeWindowActive: false,
+                pendingWakeFollowUp: false,
+                recentExpiredWakeFollowUp: true,
+                typingStateActive: true,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: true,
                 typingSuppressed: false
             )
         )

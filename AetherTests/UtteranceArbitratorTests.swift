@@ -69,4 +69,21 @@ final class UtteranceArbitratorTests: XCTestCase {
         XCTAssertEqual(result.state, .dictationCommitted)
         XCTAssertTrue(result.allowsDictationStreaming)
     }
+
+    func testAutoModeLiveTypingEvidenceAllowsWakeFollowUpStreamingBeforeStableEvidence() {
+        let result = UtteranceArbitrator.resolve(
+            evidence: .init(
+                controlMode: .auto,
+                normalizedText: "今天下午三点开会",
+                routerDecision: .init(intent: .dictation("今天下午三点开会"), confidence: .medium, reason: "dictation"),
+                hasStableTypingEvidence: false,
+                hasLiveTypingEvidence: true,
+                transport: .wakeFollowUp,
+                hasCommittedDictation: false
+            )
+        )
+
+        XCTAssertEqual(result.state, .dictationCommitted)
+        XCTAssertTrue(result.allowsDictationStreaming)
+    }
 }

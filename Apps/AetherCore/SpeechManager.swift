@@ -774,6 +774,39 @@ final class SpeechManager: ObservableObject {
         return isAwake || wakeWordDetected
     }
 
+    static func shouldKeepWakeGatedDictationActive(
+        isWakeWordEnabled: Bool,
+        isDirectCommandEnabled: Bool,
+        sessionTypingMode: Bool,
+        isUtteranceActive: Bool,
+        hasStreamedDictation: Bool,
+        pendingWakeFollowUp: Bool,
+        fallbackWindowActive: Bool
+    ) -> Bool {
+        guard isWakeWordEnabled, !isDirectCommandEnabled else { return false }
+        guard sessionTypingMode else { return false }
+        return isUtteranceActive || hasStreamedDictation || pendingWakeFollowUp || fallbackWindowActive
+    }
+
+    static func shouldPreserveWakeFollowUpTypingState(
+        isAlwaysListeningEnabled: Bool,
+        isWakeWordEnabled: Bool,
+        isDirectCommandEnabled: Bool,
+        awakeWindowActive: Bool,
+        pendingWakeFollowUp: Bool,
+        recentExpiredWakeFollowUp: Bool,
+        typingStateActive: Bool,
+        sessionTargetAvailable: Bool,
+        frontmostMatchesTarget: Bool,
+        typingSuppressed: Bool
+    ) -> Bool {
+        guard isAlwaysListeningEnabled, isWakeWordEnabled, !isDirectCommandEnabled else { return false }
+        guard typingStateActive else { return false }
+        guard sessionTargetAvailable, frontmostMatchesTarget else { return false }
+        guard !typingSuppressed else { return false }
+        return awakeWindowActive || pendingWakeFollowUp || recentExpiredWakeFollowUp
+    }
+
     static func validateDictationEnhancement(
         sourceText: String,
         candidateText: String,
@@ -5283,6 +5316,24 @@ final class SpeechManager: ObservableObject {
 
         resetTypingStateCache()
         let refreshedTypingMode = isTypingMode
+        let shouldPreserveWakeTypingState = Self.shouldPreserveWakeFollowUpTypingState(
+            isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+            isWakeWordEnabled: isWakeWordEnabled,
+            isDirectCommandEnabled: isDirectCommandEnabled,
+            awakeWindowActive: isAwake,
+            pendingWakeFollowUp: pendingWakeFollowUp != nil,
+            recentExpiredWakeFollowUp: hasRecentExpiredWakeFollowUpGrace,
+            typingStateActive: sessionTypingMode,
+            sessionTargetAvailable: sessionTargetPID != nil || sessionTargetBundleID != nil || sessionTargetElementFingerprint != nil,
+            frontmostMatchesTarget: frontmostApplicationMatches(targetPID: sessionTargetPID, bundleID: sessionTargetBundleID),
+            typingSuppressed: shouldSuppressFocusedTypingForExplicitNonInputClick()
+        )
+        if !refreshedTypingMode, shouldPreserveWakeTypingState {
+            GlobalLogger.speech.info(
+                "[TypingMode] preserved wake-follow-up typing state during frontmost-app reconcile pendingWake=\(pendingWakeFollowUp != nil) recentExpiredWake=\(hasRecentExpiredWakeFollowUpGrace)"
+            )
+            return
+        }
         guard refreshedTypingMode != sessionTypingMode else { return }
 
         let frontmostBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil"
@@ -7568,12 +7619,24 @@ final class SpeechManager: ObservableObject {
                 : idleTypingEvidence
         )
         let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
-        let wakeFollowUpActive = isWakeFollowUpSessionActive
+        let shouldKeepWakeGatedDictationHUD = Self.shouldKeepWakeGatedDictationActive(
+            isWakeWordEnabled: isWakeWordEnabled,
+            isDirectCommandEnabled: isDirectCommandEnabled,
+            sessionTypingMode: sessionTypingMode,
+            isUtteranceActive: isUtteranceActive,
+            hasStreamedDictation: !dictationHandler.screenTypedText.isEmpty || dictationHandler.isAwaitingPartialReconciliation,
+            pendingWakeFollowUp: pendingWakeFollowUp != nil,
+            fallbackWindowActive: hasRecentExpiredWakeFollowUpGrace
+        )
+        let wakeFollowUpActive = isWakeFollowUpSessionActive || shouldKeepWakeGatedDictationHUD
         let isWakeGatedStandby = isWakeGated && !wakeFollowUpActive && !isStopping
         let shouldHoldDictationHUD =
-            authoritativeState.sessionState == .recoveryHold
-            && controlMode == .auto
-            && (!isWakeGated || wakeFollowUpActive)
+            shouldKeepWakeGatedDictationHUD
+            || (
+                authoritativeState.sessionState == .recoveryHold
+                && controlMode == .auto
+                && (!isWakeGated || wakeFollowUpActive)
+            )
         let effectiveDictating = isDictating || shouldHoldDictationHUD
         let realHardware = availableInputDevices.filter { $0.id != 0 }
         let shouldShowIdleDictationHUD =
