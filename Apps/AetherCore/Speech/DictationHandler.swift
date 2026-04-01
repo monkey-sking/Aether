@@ -10,7 +10,8 @@ import os
 /// New approach:
 ///   - `screenTypedText` tracks the characters actually injected into the target app.
 ///   - `onPartial` only appends when the new text is a strict extension of `screenTypedText`.
-///   - If STT revised earlier words (text no longer starts with `screenTypedText`), we skip until `onFinal`.
+///   - If STT revised earlier words (text no longer starts with `screenTypedText`), we defer the rewrite
+///     until finalization or another explicit stable boundary instead of deleting mid-speech.
 ///   - `onFinal` uses diff-based correction: find common prefix, delete excess, type remainder.
 @MainActor
 final class DictationHandler {
@@ -19,11 +20,9 @@ final class DictationHandler {
 
     /// What we have actually typed on screen (ground truth).
     private(set) var screenTypedText: String = ""
-    private(set) var isAwaitingPartialReconciliation: Bool = false
     private var targetPID: pid_t?
     private var currentUtteranceID: UUID = UUID()
-    private var pendingPartialCorrectionText: String?
-    private var pendingPartialCorrectionWorkItem: DispatchWorkItem?
+    private var pendingDeferredRewriteText: String?
     private var pendingAppendTargetText: String?
     private var appendPumpTask: Task<Void, Never>?
     private var isApplyingFinalCorrection = false
@@ -45,7 +44,6 @@ final class DictationHandler {
         let hasPendingAppend = pendingAppendTargetText.map { $0 != screenTypedText } ?? false
         return hasPendingAppend
             || appendPumpTask != nil
-            || pendingPartialCorrectionWorkItem != nil
             || isApplyingFinalCorrection
     }
 
@@ -59,36 +57,36 @@ final class DictationHandler {
 
     /// Call at the start of each utterance to reset tracking state.
     func reset(targetPID: pid_t?) {
-        cancelPendingPartialCorrection()
         cancelAppendPump()
         setApplyingFinalCorrection(false)
         lastReportedInputMutationActive = false
         self.screenTypedText = ""
         self.targetPID = targetPID
         self.currentUtteranceID = UUID()
+        self.pendingDeferredRewriteText = nil
     }
 
     /// Called for every partial (non-final) STT result.
     ///
     /// Only types new characters when the engine output is a strict extension of what's on screen.
-    /// If STT revised earlier words, we do nothing—corrections happen in `onFinal`.
+    /// If STT revised earlier words, keep the already-typed prefix stable and defer correction until finalization.
     func onPartial(_ text: String) {
         guard !text.isEmpty else { return }
 
         if text == screenTypedText {
-            cancelPendingPartialCorrection()
+            pendingDeferredRewriteText = nil
             return
         }
 
         if text.hasPrefix(screenTypedText) {
             // Safe extension: engine output starts with everything we've already typed.
-            cancelPendingPartialCorrection()
+            pendingDeferredRewriteText = nil
             queueAppend(to: text)
             return
         }
 
         cancelAppendPump()
-        schedulePartialCorrection(to: text)
+        deferPartialRewrite(to: text)
     }
 
     /// Called when isFinal fires or EOS is detected.
@@ -121,14 +119,14 @@ final class DictationHandler {
             os_log("DictationHandler onFinal: utterance expired, dropping correction.", log: log, type: .info)
             return
         }
-        cancelPendingPartialCorrection()
+        pendingDeferredRewriteText = nil
         cancelAppendPump()
         applyCorrection(corrected)
     }
 
     /// Synchronous finalization (no LLM). Used when LLM is disabled.
     func onFinalSync(_ text: String) {
-        cancelPendingPartialCorrection()
+        pendingDeferredRewriteText = nil
         cancelAppendPump()
         applyCorrection(text)
     }
@@ -136,8 +134,6 @@ final class DictationHandler {
     /// When utterance finalization has started, stop pacing any queued partial backlog.
     /// This keeps the post-speech tail from outlasting the real processing phase.
     func flushPendingAppendForFinalization() {
-        cancelPendingPartialCorrection()
-
         guard let target = pendingAppendTargetText,
               target.hasPrefix(screenTypedText),
               target != screenTypedText else {
@@ -171,18 +167,15 @@ final class DictationHandler {
 
     // MARK: - Private
 
-    private func setAwaitingPartialReconciliation(_ awaiting: Bool) {
-        guard isAwaitingPartialReconciliation != awaiting else { return }
-        isAwaitingPartialReconciliation = awaiting
-        onStatusUpdate?(awaiting ? "speech.recognizing" : "speech.listening")
-    }
-
-    private func cancelPendingPartialCorrection() {
-        pendingPartialCorrectionWorkItem?.cancel()
-        pendingPartialCorrectionWorkItem = nil
-        pendingPartialCorrectionText = nil
-        setAwaitingPartialReconciliation(false)
-        notifyInputMutationActivityIfNeeded()
+    private func deferPartialRewrite(to text: String) {
+        pendingDeferredRewriteText = text
+        os_log(
+            "DictationHandler deferred mid-stream rewrite: '%{public}@' (screen: %d chars)",
+            log: log,
+            type: .info,
+            text,
+            screenTypedText.count
+        )
     }
 
     private func cancelAppendPump() {
@@ -256,7 +249,7 @@ final class DictationHandler {
     }
 
     private func emitHUDProgressUpdate() {
-        onStatusUpdate?(isAwaitingPartialReconciliation ? "speech.recognizing" : "speech.listening")
+        onStatusUpdate?("speech.listening")
     }
 
     private func notifyInputMutationActivityIfNeeded() {
@@ -281,31 +274,6 @@ final class DictationHandler {
         default:
             return appendLargeBacklogIntervalNs
         }
-    }
-
-    private func schedulePartialCorrection(to text: String) {
-        pendingPartialCorrectionWorkItem?.cancel()
-        pendingPartialCorrectionText = text
-        setAwaitingPartialReconciliation(true)
-        let utteranceID = currentUtteranceID
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            guard self.currentUtteranceID == utteranceID else { return }
-            guard self.pendingPartialCorrectionText == text else { return }
-            self.pendingPartialCorrectionText = nil
-            self.pendingPartialCorrectionWorkItem = nil
-            self.setAwaitingPartialReconciliation(false)
-            self.applyCorrection(text)
-            os_log(
-                "DictationHandler stream reconcile: '%{public}@' (screen: %d chars)",
-                log: self.log,
-                type: .info,
-                text,
-                self.screenTypedText.count
-            )
-        }
-        pendingPartialCorrectionWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: workItem)
     }
 
     private func applyCorrection(_ finalText: String) {
