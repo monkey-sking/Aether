@@ -7,6 +7,8 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/.build/release"
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-/tmp/aether_xcodebuild_deriveddata}"
 ALLOW_UNSIGNED_FALLBACK="${AETHER_ALLOW_UNSIGNED_FALLBACK:-0}"
+CLANG_WRAPPER_PATH="${PROJECT_ROOT}/Scripts/XcodeClangWrapper.sh"
+USE_CLANG_WRAPPER="${AETHER_USE_XCODEBUILD_CLANG_WRAPPER:-1}"
 
 CONFIGURATION="${1:-Release}"
 
@@ -17,6 +19,10 @@ fi
 
 mkdir -p "$BUILD_DIR"
 mkdir -p "$DERIVED_DATA_PATH"
+
+if [[ "$USE_CLANG_WRAPPER" == "1" ]]; then
+  chmod +x "$CLANG_WRAPPER_PATH"
+fi
 
 # Use second-resolution build numbers so repeated builds within the same minute
 # still produce a unique Sparkle version.
@@ -49,6 +55,13 @@ EXTRA_BUILD_FLAGS=(
 if [[ "${ENABLE_APP_INTENTS_METADATA_EXTRACTION}" != "1" ]]; then
   EXTRA_BUILD_FLAGS+=(
     'OTHER_SWIFT_FLAGS=$(inherited) -DAETHER_DISABLE_APP_INTENTS'
+  )
+fi
+if [[ "$USE_CLANG_WRAPPER" == "1" && -z "${CC:-}" ]]; then
+  # Xcode 26.4 CLI builds can deadlock in the initial `clang -v -E -dM`
+  # toolchain probe unless the compiler path is routed through a wrapper.
+  EXTRA_BUILD_FLAGS+=(
+    "CC=${CLANG_WRAPPER_PATH}"
   )
 fi
 if [[ "${AETHER_UNSIGNED:-0}" == "1" ]]; then
