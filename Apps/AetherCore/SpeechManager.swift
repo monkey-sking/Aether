@@ -6360,7 +6360,7 @@ final class SpeechManager: ObservableObject {
                     if !suffix.isEmpty { injector.type(suffix, targetPID: job.targetPID) }
                 } else {
                     // Diff correction: find common prefix, backspace, type remainder
-                    let commonLen = commonPrefixLen(job.streamedTextSnapshot, finalText)
+                    let commonLen = HUDDecisionPolicy.commonPrefixLen(job.streamedTextSnapshot, finalText)
                     let toDelete = job.streamedTextSnapshot.count - commonLen
                     let toType = String(finalText.dropFirst(commonLen))
                     GlobalLogger.speech.info(
