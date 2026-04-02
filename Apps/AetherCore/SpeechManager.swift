@@ -7706,7 +7706,7 @@ final class SpeechManager: ObservableObject {
             isDirectCommandEnabled: isDirectCommandEnabled,
             sessionTypingMode: sessionTypingMode,
             isUtteranceActive: isUtteranceActive,
-            hasStreamedDictation: !dictationHandler.screenTypedText.isEmpty || dictationHandler.isAwaitingPartialReconciliation,
+            hasStreamedDictation: !dictationHandler.screenTypedText.isEmpty || dictationHandler.isInputMutationActive,
             pendingWakeFollowUp: pendingWakeFollowUp != nil,
             fallbackWindowActive: hasRecentExpiredWakeFollowUpGrace,
             speechActivityHoldActive: speechActivityHoldActive
@@ -7883,7 +7883,7 @@ final class SpeechManager: ObservableObject {
         let mode: HUDMode; var message = ""
         let shouldShowProcessingDots = isStopping && shouldShowProcessingDotsDuringStop
         let shouldShowRecognizingWhileDictating =
-            effectiveDictating && dictationHandler.isAwaitingPartialReconciliation
+            effectiveDictating && dictationHandler.isInputMutationActive
         let shouldShowIdleAutoDictationHUD =
             controlMode == .auto
             && typingHUDEligible
