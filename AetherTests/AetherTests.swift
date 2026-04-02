@@ -288,6 +288,62 @@ final class AppStateUsageInsightsTests: XCTestCase {
 
 }
 
+final class HUDDecisionPolicyTests: XCTestCase {
+    func testWakeGatedStandbyHidesHUDWhenNoKeepaliveAndNoOverrides() {
+        let decision = HUDDecisionPolicy.resolvedVisibility(
+            isWakeGatedStandby: true,
+            isSpeechExitBarsHoldActive: false,
+            hasTemporaryHUD: false,
+            hasLanguageIndicator: false,
+            isContinuousActive: true,
+            isSessionActive: false,
+            isPushToTalkOnlyIdle: false,
+            dictationOnlyWithoutFocusHidden: false,
+            hasRealHardware: true,
+            isWakeGatedHiddenBeforeModeSelection: false
+        )
+
+        XCTAssertEqual(decision.action, .hide)
+        XCTAssertEqual(decision.reason, "wake-gated-standby")
+    }
+
+    func testWakeGatedStandbyUsesSpeechBarsInsteadOfFallingThroughToVisibleHUD() {
+        let decision = HUDDecisionPolicy.resolvedVisibility(
+            isWakeGatedStandby: true,
+            isSpeechExitBarsHoldActive: true,
+            hasTemporaryHUD: false,
+            hasLanguageIndicator: false,
+            isContinuousActive: true,
+            isSessionActive: false,
+            isPushToTalkOnlyIdle: false,
+            dictationOnlyWithoutFocusHidden: false,
+            hasRealHardware: true,
+            isWakeGatedHiddenBeforeModeSelection: false
+        )
+
+        XCTAssertEqual(decision.action, .speechBars)
+        XCTAssertEqual(decision.reason, "wake-gated-standby-exit-bars")
+    }
+
+    func testSecondUtteranceVisibilityStaysVisibleWhileSessionAndSpeechHoldAreLive() {
+        let decision = HUDDecisionPolicy.resolvedVisibility(
+            isWakeGatedStandby: false,
+            isSpeechExitBarsHoldActive: false,
+            hasTemporaryHUD: false,
+            hasLanguageIndicator: false,
+            isContinuousActive: true,
+            isSessionActive: true,
+            isPushToTalkOnlyIdle: false,
+            dictationOnlyWithoutFocusHidden: false,
+            hasRealHardware: true,
+            isWakeGatedHiddenBeforeModeSelection: false
+        )
+
+        XCTAssertEqual(decision.action, .visible)
+        XCTAssertEqual(decision.reason, "normal-visible")
+    }
+}
+
 @MainActor
 final class SpeechManagerFinalResultTests: XCTestCase {
     func testCompletedOneShotFinalResultCommitsImmediately() {

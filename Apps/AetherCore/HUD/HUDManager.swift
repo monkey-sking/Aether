@@ -628,12 +628,20 @@ final class HUDManager {
         _ = lastKnownTypingState()
         let inferredTypingContext = InputControlArbiter.shared.currentSnapshot.interactionState.isTyping
         let frontBundle = currentTypingContextBundleID()
+        let allowDisplayCarryover = {
+            switch lifetime {
+            case .temporary:
+                return shouldCarryOverPreviousTypingContextForDisplay(frontBundle: frontBundle)
+            case .persistent:
+                return false
+            }
+        }()
         let effectiveTypingContext = Self.resolvedTypingContext(
             recognitionControlMode: recognitionControlMode,
             inferredTypingContext: inferredTypingContext,
             hudMode: mode,
             previousTypingContext: state.isTypingContext,
-            allowPreviousTypingContextCarryover: shouldCarryOverPreviousTypingContextForDisplay(frontBundle: frontBundle)
+            allowPreviousTypingContextCarryover: allowDisplayCarryover
         )
 
         let isNoopVisibleRefresh =

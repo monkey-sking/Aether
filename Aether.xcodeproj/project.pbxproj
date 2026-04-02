@@ -16,6 +16,7 @@
 		38E0C2865D2EF8EBA566137B /* CommandHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83D513A99130EC0F797EAF0 /* CommandHandler.swift */; };
 		4BDBBCA080E1B33D13F87E22 /* VoiceCommandRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D863E78A6DBBC070343227B /* VoiceCommandRouter.swift */; };
 		58F4FE2F0F3944ACA658AA5B /* Apps/AetherCore/HUD/HUDState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD149F2C14A14BBD874C58F7 /* Apps/AetherCore/HUD/HUDState.swift */; };
+		5EDEF00D0BADC0FFEE123451 /* Apps/AetherCore/HUD/HUDDecisionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDEF00D0BADC0FFEE123450 /* Apps/AetherCore/HUD/HUDDecisionPolicy.swift */; };
 		6CAFD84A56B2486181DB21D0 /* Apps/AetherCore/HUD/HUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDD62DBE56B946A9A7724D7D /* Apps/AetherCore/HUD/HUDView.swift */; };
 		752B8656CCE440E6FF74855D /* VoiceCommandRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAE13A5808AC6A480FF02900 /* VoiceCommandRouterTests.swift */; };
 		7538C6658F303E0F9F88B2AC /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F795E7530701568580707FBB /* Sparkle */; };
@@ -108,6 +109,7 @@
 		C0DEF00D0BADC0FFEE888880 /* InputControlArbiter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = InputControlArbiter.swift; path = ../Apps/AetherCore/Speech/InputControlArbiter.swift; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE999990 /* VoiceActivityHoldPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VoiceActivityHoldPolicy.swift; path = ../Apps/AetherCore/Speech/VoiceActivityHoldPolicy.swift; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE999992 /* VoiceActivityHoldPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceActivityHoldPolicyTests.swift; sourceTree = "<group>"; };
+		5EDEF00D0BADC0FFEE123450 /* Apps/AetherCore/HUD/HUDDecisionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HUD/HUDDecisionPolicy.swift; sourceTree = "<group>"; };
 		D1D1E12D2F82BB5E4EAEB90D /* EOSDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EOSDetector.swift; path = ../Apps/AetherCore/Speech/EOSDetector.swift; sourceTree = "<group>"; };
 		D4B04B778B904E9EBE08B8F1 /* Apps/AetherCore/HUD/CaretDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HUD/CaretDetector.swift; sourceTree = "<group>"; };
 		D5837AE8FD6964FF43A98002 /* AudioCaptureSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AudioCaptureSession.swift; path = ../Apps/AetherCore/Speech/AudioCaptureSession.swift; sourceTree = "<group>"; };
@@ -216,6 +218,7 @@
 				C0DEF00D0BADC0FFEE222224 /* Apps/AetherCore/Resources/zh-Hans.lproj/Localizable.strings */,
 				C0DEF00D0BADC0FFEE222226 /* Apps/AetherCore/Resources/en.lproj/InfoPlist.strings */,
 				C0DEF00D0BADC0FFEE222228 /* Apps/AetherCore/Resources/zh-Hans.lproj/InfoPlist.strings */,
+				5EDEF00D0BADC0FFEE123450 /* Apps/AetherCore/HUD/HUDDecisionPolicy.swift */,
 				DD149F2C14A14BBD874C58F7 /* Apps/AetherCore/HUD/HUDState.swift */,
 				EDD62DBE56B946A9A7724D7D /* Apps/AetherCore/HUD/HUDView.swift */,
 				FFA7BC5466FA47C190921F7C /* Apps/AetherCore/HUD/HUDManager.swift */,
@@ -390,6 +393,7 @@
 				C0DEF00D0BADC0FFEE330003 /* Apps/AetherCore/AetherIntents.swift in Sources */,
 				C0DEF00D0BADC0FFEE440001 /* Apps/AetherCore/HotkeyManager.swift in Sources */,
 				C0DEF00D0BADC0FFEE440003 /* Apps/AetherCore/KeyRecorderView.swift in Sources */,
+				5EDEF00D0BADC0FFEE123451 /* Apps/AetherCore/HUD/HUDDecisionPolicy.swift in Sources */,
 				58F4FE2F0F3944ACA658AA5B /* Apps/AetherCore/HUD/HUDState.swift in Sources */,
 				C0DEF00D0BADC0FFEE777771 /* Apps/AetherCore/AppLocalization.swift in Sources */,
 				6CAFD84A56B2486181DB21D0 /* Apps/AetherCore/HUD/HUDView.swift in Sources */,

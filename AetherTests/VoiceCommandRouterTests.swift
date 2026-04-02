@@ -1078,3 +1078,58 @@ final class HUDExplicitTypingSuppressionTests: XCTestCase {
         )
     }
 }
+
+final class HUDMessageResolutionTests: XCTestCase {
+    func testHUDModePrefersDictationOverListeningWhenEffectiveDictating() {
+        let mode = HUDDecisionPolicy.resolvedMode(
+            shouldCollapseHandsFreeHUDToStandby: false,
+            shouldShowProcessingDots: false,
+            shouldShowRecognizingWhileDictating: false,
+            effectiveDictating: true,
+            shouldShowIdleAutoDictationHUD: false,
+            lastTranscript: ""
+        )
+
+        XCTAssertEqual(mode, .dictation)
+    }
+
+    func testHUDModeUsesOrganizingDuringMutationBeforeDictation() {
+        let mode = HUDDecisionPolicy.resolvedMode(
+            shouldCollapseHandsFreeHUDToStandby: false,
+            shouldShowProcessingDots: false,
+            shouldShowRecognizingWhileDictating: true,
+            effectiveDictating: true,
+            shouldShowIdleAutoDictationHUD: false,
+            lastTranscript: "我们今天一起讨论"
+        )
+
+        XCTAssertEqual(mode, .organizing)
+    }
+
+    func testHUDMessageUsesRawRemainingDictationTextBeforeCollapsedTail() {
+        let message = HUDDecisionPolicy.resolvedMessage(
+            mode: .dictation,
+            explicitMessage: "",
+            lastTranscript: "我们今天一起讨论这个问题怎么解决",
+            screenTypedText: "我们今天一起",
+            isInputMutationActive: false,
+            collapseToTwoState: false
+        )
+
+        XCTAssertEqual(message, "讨论这个问题怎么解决")
+    }
+
+    func testCollapsedHUDMessageStillUsesTailWhenCollapseEnabled() {
+        let message = HUDDecisionPolicy.resolvedMessage(
+            mode: .dictation,
+            explicitMessage: "",
+            lastTranscript: "我们今天一起讨论这个问题怎么解决",
+            screenTypedText: "我们今天一起",
+            isInputMutationActive: false,
+            collapseToTwoState: true
+        )
+
+        XCTAssertFalse(message.isEmpty)
+        XCTAssertNotEqual(message, "讨论这个问题怎么解决")
+    }
+}
