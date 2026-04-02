@@ -242,11 +242,12 @@ codesign -d --entitlements :- "$APP" 2>/dev/null | \
 - 仓库内新增了 `Scripts/XcodeClangWrapper.sh`。
 - `Scripts/BuildRelease.sh` 默认注入 `CC=Scripts/XcodeClangWrapper.sh`，作为命令行 release build 的 workaround。
 - 截至 2026-04-01，`AETHER_UNIVERSAL=0` 的 `arm64` 发布链路已经用这套 workaround 完整验证过：fresh build、签名、公证、staple、Sparkle 发布、线上 appcast 校验均通过。
+- 同日后续已重新验证 `AETHER_UNIVERSAL=1` 路径，并发布 beta `0.1.6 / b142` universal 包；当前问题已从“阻塞发布”降级为“仍需持续观察的发布基础设施特殊路径”。
 
 影响与后续：
 
-- 当前可用的稳定发布路径是 `arm64` 单架构包。
-- `universal` 不是产品方向废弃，而是发布基础设施仍需单独恢复与验证。
+- 当前 `arm64` 与 `universal` 两条发布路径都已有可复用验证记录。
+- `universal` 不是产品方向废弃；本次恢复依赖仓库内 workaround，后续仍需继续观察 Xcode CLI 构建稳定性。
 - 后续如继续排查，应优先把它当作 release/packaging 基础设施问题处理，而不是先怀疑业务代码。
 
 ### 7.2 2026-04-01: `Audit i18n` 被 Xcode 脚本沙箱拦截
