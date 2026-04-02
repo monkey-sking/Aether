@@ -785,13 +785,16 @@ final class SpeechManager: ObservableObject {
         fallbackWindowActive: Bool,
         speechActivityHoldActive: Bool = false
     ) -> Bool {
-        guard isWakeWordEnabled, !isDirectCommandEnabled else { return false }
-        guard sessionTypingMode else { return false }
-        return isUtteranceActive
-            || hasStreamedDictation
-            || pendingWakeFollowUp
-            || fallbackWindowActive
-            || speechActivityHoldActive
+        VoiceActivityHoldPolicy.shouldKeepWakeGatedDictationActive(
+            isWakeWordEnabled: isWakeWordEnabled,
+            isDirectCommandEnabled: isDirectCommandEnabled,
+            sessionTypingMode: sessionTypingMode,
+            isUtteranceActive: isUtteranceActive,
+            hasStreamedDictation: hasStreamedDictation,
+            pendingWakeFollowUp: pendingWakeFollowUp,
+            fallbackWindowActive: fallbackWindowActive,
+            speechActivityHoldActive: speechActivityHoldActive
+        )
     }
 
     static func isSpeechActivityHoldActive(
@@ -800,8 +803,11 @@ final class SpeechManager: ObservableObject {
         now: Date = Date(),
         holdWindow: TimeInterval
     ) -> Bool {
-        guard holdWindow > 0 else { return latestVoiceActivity }
-        return latestVoiceActivity || now.timeIntervalSince(lastSpeechActivityAt) <= holdWindow
+        VoiceActivityHoldPolicy.isSpeechActivityHoldActive(
+            latestVoiceActivity: latestVoiceActivity,
+            lastSpeechActivityAge: lastSpeechActivityAt == .distantPast ? nil : max(0, now.timeIntervalSince(lastSpeechActivityAt)),
+            holdWindow: holdWindow
+        )
     }
 
     static func shouldKeepWakeFollowUpActive(
@@ -809,7 +815,11 @@ final class SpeechManager: ObservableObject {
         keepWakeGatedDictationHUD: Bool,
         speechActivityHoldActive: Bool
     ) -> Bool {
-        isWakeFollowUpSessionActive || keepWakeGatedDictationHUD || speechActivityHoldActive
+        VoiceActivityHoldPolicy.shouldKeepWakeFollowUpActive(
+            isWakeFollowUpSessionActive: isWakeFollowUpSessionActive,
+            keepWakeGatedDictationHUD: keepWakeGatedDictationHUD,
+            speechActivityHoldActive: speechActivityHoldActive
+        )
     }
 
     static func shouldHoldWakeFollowUpForLateFinal(
@@ -818,7 +828,12 @@ final class SpeechManager: ObservableObject {
         hasRecentTranscriptChange: Bool,
         speechActivityHoldActive: Bool
     ) -> Bool {
-        isUtteranceActive || hasTranscript || hasRecentTranscriptChange || speechActivityHoldActive
+        VoiceActivityHoldPolicy.shouldHoldWakeFollowUpForLateFinal(
+            isUtteranceActive: isUtteranceActive,
+            hasTranscript: hasTranscript,
+            hasRecentTranscriptChange: hasRecentTranscriptChange,
+            speechActivityHoldActive: speechActivityHoldActive
+        )
     }
 
     static func shouldHideDictationOnlyHUDWithoutFocus(
@@ -826,10 +841,11 @@ final class SpeechManager: ObservableObject {
         effectiveDictating: Bool,
         speechActivityHoldActive: Bool
     ) -> Bool {
-        guard !focusedTypingEvidence else { return false }
-        guard !effectiveDictating else { return false }
-        guard !speechActivityHoldActive else { return false }
-        return true
+        VoiceActivityHoldPolicy.shouldHideDictationOnlyHUDWithoutFocus(
+            focusedTypingEvidence: focusedTypingEvidence,
+            effectiveDictating: effectiveDictating,
+            speechActivityHoldActive: speechActivityHoldActive
+        )
     }
 
     static func shouldPreserveWakeFollowUpTypingState(
@@ -4556,6 +4572,16 @@ final class SpeechManager: ObservableObject {
                 GlobalLogger.speech.info(
                     "[WakeFollowUp] timeout group=\(pending.groupID) age=\(self.wakeDiagnosticAgeDescription(since: pending.createdAt)) idle=\(String(format: "%.2fs", now.timeIntervalSince(pending.lastActivityAt))) phrase='\(pending.phrase ?? "nil")' hud=\(HUDManager.shared.state.mode.rawValue) recognitionRunning=\(self.recognitionSession.isRunning) audioRunning=\(self.audioCapture.isRunning) awake=\(self.isAwake) lastTranscript='\(self.wakeDiagnosticSnippet(self.lastTranscript))'"
                 )
+                if VoiceActivityHoldPolicy.shouldExtendWakeFollowUp(
+                    speechActivityHoldActive: self.isSpeechActivityHoldActive(at: now),
+                    holdWindow: self.wakeFollowUpLateFinalActivityWindow,
+                    recognitionRunning: self.recognitionSession.isRunning,
+                    audioRunning: self.audioCapture.isRunning,
+                    isStopping: self.isStopping
+                ) {
+                    self.refreshPendingWakeFollowUpActivity(reason: "voice-activity-timeout-hold", at: now)
+                    return
+                }
                 self.pendingWakeFollowUp = nil
                 self.lastWakeFollowUpActivityRefreshAt = .distantPast
                 if self.shouldHoldWakeFollowUpForLateFinal(at: now) {
