@@ -23,7 +23,7 @@ final class VoiceActivityHoldPolicyTests: XCTestCase {
     }
 
     func testWakeGatedDictationStayActiveWhileSpeechHoldIsLive() {
-        XCTAssertTrue(
+        XCTAssertFalse(
             VoiceActivityHoldPolicy.shouldKeepWakeGatedDictationActive(
                 isWakeWordEnabled: true,
                 isDirectCommandEnabled: false,
@@ -33,6 +33,21 @@ final class VoiceActivityHoldPolicyTests: XCTestCase {
                 pendingWakeFollowUp: false,
                 fallbackWindowActive: false,
                 speechActivityHoldActive: true
+            )
+        )
+    }
+
+    func testWakeGatedDictationStaysActiveWhileWakeFollowUpIsPending() {
+        XCTAssertTrue(
+            VoiceActivityHoldPolicy.shouldKeepWakeGatedDictationActive(
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                sessionTypingMode: true,
+                isUtteranceActive: false,
+                hasStreamedDictation: false,
+                pendingWakeFollowUp: true,
+                fallbackWindowActive: false,
+                speechActivityHoldActive: false
             )
         )
     }

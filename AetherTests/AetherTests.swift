@@ -752,6 +752,21 @@ final class SpeechManagerGuardrailTests: XCTestCase {
         )
     }
 
+    func testWakeGatedDictationHoldDoesNotStayActiveFromAmbientSpeechHoldAlone() {
+        XCTAssertFalse(
+            SpeechManager.shouldKeepWakeGatedDictationActive(
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                sessionTypingMode: true,
+                isUtteranceActive: false,
+                hasStreamedDictation: false,
+                pendingWakeFollowUp: false,
+                fallbackWindowActive: false,
+                speechActivityHoldActive: true
+            )
+        )
+    }
+
     func testWakeGatedDictationHoldStaysActiveDuringLateFinalGraceWhenTextAlreadyStreamed() {
         XCTAssertTrue(
             SpeechManager.shouldKeepWakeGatedDictationActive(

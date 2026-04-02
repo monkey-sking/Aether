@@ -37,7 +37,6 @@ enum VoiceActivityHoldPolicy {
             || hasStreamedDictation
             || pendingWakeFollowUp
             || fallbackWindowActive
-            || speechActivityHoldActive
     }
 
     static func shouldKeepWakeFollowUpActive(
