@@ -50,25 +50,30 @@ class DictationHandlerTests: XCTestCase {
     
     func testPartialExtension() {
         handler.onPartial("hello")
+        handler.flushPendingAppendForFinalization()
         XCTAssertEqual(mockInjector.typedText, "hello")
         XCTAssertEqual(handler.screenTypedText, "hello")
         
         handler.onPartial("hello world")
+        handler.flushPendingAppendForFinalization()
         XCTAssertEqual(mockInjector.typedText, "hello world")
         XCTAssertEqual(handler.screenTypedText, "hello world")
     }
     
-    func testPartialSkippedIfChangedPrefix() {
+    func testPartialSkippedIfChangedPrefix() async {
         handler.onPartial("hello")
+        handler.flushPendingAppendForFinalization()
         // Engine corrected the word mid-stream
         handler.onPartial("help")
-        // Should ignore and wait for onFinal
+        try? await Task.sleep(nanoseconds: 350_000_000)
+        // Should keep the already typed text stable and wait for onFinal
         XCTAssertEqual(mockInjector.typedText, "hello")
         XCTAssertEqual(handler.screenTypedText, "hello")
     }
     
     func testFinalDiffCorrection() async {
         handler.onPartial("hello")
+        handler.flushPendingAppendForFinalization()
         XCTAssertEqual(mockInjector.typedText, "hello")
         
         // Final corrected it to "help me"
@@ -79,6 +84,7 @@ class DictationHandlerTests: XCTestCase {
     
     func testRaceConditionOnReset() async {
         handler.onPartial("hello")
+        handler.flushPendingAppendForFinalization()
 
         handler.isLLMEnhancementEnabled = true
         handler.llmProvider = MockSlowLLM(delayNs: 100_000_000) // 100ms
@@ -95,6 +101,47 @@ class DictationHandlerTests: XCTestCase {
         XCTAssertEqual(mockInjector.typedText, "hello")
         XCTAssertEqual(mockInjector.deletedCount, 0)
         XCTAssertEqual(handler.screenTypedText, "")
+    }
+
+    func testMidStreamRevisionDoesNotDeleteAlreadyTypedTextBeforeFinal() async {
+        let original = "我们今天一起讨论这个问题"
+        let revised = "我们一起讨论这个问题"
+
+        handler.onPartial(original)
+        handler.flushPendingAppendForFinalization()
+        XCTAssertEqual(mockInjector.typedText, original)
+        XCTAssertEqual(handler.screenTypedText, original)
+
+        handler.onPartial(revised)
+        try? await Task.sleep(nanoseconds: 350_000_000)
+
+        XCTAssertEqual(mockInjector.deletedCount, 0)
+        XCTAssertEqual(mockInjector.typedText, original)
+        XCTAssertEqual(handler.screenTypedText, original)
+    }
+
+    func testDivergentPartialExtensionDefersRewriteUntilFinal() async {
+        let original = "我们今天一起讨论这个问题"
+        let revised = "我们一起讨论这个问题"
+        let revisedExtended = "我们一起讨论这个问题怎么解决"
+
+        handler.onPartial(original)
+        handler.flushPendingAppendForFinalization()
+        XCTAssertEqual(mockInjector.typedText, original)
+
+        handler.onPartial(revised)
+        try? await Task.sleep(nanoseconds: 120_000_000)
+        handler.onPartial(revisedExtended)
+        try? await Task.sleep(nanoseconds: 350_000_000)
+
+        XCTAssertEqual(mockInjector.deletedCount, 0)
+        XCTAssertEqual(mockInjector.typedText, original)
+        XCTAssertEqual(handler.screenTypedText, original)
+
+        await handler.onFinal(revisedExtended)
+
+        XCTAssertEqual(mockInjector.typedText, revisedExtended)
+        XCTAssertEqual(handler.screenTypedText, revisedExtended)
     }
 }
 
@@ -649,6 +696,64 @@ final class SpeechManagerGuardrailTests: XCTestCase {
         )
     }
 
+    func testWakeGatedDictationHoldStaysActiveDuringLateFinalGraceWhenTextAlreadyStreamed() {
+        XCTAssertTrue(
+            SpeechManager.shouldKeepWakeGatedDictationActive(
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                sessionTypingMode: true,
+                isUtteranceActive: false,
+                hasStreamedDictation: true,
+                pendingWakeFollowUp: false,
+                fallbackWindowActive: true
+            )
+        )
+    }
+
+    func testSpeechActivityHoldStaysActiveBrieflyAfterRecentVoiceActivity() {
+        let now = Date()
+
+        XCTAssertTrue(
+            SpeechManager.isSpeechActivityHoldActive(
+                latestVoiceActivity: false,
+                lastSpeechActivityAt: now.addingTimeInterval(-0.6),
+                now: now,
+                holdWindow: 1.1
+            )
+        )
+    }
+
+    func testWakeFollowUpRemainsActiveDuringRecentSpeechActivityHold() {
+        XCTAssertTrue(
+            SpeechManager.shouldKeepWakeFollowUpActive(
+                isWakeFollowUpSessionActive: false,
+                keepWakeGatedDictationHUD: false,
+                speechActivityHoldActive: true
+            )
+        )
+    }
+
+    func testLateFinalHoldKeepsWakeFollowUpAliveDuringRecentSpeechActivity() {
+        XCTAssertTrue(
+            SpeechManager.shouldHoldWakeFollowUpForLateFinal(
+                isUtteranceActive: false,
+                hasTranscript: false,
+                hasRecentTranscriptChange: false,
+                speechActivityHoldActive: true
+            )
+        )
+    }
+
+    func testDictationOnlyHUDDoesNotHideWhileSpeechActivityHoldIsActive() {
+        XCTAssertFalse(
+            SpeechManager.shouldHideDictationOnlyHUDWithoutFocus(
+                focusedTypingEvidence: false,
+                effectiveDictating: false,
+                speechActivityHoldActive: true
+            )
+        )
+    }
+
     func testWakeLifecycleSuppressesPureWakePhraseTranscript() {
         XCTAssertTrue(
             SpeechManager.shouldSuppressWakeOnlyTranscriptDuringActiveWakeLifecycle(
@@ -922,6 +1027,23 @@ final class SpeechManagerGuardrailTests: XCTestCase {
                 typingStateActive: true,
                 sessionTargetAvailable: true,
                 frontmostMatchesTarget: false,
+                typingSuppressed: false
+            )
+        )
+    }
+
+    func testWakeFollowUpTypingStatePreservedDuringLateGraceWhenTargetStable() {
+        XCTAssertTrue(
+            SpeechManager.shouldPreserveWakeFollowUpTypingState(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                awakeWindowActive: false,
+                pendingWakeFollowUp: false,
+                recentExpiredWakeFollowUp: true,
+                typingStateActive: true,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: true,
                 typingSuppressed: false
             )
         )

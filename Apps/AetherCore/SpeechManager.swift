@@ -680,6 +680,7 @@ final class SpeechManager: ObservableObject {
     private var micProgressSilentTicks: Int = 0
     private var latestVoiceActivity: Bool = false
     private var latestVoiceRMS: Float = 0
+    private var lastSpeechActivityAt: Date = .distantPast
     private var micProgressActiveTicks: Int = 0
     private var sessionStartedAt: Date = .distantPast
     private var didRecordFirstPartialForSession: Bool = false
@@ -772,6 +773,98 @@ final class SpeechManager: ObservableObject {
     ) -> Bool {
         guard isWakeWordEnabled, !isDirectCommandEnabled else { return true }
         return isAwake || wakeWordDetected
+    }
+
+    static func shouldKeepWakeGatedDictationActive(
+        isWakeWordEnabled: Bool,
+        isDirectCommandEnabled: Bool,
+        sessionTypingMode: Bool,
+        isUtteranceActive: Bool,
+        hasStreamedDictation: Bool,
+        pendingWakeFollowUp: Bool,
+        fallbackWindowActive: Bool,
+        speechActivityHoldActive: Bool = false
+    ) -> Bool {
+        VoiceActivityHoldPolicy.shouldKeepWakeGatedDictationActive(
+            isWakeWordEnabled: isWakeWordEnabled,
+            isDirectCommandEnabled: isDirectCommandEnabled,
+            sessionTypingMode: sessionTypingMode,
+            isUtteranceActive: isUtteranceActive,
+            hasStreamedDictation: hasStreamedDictation,
+            pendingWakeFollowUp: pendingWakeFollowUp,
+            fallbackWindowActive: fallbackWindowActive,
+            speechActivityHoldActive: speechActivityHoldActive
+        )
+    }
+
+    static func isSpeechActivityHoldActive(
+        latestVoiceActivity: Bool,
+        lastSpeechActivityAt: Date,
+        now: Date = Date(),
+        holdWindow: TimeInterval
+    ) -> Bool {
+        VoiceActivityHoldPolicy.isSpeechActivityHoldActive(
+            latestVoiceActivity: latestVoiceActivity,
+            lastSpeechActivityAge: lastSpeechActivityAt == .distantPast ? nil : max(0, now.timeIntervalSince(lastSpeechActivityAt)),
+            holdWindow: holdWindow
+        )
+    }
+
+    static func shouldKeepWakeFollowUpActive(
+        isWakeFollowUpSessionActive: Bool,
+        keepWakeGatedDictationHUD: Bool,
+        speechActivityHoldActive: Bool
+    ) -> Bool {
+        VoiceActivityHoldPolicy.shouldKeepWakeFollowUpActive(
+            isWakeFollowUpSessionActive: isWakeFollowUpSessionActive,
+            keepWakeGatedDictationHUD: keepWakeGatedDictationHUD,
+            speechActivityHoldActive: speechActivityHoldActive
+        )
+    }
+
+    static func shouldHoldWakeFollowUpForLateFinal(
+        isUtteranceActive: Bool,
+        hasTranscript: Bool,
+        hasRecentTranscriptChange: Bool,
+        speechActivityHoldActive: Bool
+    ) -> Bool {
+        VoiceActivityHoldPolicy.shouldHoldWakeFollowUpForLateFinal(
+            isUtteranceActive: isUtteranceActive,
+            hasTranscript: hasTranscript,
+            hasRecentTranscriptChange: hasRecentTranscriptChange,
+            speechActivityHoldActive: speechActivityHoldActive
+        )
+    }
+
+    static func shouldHideDictationOnlyHUDWithoutFocus(
+        focusedTypingEvidence: Bool,
+        effectiveDictating: Bool,
+        speechActivityHoldActive: Bool
+    ) -> Bool {
+        VoiceActivityHoldPolicy.shouldHideDictationOnlyHUDWithoutFocus(
+            focusedTypingEvidence: focusedTypingEvidence,
+            effectiveDictating: effectiveDictating,
+            speechActivityHoldActive: speechActivityHoldActive
+        )
+    }
+
+    static func shouldPreserveWakeFollowUpTypingState(
+        isAlwaysListeningEnabled: Bool,
+        isWakeWordEnabled: Bool,
+        isDirectCommandEnabled: Bool,
+        awakeWindowActive: Bool,
+        pendingWakeFollowUp: Bool,
+        recentExpiredWakeFollowUp: Bool,
+        typingStateActive: Bool,
+        sessionTargetAvailable: Bool,
+        frontmostMatchesTarget: Bool,
+        typingSuppressed: Bool
+    ) -> Bool {
+        guard isAlwaysListeningEnabled, isWakeWordEnabled, !isDirectCommandEnabled else { return false }
+        guard typingStateActive else { return false }
+        guard sessionTargetAvailable, frontmostMatchesTarget else { return false }
+        guard !typingSuppressed else { return false }
+        return awakeWindowActive || pendingWakeFollowUp || recentExpiredWakeFollowUp
     }
 
     static func validateDictationEnhancement(
@@ -1574,9 +1667,22 @@ final class SpeechManager: ObservableObject {
         audioEnergyObservations.removeAll { now.timeIntervalSince($0.at) > 1.6 }
     }
 
+    private func noteSpeechActivity(at now: Date = Date()) {
+        lastSpeechActivityAt = now
+    }
+
     private func recentAudioEnergyObservations(window: TimeInterval = 0.9) -> [AudioEnergyObservation] {
         let now = Date()
         return audioEnergyObservations.filter { now.timeIntervalSince($0.at) <= window }
+    }
+
+    private func isSpeechActivityHoldActive(at now: Date = Date()) -> Bool {
+        Self.isSpeechActivityHoldActive(
+            latestVoiceActivity: latestVoiceActivity,
+            lastSpeechActivityAt: lastSpeechActivityAt,
+            now: now,
+            holdWindow: wakeFollowUpLateFinalActivityWindow
+        )
     }
 
     private func isCloseSpeechLikely(in observations: [AudioEnergyObservation]) -> Bool {
@@ -2226,6 +2332,9 @@ final class SpeechManager: ObservableObject {
             }
             let observations = self.recentAudioEnergyObservations()
             let closeSpeechLikely = self.isCloseSpeechLikely(in: observations)
+            if active || closeSpeechLikely {
+                self.noteSpeechActivity(at: now)
+            }
             if closeSpeechLikely {
                 self.startupDetectedUsableAudioForSession = true
                 self.cancelStartupInputHealthProbe()
@@ -2917,6 +3026,7 @@ final class SpeechManager: ObservableObject {
                 startupDetectedUsableAudioForSession = true
                 cancelStartupInputHealthProbe()
                 noteHandsFreeHUDActivity(at: now)
+                noteSpeechActivity(at: now)
                 if activeUtteranceID == 0 { activeUtteranceID = nextUtteranceID; nextUtteranceID += 1 }
                 eosDetector.noteUtteranceStarted()
                 eosDetector.noteTranscriptChanged()
@@ -4329,21 +4439,15 @@ final class SpeechManager: ObservableObject {
     }
 
     private func shouldHoldWakeFollowUpForLateFinal(at now: Date) -> Bool {
-        if isUtteranceActive {
-            return true
-        }
-        if !lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return true
-        }
-        if let lastChangeAt,
-           now.timeIntervalSince(lastChangeAt) <= wakeFollowUpLateFinalActivityWindow {
-            return true
-        }
-        if let voiceActivityWithoutPartialSince,
-           now.timeIntervalSince(voiceActivityWithoutPartialSince) <= wakeFollowUpLateFinalActivityWindow {
-            return true
-        }
-        return false
+        Self.shouldHoldWakeFollowUpForLateFinal(
+            isUtteranceActive: isUtteranceActive,
+            hasTranscript: !lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            hasRecentTranscriptChange: {
+                guard let lastChangeAt else { return false }
+                return now.timeIntervalSince(lastChangeAt) <= wakeFollowUpLateFinalActivityWindow
+            }(),
+            speechActivityHoldActive: isSpeechActivityHoldActive(at: now)
+        )
     }
 
     private func finalizeWakeFollowUpAsEmpty(
@@ -4468,6 +4572,16 @@ final class SpeechManager: ObservableObject {
                 GlobalLogger.speech.info(
                     "[WakeFollowUp] timeout group=\(pending.groupID) age=\(self.wakeDiagnosticAgeDescription(since: pending.createdAt)) idle=\(String(format: "%.2fs", now.timeIntervalSince(pending.lastActivityAt))) phrase='\(pending.phrase ?? "nil")' hud=\(HUDManager.shared.state.mode.rawValue) recognitionRunning=\(self.recognitionSession.isRunning) audioRunning=\(self.audioCapture.isRunning) awake=\(self.isAwake) lastTranscript='\(self.wakeDiagnosticSnippet(self.lastTranscript))'"
                 )
+                if VoiceActivityHoldPolicy.shouldExtendWakeFollowUp(
+                    speechActivityHoldActive: self.isSpeechActivityHoldActive(at: now),
+                    holdWindow: self.wakeFollowUpLateFinalActivityWindow,
+                    recognitionRunning: self.recognitionSession.isRunning,
+                    audioRunning: self.audioCapture.isRunning,
+                    isStopping: self.isStopping
+                ) {
+                    self.refreshPendingWakeFollowUpActivity(reason: "voice-activity-timeout-hold", at: now)
+                    return
+                }
                 self.pendingWakeFollowUp = nil
                 self.lastWakeFollowUpActivityRefreshAt = .distantPast
                 if self.shouldHoldWakeFollowUpForLateFinal(at: now) {
@@ -5283,6 +5397,24 @@ final class SpeechManager: ObservableObject {
 
         resetTypingStateCache()
         let refreshedTypingMode = isTypingMode
+        let shouldPreserveWakeTypingState = Self.shouldPreserveWakeFollowUpTypingState(
+            isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+            isWakeWordEnabled: isWakeWordEnabled,
+            isDirectCommandEnabled: isDirectCommandEnabled,
+            awakeWindowActive: isAwake,
+            pendingWakeFollowUp: pendingWakeFollowUp != nil,
+            recentExpiredWakeFollowUp: hasRecentExpiredWakeFollowUpGrace,
+            typingStateActive: sessionTypingMode,
+            sessionTargetAvailable: sessionTargetPID != nil || sessionTargetBundleID != nil || sessionTargetElementFingerprint != nil,
+            frontmostMatchesTarget: frontmostApplicationMatches(targetPID: sessionTargetPID, bundleID: sessionTargetBundleID),
+            typingSuppressed: shouldSuppressFocusedTypingForExplicitNonInputClick()
+        )
+        if !refreshedTypingMode, shouldPreserveWakeTypingState {
+            GlobalLogger.speech.info(
+                "[TypingMode] preserved wake-follow-up typing state during frontmost-app reconcile pendingWake=\(pendingWakeFollowUp != nil) recentExpiredWake=\(hasRecentExpiredWakeFollowUpGrace)"
+            )
+            return
+        }
         guard refreshedTypingMode != sessionTypingMode else { return }
 
         let frontmostBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil"
@@ -7568,12 +7700,30 @@ final class SpeechManager: ObservableObject {
                 : idleTypingEvidence
         )
         let isWakeGated = isAlwaysListeningEnabled && isWakeWordEnabled && !isDirectCommandEnabled
-        let wakeFollowUpActive = isWakeFollowUpSessionActive
+        let speechActivityHoldActive = isSpeechActivityHoldActive(at: now)
+        let shouldKeepWakeGatedDictationHUD = Self.shouldKeepWakeGatedDictationActive(
+            isWakeWordEnabled: isWakeWordEnabled,
+            isDirectCommandEnabled: isDirectCommandEnabled,
+            sessionTypingMode: sessionTypingMode,
+            isUtteranceActive: isUtteranceActive,
+            hasStreamedDictation: !dictationHandler.screenTypedText.isEmpty || dictationHandler.isAwaitingPartialReconciliation,
+            pendingWakeFollowUp: pendingWakeFollowUp != nil,
+            fallbackWindowActive: hasRecentExpiredWakeFollowUpGrace,
+            speechActivityHoldActive: speechActivityHoldActive
+        )
+        let wakeFollowUpActive = Self.shouldKeepWakeFollowUpActive(
+            isWakeFollowUpSessionActive: isWakeFollowUpSessionActive,
+            keepWakeGatedDictationHUD: shouldKeepWakeGatedDictationHUD,
+            speechActivityHoldActive: speechActivityHoldActive
+        )
         let isWakeGatedStandby = isWakeGated && !wakeFollowUpActive && !isStopping
         let shouldHoldDictationHUD =
-            authoritativeState.sessionState == .recoveryHold
-            && controlMode == .auto
-            && (!isWakeGated || wakeFollowUpActive)
+            shouldKeepWakeGatedDictationHUD
+            || (
+                authoritativeState.sessionState == .recoveryHold
+                && controlMode == .auto
+                && (!isWakeGated || wakeFollowUpActive)
+            )
         let effectiveDictating = isDictating || shouldHoldDictationHUD
         let realHardware = availableInputDevices.filter { $0.id != 0 }
         let shouldShowIdleDictationHUD =
@@ -7694,7 +7844,11 @@ final class SpeechManager: ObservableObject {
         }
         if featureAvailability.dictationEnabled,
            !featureAvailability.commandEnabled,
-           !focusedTypingEvidence {
+           Self.shouldHideDictationOnlyHUDWithoutFocus(
+               focusedTypingEvidence: focusedTypingEvidence,
+               effectiveDictating: effectiveDictating,
+               speechActivityHoldActive: speechActivityHoldActive
+           ) {
             clearHUDOverride()
             updateSpeechHUDTextVisibility(false, at: now, armHold: !suppressCompletedDictationExitBars)
             logWakeHUDStateIfNeeded(
@@ -7819,6 +7973,7 @@ final class SpeechManager: ObservableObject {
         micProgressActiveTicks = 0
         latestVoiceActivity = false
         latestVoiceRMS = 0
+        lastSpeechActivityAt = .distantPast
         HUDManager.shared.updateMicProgress(progress: 0.0, visible: false)
         micProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -7859,6 +8014,7 @@ final class SpeechManager: ObservableObject {
         micProgressActiveTicks = 0
         latestVoiceActivity = false
         latestVoiceRMS = 0
+        lastSpeechActivityAt = .distantPast
         let wasPaused = isMicProgressPausedForTarget; isMicProgressPausedForTarget = false; micProgressLockedPID = nil
         HUDManager.shared.updateMicProgress(progress: keepVisible ? (wasPaused ? 0.0 : 1.0) : 0.0, visible: keepVisible)
     }
@@ -8199,6 +8355,7 @@ final class SpeechManager: ObservableObject {
         lastWakeMissInsightAt = .distantPast
         isUtteranceActive = false
         isDictating = false
+        lastSpeechActivityAt = .distantPast
         voiceActivityWithoutPartialSince = nil
         lastTranscript = ""
         lastChangeAt = nil
@@ -9657,6 +9814,7 @@ final class SpeechManager: ObservableObject {
         micProgressActiveTicks = 0
         latestVoiceActivity = false
         latestVoiceRMS = 0
+        lastSpeechActivityAt = .distantPast
         HUDManager.shared.updateMicProgress(progress: 0.0, visible: false)
         dictationHandler.reset(targetPID: preferredTypingInjectionTargetPID(sessionTargetPID, bundleID: sessionTargetBundleID))
     }

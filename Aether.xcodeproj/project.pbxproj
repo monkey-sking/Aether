@@ -47,6 +47,8 @@
 		C0DEF00D0BADC0FFEE666662 /* Apps/AetherCore/Resources/VoiceLexiconDefaults.json in Resources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE666661 /* Apps/AetherCore/Resources/VoiceLexiconDefaults.json */; };
 		C0DEF00D0BADC0FFEE777771 /* Apps/AetherCore/AppLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE777770 /* Apps/AetherCore/AppLocalization.swift */; };
 		C0DEF00D0BADC0FFEE888881 /* InputControlArbiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE888880 /* InputControlArbiter.swift */; };
+		C0DEF00D0BADC0FFEE999991 /* VoiceActivityHoldPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE999990 /* VoiceActivityHoldPolicy.swift */; };
+		C0DEF00D0BADC0FFEE999993 /* VoiceActivityHoldPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF00D0BADC0FFEE999992 /* VoiceActivityHoldPolicyTests.swift */; };
 		C5578CA8C4E0CB8132E13F00 /* EOSDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D1E12D2F82BB5E4EAEB90D /* EOSDetector.swift */; };
 		C92C3F90B1616F0A4BD361F2 /* AirPodsDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A6E69406F013C80C167F40 /* AirPodsDetector.swift */; };
 		CDC403859BCD1D115565CFCB /* ../Apps/AetherCore/Speech/UtteranceArbitrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15F2037660B8AC1F0D5617A2 /* ../Apps/AetherCore/Speech/UtteranceArbitrator.swift */; };
@@ -104,6 +106,8 @@
 		C0DEF00D0BADC0FFEE666661 /* Apps/AetherCore/Resources/VoiceLexiconDefaults.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Apps/AetherCore/Resources/VoiceLexiconDefaults.json; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE777770 /* Apps/AetherCore/AppLocalization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/AppLocalization.swift; sourceTree = "<group>"; };
 		C0DEF00D0BADC0FFEE888880 /* InputControlArbiter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = InputControlArbiter.swift; path = ../Apps/AetherCore/Speech/InputControlArbiter.swift; sourceTree = "<group>"; };
+		C0DEF00D0BADC0FFEE999990 /* VoiceActivityHoldPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VoiceActivityHoldPolicy.swift; path = ../Apps/AetherCore/Speech/VoiceActivityHoldPolicy.swift; sourceTree = "<group>"; };
+		C0DEF00D0BADC0FFEE999992 /* VoiceActivityHoldPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceActivityHoldPolicyTests.swift; sourceTree = "<group>"; };
 		D1D1E12D2F82BB5E4EAEB90D /* EOSDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EOSDetector.swift; path = ../Apps/AetherCore/Speech/EOSDetector.swift; sourceTree = "<group>"; };
 		D4B04B778B904E9EBE08B8F1 /* Apps/AetherCore/HUD/CaretDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apps/AetherCore/HUD/CaretDetector.swift; sourceTree = "<group>"; };
 		D5837AE8FD6964FF43A98002 /* AudioCaptureSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AudioCaptureSession.swift; path = ../Apps/AetherCore/Speech/AudioCaptureSession.swift; sourceTree = "<group>"; };
@@ -151,6 +155,7 @@
 			children = (
 				1D863E78A6DBBC070343227B /* VoiceCommandRouter.swift */,
 				C0DEF00D0BADC0FFEE888880 /* InputControlArbiter.swift */,
+				C0DEF00D0BADC0FFEE999990 /* VoiceActivityHoldPolicy.swift */,
 				15F2037660B8AC1F0D5617A2 /* ../Apps/AetherCore/Speech/UtteranceArbitrator.swift */,
 				C0DEF00D0BADC0FFEE555556 /* VoiceLexiconDefaults.swift */,
 				0A2FFF0B546D7CEAD686E5CE /* LLMProviders.swift */,
@@ -180,6 +185,7 @@
 				92E84E48FCD38E25EA733664 /* Info.plist */,
 				35EEF3E8253127D05E0B8AF8 /* AetherTests.swift */,
 				82E7D6C5B4A3F2019E8D7C6B /* UtteranceArbitratorTests.swift */,
+				C0DEF00D0BADC0FFEE999992 /* VoiceActivityHoldPolicyTests.swift */,
 				BAE13A5808AC6A480FF02900 /* VoiceCommandRouterTests.swift */,
 			);
 			path = AetherTests;
@@ -392,6 +398,7 @@
 				80BFA81A4CB14209B6E96C5F /* Apps/AetherCore/HUD/InputMethodCaretBridge.swift in Sources */,
 				4BDBBCA080E1B33D13F87E22 /* VoiceCommandRouter.swift in Sources */,
 				C0DEF00D0BADC0FFEE888881 /* InputControlArbiter.swift in Sources */,
+				C0DEF00D0BADC0FFEE999991 /* VoiceActivityHoldPolicy.swift in Sources */,
 				CDC403859BCD1D115565CFCB /* ../Apps/AetherCore/Speech/UtteranceArbitrator.swift in Sources */,
 				C0DEF00D0BADC0FFEE555557 /* VoiceLexiconDefaults.swift in Sources */,
 				B536C893C35B916AD9A8D4BE /* LLMProviders.swift in Sources */,
@@ -414,6 +421,7 @@
 			files = (
 				94C13D4D41BCE1227E78927E /* AetherTests.swift in Sources */,
 				7E6D5C4B3A2910F8E7D6C5B4 /* UtteranceArbitratorTests.swift in Sources */,
+				C0DEF00D0BADC0FFEE999993 /* VoiceActivityHoldPolicyTests.swift in Sources */,
 				752B8656CCE440E6FF74855D /* VoiceCommandRouterTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -464,7 +472,7 @@
 				);
 				LLVM_LTO = NO;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 0.1.6;
+				MARKETING_VERSION = 0.1.7;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = " -fno-profile-instr-generate";
 				OTHER_CPLUSPLUSFLAGS = " -fno-profile-instr-generate";
@@ -537,7 +545,7 @@
 				);
 				LLVM_LTO = NO;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 0.1.6;
+				MARKETING_VERSION = 0.1.7;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = " -fno-profile-instr-generate";
 				OTHER_CPLUSPLUSFLAGS = " -fno-profile-instr-generate";
