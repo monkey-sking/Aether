@@ -61,6 +61,26 @@ final class VoiceActivityHoldPolicyTests: XCTestCase {
         )
     }
 
+    func testWakeFollowUpDoesNotBecomeVisibleFromSpeechHoldAlone() {
+        XCTAssertFalse(
+            VoiceActivityHoldPolicy.shouldKeepWakeFollowUpActive(
+                isWakeFollowUpSessionActive: false,
+                keepWakeGatedDictationHUD: false,
+                speechActivityHoldActive: true
+            )
+        )
+    }
+
+    func testWakeFollowUpStaysVisibleWhenWakeGatedDictationNeedsKeepAlive() {
+        XCTAssertTrue(
+            VoiceActivityHoldPolicy.shouldKeepWakeFollowUpActive(
+                isWakeFollowUpSessionActive: false,
+                keepWakeGatedDictationHUD: true,
+                speechActivityHoldActive: false
+            )
+        )
+    }
+
     func testWakeFollowUpLateFinalHoldKeepsSessionAliveForRecentTranscript() {
         XCTAssertTrue(
             VoiceActivityHoldPolicy.shouldHoldWakeFollowUpForLateFinal(

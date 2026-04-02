@@ -779,12 +779,22 @@ final class SpeechManagerGuardrailTests: XCTestCase {
         )
     }
 
-    func testWakeFollowUpRemainsActiveDuringRecentSpeechActivityHold() {
-        XCTAssertTrue(
+    func testWakeFollowUpDoesNotRemainActiveFromRecentSpeechActivityHoldAlone() {
+        XCTAssertFalse(
             SpeechManager.shouldKeepWakeFollowUpActive(
                 isWakeFollowUpSessionActive: false,
                 keepWakeGatedDictationHUD: false,
                 speechActivityHoldActive: true
+            )
+        )
+    }
+
+    func testWakeFollowUpRemainsActiveWhenWakeGatedDictationNeedsKeepAlive() {
+        XCTAssertTrue(
+            SpeechManager.shouldKeepWakeFollowUpActive(
+                isWakeFollowUpSessionActive: false,
+                keepWakeGatedDictationHUD: true,
+                speechActivityHoldActive: false
             )
         )
     }

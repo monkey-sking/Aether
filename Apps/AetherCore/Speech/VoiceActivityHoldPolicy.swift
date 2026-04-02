@@ -45,7 +45,8 @@ enum VoiceActivityHoldPolicy {
         keepWakeGatedDictationHUD: Bool,
         speechActivityHoldActive: Bool
     ) -> Bool {
-        isWakeFollowUpSessionActive || keepWakeGatedDictationHUD || speechActivityHoldActive
+        _ = speechActivityHoldActive
+        return isWakeFollowUpSessionActive || keepWakeGatedDictationHUD
     }
 
     static func shouldExtendWakeFollowUp(
