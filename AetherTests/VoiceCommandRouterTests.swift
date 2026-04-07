@@ -1132,4 +1132,42 @@ final class HUDMessageResolutionTests: XCTestCase {
         XCTAssertFalse(message.isEmpty)
         XCTAssertNotEqual(message, "讨论这个问题怎么解决")
     }
+
+    func testCollapsedHUDMessagePrefersLiveTranscriptTailWhenTypedTextAlreadyCaughtUp() {
+        let transcript = "我们今天一起讨论这个问题怎么解决"
+        let message = HUDDecisionPolicy.resolvedMessage(
+            mode: .dictation,
+            explicitMessage: "",
+            lastTranscript: transcript,
+            screenTypedText: transcript,
+            isInputMutationActive: false,
+            collapseToTwoState: true
+        )
+
+        XCTAssertEqual(
+            message,
+            HUDDecisionPolicy.semanticHUDTailSlice(
+                from: HUDDecisionPolicy.normalizedHUDMessageText(transcript)
+            )
+        )
+    }
+
+    func testCollapsedHUDMessagePrefersLiveTranscriptTailOverResidualTail() {
+        let transcript = "我们今天一起讨论这个问题怎么解决"
+        let message = HUDDecisionPolicy.resolvedMessage(
+            mode: .dictation,
+            explicitMessage: "",
+            lastTranscript: transcript,
+            screenTypedText: "我们今天一起讨论这个问题",
+            isInputMutationActive: false,
+            collapseToTwoState: true
+        )
+
+        XCTAssertEqual(
+            message,
+            HUDDecisionPolicy.semanticHUDTailSlice(
+                from: HUDDecisionPolicy.normalizedHUDMessageText(transcript)
+            )
+        )
+    }
 }

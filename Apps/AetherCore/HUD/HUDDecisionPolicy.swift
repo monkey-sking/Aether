@@ -111,6 +111,8 @@ enum HUDDecisionPolicy {
             transcript: lastTranscript,
             screenTypedText: screenTypedText
         )
+        let normalizedTranscript = normalizedHUDMessageText(lastTranscript)
+        let liveTranscriptTail = semanticHUDTailSlice(from: normalizedTranscript)
 
         guard collapseToTwoState else {
             switch mode {
@@ -126,9 +128,7 @@ enum HUDDecisionPolicy {
 
         let tail = displayedDictationHUDTail(from: remaining)
         let mutationFallbackText = tail.isEmpty && isInputMutationActive
-            ? semanticHUDTailSlice(
-                from: normalizedHUDMessageText(lastTranscript)
-            )
+            ? liveTranscriptTail
             : ""
 
         switch mode {
@@ -138,7 +138,13 @@ enum HUDDecisionPolicy {
             if !trimmedExplicit.isEmpty { return trimmedExplicit }
             if !tail.isEmpty { return tail }
             return lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        case .dictation, .organizing, .typing, .executing, .checking, .processing:
+        case .dictation, .organizing, .typing:
+            if !liveTranscriptTail.isEmpty { return liveTranscriptTail }
+            if !tail.isEmpty { return tail }
+            if !mutationFallbackText.isEmpty { return mutationFallbackText }
+            if suppressedCollapsedStatuses.contains(trimmedExplicit) { return "" }
+            return trimmedExplicit
+        case .executing, .checking, .processing:
             if !tail.isEmpty { return tail }
             if !mutationFallbackText.isEmpty { return mutationFallbackText }
             if suppressedCollapsedStatuses.contains(trimmedExplicit) { return "" }
