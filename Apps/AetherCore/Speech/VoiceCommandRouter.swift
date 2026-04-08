@@ -2241,6 +2241,7 @@ final class VoiceCommandRouter {
         let suggestions = suggestedCommandPhraseCandidates(
             localeIdentifier: localeIdentifier,
             overrides: currentState.overrides,
+            languageTermsOverrides: currentState.languageTermsOverrides,
             frontmostAppCommands: currentState.frontmostAppCommands,
             appLaunchTargets: currentState.appLaunchTargets
         )
@@ -2547,6 +2548,7 @@ final class VoiceCommandRouter {
     private func suggestedCommandPhraseCandidates(
         localeIdentifier: String,
         overrides: [VoiceCommandOverrideConfig],
+        languageTermsOverrides: [VoiceLanguageTermsOverrideConfig],
         frontmostAppCommands: [FrontmostAppCommand],
         appLaunchTargets: [AppLaunchTarget]
     ) -> [SuggestedCommandPhrase] {
@@ -2575,7 +2577,10 @@ final class VoiceCommandRouter {
             }
         }
 
-        let launchPrefixes = Self.effectiveAppLaunchPrefixes(for: localeIdentifier, overrides: overrides)
+        let launchPrefixes = Self.effectiveAppLaunchPrefixes(
+            for: localeIdentifier,
+            overrides: languageTermsOverrides
+        )
         for target in appLaunchTargets.prefix(Self.contextualAppLaunchLimit) {
             for alias in target.aliases.prefix(3) {
                 if launchPrefixes.isEmpty {
