@@ -476,7 +476,7 @@
 				);
 				LLVM_LTO = NO;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 0.1.14;
+				MARKETING_VERSION = 0.1.15;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = " -fno-profile-instr-generate";
 				OTHER_CPLUSPLUSFLAGS = " -fno-profile-instr-generate";
@@ -549,7 +549,7 @@
 				);
 				LLVM_LTO = NO;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 0.1.14;
+				MARKETING_VERSION = 0.1.15;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = " -fno-profile-instr-generate";
 				OTHER_CPLUSPLUSFLAGS = " -fno-profile-instr-generate";
