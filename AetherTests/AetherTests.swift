@@ -191,6 +191,60 @@ final class SpeechRecoveryPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testWakeFollowUpTypingBootstrapStaysEnabledForRecentCommittedDictation() {
+        XCTAssertTrue(
+            SpeechManager.shouldBootstrapWakeFollowUpTypingState(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                awakeWindowActive: true,
+                pendingWakeFollowUp: false,
+                recentExpiredWakeFollowUp: false,
+                recentCommittedDictationAge: 1.2,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: true,
+                typingSuppressed: false,
+                bootstrapWindow: 6.0
+            )
+        )
+    }
+
+    func testWakeFollowUpTypingBootstrapDoesNotApplyWithoutRecentDictation() {
+        XCTAssertFalse(
+            SpeechManager.shouldBootstrapWakeFollowUpTypingState(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                awakeWindowActive: true,
+                pendingWakeFollowUp: false,
+                recentExpiredWakeFollowUp: false,
+                recentCommittedDictationAge: nil,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: true,
+                typingSuppressed: false,
+                bootstrapWindow: 6.0
+            )
+        )
+    }
+
+    func testWakeFollowUpTypingBootstrapDoesNotApplyWhenTargetNoLongerMatches() {
+        XCTAssertFalse(
+            SpeechManager.shouldBootstrapWakeFollowUpTypingState(
+                isAlwaysListeningEnabled: true,
+                isWakeWordEnabled: true,
+                isDirectCommandEnabled: false,
+                awakeWindowActive: true,
+                pendingWakeFollowUp: true,
+                recentExpiredWakeFollowUp: false,
+                recentCommittedDictationAge: 1.0,
+                sessionTargetAvailable: true,
+                frontmostMatchesTarget: false,
+                typingSuppressed: false,
+                bootstrapWindow: 6.0
+            )
+        )
+    }
 }
 
 @MainActor

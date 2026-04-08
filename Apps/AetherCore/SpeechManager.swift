@@ -882,6 +882,27 @@ final class SpeechManager: ObservableObject {
         return true
     }
 
+    static func shouldBootstrapWakeFollowUpTypingState(
+        isAlwaysListeningEnabled: Bool,
+        isWakeWordEnabled: Bool,
+        isDirectCommandEnabled: Bool,
+        awakeWindowActive: Bool,
+        pendingWakeFollowUp: Bool,
+        recentExpiredWakeFollowUp: Bool,
+        recentCommittedDictationAge: TimeInterval?,
+        sessionTargetAvailable: Bool,
+        frontmostMatchesTarget: Bool,
+        typingSuppressed: Bool,
+        bootstrapWindow: TimeInterval = 6.0
+    ) -> Bool {
+        guard isAlwaysListeningEnabled, isWakeWordEnabled, !isDirectCommandEnabled else { return false }
+        guard awakeWindowActive || pendingWakeFollowUp || recentExpiredWakeFollowUp else { return false }
+        guard sessionTargetAvailable, frontmostMatchesTarget else { return false }
+        guard !typingSuppressed else { return false }
+        guard let recentCommittedDictationAge else { return false }
+        return recentCommittedDictationAge <= bootstrapWindow
+    }
+
     static func validateDictationEnhancement(
         sourceText: String,
         candidateText: String,
@@ -1933,6 +1954,25 @@ final class SpeechManager: ObservableObject {
         return preferForDictation
     }
 
+    private func shouldBootstrapWakeFollowUpTypingState() -> Bool {
+        let recentCommittedDictationAge: TimeInterval? =
+            lastCommittedDictationAt == .distantPast
+            ? nil
+            : max(0, Date().timeIntervalSince(lastCommittedDictationAt))
+        return Self.shouldBootstrapWakeFollowUpTypingState(
+            isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+            isWakeWordEnabled: isWakeWordEnabled,
+            isDirectCommandEnabled: isDirectCommandEnabled,
+            awakeWindowActive: isAwake,
+            pendingWakeFollowUp: pendingWakeFollowUp != nil,
+            recentExpiredWakeFollowUp: hasRecentExpiredWakeFollowUpGrace,
+            recentCommittedDictationAge: recentCommittedDictationAge,
+            sessionTargetAvailable: sessionTargetPID != nil || sessionTargetBundleID != nil || sessionTargetElementFingerprint != nil,
+            frontmostMatchesTarget: frontmostApplicationMatches(targetPID: sessionTargetPID, bundleID: sessionTargetBundleID),
+            typingSuppressed: shouldSuppressFocusedTypingForExplicitNonInputClick()
+        )
+    }
+
     private func configureEOSParameters(
         for availability: VoiceFeatureAvailability,
         sessionTypingMode: Bool
@@ -2893,8 +2933,9 @@ final class SpeechManager: ObservableObject {
         dictationHandler.isLLMEnhancementEnabled = isAutoDictationEnhancementEnabled
 
         let initialTypingMode: Bool
+        let shouldBootstrapWakeTyping = shouldBootstrapWakeFollowUpTypingState()
         if isWakeWordEnabled && !isAwake && !isDirectCommandEnabled { initialTypingMode = false }
-        else { initialTypingMode = isTypingMode }
+        else { initialTypingMode = shouldBootstrapWakeTyping || isTypingMode }
         isDictating = initialTypingMode
         setAuthoritativeSessionTyping(initialTypingMode, source: "speech.session-start")
         let finalProfile = desiredSpeechProcessingProfile(forTypingMode: initialTypingMode)
