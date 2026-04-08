@@ -3184,6 +3184,10 @@ final class SpeechManager: ObservableObject {
         }
 
         if text.count > 2 && isAwake { lastWakeTime = Date() }
+        let shouldRefreshHUDBeforePartialDispatch = text != prev && !isStopping
+        if shouldRefreshHUDBeforePartialDispatch {
+            refreshContinuousHUD(isDictating: isDictating)
+        }
         let shouldDelayHUDRefreshUntilStreamingSync =
             sessionTypingMode && featureAvailability.dictationEnabled && !isStopping
 
@@ -3215,6 +3219,10 @@ final class SpeechManager: ObservableObject {
             }
         } else if featureAvailability.commandEnabled {
             commandHandler.onPartial(text)
+        }
+
+        if shouldRefreshHUDBeforePartialDispatch {
+            return
         }
 
         if shouldDelayHUDRefreshUntilStreamingSync || (sessionTypingMode && featureAvailability.dictationEnabled) {

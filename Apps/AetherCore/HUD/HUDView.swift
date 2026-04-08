@@ -1064,8 +1064,10 @@ private struct TwoStateSpeechLaneView: View {
     @State private var phase: CGFloat = 0
 
     var body: some View {
+        let shouldAnimateBars = HUDDecisionPolicy.shouldAnimateSpeechLane(text: text)
+
         Group {
-            if text.isEmpty {
+            if shouldAnimateBars {
                 HStack(alignment: .center, spacing: 2.6) {
                     ForEach(0..<3, id: \.self) { index in
                         RoundedRectangle(cornerRadius: 1.6, style: .continuous)
@@ -1084,11 +1086,15 @@ private struct TwoStateSpeechLaneView: View {
                     .truncationMode(.head)
                     .minimumScaleFactor(0.92)
                     .frame(width: textWidth, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .animation(.easeInOut(duration: 0.16), value: phase)
-        .task {
+        .animation(shouldAnimateBars ? .easeInOut(duration: 0.16) : nil, value: phase)
+        .task(id: shouldAnimateBars) {
+            guard shouldAnimateBars else {
+                phase = 0
+                return
+            }
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 180_000_000)
                 await MainActor.run {

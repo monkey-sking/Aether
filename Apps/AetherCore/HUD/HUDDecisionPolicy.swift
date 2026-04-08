@@ -112,7 +112,7 @@ enum HUDDecisionPolicy {
             screenTypedText: screenTypedText
         )
         let normalizedTranscript = normalizedHUDMessageText(lastTranscript)
-        let liveTranscriptTail = semanticHUDTailSlice(from: normalizedTranscript)
+        let liveTranscriptText = normalizedTranscript
 
         guard collapseToTwoState else {
             switch mode {
@@ -128,7 +128,7 @@ enum HUDDecisionPolicy {
 
         let tail = displayedDictationHUDTail(from: remaining)
         let mutationFallbackText = tail.isEmpty && isInputMutationActive
-            ? liveTranscriptTail
+            ? liveTranscriptText
             : ""
 
         switch mode {
@@ -136,10 +136,11 @@ enum HUDDecisionPolicy {
             return trimmedExplicit
         case .command:
             if !trimmedExplicit.isEmpty { return trimmedExplicit }
+            if !liveTranscriptText.isEmpty { return liveTranscriptText }
             if !tail.isEmpty { return tail }
-            return lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalizedTranscript
         case .dictation, .organizing, .typing:
-            if !liveTranscriptTail.isEmpty { return liveTranscriptTail }
+            if !liveTranscriptText.isEmpty { return liveTranscriptText }
             if !tail.isEmpty { return tail }
             if !mutationFallbackText.isEmpty { return mutationFallbackText }
             if suppressedCollapsedStatuses.contains(trimmedExplicit) { return "" }
@@ -171,6 +172,10 @@ enum HUDDecisionPolicy {
 
     static func displayedDictationHUDTail(from remainingText: String) -> String {
         semanticHUDTailSlice(from: normalizedHUDMessageText(remainingText))
+    }
+
+    static func shouldAnimateSpeechLane(text: String) -> Bool {
+        normalizedHUDMessageText(text).isEmpty
     }
 
     static func normalizedHUDMessageText(_ text: String) -> String {

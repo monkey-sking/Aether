@@ -1146,9 +1146,7 @@ final class HUDMessageResolutionTests: XCTestCase {
 
         XCTAssertEqual(
             message,
-            HUDDecisionPolicy.semanticHUDTailSlice(
-                from: HUDDecisionPolicy.normalizedHUDMessageText(transcript)
-            )
+            HUDDecisionPolicy.normalizedHUDMessageText(transcript)
         )
     }
 
@@ -1165,9 +1163,30 @@ final class HUDMessageResolutionTests: XCTestCase {
 
         XCTAssertEqual(
             message,
-            HUDDecisionPolicy.semanticHUDTailSlice(
-                from: HUDDecisionPolicy.normalizedHUDMessageText(transcript)
-            )
+            HUDDecisionPolicy.normalizedHUDMessageText(transcript)
         )
+    }
+
+    func testCollapsedHUDMessageUsesFullLiveTranscriptForLongSpeech() {
+        let transcript = "open the settings and continue speaking naturally"
+        let message = HUDDecisionPolicy.resolvedMessage(
+            mode: .dictation,
+            explicitMessage: "",
+            lastTranscript: transcript,
+            screenTypedText: "",
+            isInputMutationActive: false,
+            collapseToTwoState: true
+        )
+
+        XCTAssertEqual(
+            message,
+            HUDDecisionPolicy.normalizedHUDMessageText(transcript)
+        )
+    }
+
+    func testSpeechLaneAnimationStopsWhenHUDIsShowingText() {
+        XCTAssertFalse(HUDDecisionPolicy.shouldAnimateSpeechLane(text: "继续说话"))
+        XCTAssertTrue(HUDDecisionPolicy.shouldAnimateSpeechLane(text: ""))
+        XCTAssertTrue(HUDDecisionPolicy.shouldAnimateSpeechLane(text: "   "))
     }
 }
