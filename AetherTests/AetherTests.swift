@@ -390,6 +390,20 @@ final class HUDDecisionPolicyTests: XCTestCase {
         XCTAssertEqual(decision.action, .visible)
         XCTAssertEqual(decision.reason, "normal-visible")
     }
+
+    func testCollapsedTypingMessageFallsBackToExplicitFinalTextWhenTranscriptHasReset() {
+        let message = HUDDecisionPolicy.resolvedMessage(
+            mode: .typing,
+            explicitMessage: "第二句还在补写",
+            lastTranscript: "",
+            screenTypedText: "",
+            isInputMutationActive: false,
+            collapseToTwoState: true,
+            suppressedCollapsedStatuses: ["Typing"]
+        )
+
+        XCTAssertEqual(message, "第二句还在补写")
+    }
 }
 
 @MainActor
@@ -426,6 +440,34 @@ final class SpeechManagerFinalResultTests: XCTestCase {
                 finalTranscript: "   "
             )
         )
+    }
+
+    func testDictationCompletionHUDHoldKeepsMinimumEvenWhenStreamingAlreadyMatchedFinal() {
+        XCTAssertEqual(
+            SpeechManager.resolvedDictationCompletionHUDHoldDuration(
+                streamedText: "第二句内容",
+                finalText: "第二句内容",
+                usedPasteFallback: false
+            ),
+            0.32,
+            accuracy: 0.0001
+        )
+    }
+
+    func testDictationCompletionHUDHoldScalesUpForLargerLateCorrection() {
+        let small = SpeechManager.resolvedDictationCompletionHUDHoldDuration(
+            streamedText: "第二句内容",
+            finalText: "第二句内容补两个字",
+            usedPasteFallback: false
+        )
+        let large = SpeechManager.resolvedDictationCompletionHUDHoldDuration(
+            streamedText: "第二句内容",
+            finalText: "第二句内容补很多很多字并且前面还有修正",
+            usedPasteFallback: false
+        )
+
+        XCTAssertGreaterThan(large, small)
+        XCTAssertGreaterThanOrEqual(large, 0.32)
     }
 }
 

@@ -571,6 +571,7 @@ final class SpeechManager: ObservableObject {
     private var activeHUDStageMessage: String = ""
     private var activeHUDStageControlMode: HUDRecognitionControlMode?
     private var pendingCheckingHUDWorkItem: DispatchWorkItem?
+    private var pendingHUDStageClearWorkItem: DispatchWorkItem?
     private var activeTextRewriteHUDCount: Int = 0
     private var isTextRewriteHUDSlowPhase = false
     private var pendingTextRewriteSlowHUDWorkItem: DispatchWorkItem?
@@ -6421,7 +6422,8 @@ final class SpeechManager: ObservableObject {
             status = typingHUDStatus
             let hasStreamed = job.screenTypedCount > 0 || !job.streamedTextSnapshot.isEmpty
             let targetBundleLog = job.targetBundleID ?? "nil"
-            if shouldUsePasteFallback(for: job) {
+            let usedPasteFallback = shouldUsePasteFallback(for: job)
+            if usedPasteFallback {
                 GlobalLogger.speech.info(
                     "[TextPipeline] paste-fallback utterance=\(job.utteranceID) targetPID=\(job.targetPID ?? 0) bundle=\(targetBundleLog) textCount=\(finalText.count)"
                 )
@@ -6457,9 +6459,14 @@ final class SpeechManager: ObservableObject {
                 )
                 injector.type(finalText, targetPID: job.targetPID)
             }
-            let completionStatus = shouldUsePasteFallback(for: job)
+            let completionStatus = usedPasteFallback
                 ? NSLocalizedString("speech.pasted_cmdv", comment: "")
                 : NSLocalizedString("speech.typed", comment: "")
+            let completionHUDHold = Self.resolvedDictationCompletionHUDHoldDuration(
+                streamedText: job.streamedTextSnapshot,
+                finalText: finalText,
+                usedPasteFallback: usedPasteFallback
+            )
             status = completionStatus
             rememberCommittedDictation(finalText, for: job)
             armRecentWakeFollowUpDictationSuppressionIfNeeded(finalText, for: job, groupID: wakeFollowUpGroupID)
@@ -6472,7 +6479,13 @@ final class SpeechManager: ObservableObject {
                 case .success:
                     self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, wakeFollowUpGroupID)
                     self.status = completionStatus
-                    self.clearHUDStage(owner: phaseOwner)
+                    self.setHUDStage(
+                        owner: phaseOwner,
+                        mode: .typing,
+                        message: finalText,
+                        controlMode: .dictation
+                    )
+                    self.scheduleHUDStageClear(owner: phaseOwner, after: completionHUDHold)
                     self.clearHandledCommandPreview()
                 case .mismatch:
                     self.status = self.genericIncompleteHUDMessage
@@ -6490,7 +6503,13 @@ final class SpeechManager: ObservableObject {
                     )
                     self.onIntent?(.dictation(finalText), usageContext.appName, usageContext.bundleIdentifier, job.spokenText, job.originalContent, job.enhancedContent, job.diagnostics, wakeFollowUpGroupID)
                     self.status = completionStatus
-                    self.clearHUDStage(owner: phaseOwner)
+                    self.setHUDStage(
+                        owner: phaseOwner,
+                        mode: .typing,
+                        message: finalText,
+                        controlMode: .dictation
+                    )
+                    self.scheduleHUDStageClear(owner: phaseOwner, after: completionHUDHold)
                     self.clearHandledCommandPreview()
                 }
             }
@@ -7620,12 +7639,18 @@ final class SpeechManager: ObservableObject {
         pendingCheckingHUDWorkItem = nil
     }
 
+    private func cancelPendingHUDStageClear() {
+        pendingHUDStageClearWorkItem?.cancel()
+        pendingHUDStageClearWorkItem = nil
+    }
+
     private func setHUDStage(
         owner: String,
         mode: HUDMode,
         message: String = "",
         controlMode: HUDRecognitionControlMode? = nil
     ) {
+        cancelPendingHUDStageClear()
         if mode != .checking {
             cancelPendingCheckingHUDStage()
         }
@@ -7640,12 +7665,29 @@ final class SpeechManager: ObservableObject {
         if let owner, activeHUDStageOwner != owner {
             return
         }
+        cancelPendingHUDStageClear()
         cancelPendingCheckingHUDStage()
         activeHUDStageOwner = nil
         activeHUDStageMode = nil
         activeHUDStageMessage = ""
         activeHUDStageControlMode = nil
         refreshContinuousHUD(isDictating: false)
+    }
+
+    private func scheduleHUDStageClear(owner: String, after delay: TimeInterval) {
+        cancelPendingHUDStageClear()
+        let boundedDelay = max(0, delay)
+        guard boundedDelay > 0 else {
+            clearHUDStage(owner: owner)
+            return
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.activeHUDStageOwner == owner else { return }
+            self.clearHUDStage(owner: owner)
+        }
+        pendingHUDStageClearWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + boundedDelay, execute: workItem)
     }
 
     private func scheduleCheckingHUDStage(
@@ -10473,6 +10515,26 @@ final class SpeechManager: ObservableObject {
     ) -> Bool {
         guard !isStopping, !isAlwaysListeningEnabled else { return false }
         return !finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func resolvedDictationCompletionHUDHoldDuration(
+        streamedText: String,
+        finalText: String,
+        usedPasteFallback: Bool
+    ) -> TimeInterval {
+        if usedPasteFallback {
+            return 0.28
+        }
+
+        let normalizedFinal = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedFinal.isEmpty else { return 0.32 }
+
+        let commonLen = HUDDecisionPolicy.commonPrefixLen(streamedText, normalizedFinal)
+        let pendingMutations = max(0, streamedText.count - commonLen) + max(0, normalizedFinal.count - commonLen)
+        guard pendingMutations > 0 else { return 0.32 }
+
+        let scaled = 0.24 + min(Double(pendingMutations), 72.0) * 0.015
+        return min(1.32, max(0.32, scaled))
     }
 
     private func rememberCommittedDictation(_ text: String, for job: ProcessedJob) {
