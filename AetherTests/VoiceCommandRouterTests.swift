@@ -397,6 +397,54 @@ final class VoiceCommandRouterTests: XCTestCase {
         )
     }
 
+    func testOpenApplicationCommandUsesConfiguredAppLaunchPrefixes() {
+        let target = AppLaunchTarget(
+            bundleIdentifier: "com.example.workchat",
+            appName: "Work Chat",
+            launchPath: "/Applications/Work Chat.app",
+            aliases: ["Work Chat", "工作聊天"]
+        )
+        router.appLaunchTargets = [target]
+        router.languageTermsOverrides = [
+            VoiceLanguageTermsOverrideConfig(
+                localeIdentifier: "zh-CN",
+                wakeWords: [],
+                commandPrefixes: [],
+                dictationPrefixes: [],
+                appLaunchPrefixes: ["前往"]
+            )
+        ]
+
+        XCTAssertEqual(
+            router.route(transcript: "前往工作聊天", localeIdentifier: "zh-CN"),
+            .openApplication(target)
+        )
+    }
+
+    func testSuggestedCommandPhrasesRespectConfiguredAppLaunchPrefixes() {
+        let target = AppLaunchTarget(
+            bundleIdentifier: "com.example.workchat",
+            appName: "Work Chat",
+            launchPath: "/Applications/Work Chat.app",
+            aliases: ["Work Chat", "工作聊天"]
+        )
+        router.appLaunchTargets = [target]
+        router.languageTermsOverrides = [
+            VoiceLanguageTermsOverrideConfig(
+                localeIdentifier: "zh-CN",
+                wakeWords: [],
+                commandPrefixes: [],
+                dictationPrefixes: [],
+                appLaunchPrefixes: ["前往"]
+            )
+        ]
+
+        XCTAssertEqual(
+            router.suggestedCommandPhrases(for: "前往工作聊", localeIdentifier: "zh-CN").first,
+            "前往 工作聊天"
+        )
+    }
+
     func testCommandPreferredUnknownDoesNotFallBackToDictation() {
         XCTAssertEqual(
             router.route(transcript: "测试", bias: .commandPreferred),

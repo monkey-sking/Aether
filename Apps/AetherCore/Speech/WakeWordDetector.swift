@@ -59,6 +59,38 @@ struct VoiceLanguageTermsOverrideConfig: Codable, Identifiable, Equatable {
     var wakeWords: [String]
     var commandPrefixes: [String]
     var dictationPrefixes: [String]
+    var appLaunchPrefixes: [String]
+
+    init(
+        localeIdentifier: String,
+        wakeWords: [String],
+        commandPrefixes: [String],
+        dictationPrefixes: [String],
+        appLaunchPrefixes: [String] = []
+    ) {
+        self.localeIdentifier = localeIdentifier
+        self.wakeWords = wakeWords
+        self.commandPrefixes = commandPrefixes
+        self.dictationPrefixes = dictationPrefixes
+        self.appLaunchPrefixes = appLaunchPrefixes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case localeIdentifier
+        case wakeWords
+        case commandPrefixes
+        case dictationPrefixes
+        case appLaunchPrefixes
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        localeIdentifier = try container.decode(String.self, forKey: .localeIdentifier)
+        wakeWords = try container.decodeIfPresent([String].self, forKey: .wakeWords) ?? []
+        commandPrefixes = try container.decodeIfPresent([String].self, forKey: .commandPrefixes) ?? []
+        dictationPrefixes = try container.decodeIfPresent([String].self, forKey: .dictationPrefixes) ?? []
+        appLaunchPrefixes = try container.decodeIfPresent([String].self, forKey: .appLaunchPrefixes) ?? []
+    }
 
     var id: String { localeIdentifier }
 }

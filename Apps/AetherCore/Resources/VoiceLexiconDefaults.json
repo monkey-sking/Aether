@@ -1335,6 +1335,12 @@
   "exportedAt": "2026-03-13T00:00:00Z",
   "languageTermsOverrides": [
     {
+      "appLaunchPrefixes": [
+        "打开",
+        "启动",
+        "切到",
+        "切换到"
+      ],
       "commandPrefixes": [
         "命令",
         "执行"
@@ -1349,6 +1355,11 @@
       ]
     },
     {
+      "appLaunchPrefixes": [
+        "open",
+        "launch",
+        "switch to"
+      ],
       "commandPrefixes": [
         "command"
       ],
@@ -1362,6 +1373,11 @@
       ]
     },
     {
+      "appLaunchPrefixes": [
+        "開く",
+        "起動",
+        "切り替える"
+      ],
       "commandPrefixes": [
         "コマンド"
       ],
@@ -1376,6 +1392,11 @@
       ]
     },
     {
+      "appLaunchPrefixes": [
+        "열기",
+        "실행",
+        "전환"
+      ],
       "commandPrefixes": [
         "명령"
       ],
@@ -1390,6 +1411,11 @@
       ]
     },
     {
+      "appLaunchPrefixes": [
+        "ouvrir",
+        "lancer",
+        "basculer vers"
+      ],
       "commandPrefixes": [
         "commande"
       ],
@@ -1403,6 +1429,11 @@
       ]
     },
     {
+      "appLaunchPrefixes": [
+        "öffnen",
+        "starten",
+        "wechseln zu"
+      ],
       "commandPrefixes": [
         "befehl"
       ],
@@ -1416,6 +1447,11 @@
       ]
     },
     {
+      "appLaunchPrefixes": [
+        "abrir",
+        "iniciar",
+        "cambiar a"
+      ],
       "commandPrefixes": [
         "comando"
       ],

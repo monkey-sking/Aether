@@ -820,6 +820,27 @@ struct InputSettingsView: View {
                                     appState.updateDictationPrefixOverrideText("", for: resolvedCommandLocaleID)
                                 }
                             )
+
+                            Divider()
+
+                            VoiceLexiconEditorRow(
+                                title: AppLocalization.isChinese ? "App 打开前缀" : "App Launch Prefixes",
+                                subtitle: AppLocalization.isChinese
+                                    ? "决定“打开 / 启动 / 切到 / 切换到 XX”这类说法怎么识别成打开 App。"
+                                    : "Controls how phrases like \"open\", \"launch\", and \"switch to\" are recognized for app-launch commands.",
+                                text: Binding(
+                                    get: { appState.appLaunchPrefixOverrideText(for: resolvedCommandLocaleID) },
+                                    set: { appState.updateAppLaunchPrefixOverrideText($0, for: resolvedCommandLocaleID) }
+                                ),
+                                actionTitle: String(localized: "voice_lexicon.clear"),
+                                actionEnabled: !appState.appLaunchPrefixOverrideText(for: resolvedCommandLocaleID)
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                    .isEmpty,
+                                requiresConfirmation: true,
+                                onReset: {
+                                    appState.updateAppLaunchPrefixOverrideText("", for: resolvedCommandLocaleID)
+                                }
+                            )
                         }
                         }
 

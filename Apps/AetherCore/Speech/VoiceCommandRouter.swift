@@ -1778,10 +1778,6 @@ struct VoiceCommandDecision {
 final class VoiceCommandRouter {
     private static let contextualAppCommandLimit = 24
     private static let contextualAppLaunchLimit = 16
-    private static let appLaunchCommandPrefixes = [
-        "switch to", "back to", "launch", "open",
-        "切换到", "切到", "回到", "启动", "打开"
-    ]
 
     private struct CommandMatch {
         let preset: VoiceCommandPreset
@@ -2031,6 +2027,17 @@ final class VoiceCommandRouter {
         return VoiceLexiconSupport.uniqueTerms((entry?.dictationPrefixes ?? []) + compatibilityDictationPrefixes(for: localeIdentifier))
     }
 
+    static func defaultAppLaunchPrefixes(for localeIdentifier: String) -> [String] {
+        guard let defaults = VoiceLexiconDefaults.load() else {
+            return compatibilityAppLaunchPrefixes(for: localeIdentifier)
+        }
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let entry = defaults.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        })
+        return VoiceLexiconSupport.uniqueTerms((entry?.appLaunchPrefixes ?? []) + compatibilityAppLaunchPrefixes(for: localeIdentifier))
+    }
+
     static func effectiveCommandPrefixes(
         for localeIdentifier: String,
         overrides: [VoiceLanguageTermsOverrideConfig]
@@ -2049,6 +2056,17 @@ final class VoiceCommandRouter {
             return uniqueAliases(override.dictationPrefixes)
         }
         return defaultDictationPrefixes(for: localeIdentifier)
+    }
+
+    static func effectiveAppLaunchPrefixes(
+        for localeIdentifier: String,
+        overrides: [VoiceLanguageTermsOverrideConfig]
+    ) -> [String] {
+        if let override = languageTermsOverrideEntry(for: localeIdentifier, overrides: overrides),
+           !override.appLaunchPrefixes.isEmpty {
+            return uniqueAliases(override.appLaunchPrefixes)
+        }
+        return defaultAppLaunchPrefixes(for: localeIdentifier)
     }
 
     static func defaultDeletePrefixes(for localeIdentifier: String) -> [String] {
@@ -2138,6 +2156,15 @@ final class VoiceCommandRouter {
             return ["写"]
         default:
             return []
+        }
+    }
+
+    private static func compatibilityAppLaunchPrefixes(for localeIdentifier: String) -> [String] {
+        switch VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier) {
+        case "zh-CN":
+            return ["打开", "启动", "切到", "切换到", "回到"]
+        default:
+            return ["open", "launch", "switch to", "back to"]
         }
     }
 
@@ -2548,18 +2575,15 @@ final class VoiceCommandRouter {
             }
         }
 
-        let isChinese = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier) == "zh-CN"
+        let launchPrefixes = Self.effectiveAppLaunchPrefixes(for: localeIdentifier, overrides: overrides)
         for target in appLaunchTargets.prefix(Self.contextualAppLaunchLimit) {
             for alias in target.aliases.prefix(3) {
-                if isChinese {
-                    appendPhrase("打开 \(alias)", priorityBoost: 20)
-                    appendPhrase("启动 \(alias)", priorityBoost: 19)
-                    appendPhrase("切到 \(alias)", priorityBoost: 18)
-                    appendPhrase("切换到 \(alias)", priorityBoost: 17)
-                } else {
+                if launchPrefixes.isEmpty {
                     appendPhrase("open \(alias)", priorityBoost: 20)
-                    appendPhrase("launch \(alias)", priorityBoost: 19)
-                    appendPhrase("switch to \(alias)", priorityBoost: 18)
+                } else {
+                    for (index, prefix) in launchPrefixes.prefix(5).enumerated() {
+                        appendPhrase("\(prefix) \(alias)", priorityBoost: max(12, 20 - index))
+                    }
                 }
             }
         }
@@ -2754,9 +2778,14 @@ final class VoiceCommandRouter {
             trimmed,
             sanitizeExplicitCommandPayload(trimmed, localeIdentifier: localeIdentifier)
         ])
+        let currentState = stateSnapshot()
+        let prefixes = Self.effectiveAppLaunchPrefixes(
+            for: localeIdentifier,
+            overrides: currentState.languageTermsOverrides
+        )
 
         for candidate in candidates {
-            guard let appName = extractRequestedAppName(from: candidate) else { continue }
+            guard let appName = extractRequestedAppName(from: candidate, prefixes: prefixes) else { continue }
             guard let target = AppLaunchResolver.resolve(named: appName, preferredTargets: preferredTargets) else {
                 continue
             }
@@ -2771,14 +2800,14 @@ final class VoiceCommandRouter {
         return nil
     }
 
-    private func extractRequestedAppName(from raw: String) -> String? {
+    private func extractRequestedAppName(from raw: String, prefixes: [String]) -> String? {
         let candidate = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingLeadingCommandPrefixIgnorables()
             .trimmingTrailingCommandAffixIgnorables()
         guard !candidate.isEmpty else { return nil }
 
-        for prefix in Self.appLaunchCommandPrefixes.sorted(by: { $0.count > $1.count }) {
+        for prefix in Self.uniqueAliases(prefixes).sorted(by: { $0.count > $1.count }) {
             guard candidate.lowercased().hasPrefix(prefix.lowercased()) else { continue }
             let remainder = String(candidate.dropFirst(prefix.count))
                 .trimmingCharacters(in: .whitespacesAndNewlines)

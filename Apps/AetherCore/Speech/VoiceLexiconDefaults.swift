@@ -47,7 +47,8 @@ enum VoiceLexiconDefaults {
                     localeIdentifier: item.localeIdentifier,
                     wakeWords: sanitizeDefaults(item.wakeWords, localeIdentifier: item.localeIdentifier),
                     commandPrefixes: sanitizeDefaults(item.commandPrefixes, localeIdentifier: item.localeIdentifier),
-                    dictationPrefixes: sanitizeDefaults(item.dictationPrefixes, localeIdentifier: item.localeIdentifier)
+                    dictationPrefixes: sanitizeDefaults(item.dictationPrefixes, localeIdentifier: item.localeIdentifier),
+                    appLaunchPrefixes: sanitizeDefaults(item.appLaunchPrefixes, localeIdentifier: item.localeIdentifier)
                 )
             }
         )

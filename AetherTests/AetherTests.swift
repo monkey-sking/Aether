@@ -714,6 +714,32 @@ final class WakeWordDetectorTests: XCTestCase {
     }
 }
 
+final class VoiceLexiconBackupCompatibilityTests: XCTestCase {
+    func testVoiceLexiconBackupDecodesOldPayloadWithoutAppLaunchPrefixes() throws {
+        let json = """
+        {
+          "version": 1,
+          "exportedAt": "2026-04-08T00:00:00Z",
+          "commandOverrides": [],
+          "languageTermsOverrides": [
+            {
+              "localeIdentifier": "zh-CN",
+              "wakeWords": ["艾瑟"],
+              "commandPrefixes": ["命令"],
+              "dictationPrefixes": ["输入"]
+            }
+          ]
+        }
+        """
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let backup = try decoder.decode(VoiceLexiconBackup.self, from: Data(json.utf8))
+
+        XCTAssertEqual(backup.languageTermsOverrides.first?.appLaunchPrefixes, [])
+    }
+}
+
 @MainActor
 final class SpeechManagerGuardrailTests: XCTestCase {
     func testWakeGateBlocksTypingBeforeWake() {

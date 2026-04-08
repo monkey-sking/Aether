@@ -3320,6 +3320,33 @@ Recent history relevant to app-launch commands (JSON):
         }
     }
 
+    func appLaunchPrefixOverrideText(for localeIdentifier: String) -> String {
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        if let override = voiceLanguageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        }) {
+            return override.appLaunchPrefixes.joined(separator: ", ")
+        }
+        let defaults = VoiceLexiconDefaults.load()?.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        })
+        return defaults?.appLaunchPrefixes.joined(separator: ", ") ?? ""
+    }
+
+    func defaultAppLaunchPrefixText(for localeIdentifier: String) -> String {
+        let canonical = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier)
+        let defaults = VoiceLexiconDefaults.load()?.languageTermsOverrides.first(where: {
+            VoiceLexiconSupport.canonicalLocaleIdentifier($0.localeIdentifier) == canonical
+        })
+        return defaults?.appLaunchPrefixes.joined(separator: ", ") ?? ""
+    }
+
+    func updateAppLaunchPrefixOverrideText(_ raw: String, for localeIdentifier: String) {
+        updateVoiceLanguageTermsOverride(for: localeIdentifier) { config in
+            config.appLaunchPrefixes = parseVoiceTermsText(raw)
+        }
+    }
+
     func restoreDefaultDictationPrefixes(for localeIdentifier: String) {
         let defaults = defaultDictationPrefixText(for: localeIdentifier)
         updateDictationPrefixOverrideText(defaults, for: localeIdentifier)
@@ -3451,13 +3478,15 @@ Recent history relevant to app-launch commands (JSON):
                 merged.wakeWords = mergeAliases(base: merged.wakeWords, extra: item.wakeWords)
                 merged.commandPrefixes = mergeAliases(base: merged.commandPrefixes, extra: item.commandPrefixes)
                 merged.dictationPrefixes = mergeAliases(base: merged.dictationPrefixes, extra: item.dictationPrefixes)
+                merged.appLaunchPrefixes = mergeAliases(base: merged.appLaunchPrefixes, extra: item.appLaunchPrefixes)
                 result[idx] = merged
             } else {
                 let entry = VoiceLanguageTermsOverrideConfig(
                     localeIdentifier: item.localeIdentifier,
                     wakeWords: mergeAliases(base: [], extra: item.wakeWords),
                     commandPrefixes: mergeAliases(base: [], extra: item.commandPrefixes),
-                    dictationPrefixes: mergeAliases(base: [], extra: item.dictationPrefixes)
+                    dictationPrefixes: mergeAliases(base: [], extra: item.dictationPrefixes),
+                    appLaunchPrefixes: mergeAliases(base: [], extra: item.appLaunchPrefixes)
                 )
                 indexByKey[key] = result.count
                 result.append(entry)
@@ -3652,7 +3681,8 @@ Recent history relevant to app-launch commands (JSON):
             localeIdentifier: canonical,
             wakeWords: [],
             commandPrefixes: [],
-            dictationPrefixes: []
+            dictationPrefixes: [],
+            appLaunchPrefixes: []
         )
 
         mutate(&config)
