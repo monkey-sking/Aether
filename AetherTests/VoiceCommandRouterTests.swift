@@ -1190,3 +1190,45 @@ final class HUDMessageResolutionTests: XCTestCase {
         XCTAssertTrue(HUDDecisionPolicy.shouldAnimateSpeechLane(text: "   "))
     }
 }
+
+final class HUDDisplayRefreshPolicyTests: XCTestCase {
+    func testMessageOnlyRefreshSkipsTypingProbe() {
+        XCTAssertFalse(
+            HUDManager.shouldRefreshTypingContextForDisplayUpdate(
+                currentMode: .dictation,
+                nextMode: .dictation,
+                currentLanguage: "zh-CN",
+                nextLanguage: "zh-CN",
+                currentRecognitionControlMode: .auto,
+                nextRecognitionControlMode: .auto,
+                currentInputDeviceIcon: "mic.fill",
+                nextInputDeviceIcon: "mic.fill",
+                currentInputDeviceHealth: .normal,
+                nextInputDeviceHealth: .normal,
+                currentContextIcon: "",
+                nextContextIcon: "",
+                lifetime: .persistent
+            )
+        )
+    }
+
+    func testModeChangeStillRefreshesTypingProbe() {
+        XCTAssertTrue(
+            HUDManager.shouldRefreshTypingContextForDisplayUpdate(
+                currentMode: .listening,
+                nextMode: .dictation,
+                currentLanguage: "zh-CN",
+                nextLanguage: "zh-CN",
+                currentRecognitionControlMode: .auto,
+                nextRecognitionControlMode: .auto,
+                currentInputDeviceIcon: "mic.fill",
+                nextInputDeviceIcon: "mic.fill",
+                currentInputDeviceHealth: .normal,
+                nextInputDeviceHealth: .normal,
+                currentContextIcon: "",
+                nextContextIcon: "",
+                lifetime: .persistent
+            )
+        )
+    }
+}

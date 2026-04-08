@@ -427,6 +427,30 @@ final class HUDManager {
         case persistent
         case temporary(UUID)
     }
+
+    static func shouldRefreshTypingContextForDisplayUpdate(
+        currentMode: HUDMode,
+        nextMode: HUDMode,
+        currentLanguage: String,
+        nextLanguage: String,
+        currentRecognitionControlMode: HUDRecognitionControlMode,
+        nextRecognitionControlMode: HUDRecognitionControlMode,
+        currentInputDeviceIcon: String,
+        nextInputDeviceIcon: String,
+        currentInputDeviceHealth: HUDInputDeviceHealth,
+        nextInputDeviceHealth: HUDInputDeviceHealth,
+        currentContextIcon: String,
+        nextContextIcon: String,
+        lifetime: HUDUpdateLifetime
+    ) -> Bool {
+        guard case .persistent = lifetime else { return true }
+        return currentMode != nextMode
+            || currentLanguage != nextLanguage
+            || currentRecognitionControlMode != nextRecognitionControlMode
+            || currentInputDeviceIcon != nextInputDeviceIcon
+            || currentInputDeviceHealth != nextInputDeviceHealth
+            || currentContextIcon != nextContextIcon
+    }
     
     let state = HUDState()
 
@@ -623,9 +647,28 @@ final class HUDManager {
             return
         }
         
-        // Refresh focus evidence first, then let the shared arbiter decide the
-        // semantic interaction state that HUD should display.
-        _ = lastKnownTypingState()
+        let shouldRefreshTypingContext = Self.shouldRefreshTypingContextForDisplayUpdate(
+            currentMode: state.mode,
+            nextMode: mode,
+            currentLanguage: state.language,
+            nextLanguage: language,
+            currentRecognitionControlMode: state.recognitionControlMode,
+            nextRecognitionControlMode: recognitionControlMode,
+            currentInputDeviceIcon: state.inputDeviceIcon,
+            nextInputDeviceIcon: inputDeviceIcon,
+            currentInputDeviceHealth: state.inputDeviceHealth,
+            nextInputDeviceHealth: inputDeviceHealth,
+            currentContextIcon: state.contextIcon,
+            nextContextIcon: contextIcon,
+            lifetime: lifetime
+        )
+
+        // Refresh focus evidence only when the semantic display state changes.
+        // Message-only partial updates are the hot path during dictation and
+        // should not re-run a full typing-context probe before every HUD redraw.
+        if shouldRefreshTypingContext {
+            _ = lastKnownTypingState()
+        }
         let inferredTypingContext = InputControlArbiter.shared.currentSnapshot.interactionState.isTyping
         let frontBundle = currentTypingContextBundleID()
         let allowDisplayCarryover = {
