@@ -5508,8 +5508,8 @@ private struct CustomAppLaunchAliasesCard: View {
                     .font(.headline)
                     Text(
                         isChinese
-                            ? "给常用 App 补充额外叫法。说“打开 XX / 切到 XX”时，会优先按这里的别名解析。"
-                            : "Add alternate names for your apps. When you say \"open\" or \"switch to\", these aliases are used first."
+                            ? "给常用 App 补充额外叫法。说“打开 XX / 启动 XX / 切到 XX / 切换到 XX”时，会优先按这里的别名解析。"
+                            : "Add alternate names for your apps. When you say \"open\", \"launch\", or \"switch to\", these aliases are used first."
                     )
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -6203,8 +6203,8 @@ struct AppLaunchAliasesSettingsView: View {
         SettingsPage(
             title: isChinese ? "启动别名" : "Launch Aliases",
             subtitle: isChinese
-                ? "管理“打开 / 切到”类命令使用的 App 别名。"
-                : "Manage the app aliases used by open and switch commands."
+                ? "管理“打开 / 启动 / 切到 / 切换到”类命令使用的 App 别名。"
+                : "Manage the app aliases used by open, launch, and switch commands."
         ) {
             GlassCard {
                 CustomAppLaunchAliasesCard(

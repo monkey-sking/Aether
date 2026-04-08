@@ -1894,7 +1894,7 @@ class AppState: ObservableObject {
 
         if AppLocalization.isChinese {
             return """
-你是 Aether 的 App 打开别名顾问。目标：基于下面的历史与候选 App，生成可直接导入 Aether 的 App 打开别名配置，用于提升“打开 XX / 切到 XX / 启动 XX”这类语音指令的识别成功率。
+你是 Aether 的 App 打开别名顾问。目标：基于下面的历史与候选 App，生成可直接导入 Aether 的 App 打开别名配置，用于提升“打开 XX / 启动 XX / 切到 XX / 切换到 XX”这类语音指令的识别成功率。
 
 只输出 JSON（不要 Markdown、不要解释）。JSON 必须严格符合 CustomAppLaunchAliasRulesBackup 格式：
 {
@@ -1913,7 +1913,7 @@ class AppState: ObservableObject {
 说明：
 - 每个 bundleIdentifier 最多输出一条规则。
 - aliases 里放这一个 App 的完整建议别名集合，不要只给增量。
-- 只输出“打开/切到/启动 App”相关别名，不要输出 App 内动作、菜单动作、提交/发送等快捷操作。
+- 只输出“打开/启动/切到/切换到 App”相关别名，不要输出 App 内动作、菜单动作、提交/发送等快捷操作。
 - 优先使用候选可打开 App 列表里的 bundleIdentifier。
 - 如果历史证据不足，不要猜。
 - 如果某个 App 当前已经有别名，而你建议补充更多叫法，请输出该 App 的完整合并后 aliases。

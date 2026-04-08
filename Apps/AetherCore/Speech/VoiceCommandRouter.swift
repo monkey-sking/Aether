@@ -2551,8 +2551,16 @@ final class VoiceCommandRouter {
         let isChinese = VoiceLexiconSupport.canonicalLocaleIdentifier(localeIdentifier) == "zh-CN"
         for target in appLaunchTargets.prefix(Self.contextualAppLaunchLimit) {
             for alias in target.aliases.prefix(3) {
-                appendPhrase(isChinese ? "打开 \(alias)" : "open \(alias)", priorityBoost: 20)
-                appendPhrase(isChinese ? "切到 \(alias)" : "switch to \(alias)", priorityBoost: 18)
+                if isChinese {
+                    appendPhrase("打开 \(alias)", priorityBoost: 20)
+                    appendPhrase("启动 \(alias)", priorityBoost: 19)
+                    appendPhrase("切到 \(alias)", priorityBoost: 18)
+                    appendPhrase("切换到 \(alias)", priorityBoost: 17)
+                } else {
+                    appendPhrase("open \(alias)", priorityBoost: 20)
+                    appendPhrase("launch \(alias)", priorityBoost: 19)
+                    appendPhrase("switch to \(alias)", priorityBoost: 18)
+                }
             }
         }
 

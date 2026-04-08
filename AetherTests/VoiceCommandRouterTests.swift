@@ -96,6 +96,14 @@ final class VoiceCommandRouterTests: XCTestCase {
             router.route(transcript: "switch to Work Chat", localeIdentifier: "en-US"),
             .openApplication(target)
         )
+        XCTAssertEqual(
+            router.route(transcript: "启动工作聊天", localeIdentifier: "zh-CN"),
+            .openApplication(target)
+        )
+        XCTAssertEqual(
+            router.route(transcript: "切换到工作聊天", localeIdentifier: "zh-CN"),
+            .openApplication(target)
+        )
     }
 
     func testOpenApplicationCommandStripsGenericAppSuffix() {
@@ -367,6 +375,25 @@ final class VoiceCommandRouterTests: XCTestCase {
         XCTAssertEqual(
             router.suggestedCommandPhrases(for: "执行粘帖", localeIdentifier: "zh-CN").first,
             "粘贴"
+        )
+    }
+
+    func testSuggestedCommandPhrasesIncludeLaunchAndSwitchVariantsForApps() {
+        let target = AppLaunchTarget(
+            bundleIdentifier: "com.example.workchat",
+            appName: "Work Chat",
+            launchPath: "/Applications/Work Chat.app",
+            aliases: ["Work Chat", "工作聊天"]
+        )
+        router.appLaunchTargets = [target]
+
+        XCTAssertEqual(
+            router.suggestedCommandPhrases(for: "启动工作聊", localeIdentifier: "zh-CN").first,
+            "启动 工作聊天"
+        )
+        XCTAssertEqual(
+            router.suggestedCommandPhrases(for: "切换到工作聊", localeIdentifier: "zh-CN").first,
+            "切换到 工作聊天"
         )
     }
 
