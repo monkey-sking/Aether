@@ -631,6 +631,7 @@ final class SpeechManager: ObservableObject {
     private let engineRestartDebounce: TimeInterval = 0.55
     private let engineRestartMinInterval: TimeInterval = 1.5
     private let voiceActivityWithoutPartialRecoveryThreshold: TimeInterval = 1.8
+    private let voiceActivityWithoutPartialRecoveryThresholdDuringTyping: TimeInterval = 3.2
     private var continuousRecoveryGraceUntil: Date = .distantPast
     private var routeRebuildGraceUntil: Date = .distantPast
     private var recognitionStartupGraceUntil: Date = .distantPast
@@ -6622,7 +6623,13 @@ final class SpeechManager: ObservableObject {
     }
 
     private func maybeRecoverVoiceActiveNoPartialStall(age: TimeInterval, now: Date, rms: Float) {
-        guard age >= voiceActivityWithoutPartialRecoveryThreshold else { return }
+        let threshold = Self.voiceActiveNoPartialRecoveryThreshold(
+            sessionTypingMode: sessionTypingMode,
+            hasStreamedDictation: !dictationHandler.screenTypedText.isEmpty || dictationHandler.isInputMutationActive,
+            defaultThreshold: voiceActivityWithoutPartialRecoveryThreshold,
+            typingThreshold: voiceActivityWithoutPartialRecoveryThresholdDuringTyping
+        )
+        guard age >= threshold else { return }
         guard isAlwaysListeningEnabled || isWakeWordEnabled else { return }
         guard pendingEngineRestartWorkItem == nil else { return }
         guard now >= routeRebuildGraceUntil,
@@ -6636,6 +6643,15 @@ final class SpeechManager: ObservableObject {
             "[ASRStall] scheduling recovery reason=voice-active-no-partial age=\(String(format: "%.2fs", age)) rms=\(audioDiagnosticRMSDescription(rms)) session=\(sessionGeneration) awake=\(isAwake) typing=\(sessionTypingMode)"
         )
         scheduleEngineRestart(reason: "voice-active-no-partial-stall", debounce: 0.05)
+    }
+
+    static func voiceActiveNoPartialRecoveryThreshold(
+        sessionTypingMode: Bool,
+        hasStreamedDictation: Bool,
+        defaultThreshold: TimeInterval = 1.8,
+        typingThreshold: TimeInterval = 3.2
+    ) -> TimeInterval {
+        (sessionTypingMode || hasStreamedDictation) ? typingThreshold : defaultThreshold
     }
 
     private func applyAdaptiveEOS(with text: String, at now: Date) {

@@ -29,10 +29,7 @@ final class DictationHandler {
     private var lastReportedInputMutationActive = false
     private let injector: any TextInjecting
     private let log = GlobalLogger.speech
-    private let appendLeadDelayNs: UInt64 = 320_000_000
-    private let appendSmallBacklogIntervalNs: UInt64 = 230_000_000
-    private let appendMediumBacklogIntervalNs: UInt64 = 190_000_000
-    private let appendLargeBacklogIntervalNs: UInt64 = 160_000_000
+    private let appendLeadDelayNs: UInt64 = 60_000_000
 
     // MARK: - LLM Enhancement
 
@@ -232,9 +229,6 @@ final class DictationHandler {
                     self.screenTypedText.count,
                     target.count
                 )
-
-                let backlogCount = max(0, target.count - self.screenTypedText.count)
-                try? await Task.sleep(nanoseconds: self.appendPumpIntervalNs(for: backlogCount))
             }
         }
         notifyInputMutationActivityIfNeeded()
@@ -244,8 +238,7 @@ final class DictationHandler {
         guard target.hasPrefix(current) else { return nil }
         let suffixStart = target.index(target.startIndex, offsetBy: current.count)
         guard suffixStart < target.endIndex else { return nil }
-        let nextIndex = target.index(after: suffixStart)
-        return String(target[suffixStart..<nextIndex])
+        return String(target[suffixStart...])
     }
 
     private func emitHUDProgressUpdate() {
@@ -263,17 +256,6 @@ final class DictationHandler {
         guard isApplyingFinalCorrection != applying else { return }
         isApplyingFinalCorrection = applying
         notifyInputMutationActivityIfNeeded()
-    }
-
-    private func appendPumpIntervalNs(for backlogCount: Int) -> UInt64 {
-        switch backlogCount {
-        case 0...2:
-            return appendSmallBacklogIntervalNs
-        case 3...6:
-            return appendMediumBacklogIntervalNs
-        default:
-            return appendLargeBacklogIntervalNs
-        }
     }
 
     private func applyCorrection(_ finalText: String) {

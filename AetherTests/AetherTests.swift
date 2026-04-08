@@ -143,6 +143,32 @@ class DictationHandlerTests: XCTestCase {
         XCTAssertEqual(mockInjector.typedText, revisedExtended)
         XCTAssertEqual(handler.screenTypedText, revisedExtended)
     }
+
+    func testStreamingAppendKeepsUpWithTranscript() async {
+        handler.onPartial("hello world")
+        try? await Task.sleep(nanoseconds: 420_000_000)
+
+        XCTAssertGreaterThanOrEqual(
+            mockInjector.typedText.count,
+            4,
+            "streaming append should have delivered more than a single character by this point"
+        )
+    }
+}
+
+final class SpeechRecoveryPolicyTests: XCTestCase {
+    func testDictationInputModeGetsLongerNoPartialRecoveryThreshold() {
+        XCTAssertGreaterThan(
+            SpeechManager.voiceActiveNoPartialRecoveryThreshold(
+                sessionTypingMode: true,
+                hasStreamedDictation: true
+            ),
+            SpeechManager.voiceActiveNoPartialRecoveryThreshold(
+                sessionTypingMode: false,
+                hasStreamedDictation: false
+            )
+        )
+    }
 }
 
 @MainActor
