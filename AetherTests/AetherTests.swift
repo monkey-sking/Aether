@@ -120,7 +120,7 @@ class DictationHandlerTests: XCTestCase {
         XCTAssertEqual(handler.screenTypedText, original)
     }
 
-    func testDivergentPartialExtensionDefersRewriteUntilFinal() async {
+    func testDivergentExtendedPartialAppliesLiveCorrectionBeforeFinal() async {
         let original = "我们今天一起讨论这个问题"
         let revised = "我们一起讨论这个问题"
         let revisedExtended = "我们一起讨论这个问题怎么解决"
@@ -134,9 +134,9 @@ class DictationHandlerTests: XCTestCase {
         handler.onPartial(revisedExtended)
         try? await Task.sleep(nanoseconds: 350_000_000)
 
-        XCTAssertEqual(mockInjector.deletedCount, 0)
-        XCTAssertEqual(mockInjector.typedText, original)
-        XCTAssertEqual(handler.screenTypedText, original)
+        XCTAssertGreaterThan(mockInjector.deletedCount, 0)
+        XCTAssertEqual(mockInjector.typedText, revisedExtended)
+        XCTAssertEqual(handler.screenTypedText, revisedExtended)
 
         await handler.onFinal(revisedExtended)
 
@@ -166,6 +166,28 @@ final class SpeechRecoveryPolicyTests: XCTestCase {
             SpeechManager.voiceActiveNoPartialRecoveryThreshold(
                 sessionTypingMode: false,
                 hasStreamedDictation: false
+            )
+        )
+    }
+
+    func testWakeActivationKeepsTypingBaselineWhenWakeFollowUpTypingShouldBePreserved() {
+        XCTAssertFalse(
+            SpeechManager.shouldResetWakeActivationToCommandBaseline(
+                recognitionControlMode: .auto,
+                hasStreamedDictation: false,
+                typingStateActive: true,
+                shouldPreserveWakeTypingState: true
+            )
+        )
+    }
+
+    func testWakeActivationResetsToCommandBaselineWhenTypingShouldNotBePreserved() {
+        XCTAssertTrue(
+            SpeechManager.shouldResetWakeActivationToCommandBaseline(
+                recognitionControlMode: .auto,
+                hasStreamedDictation: false,
+                typingStateActive: true,
+                shouldPreserveWakeTypingState: false
             )
         )
     }

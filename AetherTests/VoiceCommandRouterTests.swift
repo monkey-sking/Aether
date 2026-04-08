@@ -890,6 +890,32 @@ final class SpeechManagerTypingModeTests: XCTestCase {
         XCTAssertEqual(decision.state, .pending)
     }
 
+    func testWakeLifecycleTypingUsesFallbackBeforeArbitrationCommits() {
+        XCTAssertTrue(
+            SpeechManager.resolveWakeLifecycleTypingMode(
+                wakeLifecycleActive: true,
+                arbitrationState: .pending,
+                preferWakeCommandRouting: false,
+                restoredWakeTypingMode: true,
+                promotedInlineWakePayloadTyping: false,
+                effectiveTypingMode: false
+            )
+        )
+    }
+
+    func testWakeLifecycleTypingStillYieldsToCommandPreference() {
+        XCTAssertFalse(
+            SpeechManager.resolveWakeLifecycleTypingMode(
+                wakeLifecycleActive: true,
+                arbitrationState: .pending,
+                preferWakeCommandRouting: true,
+                restoredWakeTypingMode: true,
+                promotedInlineWakePayloadTyping: true,
+                effectiveTypingMode: true
+            )
+        )
+    }
+
     func testWakeFollowUpEchoSuppressionDropsTranscriptMatchingPendingWakePhrase() {
         XCTAssertTrue(
             SpeechManager.shouldSuppressWakeFollowUpEcho(

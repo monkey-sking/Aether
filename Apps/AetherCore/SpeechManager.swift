@@ -868,6 +868,19 @@ final class SpeechManager: ObservableObject {
         return awakeWindowActive || pendingWakeFollowUp || recentExpiredWakeFollowUp
     }
 
+    static func shouldResetWakeActivationToCommandBaseline(
+        recognitionControlMode: HeadMotionManager.RecognitionControlMode,
+        hasStreamedDictation: Bool,
+        typingStateActive: Bool,
+        shouldPreserveWakeTypingState: Bool
+    ) -> Bool {
+        guard recognitionControlMode == .auto else { return false }
+        guard !hasStreamedDictation else { return false }
+        guard typingStateActive else { return false }
+        guard !shouldPreserveWakeTypingState else { return false }
+        return true
+    }
+
     static func validateDictationEnhancement(
         sourceText: String,
         candidateText: String,
@@ -1081,6 +1094,33 @@ final class SpeechManager: ObservableObject {
             transport: .wakeFollowUp,
             hasCommittedDictation: hasCommittedDictation
         )
+    }
+
+    static func resolveWakeLifecycleTypingMode(
+        wakeLifecycleActive: Bool,
+        arbitrationState: UtteranceArbitrationState,
+        preferWakeCommandRouting: Bool,
+        restoredWakeTypingMode: Bool,
+        promotedInlineWakePayloadTyping: Bool,
+        effectiveTypingMode: Bool
+    ) -> Bool {
+        guard wakeLifecycleActive else {
+            return preferWakeCommandRouting
+                ? false
+                : ((restoredWakeTypingMode || promotedInlineWakePayloadTyping) ? true : effectiveTypingMode)
+        }
+
+        switch arbitrationState {
+        case .dictationCommitted:
+            return true
+        case .commandCommitted:
+            return false
+        case .pending:
+            break
+        }
+
+        guard !preferWakeCommandRouting else { return false }
+        return restoredWakeTypingMode || promotedInlineWakePayloadTyping || effectiveTypingMode
     }
 
     static func shouldPromoteInlineWakePayloadToTypingContext(
@@ -3118,14 +3158,14 @@ final class SpeechManager: ObservableObject {
                 liveTyping: liveTyping,
                 commandLikely: wakePayloadLooksLikeCommand
             )
-        let resolvedTypingMode: Bool
-        if wakeFollowUpActive {
-            resolvedTypingMode = wakeArbitration.state == .dictationCommitted
-        } else {
-            resolvedTypingMode = preferWakeCommandRouting
-                ? false
-                : ((restoredWakeTypingMode || promotedInlineWakePayloadTyping) ? true : effectiveTypingMode)
-        }
+        let resolvedTypingMode = Self.resolveWakeLifecycleTypingMode(
+            wakeLifecycleActive: wakeFollowUpActive,
+            arbitrationState: wakeArbitration.state,
+            preferWakeCommandRouting: preferWakeCommandRouting,
+            restoredWakeTypingMode: restoredWakeTypingMode,
+            promotedInlineWakePayloadTyping: promotedInlineWakePayloadTyping,
+            effectiveTypingMode: effectiveTypingMode
+        )
         if restoredWakeTypingMode {
             GlobalLogger.speech.info(
                 "[TypingMode] restored wake-follow-up typing fallback targetPID=\(sessionTargetPID ?? 0) targetBundle=\(sessionTargetBundleID ?? "nil") liveTyping=\(liveTyping)"
@@ -4735,17 +4775,37 @@ final class SpeechManager: ObservableObject {
             refreshArmedInputTargetIfNeeded(reason: effectiveRearmReason)
         }
         armWakeTypingFallback(reason: reason)
-        if recognitionControlMode == .auto,
-           dictationHandler.screenTypedText.isEmpty,
-           (sessionTypingMode || isDictating || isTypingRecoveryHoldActive) {
+        let typingStateActive = sessionTypingMode || isDictating || isTypingRecoveryHoldActive
+        let shouldPreserveWakeTypingState = Self.shouldPreserveWakeFollowUpTypingState(
+            isAlwaysListeningEnabled: isAlwaysListeningEnabled,
+            isWakeWordEnabled: isWakeWordEnabled,
+            isDirectCommandEnabled: isDirectCommandEnabled,
+            awakeWindowActive: true,
+            pendingWakeFollowUp: pendingWakeFollowUp != nil,
+            recentExpiredWakeFollowUp: false,
+            typingStateActive: typingStateActive,
+            sessionTargetAvailable: sessionTargetPID != nil || sessionTargetBundleID != nil || sessionTargetElementFingerprint != nil,
+            frontmostMatchesTarget: frontmostApplicationMatches(targetPID: sessionTargetPID, bundleID: sessionTargetBundleID),
+            typingSuppressed: shouldSuppressFocusedTypingForExplicitNonInputClick()
+        )
+        if Self.shouldResetWakeActivationToCommandBaseline(
+            recognitionControlMode: recognitionControlMode,
+            hasStreamedDictation: !dictationHandler.screenTypedText.isEmpty,
+            typingStateActive: typingStateActive,
+            shouldPreserveWakeTypingState: shouldPreserveWakeTypingState
+        ) {
             isDictating = false
             endTypingRecoveryHold(reason: "wake-activation-command-baseline")
             setAuthoritativeSessionTyping(false, source: "speech.wake-activation")
             GlobalLogger.speech.info(
                 "[TypingMode] reset to command baseline on wake activation reason=\(reason)"
             )
-        }
-        else {
+        } else {
+            if shouldPreserveWakeTypingState {
+                GlobalLogger.speech.info(
+                    "[TypingMode] preserved typing baseline on wake activation reason=\(reason) targetPID=\(sessionTargetPID ?? 0) targetBundle=\(sessionTargetBundleID ?? "nil")"
+                )
+            }
             syncInputControlState(source: "speech.wake-activation")
         }
         clearUnarmedWakePreview()
@@ -4916,36 +4976,49 @@ final class SpeechManager: ObservableObject {
             computedTypingContext: computedTypingContext,
             availability: featureAvailability
         )
-        if wakeArbitrationActive {
-            typingContext = wakeArbitration.state == .dictationCommitted
-        } else {
-            if !typingContext,
-               shouldUseWakeTypingFallback(
-                   wakeLifecycleActive: wakeArbitrationActive,
-                   recognitionControlMode: controlMode,
-                   featureAvailability: featureAvailability,
-                   liveTyping: liveTyping
-               ) {
-                typingContext = true
-                GlobalLogger.speech.info(
-                    "[TypingMode] restored wake-follow-up typing fallback targetPID=\(sessionTargetPID ?? 0) targetBundle=\(sessionTargetBundleID ?? "nil") liveTyping=\(liveTyping)"
-                )
-            }
-            if !typingContext,
-               Self.shouldPromoteInlineWakePayloadToTypingContext(
-                   recognitionControlMode: controlMode,
-                   dictationEnabled: featureAvailability.dictationEnabled,
-                   wakeFollowUpActive: wakeArbitrationActive,
-                   wakePayload: textToRoute,
-                   hasAuthoritativeTypingEvidence: hasAuthoritativeTypingEvidence,
-                   liveTyping: liveTyping,
-                   commandLikely: wakePayloadLooksLikeCommand
-               ) {
-                typingContext = true
-                GlobalLogger.speech.info(
-                    "[TypingMode] promoted inline wake payload to typing context before final routing liveTyping=\(liveTyping) authoritativeFocus=\(hasAuthoritativeTypingEvidence)"
-                )
-            }
+        let restoredWakeTypingMode =
+            !typingContext &&
+            shouldUseWakeTypingFallback(
+                wakeLifecycleActive: wakeArbitrationActive,
+                recognitionControlMode: controlMode,
+                featureAvailability: featureAvailability,
+                liveTyping: liveTyping
+            )
+        let preferWakeCommandRouting = Self.shouldPreferWakeCommandRouting(
+            recognitionControlMode: controlMode,
+            commandEnabled: featureAvailability.commandEnabled,
+            wakeLifecycleActive: wakeArbitrationActive,
+            wakePayloadLooksLikeCommand: wakePayloadLooksLikeCommand,
+            liveTyping: liveTyping
+        )
+        let promotedInlineWakePayloadTyping =
+            !typingContext &&
+            Self.shouldPromoteInlineWakePayloadToTypingContext(
+                recognitionControlMode: controlMode,
+                dictationEnabled: featureAvailability.dictationEnabled,
+                wakeFollowUpActive: wakeArbitrationActive,
+                wakePayload: textToRoute,
+                hasAuthoritativeTypingEvidence: hasAuthoritativeTypingEvidence,
+                liveTyping: liveTyping,
+                commandLikely: wakePayloadLooksLikeCommand
+            )
+        typingContext = Self.resolveWakeLifecycleTypingMode(
+            wakeLifecycleActive: wakeArbitrationActive,
+            arbitrationState: wakeArbitration.state,
+            preferWakeCommandRouting: preferWakeCommandRouting,
+            restoredWakeTypingMode: restoredWakeTypingMode,
+            promotedInlineWakePayloadTyping: promotedInlineWakePayloadTyping,
+            effectiveTypingMode: typingContext
+        )
+        if restoredWakeTypingMode {
+            GlobalLogger.speech.info(
+                "[TypingMode] restored wake-follow-up typing fallback targetPID=\(sessionTargetPID ?? 0) targetBundle=\(sessionTargetBundleID ?? "nil") liveTyping=\(liveTyping)"
+            )
+        }
+        if promotedInlineWakePayloadTyping {
+            GlobalLogger.speech.info(
+                "[TypingMode] promoted inline wake payload to typing context before final routing liveTyping=\(liveTyping) authoritativeFocus=\(hasAuthoritativeTypingEvidence)"
+            )
         }
         isDictating = typingContext && featureAvailability.dictationEnabled
         setAuthoritativeSessionTyping(typingContext, source: "speech.final-routing")

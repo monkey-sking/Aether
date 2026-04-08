@@ -30,6 +30,8 @@ final class DictationHandler {
     private let injector: any TextInjecting
     private let log = GlobalLogger.speech
     private let appendLeadDelayNs: UInt64 = 60_000_000
+    private let liveRewritePromotionDeltaChars = 4
+    private let liveRewriteTrailingWindowChars = 8
 
     // MARK: - LLM Enhancement
 
@@ -83,6 +85,18 @@ final class DictationHandler {
         }
 
         cancelAppendPump()
+        if shouldApplyLivePartialRewrite(to: text) {
+            pendingDeferredRewriteText = nil
+            applyCorrection(text)
+            os_log(
+                "DictationHandler live partial correction: '%{public}@' (screen: %d chars)",
+                log: log,
+                type: .info,
+                text,
+                screenTypedText.count
+            )
+            return
+        }
         deferPartialRewrite(to: text)
     }
 
@@ -180,6 +194,22 @@ final class DictationHandler {
         appendPumpTask = nil
         pendingAppendTargetText = nil
         notifyInputMutationActivityIfNeeded()
+    }
+
+    private func shouldApplyLivePartialRewrite(to text: String) -> Bool {
+        guard !screenTypedText.isEmpty else { return false }
+        guard !text.isEmpty else { return false }
+
+        let commonLen = commonPrefixLength(screenTypedText, text)
+        guard commonLen > 0 else { return false }
+
+        let currentCount = screenTypedText.count
+        let targetCount = text.count
+        let touchesTrailingWindow = commonLen >= max(0, currentCount - liveRewriteTrailingWindowChars)
+        let extendsWellPastCurrent = targetCount >= currentCount + liveRewritePromotionDeltaChars
+        let confirmsDeferredRewrite = pendingDeferredRewriteText != nil && targetCount >= currentCount
+
+        return touchesTrailingWindow || extendsWellPastCurrent || confirmsDeferredRewrite
     }
 
     private func queueAppend(to text: String) {
