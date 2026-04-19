@@ -378,7 +378,7 @@ final class HeadsetRouteState {
     var isConnected: Bool = false
 }
 
-enum OnboardingStep: Equatable {
+enum PermissionSetupStage: Equatable {
     case accessibility
     case microphone
     case speech
@@ -4012,7 +4012,7 @@ Recent history relevant to app-launch commands (JSON):
         }
     }
 
-    @Published var onboardingStep: OnboardingStep = .done
+    @Published var permissionStage: PermissionSetupStage = .done
     
     @Published var hudAutoHideSeconds: Double = UserDefaults.standard.object(forKey: "hudAutoHideSeconds") as? Double ?? 1.5 {
         didSet {
@@ -4441,7 +4441,7 @@ Recent history relevant to app-launch commands (JSON):
 
             self.handleAccessibilityTrustTransitionIfNeeded(trusted: liveAX, source: "permissions-combine")
             self.voiceService.setAccessibilityTrusted(liveAX)
-            self.onboardingStep = Self.deriveOnboardingStep(
+            self.permissionStage = Self.derivePermissionStage(
                 accessibilityTrusted: liveAX,
                 microphoneAuthorized: liveMic,
                 speechAuthorized: liveSpeech
@@ -4641,11 +4641,11 @@ Recent history relevant to app-launch commands (JSON):
         accessibilityRecoveryTimer = nil
     }
 
-    private static func deriveOnboardingStep(
+    private static func derivePermissionStage(
         accessibilityTrusted: Bool,
         microphoneAuthorized: Bool,
         speechAuthorized: Bool
-    ) -> OnboardingStep {
+    ) -> PermissionSetupStage {
         if !accessibilityTrusted { return .accessibility }
         if !microphoneAuthorized { return .microphone }
         if !speechAuthorized { return .speech }
