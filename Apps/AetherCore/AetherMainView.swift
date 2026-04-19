@@ -166,19 +166,51 @@ struct AetherMainView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     enum Panel: Hashable {
+        // New IA (Phase 1: coexisting, not yet wired into sidebar; Phase 3 will switch)
+        case home
+        case voice
+        case pointer
+        case shortcuts
+        case settings(SettingsTab)
+
+        // Legacy IA — to be removed in Phase 3.
+        @available(*, deprecated, message: "Replaced by .home in IA refresh Phase 3")
         case overview
+        @available(*, deprecated, message: "Replaced by .voice in IA refresh Phase 3")
         case voiceInput
+        @available(*, deprecated, message: "Replaced by .voice in IA refresh Phase 3")
         case textCleanup
+        @available(*, deprecated, message: "Replaced by .pointer in IA refresh Phase 3")
         case controlsPointerHotZones
+        @available(*, deprecated, message: "Replaced by .shortcuts in IA refresh Phase 3")
         case controlsShortcuts
+        @available(*, deprecated, message: "Replaced by .settings(.permissions) in IA refresh Phase 3")
         case permissionsStatus
+        @available(*, deprecated, message: "Replaced by .settings(.lexicon) in IA refresh Phase 3")
         case advancedLexicon
+        @available(*, deprecated, message: "Replaced by .settings(.appRules) in IA refresh Phase 3")
         case advancedAppRules
+        @available(*, deprecated, message: "Replaced by .settings(.launchAliases) in IA refresh Phase 3")
         case advancedLaunchAliases
+        @available(*, deprecated, message: "Replaced by .settings(.importExport) in IA refresh Phase 3")
         case advancedImportExport
+        @available(*, deprecated, message: "Replaced by .settings(.diagnostics) in IA refresh Phase 3")
         case logsVoiceUsage
+        @available(*, deprecated, message: "Replaced by .settings(.diagnostics) in IA refresh Phase 3")
         case logsWakeActivation
+        @available(*, deprecated, message: "Replaced by .settings(.diagnostics) in IA refresh Phase 3")
         case logsFocusDiagnostics
+        @available(*, deprecated, message: "Replaced by .settings(.about) in IA refresh Phase 3")
+        case about
+    }
+
+    enum SettingsTab: Hashable {
+        case permissions
+        case lexicon
+        case appRules
+        case launchAliases
+        case importExport
+        case diagnostics
         case about
     }
     private var sidebarWidth: CGFloat {
@@ -251,6 +283,18 @@ struct AetherMainView: View {
             .toolbar(removing: .sidebarToggle)
         } detail: {
             switch selection {
+            // New IA placeholder routes (Phase 1: not yet selectable from sidebar)
+            case .home:
+                Text("Home — to be implemented in Phase 6")
+            case .voice:
+                Text("Voice — to be implemented in Phase 3")
+            case .pointer:
+                Text("Pointer — to be implemented in Phase 3")
+            case .shortcuts:
+                Text("Shortcuts — to be implemented in Phase 3")
+            case .settings:
+                Text("Settings — to be implemented in Phase 2")
+            // Legacy routes (still used by sidebar in Phase 1-2)
             case .overview:
                 OverviewDashboardView()
             case .voiceInput:
@@ -325,6 +369,18 @@ struct AetherMainView: View {
 
     private func panelTitle(_ panel: Panel) -> String {
         switch panel {
+        // New IA (Phase 1 placeholders, not yet shown in sidebar)
+        case .home:
+            return AppLocalization.isChinese ? "首页" : "Home"
+        case .voice:
+            return AppLocalization.isChinese ? "语音" : "Voice"
+        case .pointer:
+            return AppLocalization.isChinese ? "指针" : "Pointer"
+        case .shortcuts:
+            return AppLocalization.isChinese ? "快捷键" : "Shortcuts"
+        case .settings:
+            return AppLocalization.isChinese ? "设置" : "Settings"
+        // Legacy IA
         case .overview:
             return String(localized: "main.panel.overview")
         case .voiceInput:
@@ -358,6 +414,18 @@ struct AetherMainView: View {
 
     private func panelSymbol(_ panel: Panel) -> String {
         switch panel {
+        // New IA (Phase 1 placeholders)
+        case .home:
+            return "house.fill"
+        case .voice:
+            return "mic.fill"
+        case .pointer:
+            return "scope"
+        case .shortcuts:
+            return "command"
+        case .settings:
+            return "gearshape.fill"
+        // Legacy IA
         case .overview:
             return "square.grid.2x2.fill"
         case .voiceInput:
