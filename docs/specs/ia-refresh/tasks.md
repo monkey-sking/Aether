@@ -37,16 +37,19 @@
 
 **目标**：建出 5 项新侧栏里的"设置"容器，把 7 个 tab 内容挂进去。此时**侧栏仍然是 14 项**，但点旧的 Permissions & Status / Advanced 子项 / Logs 子项时，路由到新 `SettingsContainerView` 并自动切到对应 tab。
 
-- [ ] 新文件 `Settings/SettingsContainerView.swift`
-  - [ ] 左侧 7 行二级列表
-  - [ ] 右侧 `SettingsTabContent(tab:)` 切换
-  - [ ] 初始 tab 参数 `initialTab: SettingsTab`
-- [ ] 新文件 `Settings/SettingsTabSidebar.swift` — 7 行 list，带状态角标（权限缺失时显示 ⚠ N）
-- [ ] 新文件 `Settings/DiagnosticsContainerView.swift`
-  - [ ] 顶部 segmented control：语音使用 / 唤醒与激活 / 焦点诊断
-  - [ ] 三个 case 内嵌原 `InputSettingsView(section: .insights)` / `.wakeInsights)` / `FocusDiagnosticsSettingsView`
-- [ ] `AetherMainView.swift` 的 detail switch 里，所有旧 14 项仍然路由到原 view（**本阶段不改侧栏**），但新增一条 `.settings(let tab)` 路由到 `SettingsContainerView(initialTab: tab)`
-- [ ] 测试：手动构造 navigation 跳到 `.settings(.permissions)` / `.settings(.diagnostics)` 等，看 tab 正确切换、内容正确
+- [x] `SettingsContainerView`（2026-04-19，放在 `AetherMainView.swift` 末尾）
+  - [x] 左侧 7 行二级列表
+  - [x] 右侧 `SettingsTabContent(tab:)` 切换
+  - [x] 初始 tab 参数 `initialTab: AetherMainView.SettingsTab`
+- [x] `SettingsTabSidebar`（2026-04-19）— 7 行 list，权限未就绪时右侧橙色 badge 显示缺失数
+- [x] `DiagnosticsContainerView`（2026-04-19）
+  - [x] 顶部 segmented control：语音使用 / 唤醒与激活 / 焦点诊断
+  - [x] 三个 case 内嵌原 `InputSettingsView(section: .insights)` / `.wakeInsights)` / `FocusDiagnosticsSettingsView`
+- [x] `AetherMainView.swift` detail switch 里 `.settings(let tab)` 从占位改路由到 `SettingsContainerView(initialTab: tab)`
+- [x] xcodebuild Debug 成功，0 error（2026-04-19）
+- [ ] **用户手动验证**：临时把 `selection` 初值从 `.overview` 改成 `.settings(.permissions)` 跑一次，看 tab 切换、badge 显示、内容正确（验完改回；**或者等 Phase 3 新侧栏上线后自然验证**）
+
+**决策偏离 spec**：原 spec 说"新文件 `Settings/SettingsContainerView.swift`"等 3 个独立文件。实际做成**追加到 `AetherMainView.swift` 末尾**。原因：Xcode 项目是老式 pbxproj（不是 Xcode 16 synchronized groups），新 `.swift` 文件不会自动纳入 build target，手工编辑 pbxproj 风险高。Phase 9 清理时再拆分。
 
 **验收**：老侧栏 14 项仍能正常访问；同时可以通过程序跳转到 `SettingsContainerView` 并落在指定 tab。
 

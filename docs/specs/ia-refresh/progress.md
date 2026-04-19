@@ -89,14 +89,15 @@
 ### Git 状态要点
 
 - **仓库结构提醒**：`/Volumes/SSD/Projects/Aether/` 和 `/Volumes/SSD/Projects/Aether/App/` 是**两个独立的 git 仓库**（不是 submodule），本 initiative 的所有代码 + spec 改动都在 `App/` 仓里
-- 分支：`release/universal-packaging-followup`（不是 main）
+- 分支（在 `App/` 仓）：`fix/wake-dictation-regression`
 - 主分支：`main`
 - 已打 tag：`pre-ia-refresh` → `7723044`（Phase 0 基线，在 `App/` 仓里）
-- **未提交改动**（Phase 1，都在 `App/` 仓）：
-  - `App/Apps/AetherCore/AetherApp.swift`（OnboardingStep 改名）
-  - `App/Apps/AetherCore/AetherMainView.swift`（SettingsTab + Panel 扩容）
-  - `App/docs/specs/ia-refresh/*.md`（spec + progress + matrix）
-  - `App/docs/specs/iphone-remote/*.md`（paused 标注）
+- Phase 0+1 的 **3 个 commit 已落**（在 `App/` 仓，branch `fix/wake-dictation-regression`）：
+  - `1eb826e` — docs(specs): add ia-refresh and iphone-remote initiative specs
+  - `c288beb` — refactor(AppState): rename OnboardingStep to PermissionSetupStage
+  - `f3a3fde` — refactor(panel): add SettingsTab enum and new Panel cases
+
+⚠️ **分支名不匹配**：这 3 个 commit 和 IA refresh 有关，但当前分支叫 `fix/wake-dictation-regression`。用户可能之后想把 IA refresh 搬到独立分支（`feat/ia-refresh`）或者就合并在一起——这个由用户决定，Claude 不要擅自做 `git reset / git branch -m` 这类操作。
 
 ### 建议的 commit 拆分（下次可以做）
 
@@ -116,6 +117,7 @@
 - **2026-04-19** 设置页用"左侧二级列表 + 右侧内容"结构，不用 segmented control（7 个 tab 放 segmented 太挤）
 - **2026-04-19** 诊断 tab 内部用 segmented control（3 个子 section 放 segmented 合适）
 - **2026-04-19** 设置矩阵粒度：**页面 + 主要卡片/section 级**，不枚举单控件（GlassCard 内部的 Toggle/Slider 跟卡片整体迁移，不单独追踪）。52 个控件的总量作为 sanity check，不做个体映射
+- **2026-04-19** **Phase 2+ 新代码先放到 `AetherMainView.swift` 末尾**，不新建单独文件。原因：Xcode 项目是老式 pbxproj（不是 Xcode 16 synchronized groups），新 `.swift` 文件不会自动纳入 target，手工编辑 pbxproj 风险高。`AetherMainView.swift` 已经托管 `OverviewDashboardView` / `LaunchAtLoginManager` 等多个类型，新增 `SettingsContainerView` 等在一致性上 OK。Phase 9 清理时再拆分单独文件（到那时可能顺便把项目升到 synchronized groups）
 
 ## 阻塞与待决问题
 

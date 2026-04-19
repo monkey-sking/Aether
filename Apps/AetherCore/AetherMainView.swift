@@ -292,8 +292,8 @@ struct AetherMainView: View {
                 Text("Pointer — to be implemented in Phase 3")
             case .shortcuts:
                 Text("Shortcuts — to be implemented in Phase 3")
-            case .settings:
-                Text("Settings — to be implemented in Phase 2")
+            case .settings(let tab):
+                SettingsContainerView(initialTab: tab)
             // Legacy routes (still used by sidebar in Phase 1-2)
             case .overview:
                 OverviewDashboardView()
@@ -1889,5 +1889,163 @@ private struct OverviewStateTag: View {
             .background(tint.opacity(0.12))
             .foregroundColor(tint)
             .clipShape(Capsule())
+    }
+}
+
+// MARK: - Settings Container (IA refresh Phase 2)
+//
+// Hosts the 7 legacy "settings-like" pages under one container with a
+// secondary sidebar, so Phase 3 can collapse them behind a single
+// "Settings" sidebar item in the 5-item IA.
+
+struct SettingsContainerView: View {
+    @State private var tab: AetherMainView.SettingsTab
+
+    init(initialTab: AetherMainView.SettingsTab) {
+        _tab = State(initialValue: initialTab)
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            SettingsTabSidebar(selection: $tab)
+                .frame(minWidth: 180, idealWidth: 196, maxWidth: 220)
+            Divider()
+            SettingsTabContent(tab: tab)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+private struct SettingsTabContent: View {
+    let tab: AetherMainView.SettingsTab
+
+    var body: some View {
+        switch tab {
+        case .permissions:
+            PermissionsStatusSettingsView()
+        case .lexicon:
+            InputSettingsView(section: .lexicon)
+        case .appRules:
+            AppRulesSettingsView()
+        case .launchAliases:
+            AppLaunchAliasesSettingsView()
+        case .importExport:
+            ImportExportSettingsView()
+        case .diagnostics:
+            DiagnosticsContainerView()
+        case .about:
+            AboutCenterView()
+        }
+    }
+}
+
+struct SettingsTabSidebar: View {
+    @Binding var selection: AetherMainView.SettingsTab
+    @EnvironmentObject private var appState: AppState
+
+    private static let orderedTabs: [AetherMainView.SettingsTab] = [
+        .permissions, .lexicon, .appRules, .launchAliases, .importExport, .diagnostics, .about
+    ]
+
+    private var isChinese: Bool { AppLocalization.isChinese }
+
+    private var permissionAlertCount: Int {
+        var count = 0
+        if !appState.accessibilityTrusted { count += 1 }
+        if !appState.microphoneAuthorized { count += 1 }
+        if !appState.speechAuthorized { count += 1 }
+        return count
+    }
+
+    private func title(_ tab: AetherMainView.SettingsTab) -> String {
+        switch tab {
+        case .permissions:   return isChinese ? "权限" : "Permissions"
+        case .lexicon:       return isChinese ? "词库" : "Lexicon"
+        case .appRules:      return isChinese ? "App 规则" : "App Rules"
+        case .launchAliases: return isChinese ? "启动别名" : "Launch Aliases"
+        case .importExport:  return isChinese ? "导入导出" : "Import & Export"
+        case .diagnostics:   return isChinese ? "诊断" : "Diagnostics"
+        case .about:         return isChinese ? "关于" : "About"
+        }
+    }
+
+    private func symbol(_ tab: AetherMainView.SettingsTab) -> String {
+        switch tab {
+        case .permissions:   return "checkmark.shield.fill"
+        case .lexicon:       return "text.badge.star"
+        case .appRules:      return "app.badge"
+        case .launchAliases: return "arrow.up.forward.app"
+        case .importExport:  return "arrow.left.arrow.right.square"
+        case .diagnostics:   return "chart.bar.xaxis"
+        case .about:         return "info.circle.fill"
+        }
+    }
+
+    var body: some View {
+        List(selection: $selection) {
+            ForEach(Self.orderedTabs, id: \.self) { tab in
+                HStack {
+                    Label(title(tab), systemImage: symbol(tab))
+                        .font(.system(size: 13))
+                    Spacer()
+                    if tab == .permissions, permissionAlertCount > 0 {
+                        Text("\(permissionAlertCount)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.orange)
+                            .clipShape(Capsule())
+                    }
+                }
+                .tag(tab)
+            }
+        }
+        .listStyle(.sidebar)
+    }
+}
+
+struct DiagnosticsContainerView: View {
+    enum SubSection: String, CaseIterable {
+        case voiceUsage, wakeActivation, focusDiagnostics
+    }
+
+    @State private var subSection: SubSection = .voiceUsage
+
+    private var isChinese: Bool { AppLocalization.isChinese }
+
+    private func title(_ sub: SubSection) -> String {
+        switch sub {
+        case .voiceUsage:       return isChinese ? "语音使用" : "Voice Usage"
+        case .wakeActivation:   return isChinese ? "唤醒与激活" : "Wake & Activation"
+        case .focusDiagnostics: return isChinese ? "焦点诊断" : "Focus Diagnostics"
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $subSection) {
+                ForEach(SubSection.allCases, id: \.self) { sub in
+                    Text(title(sub)).tag(sub)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding([.horizontal, .top], 16)
+            .padding(.bottom, 8)
+
+            Divider()
+
+            Group {
+                switch subSection {
+                case .voiceUsage:
+                    InputSettingsView(section: .insights)
+                case .wakeActivation:
+                    InputSettingsView(section: .wakeInsights)
+                case .focusDiagnostics:
+                    FocusDiagnosticsSettingsView()
+                }
+            }
+        }
     }
 }
