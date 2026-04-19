@@ -4,9 +4,9 @@
 
 ## 当前位置
 
-- **当前 Phase**：Phase 2（Settings 容器）→ 代码完成 + 已 commit，可直接进 Phase 3
+- **当前 Phase**：Phase 3（新侧栏上线）→ 代码完成 + 已 commit，**用户运行时会立刻看到 UI 变化**
 - **最后更新**：2026-04-19
-- **最后会话做了什么**：Phase 0 + Phase 1 + Phase 2 全部代码完成并 commit 到 `App/` 仓 `fix/wake-dictation-regression` 分支（4 个 commit）
+- **最后会话做了什么**：Phase 3 完成——侧栏 14 项变 5 项、VoiceSettingsCombinedView 用 segmented control、主窗默认 960×640、matrix 回归 14/14 可达
 - **下一步要做什么**：见下方 "Resume from here" 区块
 
 ## Phase 状态总览
@@ -16,8 +16,8 @@
 | 0 | 共识与快照 | ✅ 完成 |
 | 1 | Panel 枚举重构（无 UI 变化） | ✅ 完成（代码 + commit） |
 | 2 | Settings 容器 | ✅ 完成（代码 + commit）|
-| 3 | 新侧栏上线（Home 暂用 Legacy） | ⚪ 未开始（**下一步**） |
-| 4 | Menu bar 去冗余 | ⚪ 未开始 |
+| 3 | 新侧栏上线（Home 暂用 Legacy） | ✅ 完成（代码 + commit，**用户首次可见变化**） |
+| 4 | Menu bar 去冗余 | ⚪ 未开始（**下一步**） |
 | 5 | Onboarding 流程 | ⚪ 未开始 |
 | 6 | Home 页重写 | ⚪ 未开始 |
 | 7 | What's New 气泡 + 迁移 | ⚪ 未开始 |
@@ -30,15 +30,14 @@
 
 - [x] design.md 被 review 并同意（2026-04-19）
 - [x] 打 git tag `pre-ia-refresh`（2026-04-19，指向 commit `7723044`）
-- [x] 列设置定位矩阵 `settings_matrix.md`（2026-04-19，主体完成，有 5 项未核对留到 Phase 3 前补）
+- [x] 列设置定位矩阵 `settings_matrix.md`（2026-04-19）
 - ~~录 before 视频~~（2026-04-19 丢弃）
 
 ## Phase 1 子任务（已完成）
 
 - [x] `OnboardingStep` → `PermissionSetupStage` 改名
 - [x] 加 `enum SettingsTab`（7 case）
-- [x] `Panel` 扩 5 个新 case 共存（旧 14 case + `@available(*, deprecated)`）
-- [x] `detail:` switch / `panelTitle()` / `panelSymbol()` 三处 exhaustive 更新
+- [x] `Panel` 扩 5 个新 case 共存
 - [x] xcodebuild Debug 成功
 
 ## Phase 2 子任务（已完成）
@@ -46,9 +45,20 @@
 - [x] `SettingsContainerView`（左 sidebar + 右 content）
 - [x] `SettingsTabSidebar`（7 行 list + 权限 badge）
 - [x] `DiagnosticsContainerView`（segmented control 3 子页）
-- [x] detail switch 里 `.settings(let tab)` 路由到容器
 - [x] xcodebuild Debug 成功
-- [ ] **用户可选验证**：临时改 `@State var selection: Panel? = .overview` 为 `.settings(.permissions)` 跑一次（或等 Phase 3 自然验证）
+
+## Phase 3 子任务（已完成）
+
+- [x] `OverviewDashboardView` → `LegacyOverviewDashboardView` 改名
+- [x] `VoiceSettingsCombinedView`（segmented control，和 DiagnosticsContainerView 同模式）
+- [x] 删 14 个 legacy Panel case，删 unused sidebar header helpers
+- [x] 侧栏 List 改 5 项平铺（ForEach 驱动）
+- [x] detail switch / panelTitle / panelSymbol 精简成 5 case
+- [x] `SidebarMetrics.preferredWidth()` 新 5 项重算（170-260pt）
+- [x] 主窗默认尺寸 1120×760 → 960×640
+- [x] 14/14 旧页面新路径回归验证
+- [x] xcodebuild Debug 成功
+- [ ] **用户手动验证**：跑 App 看侧栏 5 项、每个入口内容正确
 
 ## Resume from here
 
