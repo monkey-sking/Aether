@@ -1890,8 +1890,10 @@ struct VoiceSettingsCombinedView: View {
                 switch subSection {
                 case .input:
                     InputSettingsView(section: .basics)
+                        .id("voice-input")
                 case .textCleanup:
                     InputSettingsView(section: .textCleanup)
+                        .id("voice-textCleanup")
                 }
             }
         }
