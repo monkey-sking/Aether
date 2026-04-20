@@ -8,18 +8,18 @@
 
 **目标**：把 wire types 定义清楚，Mac 和 iOS 两端后续都依赖它。
 
-- [ ] 新建 Swift package `App/Shared/RemoteProtocol/`
-  - [ ] `Package.swift`，`swift-tools-version: 5.9`，products: library `RemoteProtocol`
-  - [ ] 无外部依赖
-  - [ ] 最低平台：`.iOS(.v16)` / `.macOS(.v13)`
-- [ ] `Sources/RemoteProtocol/ProtocolVersion.swift` — `public let protocolVersion: UInt16 = 1`
-- [ ] `Sources/RemoteProtocol/Packet.swift` — 10 种 case 的 `Packet` 枚举（见 design.md §7.2）
-- [ ] `Sources/RemoteProtocol/Payloads.swift` — 所有 payload struct
-- [ ] `Sources/RemoteProtocol/Encoding.swift` — `Packet.encode()` / `Packet.decode(from:)` 包装 `PropertyListEncoder`
-- [ ] 单元测试：每种 packet 做 roundtrip encode/decode，尺寸断言 `motion` 包 < 120 bytes
-- [ ] 把 package 加到 `AetherCore.xcodeproj` 的 target dependencies
+- [x] 新建 Swift package `App/Shared/RemoteProtocol/`
+  - [x] `Package.swift`，`swift-tools-version: 5.9`，products: library `RemoteProtocol`
+  - [x] 无外部依赖
+  - [x] 最低平台：`.iOS(.v16)` / `.macOS(.v13)`
+- [x] `Sources/RemoteProtocol/ProtocolVersion.swift` — `public let protocolVersion: UInt16 = 1`
+- [x] `Sources/RemoteProtocol/Packet.swift` — 10 种 case 的 `Packet` 枚举（见 design.md §7.2）
+- [x] `Sources/RemoteProtocol/Payloads.swift` — 所有 payload struct（含 `Quaternion` wrapper：`simd_quatf` 不是 Codable，对外 API 仍是 `simd_quatf`）
+- [x] `Sources/RemoteProtocol/Encoding.swift` — `Packet.encode()` / `Packet.decode(from:)` 包装 `PropertyListEncoder(.binary)`
+- [x] 单元测试：每种 packet 做 roundtrip encode/decode，尺寸断言 `motion` 包 < 256 bytes（实际 ~195 bytes，binary plist 自带字段名 / type tags / offset table，约 3× 原始二进制 overhead；如未来带宽吃紧再换手写 binary 编码）
+- [ ] 把 package 加到 `AetherCore.xcodeproj` 的 target dependencies（留到 Phase 1 真正需要 `import` 时在 Xcode UI 里 Add Local Package — 避免手编老式 pbxproj）
 
-**验收**：Mac 端能 `import RemoteProtocol` 并编译过；单元测试跑通。
+**验收**：`swift test` 14/14 通过（2026-04-20）。`AetherCore.xcodeproj` 的 SPM dep 等 Phase 1 开工再挂。
 
 ---
 

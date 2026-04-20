@@ -1,13 +1,10 @@
 # iPhone Remote Spec
 
-> **状态：PAUSED（2026-04-19）**
+> **状态：进行中（2026-04-20 从 Phase 0 开工）**
 >
-> 本 spec 依赖 Mac 端信息架构重构（见 [`../ia-refresh/`](../ia-refresh/)）。在 ia-refresh 的侧栏收拢 + Home 页 + onboarding 完成前**不开工**，否则 iPhone Remote 的 UI 会被做两遍（一次挂在旧 14 项侧栏下，一次搬到新 IA 里）。
+> 原本因 `ia-refresh`（Mac 端 IA 重构）未落地而 PAUSED。2026-04-20 `ia-refresh` 整体暂缓（见 `../ia-refresh/progress.md` 顶部），但用户决定 iPhone Remote 仍然推进。**依赖解耦方案**：Phase 4 的 Mac 端 UI 按**旧 IA** 做法（在 `SettingsModules.swift` 里加一个新侧栏项或 tab），未来 `ia-refresh` 恢复时再搬到"指针"页下作为 pointer source 选项。
 >
-> ia-refresh 完成后本 spec 需要做的调整（不在此刻动，只记一下）：
-> - "iPhone Remote" 不是新增侧栏项，而是**指针**页下的一个 pointer source 选项（AirPods 头追 / iPhone 激光笔）
-> - 配对 + 校准作为首次启动 onboarding 的可选延伸，不强制
-> - 所有原 spec 里"新增 SettingsModules iPhone Remote 页"的描述要改写
+> 原 spec 里"新增 SettingsModules iPhone Remote 页"这种描述在现状下**仍然适用**，不用等 ia-refresh。
 
 ---
 
