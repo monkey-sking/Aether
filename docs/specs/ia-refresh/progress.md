@@ -2,6 +2,26 @@
 
 **这份文档是跨会话的真理源。每次 Claude 停下前必须更新。下次接手前必须先读这份。**
 
+## 🛑 Initiative 已暂缓（2026-04-20）
+
+Phase 0–3 代码都做完并上过 beta（`b152` / `b153`）。Phase 3 落地后用户反馈 `VoiceSettingsCombinedView` 的 segmented Picker 点"文字优化"没反应等问题，整个 Phase 3 + hotfix 被回退，beta `b154` 回退版已上线。
+
+**App 仓当前状态**（分支 `fix/wake-dictation-regression`，HEAD `6d42883`）：
+
+- 侧栏恢复旧 14 项，默认进 Overview（即 Phase 2 完成时的状态）
+- Phase 1/2 的 infrastructure 保留作 dead code：`SettingsTab` enum、新 `Panel` case（`.home/.voice/.pointer/.shortcuts/.settings(_)`）、`SettingsContainerView`、`DiagnosticsContainerView`，均未 wire 进侧栏
+- Phase 3 的 `VoiceSettingsCombinedView` / `LegacyOverviewDashboardView` / 默认窗 960×640 / 侧栏 5 项等改动全部撤回
+
+**下次恢复前必须重新决策**：
+
+- Phase 3 的 Picker segmented 方案被用户否掉。重开前考虑："语音输入" / "文字优化"是否不合并，仍然是两个独立侧栏项？或者合并到 Home 而不是独立侧栏项？
+- Phase 4–8（Menu bar / Onboarding / Home 重写 / What's New / 打磨）都没动过，前提条件需要随 Phase 3 方案重新验证
+- iPhone Remote initiative（`../iphone-remote/`）依赖本 initiative，其"指针"页 pointer source 定位也跟着挂起
+
+以下暂缓前的进度快照保留作参考，不再作为"真理源"。真理源是本段以上的暂缓说明。
+
+---
+
 ## 当前位置
 
 - **当前 Phase**：Phase 2（Settings 容器）→ 代码完成 + 已 commit，可直接进 Phase 3
