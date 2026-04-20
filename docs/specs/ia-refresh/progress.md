@@ -4,9 +4,9 @@
 
 ## 当前位置
 
-- **当前 Phase**：Phase 3（新侧栏上线）→ 代码完成 + 已 commit，**用户运行时会立刻看到 UI 变化**
+- **当前 Phase**：Phase 2（Settings 容器）→ 代码完成 + 已 commit，可直接进 Phase 3
 - **最后更新**：2026-04-19
-- **最后会话做了什么**：Phase 3 完成——侧栏 14 项变 5 项、VoiceSettingsCombinedView 用 segmented control、主窗默认 960×640、matrix 回归 14/14 可达
+- **最后会话做了什么**：Phase 0 + Phase 1 + Phase 2 全部代码完成并 commit 到 `App/` 仓 `fix/wake-dictation-regression` 分支（4 个 commit）
 - **下一步要做什么**：见下方 "Resume from here" 区块
 
 ## Phase 状态总览
@@ -16,8 +16,8 @@
 | 0 | 共识与快照 | ✅ 完成 |
 | 1 | Panel 枚举重构（无 UI 变化） | ✅ 完成（代码 + commit） |
 | 2 | Settings 容器 | ✅ 完成（代码 + commit）|
-| 3 | 新侧栏上线（Home 暂用 Legacy） | ✅ 完成（代码 + commit，**用户首次可见变化**） |
-| 4 | Menu bar 去冗余 | ⚪ 未开始（**下一步**） |
+| 3 | 新侧栏上线（Home 暂用 Legacy） | ⚪ 未开始（**下一步**） |
+| 4 | Menu bar 去冗余 | ⚪ 未开始 |
 | 5 | Onboarding 流程 | ⚪ 未开始 |
 | 6 | Home 页重写 | ⚪ 未开始 |
 | 7 | What's New 气泡 + 迁移 | ⚪ 未开始 |
@@ -30,14 +30,15 @@
 
 - [x] design.md 被 review 并同意（2026-04-19）
 - [x] 打 git tag `pre-ia-refresh`（2026-04-19，指向 commit `7723044`）
-- [x] 列设置定位矩阵 `settings_matrix.md`（2026-04-19）
+- [x] 列设置定位矩阵 `settings_matrix.md`（2026-04-19，主体完成，有 5 项未核对留到 Phase 3 前补）
 - ~~录 before 视频~~（2026-04-19 丢弃）
 
 ## Phase 1 子任务（已完成）
 
 - [x] `OnboardingStep` → `PermissionSetupStage` 改名
 - [x] 加 `enum SettingsTab`（7 case）
-- [x] `Panel` 扩 5 个新 case 共存
+- [x] `Panel` 扩 5 个新 case 共存（旧 14 case + `@available(*, deprecated)`）
+- [x] `detail:` switch / `panelTitle()` / `panelSymbol()` 三处 exhaustive 更新
 - [x] xcodebuild Debug 成功
 
 ## Phase 2 子任务（已完成）
@@ -45,20 +46,9 @@
 - [x] `SettingsContainerView`（左 sidebar + 右 content）
 - [x] `SettingsTabSidebar`（7 行 list + 权限 badge）
 - [x] `DiagnosticsContainerView`（segmented control 3 子页）
+- [x] detail switch 里 `.settings(let tab)` 路由到容器
 - [x] xcodebuild Debug 成功
-
-## Phase 3 子任务（已完成）
-
-- [x] `OverviewDashboardView` → `LegacyOverviewDashboardView` 改名
-- [x] `VoiceSettingsCombinedView`（segmented control，和 DiagnosticsContainerView 同模式）
-- [x] 删 14 个 legacy Panel case，删 unused sidebar header helpers
-- [x] 侧栏 List 改 5 项平铺（ForEach 驱动）
-- [x] detail switch / panelTitle / panelSymbol 精简成 5 case
-- [x] `SidebarMetrics.preferredWidth()` 新 5 项重算（170-260pt）
-- [x] 主窗默认尺寸 1120×760 → 960×640
-- [x] 14/14 旧页面新路径回归验证
-- [x] xcodebuild Debug 成功
-- [ ] **用户手动验证**：跑 App 看侧栏 5 项、每个入口内容正确
+- [ ] **用户可选验证**：临时改 `@State var selection: Panel? = .overview` 为 `.settings(.permissions)` 跑一次（或等 Phase 3 自然验证）
 
 ## Resume from here
 
@@ -69,30 +59,35 @@
 
 ### 当前待办（按优先级）
 
-1. **用户跑一遍 App 验证 Phase 3**（**这是第一次能看到 UI 变化**）
-   - `cd /Volumes/SSD/Projects/Aether/App && ./Scripts/BuildRelease.sh Debug && open .build/release/Aether.app`
-   - 验收：
-     - 侧栏 **5 项**（首页 / 语音 / 指针 / 快捷键 / 设置），无 Section header
-     - 点"首页"显示原 Overview 内容（LegacyOverviewDashboardView）
-     - 点"语音"有 segmented control 切 输入/文字优化
-     - 点"指针"显示原头控热区、点"快捷键"显示 HotkeySettingsSection
-     - 点"设置"显示 7 tab 容器，默认权限 tab，权限未就绪时右侧橙色 badge
-     - 诊断 tab 内 segmented 切 语音使用/唤醒与激活/焦点诊断
-     - 主窗启动后尺寸 960×640
-     - AirPods 头追、语音输入、HUD、快捷键全部正常
-   - 通过后把 tasks.md Phase 3 最后一项打勾
+1. **用户抽空跑一遍 App**（累积回归检查，并行进行）
+   - 构建并安装：`cd App && ./Scripts/BuildAndInstall.sh`
+   - 确认：侧栏仍 14 项、所有功能正常、`OnboardingStep` 改名零副作用
+   - OK 就在 tasks.md Phase 1 最后一项打勾；不 OK 排查
 
-2. **开始 Phase 4：Menu bar 去冗余**（0.5 天）
-   - `MenuBar.swift` 删状态副标题行
-   - 3 个独立权限按钮 → 1 个"开始设置..."（Phase 5 实现真流程前，先跳到 `.settings(.permissions)` 占位）
-   - Label 文案简化 "Aether · ✓ 就绪" / "Aether · ⚠ 未完成设置"
-   - 菜单项数 ~10 → ~6
+2. **Phase 2 的可选验证**（或跳过，等 Phase 3 自然验证）
+   - 临时改 `AetherMainView.selection` 初值为 `.settings(.permissions)` 跑一次，看 SettingsContainerView 正常显示、7 tab 能切、权限 badge 有显示
+   - 验完改回 `.overview`
+   - 不验也行，Phase 3 之后侧栏会自然路由到 `.settings(...)`，到时验证
 
-3. **Phase 5 是大块头**：Onboarding 流程（4-5 天，本 initiative 最大单 Phase）
+3. **开始 Phase 3：新侧栏上线**（重要分水岭，用户首次看到 UI 变化）
+   - 参考 `tasks.md` Phase 3 清单
+   - 核心动作：
+     - `AetherMainView.swift` 的 `List` 从 6 个 Section + 14 项改成 5 项平铺
+     - 旧 14 个 `Panel` case 全部**删除**（不再需要 deprecated 共存）
+     - `.home` 暂时路由到 `LegacyOverviewDashboardView`（原 `OverviewDashboardView` 直接 rename）
+     - `.voice` 路由到新 `VoiceSettingsCombinedView`（上下排 Voice Input + Text Cleanup）
+     - `.pointer` / `.shortcuts` 直接路由到现有 `ControlsPointerHotZonesSettingsView` / `ControlsShortcutsSettingsView`
+     - `.settings(.permissions)` 作为默认 settings tab
+     - `SidebarMetrics.preferredWidth()` 按新 5 项 title 重算（预计 180pt）
+     - 主窗口默认尺寸从 1080×720 改 960×640
+   - 验收：侧栏 5 项；52 个控件按 `settings_matrix.md` 能一一找到
+   - **这是最大的视觉变化点**，用户会立刻看出"啊变了"
 
-4. **Phase 6 Home 页重写**：把占位 LegacyOverviewDashboardView 换成真 Home
-5. **Phase 7 What's New 气泡**：老用户升级后提醒
-6. **Phase 8 打磨与回归**：收尾
+4. **Phase 4 及以后**
+   - Phase 4 menu bar 去冗余
+   - Phase 5 Onboarding 流程（最大的一块，4-5 天）
+   - Phase 6 Home 页重写
+   - 按 tasks.md 顺序推进
 
 ### 严格不做
 
@@ -110,13 +105,11 @@
 - 分支（在 `App/` 仓）：`fix/wake-dictation-regression`
 - 主分支：`main`
 - 已打 tag：`pre-ia-refresh` → `7723044`（Phase 0 基线，在 `App/` 仓里）
-- Phase 0+1+2+3 的 **6 个 commit 已落**（在 `App/` 仓，branch `fix/wake-dictation-regression`）：
+- Phase 0+1+2 的 **4 个 commit 已落**（在 `App/` 仓，branch `fix/wake-dictation-regression`）：
   - `1eb826e` — docs(specs): add ia-refresh and iphone-remote initiative specs
   - `c288beb` — refactor(AppState): rename OnboardingStep to PermissionSetupStage
   - `f3a3fde` — refactor(panel): add SettingsTab enum and new Panel cases
   - `7489e77` — feat(settings): add settings container view and diagnostics wrapper
-  - `8cfdd76` — docs(ia-refresh): update progress after Phase 2 complete
-  - `ca3716b` — feat(sidebar): collapse sidebar to 5 items and route through new IA
 
 ⚠️ **分支名不匹配**：这 4 个 commit 和 IA refresh 有关，但当前分支叫 `fix/wake-dictation-regression`。用户可能之后想把 IA refresh 搬到独立分支（`feat/ia-refresh`）或者就合并在一起——这个由用户决定，Claude 不要擅自做 `git reset / git branch -m` 这类操作。
 

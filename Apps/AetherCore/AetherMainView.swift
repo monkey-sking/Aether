@@ -8,22 +8,44 @@ private extension Notification.Name {
 
 private enum SidebarMetrics {
     static let itemFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
+    static let headerFont = NSFont.systemFont(ofSize: 12.5, weight: .bold)
 
     static func preferredWidth() -> CGFloat {
         let itemTitles = [
-            AppLocalization.isChinese ? "首页" : "Home",
-            AppLocalization.isChinese ? "语音" : "Voice",
-            AppLocalization.isChinese ? "指针" : "Pointer",
+            String(localized: "main.panel.overview"),
+            AppLocalization.isChinese ? "语音输入" : "Voice Input",
+            AppLocalization.isChinese ? "文字优化" : "Text Cleanup",
+            AppLocalization.isChinese ? "头控与热区" : "Pointer & Hot Zones",
             AppLocalization.isChinese ? "快捷键" : "Shortcuts",
-            AppLocalization.isChinese ? "设置" : "Settings"
+            AppLocalization.isChinese ? "权限与状态" : "Permissions & Status",
+            NSLocalizedString("settings.section.lexicon.page_title", comment: ""),
+            AppLocalization.isChinese ? "App 规则" : "App Rules",
+            AppLocalization.isChinese ? "启动别名" : "Launch Aliases",
+            AppLocalization.isChinese ? "导入与导出" : "Import & Export",
+            NSLocalizedString("settings.section.insights.page_title", comment: ""),
+            AppLocalization.isChinese ? "唤醒与激活" : "Wake & Activation",
+            AppLocalization.isChinese ? "焦点与输入诊断" : "Focus & Input Diagnostics",
+            String(localized: "main.panel.about")
         ]
 
         let widestItem = itemTitles
             .map { ($0 as NSString).size(withAttributes: [.font: itemFont]).width }
             .max() ?? 0
 
+        let widestHeader = [
+            String(localized: "main.section.workspace"),
+            String(localized: "main.section.voice"),
+            String(localized: "main.section.controls"),
+            String(localized: "main.section.app"),
+            AppLocalization.isChinese ? "高级" : "Advanced",
+            AppLocalization.isChinese ? "日志与诊断" : "Logs & Diagnostics"
+        ]
+        .map { ($0 as NSString).size(withAttributes: [.font: headerFont]).width }
+        .max() ?? 0
+
         let itemWidth = widestItem + 72
-        return min(max(170, ceil(itemWidth)), 260)
+        let headerWidth = widestHeader + 32
+        return min(max(196, ceil(max(itemWidth, headerWidth))), 300)
     }
 }
 
@@ -140,15 +162,46 @@ private final class LaunchAtLoginManager: ObservableObject {
 }
 
 struct AetherMainView: View {
-    @State private var selection: Panel? = .home
+    @State private var selection: Panel? = .overview
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     enum Panel: Hashable {
+        // New IA (Phase 1: coexisting, not yet wired into sidebar; Phase 3 will switch)
         case home
         case voice
         case pointer
         case shortcuts
         case settings(SettingsTab)
+
+        // Legacy IA — to be removed in Phase 3.
+        @available(*, deprecated, message: "Replaced by .home in IA refresh Phase 3")
+        case overview
+        @available(*, deprecated, message: "Replaced by .voice in IA refresh Phase 3")
+        case voiceInput
+        @available(*, deprecated, message: "Replaced by .voice in IA refresh Phase 3")
+        case textCleanup
+        @available(*, deprecated, message: "Replaced by .pointer in IA refresh Phase 3")
+        case controlsPointerHotZones
+        @available(*, deprecated, message: "Replaced by .shortcuts in IA refresh Phase 3")
+        case controlsShortcuts
+        @available(*, deprecated, message: "Replaced by .settings(.permissions) in IA refresh Phase 3")
+        case permissionsStatus
+        @available(*, deprecated, message: "Replaced by .settings(.lexicon) in IA refresh Phase 3")
+        case advancedLexicon
+        @available(*, deprecated, message: "Replaced by .settings(.appRules) in IA refresh Phase 3")
+        case advancedAppRules
+        @available(*, deprecated, message: "Replaced by .settings(.launchAliases) in IA refresh Phase 3")
+        case advancedLaunchAliases
+        @available(*, deprecated, message: "Replaced by .settings(.importExport) in IA refresh Phase 3")
+        case advancedImportExport
+        @available(*, deprecated, message: "Replaced by .settings(.diagnostics) in IA refresh Phase 3")
+        case logsVoiceUsage
+        @available(*, deprecated, message: "Replaced by .settings(.diagnostics) in IA refresh Phase 3")
+        case logsWakeActivation
+        @available(*, deprecated, message: "Replaced by .settings(.diagnostics) in IA refresh Phase 3")
+        case logsFocusDiagnostics
+        @available(*, deprecated, message: "Replaced by .settings(.about) in IA refresh Phase 3")
+        case about
     }
 
     enum SettingsTab: Hashable {
@@ -160,15 +213,6 @@ struct AetherMainView: View {
         case diagnostics
         case about
     }
-
-    private static let sidebarPanels: [Panel] = [
-        .home,
-        .voice,
-        .pointer,
-        .shortcuts,
-        .settings(.permissions)
-    ]
-
     private var sidebarWidth: CGFloat {
         SidebarMetrics.preferredWidth()
     }
@@ -176,9 +220,62 @@ struct AetherMainView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: $selection) {
-                ForEach(Self.sidebarPanels, id: \.self) { panel in
-                    sidebarItem(panel)
-                        .tag(panel)
+                Section {
+                    sidebarItem(.overview)
+                        .tag(Panel.overview)
+                } header: {
+                    sidebarHeader("main.section.workspace", topPadding: 8)
+                }
+
+                Section {
+                    sidebarItem(.voiceInput)
+                        .tag(Panel.voiceInput)
+                    sidebarItem(.textCleanup)
+                        .tag(Panel.textCleanup)
+                } header: {
+                    sidebarHeader("main.section.voice")
+                }
+
+                Section {
+                    sidebarItem(.controlsPointerHotZones)
+                        .tag(Panel.controlsPointerHotZones)
+                    sidebarItem(.controlsShortcuts)
+                        .tag(Panel.controlsShortcuts)
+                } header: {
+                    sidebarHeader("main.section.controls")
+                }
+
+                Section {
+                    sidebarItem(.permissionsStatus)
+                        .tag(Panel.permissionsStatus)
+                    sidebarItem(.about)
+                        .tag(Panel.about)
+                } header: {
+                    sidebarHeader("main.section.app")
+                }
+
+                Section {
+                    sidebarItem(.advancedLexicon)
+                        .tag(Panel.advancedLexicon)
+                    sidebarItem(.advancedAppRules)
+                        .tag(Panel.advancedAppRules)
+                    sidebarItem(.advancedLaunchAliases)
+                        .tag(Panel.advancedLaunchAliases)
+                    sidebarItem(.advancedImportExport)
+                        .tag(Panel.advancedImportExport)
+                } header: {
+                    sidebarHeaderText(AppLocalization.isChinese ? "高级" : "Advanced")
+                }
+
+                Section {
+                    sidebarItem(.logsVoiceUsage)
+                        .tag(Panel.logsVoiceUsage)
+                    sidebarItem(.logsWakeActivation)
+                        .tag(Panel.logsWakeActivation)
+                    sidebarItem(.logsFocusDiagnostics)
+                        .tag(Panel.logsFocusDiagnostics)
+                } header: {
+                    sidebarHeaderText(AppLocalization.isChinese ? "日志与诊断" : "Logs & Diagnostics")
                 }
             }
             .listStyle(.sidebar)
@@ -186,16 +283,46 @@ struct AetherMainView: View {
             .toolbar(removing: .sidebarToggle)
         } detail: {
             switch selection {
+            // New IA placeholder routes (Phase 1: not yet selectable from sidebar)
             case .home:
-                LegacyOverviewDashboardView()
+                Text("Home — to be implemented in Phase 6")
             case .voice:
-                VoiceSettingsCombinedView()
+                Text("Voice — to be implemented in Phase 3")
             case .pointer:
-                ControlsPointerHotZonesSettingsView()
+                Text("Pointer — to be implemented in Phase 3")
             case .shortcuts:
-                ControlsShortcutsSettingsView()
+                Text("Shortcuts — to be implemented in Phase 3")
             case .settings(let tab):
                 SettingsContainerView(initialTab: tab)
+            // Legacy routes (still used by sidebar in Phase 1-2)
+            case .overview:
+                OverviewDashboardView()
+            case .voiceInput:
+                InputSettingsView(section: .basics)
+            case .textCleanup:
+                InputSettingsView(section: .textCleanup)
+            case .controlsPointerHotZones:
+                ControlsPointerHotZonesSettingsView()
+            case .controlsShortcuts:
+                ControlsShortcutsSettingsView()
+            case .permissionsStatus:
+                PermissionsStatusSettingsView()
+            case .advancedLexicon:
+                InputSettingsView(section: .lexicon)
+            case .advancedAppRules:
+                AppRulesSettingsView()
+            case .advancedLaunchAliases:
+                AppLaunchAliasesSettingsView()
+            case .advancedImportExport:
+                ImportExportSettingsView()
+            case .logsVoiceUsage:
+                InputSettingsView(section: .insights)
+            case .logsWakeActivation:
+                InputSettingsView(section: .wakeInsights)
+            case .logsFocusDiagnostics:
+                FocusDiagnosticsSettingsView()
+            case .about:
+                AboutCenterView()
             case .none:
                 Text(L10n.selectItem)
             }
@@ -211,6 +338,19 @@ struct AetherMainView: View {
                 columnVisibility = (columnVisibility == .detailOnly) ? .all : .detailOnly
             }
         }
+    }
+
+    private func sidebarHeader(_ key: String, topPadding: CGFloat = 16) -> some View {
+        sidebarHeaderText(NSLocalizedString(key, comment: ""), topPadding: topPadding)
+    }
+
+    private func sidebarHeaderText(_ title: String, topPadding: CGFloat = 16) -> some View {
+        Text(title)
+            .font(.system(size: 12.5, weight: .bold))
+            .foregroundStyle(.secondary)
+            .textCase(nil)
+            .padding(.top, topPadding)
+            .padding(.bottom, 8)
     }
 
     private func sidebarItem(_ panel: Panel) -> some View {
@@ -229,6 +369,7 @@ struct AetherMainView: View {
 
     private func panelTitle(_ panel: Panel) -> String {
         switch panel {
+        // New IA (Phase 1 placeholders, not yet shown in sidebar)
         case .home:
             return AppLocalization.isChinese ? "首页" : "Home"
         case .voice:
@@ -239,11 +380,41 @@ struct AetherMainView: View {
             return AppLocalization.isChinese ? "快捷键" : "Shortcuts"
         case .settings:
             return AppLocalization.isChinese ? "设置" : "Settings"
+        // Legacy IA
+        case .overview:
+            return String(localized: "main.panel.overview")
+        case .voiceInput:
+            return AppLocalization.isChinese ? "语音输入" : "Voice Input"
+        case .textCleanup:
+            return AppLocalization.isChinese ? "文字优化" : "Text Cleanup"
+        case .controlsPointerHotZones:
+            return AppLocalization.isChinese ? "头控与热区" : "Pointer & Hot Zones"
+        case .controlsShortcuts:
+            return AppLocalization.isChinese ? "快捷键" : "Shortcuts"
+        case .permissionsStatus:
+            return AppLocalization.isChinese ? "权限与状态" : "Permissions & Status"
+        case .advancedLexicon:
+            return NSLocalizedString("settings.section.lexicon.page_title", comment: "")
+        case .advancedAppRules:
+            return AppLocalization.isChinese ? "App 规则" : "App Rules"
+        case .advancedLaunchAliases:
+            return AppLocalization.isChinese ? "启动别名" : "Launch Aliases"
+        case .advancedImportExport:
+            return AppLocalization.isChinese ? "导入与导出" : "Import & Export"
+        case .logsVoiceUsage:
+            return NSLocalizedString("settings.section.insights.page_title", comment: "")
+        case .logsWakeActivation:
+            return AppLocalization.isChinese ? "唤醒与激活" : "Wake & Activation"
+        case .logsFocusDiagnostics:
+            return AppLocalization.isChinese ? "焦点与输入诊断" : "Focus & Input Diagnostics"
+        case .about:
+            return String(localized: "main.panel.about")
         }
     }
 
     private func panelSymbol(_ panel: Panel) -> String {
         switch panel {
+        // New IA (Phase 1 placeholders)
         case .home:
             return "house.fill"
         case .voice:
@@ -254,6 +425,35 @@ struct AetherMainView: View {
             return "command"
         case .settings:
             return "gearshape.fill"
+        // Legacy IA
+        case .overview:
+            return "square.grid.2x2.fill"
+        case .voiceInput:
+            return "mic.fill"
+        case .textCleanup:
+            return "wand.and.stars"
+        case .controlsPointerHotZones:
+            return "scope"
+        case .controlsShortcuts:
+            return "command"
+        case .permissionsStatus:
+            return "checkmark.shield.fill"
+        case .advancedLexicon:
+            return "text.badge.star"
+        case .advancedAppRules:
+            return "app.badge"
+        case .advancedLaunchAliases:
+            return "arrow.up.forward.app"
+        case .advancedImportExport:
+            return "arrow.left.arrow.right.square"
+        case .logsVoiceUsage:
+            return "chart.bar.xaxis"
+        case .logsWakeActivation:
+            return "waveform.badge.mic"
+        case .logsFocusDiagnostics:
+            return "scope"
+        case .about:
+            return "info.circle.fill"
         }
     }
 }
@@ -404,7 +604,7 @@ private final class SidebarToggleAccessoryViewController: NSTitlebarAccessoryVie
     }
 }
 
-private struct LegacyOverviewDashboardView: View {
+private struct OverviewDashboardView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var headManager = HeadMotionManager.shared
     @State private var readinessExpanded = false
@@ -1844,56 +2044,6 @@ struct DiagnosticsContainerView: View {
                     InputSettingsView(section: .wakeInsights)
                 case .focusDiagnostics:
                     FocusDiagnosticsSettingsView()
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Voice combined page (IA refresh Phase 3)
-//
-// Merges the legacy "Voice Input" and "Text Cleanup" pages under a single
-// segmented switch. Mirrors DiagnosticsContainerView's pattern so the two
-// container pages feel consistent.
-
-struct VoiceSettingsCombinedView: View {
-    enum SubSection: String, CaseIterable {
-        case input, textCleanup
-    }
-
-    @State private var subSection: SubSection = .input
-
-    private var isChinese: Bool { AppLocalization.isChinese }
-
-    private func title(_ sub: SubSection) -> String {
-        switch sub {
-        case .input:       return isChinese ? "输入" : "Input"
-        case .textCleanup: return isChinese ? "文字优化" : "Text Cleanup"
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("", selection: $subSection) {
-                ForEach(SubSection.allCases, id: \.self) { sub in
-                    Text(title(sub)).tag(sub)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding([.horizontal, .top], 16)
-            .padding(.bottom, 8)
-
-            Divider()
-
-            Group {
-                switch subSection {
-                case .input:
-                    InputSettingsView(section: .basics)
-                        .id("voice-input")
-                case .textCleanup:
-                    InputSettingsView(section: .textCleanup)
-                        .id("voice-textCleanup")
                 }
             }
         }

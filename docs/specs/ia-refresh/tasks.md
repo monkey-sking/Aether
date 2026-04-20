@@ -59,20 +59,16 @@
 
 **目标**：侧栏变 5 项，Home 先用"占位 Home"（保留旧 Overview 内容）避免半成品。其他 4 项（语音 / 指针 / 快捷键 / 设置）全部就位。
 
-- [x] `AetherMainView.swift` 里 List 部分改成 5 项平铺（无 Section header）
-- [x] 旧 14 个 Panel case 删除（同时删除 unused `sidebarHeader` / `sidebarHeaderText` 辅助）
-- [x] `.home` 路由到 `LegacyOverviewDashboardView`（原 `OverviewDashboardView` 直接 rename）
-- [x] `.voice` 路由到新 `VoiceSettingsCombinedView`（segmented control 切换 输入 / 文字优化，复用 `InputSettingsView(section:)`）
-- [x] `.pointer` 直接用 `ControlsPointerHotZonesSettingsView`
-- [x] `.shortcuts` 直接用 `ControlsShortcutsSettingsView`
-- [x] `.settings(.permissions)` 默认进 `SettingsContainerView(initialTab: .permissions)`
-- [x] `SidebarMetrics.preferredWidth()` 重算，按 5 项 title（默认 170-260pt）
-- [x] 主窗口默认尺寸 1120×760 → 960×640（注：spec 写的 1080×720 是估错的旧值，实际原值是 1120×760）
-- [x] Matrix 校对 14/14 旧页面新路径均可达（2026-04-19）
-- [x] xcodebuild Debug 成功（2026-04-19）
-- [ ] **用户手动验证**：跑起来看 5 项侧栏 + 每个页面内容正确
-
-**决策偏离**：原 spec 里"`.voice` 路由到新 `VoiceSettingsCombinedView`：上下排版两个原 section，用 `ScrollView` + 两块 `SettingsPage`"。实际改成 **segmented control 切换**。原因：`InputSettingsView` 自带 `SettingsPage` chrome（title + subtitle），上下堆叠会出两个大 header，视觉很乱。改用 segmented control 和 `DiagnosticsContainerView` 同模式，UI 更一致。
+- [ ] `AetherMainView.swift` 里 List 部分改成 5 项平铺（无 Section header）
+- [ ] 旧 14 个 Panel case 删除
+- [ ] `.home` 路由到 `LegacyOverviewDashboardView`（原 `OverviewDashboardView` 直接 rename）
+- [ ] `.voice` 路由到新 `VoiceSettingsCombinedView`：上下排版两个原 section（Voice Input + Text Cleanup），用 `ScrollView` + 两块 `SettingsPage`
+- [ ] `.pointer` 直接用 `ControlsPointerHotZonesSettingsView`
+- [ ] `.shortcuts` 直接用 `ControlsShortcutsSettingsView`
+- [ ] `.settings(.permissions)` 默认进 `SettingsContainerView(initialTab: .permissions)`
+- [ ] `SidebarMetrics.preferredWidth()` 重算，按 5 项 title
+- [ ] 主窗口默认尺寸从 1080×720 改 960×640
+- [ ] 手动跑一遍设置定位矩阵（Phase 0 的表），52 个控件每一个都能找到
 
 **验收**：侧栏 5 项；所有老设置都找得到；App 行为没有变化，只是 IA 排布变了。
 

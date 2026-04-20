@@ -7114,7 +7114,7 @@ struct AetherApp: App {
                 .environmentObject(appState)
                 .environment(\.locale, appState.appLocale)
         }
-        .defaultSize(width: 960, height: 640)
+        .defaultSize(width: 1120, height: 760)
         .commands {
             SidebarCommands() // Enable View -> Show/Hide Sidebar
             CommandGroup(after: .appInfo) {
