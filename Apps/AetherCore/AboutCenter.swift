@@ -102,12 +102,25 @@ final class AetherLicenseManager: ObservableObject {
     @Published private(set) var isRefreshingEntitlement: Bool = false
     @Published private(set) var gateState: AetherEntitlementGateState = .loading
     @Published private(set) var isUsingOfflineGraceAccess: Bool = false
+    @Published var isLocalTrialActive: Bool = UserDefaults.standard.bool(forKey: "aether.license.isLocalTrialActive")
 
     private var cachedInstallationID: String?
 
     private init() {
         restoreTokenIfAvailable()
         restoreSnapshotIfAvailable()
+        if isLocalTrialActive {
+            if let remaining = localTrialDaysRemaining(), remaining > 0 {
+                status = "trialing"
+                if let endDate = localTrialEndDate() {
+                    let formatter = ISO8601DateFormatter()
+                    trialEndsAt = formatter.string(from: endDate)
+                }
+            } else {
+                isLocalTrialActive = false
+                UserDefaults.standard.set(false, forKey: "aether.license.isLocalTrialActive")
+            }
+        }
         Task {
             await refreshEntitlement()
         }
@@ -151,6 +164,48 @@ final class AetherLicenseManager: ObservableObject {
         }
     }
 
+    func localTrialEndDate() -> Date? {
+        guard let startDate = UserDefaults.standard.object(forKey: "aether.license.localTrialStartDate") as? Date else {
+            return nil
+        }
+        return startDate.addingTimeInterval(7 * 24 * 60 * 60)
+    }
+
+    func localTrialDaysRemaining() -> Int? {
+        guard isLocalTrialActive else { return nil }
+        guard let startDate = UserDefaults.standard.object(forKey: "aether.license.localTrialStartDate") as? Date else {
+            return nil
+        }
+        let elapsed = Date().timeIntervalSince(startDate)
+        let totalTrialDuration: TimeInterval = 7 * 24 * 60 * 60 // 7 days
+        let remaining = totalTrialDuration - elapsed
+        if remaining <= 0 {
+            return 0
+        }
+        return Int(ceil(remaining / (24 * 60 * 60)))
+    }
+
+    func startLocalTrial() {
+        isLocalTrialActive = true
+        UserDefaults.standard.set(true, forKey: "aether.license.isLocalTrialActive")
+        UserDefaults.standard.set(Date(), forKey: "aether.license.localTrialStartDate")
+        status = "trialing"
+        plan = "trial"
+        if let endDate = localTrialEndDate() {
+            let formatter = ISO8601DateFormatter()
+            trialEndsAt = formatter.string(from: endDate)
+        }
+        recomputeGateState()
+    }
+
+    func setInfoMessage(_ message: String?) {
+        self.infoMessage = message
+    }
+
+    func setLastErrorMessage(_ message: String?) {
+        self.lastErrorMessage = message
+    }
+
     func setChannelPreference(_ channel: AetherUpdateChannel) {
         self.channel = channel.rawValue
     }
@@ -167,7 +222,17 @@ final class AetherLicenseManager: ObservableObject {
         isRefreshingEntitlement = true
         recomputeGateState()
         guard !email.isEmpty, !licenseKey.isEmpty else {
-            status = "inactive"
+            if isLocalTrialActive, let remaining = localTrialDaysRemaining(), remaining > 0 {
+                status = "trialing"
+                if let endDate = localTrialEndDate() {
+                    let formatter = ISO8601DateFormatter()
+                    trialEndsAt = formatter.string(from: endDate)
+                }
+            } else {
+                status = "inactive"
+                isLocalTrialActive = false
+                UserDefaults.standard.set(false, forKey: "aether.license.isLocalTrialActive")
+            }
             devices = []
             isRefreshingEntitlement = false
             recomputeGateState()
@@ -301,6 +366,18 @@ final class AetherLicenseManager: ObservableObject {
         if isRefreshingEntitlement {
             gateState = .loading
             return
+        }
+
+        if isLocalTrialActive {
+            if let remaining = localTrialDaysRemaining(), remaining > 0 {
+                gateState = .trialing
+                status = "trialing"
+                return
+            } else {
+                isLocalTrialActive = false
+                UserDefaults.standard.set(false, forKey: "aether.license.isLocalTrialActive")
+                status = "expired"
+            }
         }
 
         switch status {
@@ -578,11 +655,14 @@ final class AetherLicenseManager: ObservableObject {
         UserDefaults.standard.set(licenseKey, forKey: "aether.license.key")
     }
 
-    private func clearCredentials() {
+    func clearCredentials() {
         email = ""
         licenseKey = ""
         status = "inactive"
         devices = []
+        isLocalTrialActive = false
+        UserDefaults.standard.removeObject(forKey: "aether.license.isLocalTrialActive")
+        UserDefaults.standard.removeObject(forKey: "aether.license.localTrialStartDate")
         isRefreshingEntitlement = false
         isUsingOfflineGraceAccess = false
         recomputeGateState()
@@ -600,7 +680,7 @@ final class AetherLicenseManager: ObservableObject {
         Bundle.main.bundleIdentifier ?? "com.7fei.Aether"
     }
 
-    private var installationID: String {
+    var installationID: String {
         if let cachedInstallationID, !cachedInstallationID.isEmpty {
             return cachedInstallationID
         }
@@ -1360,6 +1440,48 @@ private struct AboutLicenseSheet: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                }
+
+                if isTrialing {
+                    Divider()
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(isChinese ? "绑定邮箱与激活码 (转为正式版)" : "Bind Email & Activation Code (Convert to Official)")
+                            .font(.headline)
+                        
+                        TextField(isChinese ? "邮箱" : "Email", text: $emailInput)
+                            .textFieldStyle(.roundedBorder)
+                            .controlSize(.regular)
+                        
+                        TextField(isChinese ? "激活码" : "Activation code", text: $codeInput)
+                            .textFieldStyle(.roundedBorder)
+                            .controlSize(.regular)
+                        
+                        HStack(spacing: 10) {
+                            Button(isChinese ? "激活正式版" : "Activate Official License") {
+                                Task {
+                                    await licenseManager.activate(email: emailInput, code: codeInput)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .disabled(emailInput.isEmpty || codeInput.isEmpty)
+                            
+                            Spacer()
+                            
+                            Button(isChinese ? "清除当前授权/试用" : "Clear License/Trial") {
+                                licenseManager.clearCredentials()
+                                emailInput = ""
+                                codeInput = ""
+                            }
+                            .buttonStyle(.link)
+                            .foregroundStyle(.red)
+                            .controlSize(.small)
+                        }
+                    }
+                    .padding(14)
+                    .background(Color.accentColor.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
 
                 HStack(spacing: 10) {

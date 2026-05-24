@@ -10,6 +10,7 @@ struct ActivationGateView: View {
     @State private var referralInput: String = ""
     @State private var showsActivationForm: Bool = false
     @State private var devicesExpanded: Bool = true
+    @State private var isOneClickTrialLoading: Bool = false
 
     private var isChinese: Bool { appState.isChineseUI }
     private var isDeviceLimitReached: Bool { licenseManager.gateState == .deviceLimitReached }
@@ -134,6 +135,77 @@ struct ActivationGateView: View {
             return true
         }
         return false
+    }
+
+    private var quickTrialSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(isChinese ? "一键开始体验" : "Quick Start")
+                    .font(.headline)
+                Text(isChinese ? "无需手动注册，点击一键开启免注册试用（或本地离线体验）。" : "Skip manual registration. Click to start a one-click or local trial immediately.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 12) {
+                Button {
+                    Task {
+                        await startOneClickTrial()
+                    }
+                } label: {
+                    HStack {
+                        if isOneClickTrialLoading {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "bolt.fill")
+                        }
+                        Text(isChinese ? "一键免注册试用" : "One-Click Trial")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .disabled(licenseManager.gateState == .loading || isOneClickTrialLoading)
+
+                Button {
+                    licenseManager.startLocalTrial()
+                } label: {
+                    HStack {
+                        Image(systemName: "wifi.slash")
+                        Text(isChinese ? "本地离线体验" : "Local Trial")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .disabled(licenseManager.gateState == .loading || isOneClickTrialLoading)
+            }
+        }
+        .padding(16)
+        .background(Color.accentColor.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.accentColor.opacity(0.15), lineWidth: 1)
+        )
+    }
+
+    private func startOneClickTrial() async {
+        isOneClickTrialLoading = true
+        defer { isOneClickTrialLoading = false }
+        
+        let guestEmail = "guest_\(licenseManager.installationID.prefix(8).lowercased())@aether.7caifei.com"
+        await licenseManager.startTrial(email: guestEmail, referralCode: nil)
+        
+        if !licenseManager.isProductUnlocked {
+            licenseManager.startLocalTrial()
+            licenseManager.setInfoMessage(
+                isChinese
+                    ? "在线服务连接失败，已为您开启 7 天本地离线体验。"
+                    : "Server connection failed. A 7-day local trial has been started for you."
+            )
+        }
     }
 
     private var trialSection: some View {
@@ -322,6 +394,10 @@ struct ActivationGateView: View {
                                 }
 
                                 if shouldShowTrialSection {
+                                    quickTrialSection
+
+                                    Divider()
+
                                     trialSection
 
                                     Divider()
