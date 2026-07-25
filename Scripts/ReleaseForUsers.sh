@@ -4,6 +4,12 @@ set -euo pipefail
 
 APP_NAME="Aether"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+APPLE_RELEASE_HOME="${APPLE_RELEASE_HOME:-$HOME/apple-release}"
+# shellcheck disable=SC1091
+[[ -f "${APPLE_RELEASE_HOME}/lib/macos-developer-id.sh" ]] && source "${APPLE_RELEASE_HOME}/lib/macos-developer-id.sh"
+if [[ "$(typeset -f apple_release_macos_load 2>/dev/null)" != "" ]]; then
+  apple_release_macos_load "aether"
+fi
 BUILD_DIR="${PROJECT_ROOT}/.build/release"
 APP_PATH="${BUILD_DIR}/${APP_NAME}.app"
 ZIP_PATH="${BUILD_DIR}/${APP_NAME}.zip"
@@ -12,6 +18,8 @@ DMG_PATH="${BUILD_DIR}/${APP_NAME}_Installer.dmg"
 TEAM_ID="${TEAM_ID:-4Z7654KAZZ}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
+SIGNING_KEYCHAIN="${SIGNING_KEYCHAIN:-}"
+SIGNING_KEYCHAIN_PASSWORD="${SIGNING_KEYCHAIN_PASSWORD:-}"
 SKIP_NOTARIZE="${SKIP_NOTARIZE:-0}"
 UNIVERSAL_BUILD="${AETHER_UNIVERSAL:-1}"
 PUBLISH_SPARKLE="${PUBLISH_SPARKLE:-0}"
@@ -28,6 +36,15 @@ fi
 
 log() { echo "[release] $*"; }
 err() { echo "[release] ERROR: $*" >&2; exit 1; }
+
+unlock_signing_keychain_if_configured() {
+  if [[ "$(typeset -f apple_release_unlock_keychain 2>/dev/null)" != "" ]]; then
+    apple_release_unlock_keychain
+  elif [[ -n "$SIGNING_KEYCHAIN" && -n "$SIGNING_KEYCHAIN_PASSWORD" ]]; then
+    log "Unlocking signing keychain..."
+    security unlock-keychain -p "$SIGNING_KEYCHAIN_PASSWORD" "$SIGNING_KEYCHAIN"
+  fi
+}
 
 compute_public_version_label() {
   if [[ -n "$PUBLIC_VERSION_LABEL" ]]; then
@@ -55,7 +72,11 @@ find_signing_identity() {
   fi
 
   local line
-  line="$(security find-identity -v -p codesigning | grep "Developer ID Application: .*(${TEAM_ID})" | head -n 1 || true)"
+  local security_args=(find-identity -v -p codesigning)
+  if [[ -n "$SIGNING_KEYCHAIN" ]]; then
+    security_args+=("$SIGNING_KEYCHAIN")
+  fi
+  line="$(security "${security_args[@]}" | grep "Developer ID Application: .*(${TEAM_ID})" | head -n 1 || true)"
   if [[ -z "$line" ]]; then
     err "No Developer ID Application identity found for team ${TEAM_ID}."
   fi
@@ -97,6 +118,9 @@ stamp_public_version_label() {
 sign_app_bundle() {
   local identity="$1"
   local app_codesign_args=(--force --options runtime --timestamp --sign "$identity")
+  if [[ -n "$SIGNING_KEYCHAIN" ]]; then
+    app_codesign_args+=(--keychain "$SIGNING_KEYCHAIN")
+  fi
   log "Signing app with identity: ${identity}"
 
   xattr -cr "$APP_PATH" >/dev/null 2>&1 || true
@@ -104,13 +128,21 @@ sign_app_bundle() {
   # Sign nested executable content first.
   if [[ -d "${APP_PATH}/Contents/Frameworks" ]]; then
     find "${APP_PATH}/Contents/Frameworks" -type f \( -name "*.dylib" -o -perm -111 \) | while read -r item; do
-      codesign --force --options runtime --timestamp --sign "$identity" "$item"
+      if [[ -n "$SIGNING_KEYCHAIN" ]]; then
+        codesign --force --options runtime --timestamp --keychain "$SIGNING_KEYCHAIN" --sign "$identity" "$item"
+      else
+        codesign --force --options runtime --timestamp --sign "$identity" "$item"
+      fi
     done
   fi
 
   if [[ -d "${APP_PATH}/Contents/PlugIns" ]]; then
     find "${APP_PATH}/Contents/PlugIns" -type d -name "*.xpc" | while read -r item; do
-      codesign --force --options runtime --timestamp --sign "$identity" "$item"
+      if [[ -n "$SIGNING_KEYCHAIN" ]]; then
+        codesign --force --options runtime --timestamp --keychain "$SIGNING_KEYCHAIN" --sign "$identity" "$item"
+      else
+        codesign --force --options runtime --timestamp --sign "$identity" "$item"
+      fi
     done
   fi
 
@@ -140,10 +172,18 @@ sign_dmg() {
   log "Signing DMG with identity: ${identity}"
   local sign_log
   sign_log="$(mktemp)"
-  if ! codesign --force --timestamp --sign "$identity" "$DMG_PATH" 2>"$sign_log"; then
+  local dmg_codesign_args=(--force --timestamp --sign "$identity")
+  if [[ -n "$SIGNING_KEYCHAIN" ]]; then
+    dmg_codesign_args+=(--keychain "$SIGNING_KEYCHAIN")
+  fi
+  if ! codesign "${dmg_codesign_args[@]}" "$DMG_PATH" 2>"$sign_log"; then
     if grep -qi "timestamp service is not available" "$sign_log"; then
       log "Timestamp service unavailable; retrying DMG codesign without timestamp..."
-      codesign --force --timestamp=none --sign "$identity" "$DMG_PATH"
+      if [[ -n "$SIGNING_KEYCHAIN" ]]; then
+        codesign --force --timestamp=none --keychain "$SIGNING_KEYCHAIN" --sign "$identity" "$DMG_PATH"
+      else
+        codesign --force --timestamp=none --sign "$identity" "$DMG_PATH"
+      fi
     else
       cat "$sign_log" >&2
       rm -f "$sign_log"
@@ -165,7 +205,11 @@ notarize() {
   fi
 
   log "Submitting DMG to notary service..."
-  xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
+  if [[ -n "$SIGNING_KEYCHAIN" ]]; then
+    xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --keychain "$SIGNING_KEYCHAIN" --wait
+  else
+    xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
+  fi
 
   log "Stapling tickets..."
   # Ticket is guaranteed for the submitted artifact (DMG).
@@ -193,6 +237,10 @@ publish_sparkle_assets() {
 main() {
   cd "$PROJECT_ROOT"
   local identity
+  unlock_signing_keychain_if_configured
+  if [[ "$(typeset -f apple_release_macos_preflight 2>/dev/null)" != "" ]]; then
+    apple_release_macos_preflight
+  fi
   PUBLIC_VERSION_LABEL="$(compute_public_version_label)"
   identity="$(find_signing_identity)"
   build_unsigned

@@ -422,6 +422,35 @@ if changed:
     tree.write(feed_path, encoding="utf-8", xml_declaration=True)
 PY
 
+python3 - "$LEGACY_FEED_PATH" "$SPARKLE_MAX_VERSIONS" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+sparkle_ns = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+aether_ns = "https://aether.7caifei.com/xml-namespaces/aether"
+ET.register_namespace("sparkle", sparkle_ns)
+ET.register_namespace("aether", aether_ns)
+
+feed_path = Path(sys.argv[1])
+max_versions = int(sys.argv[2])
+if max_versions <= 0:
+    sys.exit(0)
+
+tree = ET.parse(feed_path)
+root = tree.getroot()
+channel = root.find("channel")
+if channel is None:
+    sys.exit(0)
+
+items = list(channel.findall("item"))
+for item in items[max_versions:]:
+    channel.remove(item)
+
+if len(items) > max_versions:
+    tree.write(feed_path, encoding="utf-8", xml_declaration=True)
+PY
+
 log "Done."
 log "ZIP: ${ZIP_DEST_PATH}"
 log "Appcast: ${UPDATE_DIR}/appcast.xml"
