@@ -36,3 +36,8 @@ Last updated: 2026-08-21 (machine handoff)
 - Recent release commits: `83fd64d` (sparkle key rotation + shared signing lane), followed by real releases.
 - Current working branch: `fix/wake-dictation-regression` (pushed).
 - Docs live in `docs/` — see `docs/RELEASE_DISTRIBUTION.md` for packaging path.
+
+## Lessons learned (from shared memory, move to this repo)
+
+- **Sparkle EdDSA key is a one-way asset**: rotating the Sparkle private key breaks automatic-update compatibility for existing installs. Never generate a new key casually — if the old private key is lost, restoring it (or an explicit trust-chain reset) is required before publishing. Aether already went through this (2026-07-25) — the key was lost, and because the installed base was negligible the user approved a trust-chain reset instead. The current private key now lives in `apple-release/private/sparkle/aether-sparkle-private-key.txt`. Keep it backed up; losing it again forces another trust-chain reset.
+- **Signing uses the shared apple-release layer** — never revert to per-project ad-hoc signing. Verification: `preflight-project-gui.sh aether`; notary profile `AetherRelease` in the shared signing keychain.
