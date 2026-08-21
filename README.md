@@ -4,6 +4,18 @@
 
 这份 README 只按当前源码做导航，不再按历史阶段或提交摘要描述项目。
 
+## Workspace（工作区总览）
+
+Aether 项目根目录（如 `/Volumes/SSD/Projects/Aether`）按 surface 拆分为多个独立仓库：
+
+- `App/` — 本仓库：macOS 客户端 + DriverKit 相关代码（Sparkle 更新流水线）
+- `Website/` — 官网 aether.7caifei.com：定价 / 下载 / FAQ / Stable / Beta 页
+- `Admin/` — Auth / entitlement 后端、计费集成说明、管理脚本（ProcessZero/Admin，独立维护）
+
+商业模型：免费试用 → 月/年订阅；App 内 About 页邮箱 + 激活码；公开 Stable/Beta 更新通道；邀请奖励赠送时长。
+
+跨项目发布清单见 `docs/Aether-TODO.md`；工作流接收队列见 `docs/WORKSTREAM_INBOX.md`。
+
 ## 仓库里现在有什么
 
 ```text
