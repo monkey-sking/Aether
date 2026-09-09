@@ -5,7 +5,7 @@ set -euo pipefail
 APP_NAME="Aether"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/.build/release"
-DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-/tmp/aether_xcodebuild_deriveddata}"
+DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-$HOME/Library/Caches/apple-release/aether/macos-release/DerivedData}"
 ALLOW_UNSIGNED_FALLBACK="${AETHER_ALLOW_UNSIGNED_FALLBACK:-0}"
 CLANG_WRAPPER_PATH="${PROJECT_ROOT}/Scripts/XcodeClangWrapper.sh"
 USE_CLANG_WRAPPER="${AETHER_USE_XCODEBUILD_CLANG_WRAPPER:-1}"
