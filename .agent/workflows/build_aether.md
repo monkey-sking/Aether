@@ -12,7 +12,7 @@ description: 编译 Aether App 和 Driver
 xcodebuild -workspace Aether.xcworkspace \
            -scheme AetherCore \
            -configuration Debug \
-           -derivedDataPath build/ \
+           -derivedDataPath .build/release \
            clean build
 ```
 
@@ -24,7 +24,7 @@ xcodebuild -workspace Aether.xcworkspace \
 xcodebuild -workspace Aether.xcworkspace \
            -scheme AetherDriver \
            -configuration Debug \
-           -derivedDataPath build/ \
+           -derivedDataPath .build/release \
            clean build
 ```
 
