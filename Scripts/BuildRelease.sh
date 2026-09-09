@@ -4,6 +4,8 @@ set -euo pipefail
 
 APP_NAME="Aether"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+APPLE_RELEASE_HOME="${APPLE_RELEASE_HOME:-$HOME/apple-release}"
+[[ -f "$APPLE_RELEASE_HOME/lib/artifact-verification.sh" ]] && source "$APPLE_RELEASE_HOME/lib/artifact-verification.sh"
 BUILD_DIR="${PROJECT_ROOT}/.build/release"
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-$HOME/Library/Caches/apple-release/aether/macos-release/DerivedData}"
 ALLOW_UNSIGNED_FALLBACK="${AETHER_ALLOW_UNSIGNED_FALLBACK:-0}"
@@ -157,10 +159,7 @@ if [[ ! -d "${BUILD_DIR}/${APP_NAME}.app" ]]; then
 fi
 
 if [[ "${AETHER_UNSIGNED:-0}" != "1" ]]; then
-  if ! /usr/bin/codesign --verify --deep --strict "${BUILD_DIR}/${APP_NAME}.app" >/dev/null 2>&1; then
-    echo "Build produced an app that is not validly signed: ${BUILD_DIR}/${APP_NAME}.app" >&2
-    exit 1
-  fi
+  apple_release_verify_app "${BUILD_DIR}/${APP_NAME}.app"
 fi
 
 echo "OK: ${BUILD_DIR}/${APP_NAME}.app"
