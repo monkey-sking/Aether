@@ -14,11 +14,17 @@ App/
 ├── Scripts/                 # 构建 / 安装 / 打包 / 签名脚本
 ├── Shared/                  # 共享头文件
 ├── Drivers/                 # 预留目录（当前只有空目录结构）
+├── Tools/                   # 独立 SwiftPM 工具（不参与 App 打包）
+│   └── aether-menu/         # 菜单命令发现/解析 CLI，供 agent 使用
 ├── docs/                    # 产品、设计、测试、发布、审计文档
 └── Aether.xcodeproj
 ```
 
 当前能直接看的主代码基本都在 `Apps/AetherCore/`。
+
+`Tools/aether-menu/` 是从 `VoiceCommandRouter` 的菜单枚举与意图匹配能力中抽出的独立命令行工具，
+用于把任意运行中 App 的菜单栏变成 agent 可检索的命令目录；与 App 构建、签名流程完全解耦，
+单独 `swift build` 即可。详见 [Tools/aether-menu/README.md](Tools/aether-menu/README.md)。
 
 ## 入口文件
 

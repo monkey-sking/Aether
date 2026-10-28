@@ -1056,7 +1056,7 @@ struct AboutCenterView: View {
                                 }
                             }
 
-                            if let tgURL = URL(string: "https://t.me/+qmXSaOVwAeE4NDcx") {
+                            if let tgURL = URL(string: "https://t.me/processzeroteam") {
                                 Link(destination: tgURL) {
                                     FooterLinkText(text: "Telegram")
                                 }
