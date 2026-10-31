@@ -1,5 +1,9 @@
 # Aether App
 
+<!-- badges:start -->
+[![Stars](https://img.shields.io/github/stars/monkey-sking/Aether?style=flat-square)](https://github.com/monkey-sking/Aether/stargazers) [![Forks](https://img.shields.io/github/forks/monkey-sking/Aether?style=flat-square)](https://github.com/monkey-sking/Aether/network/members) [![Last commit](https://img.shields.io/github/last-commit/monkey-sking/Aether?style=flat-square)](https://github.com/monkey-sking/Aether/commits/main)
+<!-- badges:end -->
+
 `App` 是 Aether 的 macOS 客户端仓库。这里放的是当前在维护的原生 App、构建脚本、文档和测试，而不是早期 README 里那种偏概念化的项目介绍。
 
 这份 README 只按当前源码做导航，不再按历史阶段或提交摘要描述项目。
